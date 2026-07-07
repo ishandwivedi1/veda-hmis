@@ -74,9 +74,14 @@ export default async function DashboardPage() {
           <Link href="/patients" className="btn" style={{ textDecoration: 'none' }}>
             View All Patients
           </Link>
+          <Link href="/appointments/new" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+            + Book Appointment
+          </Link>
+          <Link href="/appointments" className="btn" style={{ textDecoration: 'none' }}>
+            View Appointments
+          </Link>
         </div>
       </div>
     </div>
   );
 }
-
