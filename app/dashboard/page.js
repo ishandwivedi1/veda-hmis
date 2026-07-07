@@ -80,8 +80,15 @@ export default async function DashboardPage() {
           <Link href="/appointments" className="btn" style={{ textDecoration: 'none' }}>
             View Appointments
           </Link>
+          <Link href="/visits/new" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+            + Walk-in Visit
+          </Link>
+          <Link href="/visits" className="btn" style={{ textDecoration: 'none' }}>
+            View Open Visits
+          </Link>
         </div>
       </div>
     </div>
   );
 }
+

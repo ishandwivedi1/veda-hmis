@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createClient } from '../../lib/supabase-server';
+import CheckInButton from './check-in-button';
 
 export default async function AppointmentsPage({ searchParams }) {
   const params = await searchParams;
@@ -66,6 +67,7 @@ export default async function AppointmentsPage({ searchParams }) {
               <th style={{ padding: '8px 6px' }}>Type</th>
               <th style={{ padding: '8px 6px' }}>Doctor</th>
               <th style={{ padding: '8px 6px' }}>Status</th>
+              <th style={{ padding: '8px 6px' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -99,12 +101,18 @@ export default async function AppointmentsPage({ searchParams }) {
                   <td style={{ padding: '8px 6px' }}>{a.visit_type}</td>
                   <td style={{ padding: '8px 6px' }}>{a.profiles?.full_name || '--'}</td>
                   <td style={{ padding: '8px 6px' }}>{a.status}</td>
+                  <td style={{ padding: '8px 6px' }}>
+                    {a.status === 'Booked' && isRegistered && <CheckInButton appointmentId={a.id} />}
+                    {a.status === 'Booked' && !isRegistered && (
+                      <span style={{ fontSize: 11, color: 'var(--g400)' }}>Register patient first</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
             {(!appointments || appointments.length === 0) && (
               <tr>
-                <td colSpan={6} style={{ padding: '20px 6px', textAlign: 'center', color: 'var(--g400)' }}>
+                <td colSpan={7} style={{ padding: '20px 6px', textAlign: 'center', color: 'var(--g400)' }}>
                   No appointments for this date.
                 </td>
               </tr>
@@ -115,3 +123,4 @@ export default async function AppointmentsPage({ searchParams }) {
     </div>
   );
 }
+
