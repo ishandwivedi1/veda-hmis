@@ -1,5 +1,6 @@
 import { createClient } from '../../lib/supabase-server';
 import SignOutButton from './sign-out-button';
+import Link from 'next/link';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -49,13 +50,33 @@ export default async function DashboardPage() {
         </div>
 
         <div style={{ fontSize: 13, lineHeight: 1.8 }}>
-          <div><strong>Name:</strong> {profile?.full_name || '(not set yet)'}</div>
-          <div><strong>Designation:</strong> {profile?.designation || '(not set yet)'}</div>
-          <div><strong>Department:</strong> {profile?.department || '(not set yet)'}</div>
-          <div><strong>Status:</strong> {profile?.status}</div>
-          <div><strong>Email:</strong> {user.email}</div>
+          <div>
+            <strong>Name:</strong> {profile?.full_name || '(not set yet)'}
+          </div>
+          <div>
+            <strong>Designation:</strong> {profile?.designation || '(not set yet)'}
+          </div>
+          <div>
+            <strong>Department:</strong> {profile?.department || '(not set yet)'}
+          </div>
+          <div>
+            <strong>Status:</strong> {profile?.status}
+          </div>
+          <div>
+            <strong>Email:</strong> {user.email}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--g200)' }}>
+          <Link href="/patients/new" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+            + Register New Patient
+          </Link>
+          <Link href="/patients" className="btn" style={{ textDecoration: 'none' }}>
+            View All Patients
+          </Link>
         </div>
       </div>
     </div>
   );
 }
+

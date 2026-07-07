@@ -30,10 +30,12 @@ export async function middleware(request) {
 
   const isLoginPage = request.nextUrl.pathname.startsWith('/login');
 
+  // Not logged in and trying to reach a protected page -> send to login
   if (!user && !isLoginPage) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
+  // Already logged in and looking at the login page -> send to dashboard
   if (user && isLoginPage) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
@@ -44,3 +46,4 @@ export async function middleware(request) {
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
+
