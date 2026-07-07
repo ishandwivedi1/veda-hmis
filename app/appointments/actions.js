@@ -27,6 +27,17 @@ export async function getDoctors() {
   return data;
 }
 
+export async function linkPatientToAppointment(appointmentId, patientId) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('appointments')
+    .update({ patient_id: patientId, patient_name_temp: null, mobile_temp: null })
+    .eq('id', appointmentId);
+
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function createAppointment(values) {
   const supabase = await createClient();
 
@@ -53,3 +64,4 @@ export async function createAppointment(values) {
 
   return { appointment: data };
 }
+

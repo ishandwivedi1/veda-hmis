@@ -86,6 +86,9 @@ export default async function DashboardPage() {
           <Link href="/visits" className="btn" style={{ textDecoration: 'none' }}>
             View Open Visits
           </Link>
+          <Link href="/queue" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+            Queue Management
+          </Link>
         </div>
       </div>
     </div>

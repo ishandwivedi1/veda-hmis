@@ -4,11 +4,22 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { searchPatientsForBooking, getDoctors } from '../../appointments/actions';
 import { createWalkInVisit } from '../actions';
+import { registerPatient } from '../../patients/actions';
 
 export default function NewVisitPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [searched, setSearched] = useState(false);
+
+  const [showQuickReg, setShowQuickReg] = useState(false);
+  const [qrFirstName, setQrFirstName] = useState('');
+  const [qrLastName, setQrLastName] = useState('');
+  const [qrGender, setQrGender] = useState('');
+  const [qrAge, setQrAge] = useState('');
+  const [qrMobile, setQrMobile] = useState('');
+  const [qrError, setQrError] = useState('');
+  const [qrLoading, setQrLoading] = useState(false);
 
   const [doctors, setDoctors] = useState([]);
   const [doctorId, setDoctorId] = useState('');
@@ -26,6 +37,40 @@ export default function NewVisitPage() {
     if (!searchQuery.trim()) return;
     const results = await searchPatientsForBooking(searchQuery.trim());
     setSearchResults(results);
+    setSearched(true);
+  }
+
+  async function handleQuickRegister(e) {
+    e.preventDefault();
+    setQrError('');
+
+    if (!qrFirstName || !qrLastName || !qrGender || !qrMobile) {
+      setQrError('First name, last name, gender, and mobile are required.');
+      return;
+    }
+    if (qrMobile.length !== 10) {
+      setQrError('Mobile number must be 10 digits.');
+      return;
+    }
+
+    setQrLoading(true);
+    const result = await registerPatient({
+      firstName: qrFirstName,
+      lastName: qrLastName,
+      age: qrAge,
+      gender: qrGender,
+      mobile: qrMobile,
+    });
+    setQrLoading(false);
+
+    if (result.error) {
+      setQrError(result.error);
+      return;
+    }
+
+    setSelectedPatient(result.patient);
+    setShowQuickReg(false);
+    setSearched(false);
   }
 
   function pickPatient(p) {
@@ -103,7 +148,7 @@ export default function NewVisitPage() {
                   <input
                     className="fi"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => { setSearchQuery(e.target.value); setSearched(false); }}
                     placeholder="Type to search..."
                   />
                   <button type="button" className="btn" onClick={handleSearch}>
@@ -128,13 +173,45 @@ export default function NewVisitPage() {
                     ))}
                   </div>
                 )}
-                {searchResults.length === 0 && searchQuery === '' && (
-                  <div style={{ fontSize: 12, color: 'var(--g400)', marginTop: 6 }}>
-                    Not registered yet?{' '}
-                    <a href="/patients/new" style={{ color: 'var(--blue)' }}>
-                      Register the patient first
-                    </a>
-                    , then come back here.
+                {searched && searchResults.length === 0 && !showQuickReg && (
+                  <div style={{ fontSize: 12, marginTop: 8 }}>
+                    No match for &quot;{searchQuery || 'that search'}&quot;.{' '}
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickReg(true)}
+                      style={{ color: 'var(--blue)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline', fontSize: 12 }}
+                    >
+                      Quick-register this patient
+                    </button>{' '}
+                    without leaving this page.
+                  </div>
+                )}
+                {showQuickReg && (
+                  <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginTop: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Quick Register</div>
+                    {qrError && <div className="msg-err" style={{ marginBottom: 8 }}>{qrError}</div>}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                      <input className="fi" placeholder="First name *" value={qrFirstName} onChange={(e) => setQrFirstName(e.target.value)} />
+                      <input className="fi" placeholder="Last name *" value={qrLastName} onChange={(e) => setQrLastName(e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                      <select className="fi" value={qrGender} onChange={(e) => setQrGender(e.target.value)}>
+                        <option value="">Gender *</option>
+                        <option value="M">Male</option>
+                        <option value="F">Female</option>
+                        <option value="O">Other</option>
+                      </select>
+                      <input type="number" className="fi" placeholder="Age" value={qrAge} onChange={(e) => setQrAge(e.target.value)} />
+                    </div>
+                    <input className="fi" placeholder="Mobile *" value={qrMobile} onChange={(e) => setQrMobile(e.target.value)} maxLength={10} style={{ marginBottom: 8 }} />
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleQuickRegister} disabled={qrLoading}>
+                        {qrLoading ? 'Registering...' : 'Register & Continue'}
+                      </button>
+                      <button type="button" className="btn" style={{ fontSize: 12 }} onClick={() => setShowQuickReg(false)}>
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
               </>
@@ -177,4 +254,3 @@ export default function NewVisitPage() {
     </div>
   );
 }
-

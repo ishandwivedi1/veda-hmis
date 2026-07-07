@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '../../lib/supabase-server';
 import CheckInButton from './check-in-button';
+import RegisterUnregisteredButton from './register-button';
 
 export default async function AppointmentsPage({ searchParams }) {
   const params = await searchParams;
@@ -80,31 +81,15 @@ export default async function AppointmentsPage({ searchParams }) {
               return (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--g100)' }}>
                   <td style={{ padding: '8px 6px' }}>{a.appointment_time?.slice(0, 5)}</td>
-                  <td style={{ padding: '8px 6px' }}>
-                    {name}
-                    {!isRegistered && (
-                      <span
-                        style={{
-                          marginLeft: 6,
-                          fontSize: 10,
-                          background: 'var(--red-lt)',
-                          color: 'var(--red)',
-                          padding: '1px 6px',
-                          borderRadius: 8,
-                        }}
-                      >
-                        Not registered
-                      </span>
-                    )}
-                  </td>
+                  <td style={{ padding: '8px 6px' }}>{name}</td>
                   <td style={{ padding: '8px 6px' }}>{mobile}</td>
                   <td style={{ padding: '8px 6px' }}>{a.visit_type}</td>
                   <td style={{ padding: '8px 6px' }}>{a.profiles?.full_name || '--'}</td>
                   <td style={{ padding: '8px 6px' }}>{a.status}</td>
-                  <td style={{ padding: '8px 6px' }}>
+                  <td style={{ padding: '8px 6px', position: 'relative' }}>
                     {a.status === 'Booked' && isRegistered && <CheckInButton appointmentId={a.id} />}
                     {a.status === 'Booked' && !isRegistered && (
-                      <span style={{ fontSize: 11, color: 'var(--g400)' }}>Register patient first</span>
+                      <RegisterUnregisteredButton appointmentId={a.id} tempName={a.patient_name_temp} tempMobile={a.mobile_temp} />
                     )}
                   </td>
                 </tr>

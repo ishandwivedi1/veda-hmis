@@ -17,16 +17,11 @@ export async function checkInAppointment(appointmentId) {
 export async function createWalkInVisit(values) {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from('visits')
-    .insert({
-      patient_id: values.patientId,
-      doctor_id: values.doctorId || null,
-      visit_type: values.visitType,
-      status: 'Open',
-    })
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc('create_walk_in_visit', {
+    p_patient_id: values.patientId,
+    p_doctor_id: values.doctorId || null,
+    p_visit_type: values.visitType,
+  });
 
   if (error) {
     return { error: error.message };
