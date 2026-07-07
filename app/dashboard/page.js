@@ -89,6 +89,9 @@ export default async function DashboardPage() {
           <Link href="/queue" className="btn btn-primary" style={{ textDecoration: 'none' }}>
             Queue Management
           </Link>
+          <Link href="/pharmacy" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+            Pharmacy
+          </Link>
         </div>
       </div>
     </div>

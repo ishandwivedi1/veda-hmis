@@ -60,6 +60,7 @@ export default async function VisitsPage({ searchParams }) {
               <th style={{ padding: '8px 6px' }}>Type</th>
               <th style={{ padding: '8px 6px' }}>Doctor</th>
               <th style={{ padding: '8px 6px' }}>Since</th>
+              <th style={{ padding: '8px 6px' }}></th>
             </tr>
           </thead>
           <tbody>
@@ -75,11 +76,16 @@ export default async function VisitsPage({ searchParams }) {
                 <td style={{ padding: '8px 6px', color: 'var(--g500)' }}>
                   {new Date(v.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                 </td>
+                <td style={{ padding: '8px 6px' }}>
+                  <Link href={`/billing/${v.id}`} className="btn btn-primary" style={{ padding: '3px 10px', fontSize: 11, textDecoration: 'none' }}>
+                    Bill
+                  </Link>
+                </td>
               </tr>
             ))}
             {(!visits || visits.length === 0) && (
               <tr>
-                <td colSpan={6} style={{ padding: '20px 6px', textAlign: 'center', color: 'var(--g400)' }}>
+                <td colSpan={7} style={{ padding: '20px 6px', textAlign: 'center', color: 'var(--g400)' }}>
                   No open visits right now.
                 </td>
               </tr>

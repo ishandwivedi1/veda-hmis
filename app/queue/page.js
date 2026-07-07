@@ -8,8 +8,6 @@ import {
   optometryCallSpecific,
   doctorCallNext,
   doctorCallSpecific,
-  doctorComplete,
-  doctorSendOut,
   doctorMarkReady,
 } from './actions';
 
@@ -123,17 +121,13 @@ export default function QueuePage() {
               <div style={{ fontWeight: 700, fontSize: 14 }}>
                 {doctorInConsultation.token} -- {patientName(doctorInConsultation)}
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => runAction(doctorComplete, doctorInConsultation.id)}>
-                  Complete Visit
-                </button>
-                <button className="btn" style={{ fontSize: 12 }} onClick={() => runAction(doctorSendOut, doctorInConsultation.id, 'dilate')}>
-                  Send for Dilation
-                </button>
-                <button className="btn" style={{ fontSize: 12 }} onClick={() => runAction(doctorSendOut, doctorInConsultation.id, 'investigate')}>
-                  Send for Investigation
-                </button>
-              </div>
+              <Link
+                href={`/consultation/${doctorInConsultation.id}`}
+                className="btn btn-primary"
+                style={{ fontSize: 12, marginTop: 8, textDecoration: 'none', display: 'inline-block' }}
+              >
+                Open Consultation
+              </Link>
             </div>
           )}
 
