@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: '/appointments', label: 'Appointments', icon: 'ti-calendar-event', section: 'Front Office' },
   { href: '/visits', label: 'Open Visits', icon: 'ti-door-enter', section: 'Front Office' },
   { href: '/queue', label: 'Queue Management', icon: 'ti-list-numbers', section: 'Clinical' },
+  { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
 ];
 
@@ -25,6 +26,7 @@ const PAGE_TITLES = [
   { match: /^\/queue/, title: 'Queue Management' },
   { match: /^\/optometry/, title: 'Optometry' },
   { match: /^\/consultation/, title: 'Doctor Consultation' },
+  { match: /^\/investigation/, title: 'Investigation' },
   { match: /^\/billing/, title: 'Billing' },
   { match: /^\/pharmacy/, title: 'Pharmacy' },
 ];
