@@ -14,12 +14,17 @@ import {
   sendForDilationFromConsultation,
   sendForInvestigationFromConsultation,
 } from '@/app/(main)/consultation/actions';
+import { markForSurgery } from '@/app/(main)/surgical/actions';
 
 export default function ConsultationForm({ queueEntryId }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showSurgery, setShowSurgery] = useState(false);
+  const [surgeryProcedure, setSurgeryProcedure] = useState('');
+  const [surgeryEye, setSurgeryEye] = useState('OU');
+  const [surgeryLoading, setSurgeryLoading] = useState(false);
   const router = useRouter();
 
   // Diagnosis form
@@ -92,6 +97,17 @@ export default function ConsultationForm({ queueEntryId }) {
     setLoading(false);
     if (result.error) { setError(result.error); return; }
     router.push('/queue');
+  }
+
+  async function handleMarkForSurgery() {
+    setError('');
+    if (!surgeryProcedure.trim()) { setError('Procedure name is required.'); return; }
+    setSurgeryLoading(true);
+    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye);
+    setSurgeryLoading(false);
+    if (result.error) { setError(result.error); return; }
+    setShowSurgery(false);
+    setSurgeryProcedure('');
   }
 
   async function handleSendOut(kind) {
@@ -216,6 +232,31 @@ export default function ConsultationForm({ queueEntryId }) {
           </select>
           <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddInvestigation}>Add</button>
         </div>
+      </div>
+
+      {/* SURGERY */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        {!showSurgery ? (
+          <button className="btn" onClick={() => setShowSurgery(true)}>
+            <i className="ti ti-scalpel"></i> Mark for Surgery
+          </button>
+        ) : (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Mark for Surgery</div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <input className="fi" placeholder="Procedure (e.g. Phacoemulsification + IOL)" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }} />
+              <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
+                <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
+                {surgeryLoading ? 'Saving...' : 'Save'}
+              </button>
+              <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ACTIONS */}

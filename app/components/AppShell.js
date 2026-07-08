@@ -13,6 +13,10 @@ const NAV_ITEMS = [
   { href: '/queue', label: 'Queue Management', icon: 'ti-list-numbers', section: 'Clinical' },
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
+  { href: '/surgical', label: 'Surgical Coordination', icon: 'ti-scalpel', section: 'Surgical' },
+  { href: '/ot-schedule', label: 'OT Scheduling', icon: 'ti-calendar-time', section: 'Surgical' },
+  { href: '/master-data', label: 'Master Data', icon: 'ti-database', section: 'Administration' },
+  { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration' },
 ];
 
 const PAGE_TITLES = [
@@ -29,6 +33,10 @@ const PAGE_TITLES = [
   { match: /^\/investigation/, title: 'Investigation' },
   { match: /^\/billing/, title: 'Billing' },
   { match: /^\/pharmacy/, title: 'Pharmacy' },
+  { match: /^\/surgical/, title: 'Surgical Coordination' },
+  { match: /^\/ot-schedule/, title: 'OT Scheduling' },
+  { match: /^\/master-data/, title: 'Master Data' },
+  { match: /^\/users/, title: 'User Management' },
 ];
 
 export default function AppShell({ children }) {
