@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { registerPatient } from '../patients/actions';
 import { linkPatientToAppointment } from './actions';
 
+function toTitleCase(str) {
+  return str.trim().toLowerCase().replace(/(^|[\s-'])\S/g, (c) => c.toUpperCase());
+}
+
 export default function RegisterUnregisteredButton({ appointmentId, tempName, tempMobile }) {
   const [open, setOpen] = useState(false);
   const [firstName, setFirstName] = useState(tempName?.split(' ')[0] || '');
@@ -83,8 +87,8 @@ export default function RegisterUnregisteredButton({ appointmentId, tempName, te
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Register Patient</div>
       {error && <div className="msg-err" style={{ marginBottom: 8, fontSize: 12 }}>{error}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
-        <input className="fi" placeholder="First name *" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-        <input className="fi" placeholder="Last name *" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+        <input className="fi" placeholder="First name *" value={firstName} onChange={(e) => setFirstName(e.target.value)} onBlur={() => setFirstName((v) => toTitleCase(v))} />
+        <input className="fi" placeholder="Last name *" value={lastName} onChange={(e) => setLastName(e.target.value)} onBlur={() => setLastName((v) => toTitleCase(v))} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
         <select className="fi" value={gender} onChange={(e) => setGender(e.target.value)}>

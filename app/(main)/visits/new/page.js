@@ -6,6 +6,10 @@ import { searchPatientsForBooking, getDoctors } from '@/app/(main)/appointments/
 import { createWalkInVisit } from '@/app/(main)/visits/actions';
 import { registerPatient } from '@/app/(main)/patients/actions';
 
+function toTitleCase(str) {
+  return str.trim().toLowerCase().replace(/(^|[\s-'])\S/g, (c) => c.toUpperCase());
+}
+
 export default function NewVisitPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -198,8 +202,8 @@ export default function NewVisitPage() {
                     <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Quick Register</div>
                     {qrError && <div className="msg-err" style={{ marginBottom: 8 }}>{qrError}</div>}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                      <input className="fi" placeholder="First name *" value={qrFirstName} onChange={(e) => setQrFirstName(e.target.value)} />
-                      <input className="fi" placeholder="Last name *" value={qrLastName} onChange={(e) => setQrLastName(e.target.value)} />
+                      <input className="fi" placeholder="First name *" value={qrFirstName} onChange={(e) => setQrFirstName(e.target.value)} onBlur={() => setQrFirstName((v) => toTitleCase(v))} />
+                      <input className="fi" placeholder="Last name *" value={qrLastName} onChange={(e) => setQrLastName(e.target.value)} onBlur={() => setQrLastName((v) => toTitleCase(v))} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                       <select className="fi" value={qrGender} onChange={(e) => setQrGender(e.target.value)}>

@@ -14,6 +14,16 @@ function calcAge(dob) {
   return age >= 0 ? String(age) : '';
 }
 
+// Matches the database's initcap() normalization -- applied live as the
+// receptionist finishes typing a name, so what they see already matches
+// what will be saved, rather than only fixing it after the fact.
+function toTitleCase(str) {
+  return str
+    .trim()
+    .toLowerCase()
+    .replace(/(^|[\s-'])\S/g, (c) => c.toUpperCase());
+}
+
 export default function NewPatientPage() {
   const [values, setValues] = useState({
     firstName: '', lastName: '', gender: '', dateOfBirth: '', age: '', bloodGroup: '',
@@ -37,6 +47,10 @@ export default function NewPatientPage() {
         return next;
       });
     };
+  }
+
+  function formatOnBlur(field) {
+    return () => setValues((v) => ({ ...v, [field]: toTitleCase(v[field]) }));
   }
 
   useEffect(() => {
@@ -100,8 +114,8 @@ export default function NewPatientPage() {
 
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', margin: '14px 0 8px' }}>Personal Information</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
-          <div><label className="flbl">First name *</label><input className="fi" value={values.firstName} onChange={update('firstName')} /></div>
-          <div><label className="flbl">Last name *</label><input className="fi" value={values.lastName} onChange={update('lastName')} /></div>
+          <div><label className="flbl">First name *</label><input className="fi" value={values.firstName} onChange={update('firstName')} onBlur={formatOnBlur('firstName')} /></div>
+          <div><label className="flbl">Last name *</label><input className="fi" value={values.lastName} onChange={update('lastName')} onBlur={formatOnBlur('lastName')} /></div>
           <div><label className="flbl">Gender *</label>
             <select className="fi" value={values.gender} onChange={update('gender')}>
               <option value="">-- Select --</option>
@@ -131,7 +145,7 @@ export default function NewPatientPage() {
           <textarea className="fi" rows={2} value={values.address} onChange={update('address')} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
-          <div><label className="flbl">City</label><input className="fi" value={values.city} onChange={update('city')} /></div>
+          <div><label className="flbl">City</label><input className="fi" value={values.city} onChange={update('city')} onBlur={formatOnBlur('city')} /></div>
           <div><label className="flbl">State</label>
             <select className="fi" value={values.state} onChange={update('state')}>
               <option>Uttarakhand</option><option>Uttar Pradesh</option><option>Delhi</option>
