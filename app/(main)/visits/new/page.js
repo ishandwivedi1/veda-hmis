@@ -24,6 +24,8 @@ export default function NewVisitPage() {
   const [doctors, setDoctors] = useState([]);
   const [doctorId, setDoctorId] = useState('');
   const [visitType, setVisitType] = useState('New Consultation');
+  const [referralSource, setReferralSource] = useState('Walk-in');
+  const [priority, setPriority] = useState('Routine');
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -94,6 +96,8 @@ export default function NewVisitPage() {
       patientId: selectedPatient.id,
       doctorId: doctorId || null,
       visitType,
+      referralSource,
+      priority,
     });
     setLoading(false);
 
@@ -221,7 +225,7 @@ export default function NewVisitPage() {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <label className="flbl">Visit type</label>
               <select className="fi" value={visitType} onChange={(e) => setVisitType(e.target.value)}>
@@ -229,6 +233,8 @@ export default function NewVisitPage() {
                 <option>Follow-up</option>
                 <option>Investigation Only</option>
                 <option>Post-operative Review</option>
+                <option>Emergency</option>
+                <option>Procedure</option>
               </select>
             </div>
             <div>
@@ -240,6 +246,26 @@ export default function NewVisitPage() {
                     {d.full_name}
                   </option>
                 ))}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+            <div>
+              <label className="flbl">Referral source</label>
+              <select className="fi" value={referralSource} onChange={(e) => setReferralSource(e.target.value)}>
+                <option>Walk-in</option>
+                <option>Doctor referral</option>
+                <option>Camp / outreach</option>
+                <option>Previous patient</option>
+              </select>
+            </div>
+            <div>
+              <label className="flbl">Priority</label>
+              <select className="fi" value={priority} onChange={(e) => setPriority(e.target.value)}>
+                <option>Routine</option>
+                <option>Urgent</option>
+                <option>Emergency</option>
               </select>
             </div>
           </div>

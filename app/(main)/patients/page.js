@@ -20,6 +20,29 @@ export default async function PatientsPage({ searchParams }) {
 
   const { data: patients, error } = await query;
 
+  // Richer search results, matching M20's "Find Patient" screen -- shows
+  // each patient's last visit date and whether they currently have an
+  // open (active) visit, computed in one batched query rather than one
+  // query per row.
+  const patientIds = (patients || []).map((p) => p.id);
+  let visitInfo = {};
+  if (patientIds.length > 0) {
+    const { data: visits } = await supabase
+      .from('visits')
+      .select('patient_id, status, created_at')
+      .in('patient_id', patientIds)
+      .order('created_at', { ascending: false });
+
+    (visits || []).forEach((v) => {
+      if (!visitInfo[v.patient_id]) {
+        visitInfo[v.patient_id] = { lastVisit: v.created_at, hasActive: false };
+      }
+      if (v.status === 'Open') {
+        visitInfo[v.patient_id].hasActive = true;
+      }
+    });
+  }
+
   return (
     <div className="card">
       <div className="card-head">
@@ -66,24 +89,29 @@ export default async function PatientsPage({ searchParams }) {
             <th>Gender</th>
             <th>Mobile</th>
             <th>Blood Group</th>
-            <th>Registered</th>
+            <th>Last Visit</th>
+            <th>Active Visit</th>
           </tr>
         </thead>
         <tbody>
-          {(patients || []).map((p) => (
-            <tr key={p.id}>
-              <td style={{ fontFamily: 'monospace', color: 'var(--blue)' }}>{p.uhid}</td>
-              <td style={{ fontWeight: 600 }}>{p.first_name} {p.last_name}</td>
-              <td>{p.age || '--'}</td>
-              <td><span className={`badge ${GENDER_BADGE[p.gender] || 'b-gray'}`}>{GENDER_LABEL[p.gender] || p.gender}</span></td>
-              <td>{p.mobile}</td>
-              <td>{p.blood_group ? <span className="badge b-red">{p.blood_group}</span> : '--'}</td>
-              <td style={{ color: 'var(--g500)' }}>{new Date(p.created_at).toLocaleDateString('en-IN')}</td>
-            </tr>
-          ))}
+          {(patients || []).map((p) => {
+            const info = visitInfo[p.id];
+            return (
+              <tr key={p.id}>
+                <td style={{ fontFamily: 'monospace', color: 'var(--blue)' }}>{p.uhid}</td>
+                <td style={{ fontWeight: 600 }}>{p.first_name} {p.last_name}</td>
+                <td>{p.age || '--'}</td>
+                <td><span className={`badge ${GENDER_BADGE[p.gender] || 'b-gray'}`}>{GENDER_LABEL[p.gender] || p.gender}</span></td>
+                <td>{p.mobile}</td>
+                <td>{p.blood_group ? <span className="badge b-red">{p.blood_group}</span> : '--'}</td>
+                <td style={{ color: 'var(--g500)' }}>{info ? new Date(info.lastVisit).toLocaleDateString('en-IN') : 'Never'}</td>
+                <td>{info?.hasActive ? <span className="badge b-green">Active</span> : <span className="badge b-gray">None</span>}</td>
+              </tr>
+            );
+          })}
           {(!patients || patients.length === 0) && (
             <tr>
-              <td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>
+              <td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>
                 {q ? `No patients found matching "${q}".` : 'No patients registered yet.'}
               </td>
             </tr>

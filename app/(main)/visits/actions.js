@@ -21,6 +21,8 @@ export async function createWalkInVisit(values) {
     p_patient_id: values.patientId,
     p_doctor_id: values.doctorId || null,
     p_visit_type: values.visitType,
+    p_referral_source: values.referralSource || null,
+    p_priority: values.priority || 'Routine',
   });
 
   if (error) {
