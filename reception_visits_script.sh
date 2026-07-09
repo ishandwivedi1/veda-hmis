@@ -1,3 +1,6 @@
+mkdir -p 'app/(main)/reception-dashboard'
+
+cat > 'app/(main)/reception-dashboard/page.js' << 'EOF'
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
 
@@ -231,3 +234,6 @@ export default async function ReceptionDashboardPage() {
   );
 }
 
+EOF
+
+echo "Reception Dashboard updated -- Today Visits widget with billing."
