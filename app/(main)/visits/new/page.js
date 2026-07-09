@@ -4,26 +4,12 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { searchPatientsForBooking, getDoctors } from '@/app/(main)/appointments/actions';
 import { createWalkInVisit } from '@/app/(main)/visits/actions';
-import { registerPatient } from '@/app/(main)/patients/actions';
-
-function toTitleCase(str) {
-  return str.trim().toLowerCase().replace(/(^|[\s-'])\S/g, (c) => c.toUpperCase());
-}
 
 export default function NewVisitPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [searched, setSearched] = useState(false);
-
-  const [showQuickReg, setShowQuickReg] = useState(false);
-  const [qrFirstName, setQrFirstName] = useState('');
-  const [qrLastName, setQrLastName] = useState('');
-  const [qrGender, setQrGender] = useState('');
-  const [qrAge, setQrAge] = useState('');
-  const [qrMobile, setQrMobile] = useState('');
-  const [qrError, setQrError] = useState('');
-  const [qrLoading, setQrLoading] = useState(false);
 
   const [doctors, setDoctors] = useState([]);
   const [doctorId, setDoctorId] = useState('');
@@ -46,38 +32,15 @@ export default function NewVisitPage() {
     setSearched(true);
   }
 
-  async function handleQuickRegister(e) {
-    e.preventDefault();
-    setQrError('');
-
-    if (!qrFirstName || !qrLastName || !qrGender || !qrMobile) {
-      setQrError('First name, last name, gender, and mobile are required.');
-      return;
-    }
-    if (qrMobile.length !== 10) {
-      setQrError('Mobile number must be 10 digits.');
-      return;
-    }
-
-    setQrLoading(true);
-    const result = await registerPatient({
-      firstName: qrFirstName,
-      lastName: qrLastName,
-      age: qrAge,
-      gender: qrGender,
-      mobile: qrMobile,
+  function goToFullRegistration() {
+    const isMobile = /^\d{6,}$/.test(searchQuery.trim());
+    const params = new URLSearchParams({
+      returnTo: 'visit',
+      prefillFirstName: isMobile ? '' : searchQuery.trim().split(' ')[0] || '',
+      prefillLastName: isMobile ? '' : searchQuery.trim().split(' ').slice(1).join(' ') || '',
+      prefillMobile: isMobile ? searchQuery.trim() : '',
     });
-    setQrLoading(false);
-
-    if (result.error) {
-      setQrError(result.error);
-      return;
-    }
-
-    // Registered -- select them immediately and continue, no navigating away.
-    setSelectedPatient(result.patient);
-    setShowQuickReg(false);
-    setSearched(false);
+    router.push(`/patients/new?${params.toString()}`);
   }
 
   function pickPatient(p) {
@@ -184,45 +147,16 @@ export default function NewVisitPage() {
                     ))}
                   </div>
                 )}
-                {searched && searchResults.length === 0 && !showQuickReg && (
+                {searched && searchResults.length === 0 && (
                   <div style={{ fontSize: 12, marginTop: 8 }}>
                     No match for &quot;{searchQuery || 'that search'}&quot;.{' '}
                     <button
                       type="button"
-                      onClick={() => setShowQuickReg(true)}
+                      onClick={goToFullRegistration}
                       style={{ color: 'var(--blue)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline', fontSize: 12 }}
                     >
-                      Quick-register this patient
-                    </button>{' '}
-                    without leaving this page.
-                  </div>
-                )}
-                {showQuickReg && (
-                  <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginTop: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Quick Register</div>
-                    {qrError && <div className="msg-err" style={{ marginBottom: 8 }}>{qrError}</div>}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                      <input className="fi" placeholder="First name *" value={qrFirstName} onChange={(e) => setQrFirstName(e.target.value)} onBlur={() => setQrFirstName((v) => toTitleCase(v))} />
-                      <input className="fi" placeholder="Last name *" value={qrLastName} onChange={(e) => setQrLastName(e.target.value)} onBlur={() => setQrLastName((v) => toTitleCase(v))} />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                      <select className="fi" value={qrGender} onChange={(e) => setQrGender(e.target.value)}>
-                        <option value="">Gender *</option>
-                        <option value="M">Male</option>
-                        <option value="F">Female</option>
-                        <option value="O">Other</option>
-                      </select>
-                      <input type="number" className="fi" placeholder="Age" value={qrAge} onChange={(e) => setQrAge(e.target.value)} />
-                    </div>
-                    <input className="fi" placeholder="Mobile *" value={qrMobile} onChange={(e) => setQrMobile(e.target.value)} maxLength={10} style={{ marginBottom: 8 }} />
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleQuickRegister} disabled={qrLoading}>
-                        {qrLoading ? 'Registering...' : 'Register & Continue'}
-                      </button>
-                      <button type="button" className="btn" style={{ fontSize: 12 }} onClick={() => setShowQuickReg(false)}>
-                        Cancel
-                      </button>
-                    </div>
+                      Register this patient
+                    </button>
                   </div>
                 )}
               </>
