@@ -1,3 +1,6 @@
+mkdir -p 'app/(main)/patients/new'
+
+cat > 'app/(main)/patients/new/registration-form.js' << 'EOF'
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -269,3 +272,6 @@ export default function RegistrationForm() {
   );
 }
 
+EOF
+
+echo "All three registration actions now available in every context."
