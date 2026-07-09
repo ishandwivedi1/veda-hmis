@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getSurgicalCases, getSurgeons, scheduleOT, getOTSchedule, completeOT } from './actions';
+import { getSurgicalCases, getSurgeons, scheduleOT, getOTSchedule, completeOT } from '@/app/(main)/surgical/actions';
 
 function ScheduleForm({ sc, surgeons, onScheduled }) {
   const [surgeonId, setSurgeonId] = useState('');
