@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase-browser';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: 'ti-layout-dashboard', section: 'Overview' },
+  { href: '/reports', label: 'Reports', icon: 'ti-chart-bar', section: 'Overview' },
   { href: '/patients', label: 'Patients', icon: 'ti-users', section: 'Front Office' },
   { href: '/appointments', label: 'Appointments', icon: 'ti-calendar-event', section: 'Front Office' },
   { href: '/visits', label: 'Open Visits', icon: 'ti-door-enter', section: 'Front Office' },
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
 
 const PAGE_TITLES = [
   { match: /^\/dashboard/, title: 'Dashboard' },
+  { match: /^\/reports/, title: 'Reports' },
   { match: /^\/patients\/new/, title: 'Register New Patient' },
   { match: /^\/patients/, title: 'Patients' },
   { match: /^\/appointments\/new/, title: 'Book Appointment' },
