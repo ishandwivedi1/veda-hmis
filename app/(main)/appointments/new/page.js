@@ -74,7 +74,7 @@ export default function NewAppointmentPage() {
       return;
     }
 
-    router.push('/appointments?booked=1');
+    router.push('/front-office-dashboard?booked=1');
   }
 
   return (

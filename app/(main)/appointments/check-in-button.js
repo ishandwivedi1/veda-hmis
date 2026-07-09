@@ -20,7 +20,7 @@ export default function CheckInButton({ appointmentId }) {
       return;
     }
 
-    router.push('/visits?created=1');
+    router.push('/front-office-dashboard?visitCreated=1');
   }
 
   return (

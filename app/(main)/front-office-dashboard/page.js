@@ -19,7 +19,8 @@ const VISIT_TYPE_COLOR = {
 const BILLING_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', '--': 'b-gray' };
 const APPT_STATUS_BADGE = { Booked: 'b-amber', 'Checked-in': 'b-green', Cancelled: 'b-red', 'No-show': 'b-gray' };
 
-export default async function ReceptionDashboardPage() {
+export default async function FrontOfficeDashboardPage({ searchParams }) {
+  const params = await searchParams;
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -65,6 +66,27 @@ export default async function ReceptionDashboardPage() {
 
   return (
     <div>
+      {params?.registered && (
+        <div className="msg-success">
+          <i className="ti ti-circle-check"></i> Registered successfully -- UHID: <strong>{params.registered}</strong>
+        </div>
+      )}
+      {params?.visitCreated && (
+        <div className="msg-success">
+          <i className="ti ti-circle-check"></i> Visit created successfully.
+        </div>
+      )}
+      {params?.linked && (
+        <div className="msg-success">
+          <i className="ti ti-circle-check"></i> Patient registered and linked to their appointment.
+        </div>
+      )}
+      {params?.booked && (
+        <div className="msg-success">
+          <i className="ti ti-circle-check"></i> Appointment booked successfully.
+        </div>
+      )}
+
       {/* QUICK ACTIONS */}
       <div className="card" style={{ marginBottom: 16, padding: '14px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>

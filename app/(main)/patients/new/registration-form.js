@@ -92,7 +92,7 @@ export default function RegistrationForm() {
     const result = await registerPatient(values);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
-    router.push(`/patients?registered=${result.patient.uhid}`);
+    router.push(`/front-office-dashboard?registered=${result.patient.uhid}`);
   }
 
   async function handleRegisterAndVisit() {
@@ -106,7 +106,7 @@ export default function RegistrationForm() {
       setError(`Patient registered (UHID: ${result.patient.uhid}), but creating the visit failed: ${result.visitError}`);
       return;
     }
-    router.push('/visits?created=1');
+    router.push('/front-office-dashboard?visitCreated=1');
   }
 
   async function handleRegisterAndLinkAppointment() {
@@ -118,7 +118,7 @@ export default function RegistrationForm() {
     const linkResult = await linkPatientToAppointment(appointmentId, result.patient.id);
     setLoading(false);
     if (linkResult.error) { setError(`Patient registered (UHID: ${result.patient.uhid}), but linking to the appointment failed: ${linkResult.error}`); return; }
-    router.push('/appointments?linked=1');
+    router.push('/front-office-dashboard?linked=1');
   }
 
   return (
