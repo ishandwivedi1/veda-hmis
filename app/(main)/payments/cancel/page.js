@@ -1,13 +1,11 @@
 import PaymentsTabs from '../payments-tabs';
+import RefundTab from './refund-tab';
 
-export default function PaymentCancellationPage() {
+export default function RefundPage() {
   return (
     <div>
       <PaymentsTabs />
-      <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--g400)' }}>
-        <i className="ti ti-x-circle" style={{ fontSize: 28, display: 'block', marginBottom: 10 }}></i>
-        Cancellation -- coming soon.
-      </div>
+      <RefundTab />
     </div>
   );
 }

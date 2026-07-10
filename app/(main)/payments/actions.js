@@ -138,6 +138,49 @@ export async function getReceiptById(paymentId) {
   return { payment, modes: modes || [], allocations: allocations || [] };
 }
 
+// ── REFUND / MODIFICATION ──
+export async function getRefundableAllocations(paymentId) {
+  const supabase = await createClient();
+  const { data: allocations } = await supabase
+    .from('payment_allocations')
+    .select('*, invoices(invoice_number)')
+    .eq('payment_id', paymentId);
+
+  const { data: refunds } = await supabase
+    .from('payment_refunds')
+    .select('*')
+    .eq('payment_id', paymentId);
+
+  return (allocations || []).map((a) => {
+    const alreadyRefunded = (refunds || [])
+      .filter((r) => r.invoice_id === a.invoice_id)
+      .reduce((s, r) => s + Number(r.amount), 0);
+    return { ...a, alreadyRefunded, refundable: Number(a.amount) - alreadyRefunded };
+  });
+}
+
+export async function getRefundHistory(paymentId) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('payment_refunds')
+    .select('*, invoices(invoice_number)')
+    .eq('payment_id', paymentId)
+    .order('refunded_at', { ascending: false });
+  return data || [];
+}
+
+export async function refundPayment(paymentId, invoiceId, amount, reason) {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('refund_payment', {
+    p_payment_id: paymentId,
+    p_invoice_id: invoiceId,
+    p_amount: amount,
+    p_reason: reason,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function collectPayment(patientId, invoiceIds, amount, modes, reference, remarks) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('collect_payment', {
