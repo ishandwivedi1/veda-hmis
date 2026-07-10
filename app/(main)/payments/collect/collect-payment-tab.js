@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { searchPatientsForPayment, getOutstandingInvoices, collectPayment } from '../actions';
+import { searchPatientsForPayment, getOutstandingInvoices, collectPayment, getAdvanceBalance } from '../actions';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 
@@ -11,6 +11,7 @@ export default function CollectPaymentTab() {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [invoices, setInvoices] = useState([]);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
+  const [advanceBalance, setAdvanceBalance] = useState(0);
 
   const [amount, setAmount] = useState('');
   const [modeRows, setModeRows] = useState([{ mode: 'Cash', amount: '' }]);
@@ -40,6 +41,7 @@ export default function CollectPaymentTab() {
     const invs = await getOutstandingInvoices(p.id);
     setInvoices(invs);
     setSelectedInvoiceIds(invs.map((i) => i.id)); // pre-select all, matching "select invoice(s) to pay"
+    setAdvanceBalance(await getAdvanceBalance(p.id));
   }
 
   function toggleInvoice(id) {
@@ -138,12 +140,18 @@ export default function CollectPaymentTab() {
           </div>
         ) : (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--green-lt)', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>
-              <div>
-                <div style={{ fontWeight: 700 }}>{selectedPatient.first_name} {selectedPatient.last_name}</div>
-                <div style={{ fontSize: 11, color: 'var(--g600)' }}>{selectedPatient.uhid}</div>
+            <div style={{ background: 'var(--green-lt)', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{selectedPatient.first_name} {selectedPatient.last_name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--g600)' }}>{selectedPatient.uhid}</div>
+                </div>
+                <button className="btn btn-sm" onClick={reset}>Change</button>
               </div>
-              <button className="btn btn-sm" onClick={reset}>Change</button>
+              <div style={{ fontSize: 11, marginTop: 5 }}>
+                <span style={{ color: 'var(--purple)', fontWeight: 600 }}>Advance balance: </span>
+                <span style={{ fontWeight: 700, color: 'var(--purple)' }}>Rs.{advanceBalance}</span>
+              </div>
             </div>
 
             <label className="flbl">Select invoice(s) to pay *</label>
