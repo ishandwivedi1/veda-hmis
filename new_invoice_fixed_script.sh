@@ -1,3 +1,6 @@
+mkdir -p 'app/(main)/billing/new'
+
+cat > 'app/(main)/billing/new/new-invoice-tab.js' << 'EOF'
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -256,3 +259,6 @@ export default function NewInvoiceTab() {
   );
 }
 
+EOF
+
+echo "New Invoice rebuilt with real Department/Service/Rate/GST fields and Finalize/Draft."
