@@ -155,6 +155,41 @@ export async function generatePackageInvoice(patientId, packageId, paymentMode, 
   return { invoice: data };
 }
 
+// ── INVOICE DETAILS (search + history) ──
+export async function searchInvoices(query, deptFilter) {
+  const supabase = await createClient();
+
+  let q = supabase
+    .from('invoices')
+    .select('*, patients(first_name, last_name, uhid), visits(visit_number)')
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (query) {
+    // First try to match by patient -- invoices don't carry patient
+    // name/uhid directly, so we resolve matching patient ids first.
+    const { data: matches } = await supabase
+      .from('patients')
+      .select('id')
+      .or(`uhid.ilike.%${query}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
+    const ids = (matches || []).map((p) => p.id);
+    if (ids.length === 0) return [];
+    q = q.in('patient_id', ids);
+  }
+
+  const { data: invoices } = await q;
+  if (!invoices || invoices.length === 0) return [];
+
+  if (!deptFilter) return invoices;
+
+  // Department filter is per-line-item, not per-invoice -- keep only
+  // invoices that have at least one line item in that department.
+  const invoiceIds = invoices.map((i) => i.id);
+  const { data: lines } = await supabase.from('invoice_line_items').select('invoice_id, dept').in('invoice_id', invoiceIds).eq('dept', deptFilter);
+  const matchingIds = new Set((lines || []).map((l) => l.invoice_id));
+  return invoices.filter((i) => matchingIds.has(i.id));
+}
+
 export async function recordPayment(invoiceId, amount) {
   const supabase = await createClient();
   const { error } = await supabase.rpc('record_payment', { p_invoice_id: invoiceId, p_amount: amount });
