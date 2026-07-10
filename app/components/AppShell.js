@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: '/patients', label: 'Patients', icon: 'ti-users', section: 'Front Office' },
   { href: '/appointments', label: 'Appointments', icon: 'ti-calendar-event', section: 'Front Office' },
   { href: '/visits', label: 'Visits', icon: 'ti-door-enter', section: 'Front Office' },
+  { href: '/billing', label: 'Billing', icon: 'ti-receipt', section: 'Front Office' },
   { href: '/queue', label: 'Queue Management', icon: 'ti-list-numbers', section: 'Clinical' },
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
