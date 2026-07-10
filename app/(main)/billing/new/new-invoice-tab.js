@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   searchPatientsForInvoice,
   createStandaloneInvoice,
@@ -36,11 +36,28 @@ export default function NewInvoiceTab() {
   const [finalized, setFinalized] = useState(false);
   const [todaysVisits, setTodaysVisits] = useState([]);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlVisitId = searchParams.get('visitId');
 
   useEffect(() => {
     getServiceCatalog().then(setCatalog);
     getTodaysVisitsForBilling().then(setTodaysVisits);
   }, []);
+
+  // If we arrived here via a "Bill" link elsewhere in the app (e.g. from
+  // Visits or Front Office Dashboard), open that visit's real invoice
+  // automatically -- so the redirect still feels seamless, not like
+  // starting over.
+  useEffect(() => {
+    if (!urlVisitId) return;
+    (async () => {
+      const details = await getInvoiceForVisit(urlVisitId);
+      if (details.error) { setError(details.error); return; }
+      setSelectedPatient(details.visit.patients);
+      setInvoice(details.invoice);
+      setLineItems(details.lineItems);
+    })();
+  }, [urlVisitId]);
 
   const servicesForDept = catalog.filter((s) => s.dept === dept);
 

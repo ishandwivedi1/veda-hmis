@@ -97,7 +97,7 @@ export default async function VisitsPage({ searchParams }) {
                 <td><span className={`badge ${v.status === 'Open' ? 'b-blue' : 'b-gray'}`}>{v.status}</span></td>
                 <td><span className={`badge ${BILLING_BADGE[billStatus]}`}>{billStatus}</span></td>
                 <td>
-                  <Link href={`/billing/${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                  <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
                     <i className="ti ti-receipt"></i> Bill
                   </Link>
                 </td>
