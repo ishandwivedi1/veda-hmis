@@ -70,10 +70,11 @@ export default function InvoiceDetailsTab() {
         </div>
 
         <table className="tbl">
-          <thead><tr><th>Date</th><th>Patient</th><th>Visit</th><th>Gross</th><th>Disc</th><th>Net</th><th>Paid</th><th>Status</th></tr></thead>
+          <thead><tr><th>Invoice #</th><th>Date</th><th>Patient</th><th>Visit</th><th>Gross</th><th>Disc</th><th>Net</th><th>Paid</th><th>Status</th></tr></thead>
           <tbody>
             {invoices.map((inv) => (
               <tr key={inv.id} onClick={() => openInvoice(inv)} style={{ cursor: 'pointer', background: selected?.id === inv.id ? 'var(--blue-lt)' : 'transparent' }}>
+                <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{inv.invoice_number || '--'}</td>
                 <td>{new Date(inv.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
                 <td style={{ fontWeight: 600 }}>{inv.patients?.first_name} {inv.patients?.last_name}</td>
                 <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{inv.visits?.visit_number || '--'}</td>
@@ -85,7 +86,7 @@ export default function InvoiceDetailsTab() {
               </tr>
             ))}
             {invoices.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No invoices found.</td></tr>
+              <tr><td colSpan={9} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No invoices found.</td></tr>
             )}
           </tbody>
         </table>
@@ -95,7 +96,7 @@ export default function InvoiceDetailsTab() {
         <div>
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-receipt" style={{ color: 'var(--blue)' }}></i> Invoice Detail</div>
+              <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-receipt" style={{ color: 'var(--blue)' }}></i> {selected.invoice_number || 'Invoice Detail'}</div>
               <span className={`badge ${STATUS_BADGE[selected.status] || 'b-gray'}`}>{selected.status}</span>
             </div>
             {error && <div className="msg-err">{error}</div>}
