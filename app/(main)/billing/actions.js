@@ -2,6 +2,17 @@
 
 import { createClient } from '@/lib/supabase-server';
 
+export async function getTodaysVisitsForBilling() {
+  const supabase = await createClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from('visits')
+    .select('id, visit_number, visit_type, created_at, patients(id, first_name, last_name, uhid)')
+    .gte('created_at', today)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
 export async function getInvoiceForVisit(visitId) {
   const supabase = await createClient();
 
