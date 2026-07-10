@@ -94,6 +94,50 @@ export async function applyAdjustment(patientId, invoiceId, amount) {
   return { invoice: data };
 }
 
+// ── RECEIPTS ──
+export async function searchReceipts(query, modeFilter) {
+  const supabase = await createClient();
+
+  let q = supabase
+    .from('payments')
+    .select('*, patients(first_name, last_name, uhid), payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number))')
+    .order('collected_at', { ascending: false })
+    .limit(50);
+
+  if (query) {
+    const { data: matches } = await supabase
+      .from('patients')
+      .select('id')
+      .or(`uhid.ilike.%${query}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
+    const ids = (matches || []).map((p) => p.id);
+    q = q.or(`receipt_number.ilike.%${query}%${ids.length ? ',patient_id.in.(' + ids.join(',') + ')' : ''}`);
+  }
+
+  const { data: receipts } = await q;
+  if (!receipts) return [];
+
+  if (!modeFilter) return receipts;
+  return receipts.filter((r) => (r.payment_modes || []).some((m) => m.mode === modeFilter));
+}
+
+export async function getReceiptById(paymentId) {
+  const supabase = await createClient();
+  const { data: payment, error } = await supabase
+    .from('payments')
+    .select('*, patients(first_name, last_name, uhid, mobile), profiles(full_name)')
+    .eq('id', paymentId)
+    .single();
+  if (error) return { error: error.message };
+
+  const { data: modes } = await supabase.from('payment_modes').select('*').eq('payment_id', paymentId);
+  const { data: allocations } = await supabase
+    .from('payment_allocations')
+    .select('*, invoices(invoice_number)')
+    .eq('payment_id', paymentId);
+
+  return { payment, modes: modes || [], allocations: allocations || [] };
+}
+
 export async function collectPayment(patientId, invoiceIds, amount, modes, reference, remarks) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('collect_payment', {
