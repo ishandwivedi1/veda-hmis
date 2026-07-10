@@ -8,7 +8,7 @@ const TABS = [
   { href: '/billing/new', label: 'New Invoice', icon: 'ti-file-plus' },
   { href: '/billing/package', label: 'Package Billing', icon: 'ti-package' },
   { href: '/billing/details', label: 'Invoice Details', icon: 'ti-search' },
-  { href: '/billing/cancel', label: 'Cancellation', icon: 'ti-x-circle' },
+  { href: '/billing/cancel', label: 'Invoice Modification', icon: 'ti-edit' },
   { href: '/billing/reports', label: 'Reports', icon: 'ti-file-report' },
 ];
 

@@ -97,9 +97,16 @@ export async function getInvoiceById(invoiceId) {
   return { invoice, lineItems: lineItems || [] };
 }
 
-export async function removeLineItem(lineItemId) {
+export async function removeLineItem(lineItemId, reason) {
   const supabase = await createClient();
-  const { error } = await supabase.rpc('remove_invoice_line_item', { p_line_item_id: lineItemId });
+  const { error } = await supabase.rpc('remove_invoice_line_item', { p_line_item_id: lineItemId, p_reason: reason || null });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function cancelInvoice(invoiceId, reason) {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('cancel_invoice', { p_invoice_id: invoiceId, p_reason: reason });
   if (error) return { error: error.message };
   return { success: true };
 }
