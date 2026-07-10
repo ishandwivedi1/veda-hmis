@@ -104,6 +104,57 @@ export async function removeLineItem(lineItemId) {
   return { success: true };
 }
 
+// ── PACKAGE BILLING ──
+export async function getPostSurgicalPendingPackages() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('surgical_cases')
+    .select('*, patients(id, first_name, last_name, uhid), master_packages(id, name, price)')
+    .eq('status', 'Completed')
+    .eq('package_billed', false);
+  return data || [];
+}
+
+export async function getActivePackages() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_packages').select('*').eq('status', 'Active').order('name');
+  return data || [];
+}
+
+export async function searchPatientsForPackage(q) {
+  if (!q) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('patients')
+    .select('id, uhid, first_name, last_name, mobile')
+    .or(`uhid.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+    .limit(10);
+  return data || [];
+}
+
+export async function generatePackageInvoice(patientId, packageId, paymentMode, advanceAmount, surgicalCaseId) {
+  const supabase = await createClient();
+
+  const { data: visit } = await supabase
+    .from('visits')
+    .select('id')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data, error } = await supabase.rpc('generate_package_invoice', {
+    p_patient_id: patientId,
+    p_visit_id: visit?.id || null,
+    p_package_id: packageId,
+    p_payment_mode: paymentMode,
+    p_advance_amount: advanceAmount || 0,
+    p_surgical_case_id: surgicalCaseId || null,
+  });
+  if (error) return { error: error.message };
+  return { invoice: data };
+}
+
 export async function recordPayment(invoiceId, amount) {
   const supabase = await createClient();
   const { error } = await supabase.rpc('record_payment', { p_invoice_id: invoiceId, p_amount: amount });
