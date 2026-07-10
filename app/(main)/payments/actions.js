@@ -72,6 +72,28 @@ export async function getLedgerHistory() {
     .limit(30);
   return data || [];
 }
+// ── ADJUSTMENTS ──
+export async function getPatientLedgerAudit(patientId) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('patient_ledger')
+    .select('*')
+    .eq('patient_id', patientId)
+    .order('recorded_at', { ascending: false });
+  return data || [];
+}
+
+export async function applyAdjustment(patientId, invoiceId, amount) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('apply_advance_adjustment', {
+    p_patient_id: patientId,
+    p_invoice_id: invoiceId,
+    p_amount: amount,
+  });
+  if (error) return { error: error.message };
+  return { invoice: data };
+}
+
 export async function collectPayment(patientId, invoiceIds, amount, modes, reference, remarks) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('collect_payment', {
