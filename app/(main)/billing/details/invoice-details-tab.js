@@ -97,7 +97,12 @@ export default function InvoiceDetailsTab() {
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-receipt" style={{ color: 'var(--blue)' }}></i> {selected.invoice_number || 'Invoice Detail'}</div>
-              <span className={`badge ${STATUS_BADGE[selected.status] || 'b-gray'}`}>{selected.status}</span>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <a href={`/invoice-print/${selected.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                  <i className="ti ti-printer"></i> Print / PDF
+                </a>
+                <span className={`badge ${STATUS_BADGE[selected.status] || 'b-gray'}`}>{selected.status}</span>
+              </div>
             </div>
             {error && <div className="msg-err">{error}</div>}
             <div style={{ fontSize: 13, marginBottom: 12 }}>

@@ -178,7 +178,10 @@ export default function NewInvoiceTab() {
           <div className="msg-success">
             <i className="ti ti-circle-check"></i> Invoice finalized for {selectedPatient.first_name} {selectedPatient.last_name} -- Net Rs.{invoice.net}.{' '}
             <a href={`/billing/details?q=${selectedPatient.uhid}`} style={{ color: 'var(--blue)' }}>Go collect payment in Invoice Details &rarr;</a>
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+              <a href={`/invoice-print/${invoice.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                <i className="ti ti-printer"></i> Print / PDF
+              </a>
               <button className="btn btn-sm" onClick={startOver}>Start a new invoice</button>
             </div>
           </div>

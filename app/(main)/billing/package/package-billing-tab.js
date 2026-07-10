@@ -111,7 +111,10 @@ export default function PackageBillingTab() {
         {result ? (
           <div className="msg-success">
             <i className="ti ti-circle-check"></i> Package invoice generated -- Net Rs.{result.net}, Paid Rs.{result.paid}, Status: {result.status}.
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+              <a href={`/invoice-print/${result.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                <i className="ti ti-printer"></i> Print / PDF
+              </a>
               <button className="btn btn-sm" onClick={reset}>Bill another package</button>
             </div>
           </div>

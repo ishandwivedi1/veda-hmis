@@ -78,3 +78,9 @@ body {
 .tbl th { text-align: left; padding: 8px 10px; color: var(--g500); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; border-bottom: 1.5px solid var(--g200); }
 .tbl td { padding: 9px 10px; border-bottom: 1px solid var(--g100); }
 
+/* ── PRINT ── */
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+}
+
