@@ -163,6 +163,17 @@ export async function generatePackageInvoice(patientId, packageId, paymentMode, 
 }
 
 // ── INVOICE DETAILS (search + history) ──
+export async function getTodaysInvoicesForModification() {
+  const supabase = await createClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from('invoices')
+    .select('*, patients(first_name, last_name, uhid)')
+    .gte('created_at', today)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
 export async function searchInvoices(query, deptFilter) {
   const supabase = await createClient();
 
