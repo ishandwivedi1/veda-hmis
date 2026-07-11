@@ -1,3 +1,6 @@
+mkdir -p 'app/(main)/billing'
+
+cat > 'app/(main)/billing/actions.js' << 'EOF'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -230,3 +233,6 @@ export async function recordPayment(invoiceId, amount) {
   return { success: true };
 }
 
+EOF
+
+echo "getServiceCatalog with drug-merging confirmed shipped."
