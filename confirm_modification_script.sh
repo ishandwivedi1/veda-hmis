@@ -1,3 +1,6 @@
+mkdir -p 'app/(main)/billing/cancel'
+
+cat > 'app/(main)/billing/cancel/invoice-modification-tab.js' << 'EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -300,3 +303,6 @@ export default function InvoiceModificationTab() {
   );
 }
 
+EOF
+
+echo "Confirm Modification and Close button added."
