@@ -15,6 +15,13 @@ export default function AdvanceTab() {
   const [advanceType, setAdvanceType] = useState('Surgery Advance');
   const [amount, setAmount] = useState('');
   const [modeRows, setModeRows] = useState([{ mode: 'Cash', amount: '' }]);
+
+  // Same simplification as Collect Payment: in the common single-mode
+  // case, the mode amount always matches the amount field -- no need to
+  // type the same number twice.
+  useEffect(() => {
+    setModeRows((rows) => (rows.length === 1 ? [{ ...rows[0], amount }] : rows));
+  }, [amount]);
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
 
@@ -50,8 +57,18 @@ export default function AdvanceTab() {
   function updateModeRow(idx, field, value) {
     setModeRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   }
-  function addModeRow() { setModeRows((rows) => [...rows, { mode: 'Cash', amount: '' }]); }
-  function removeModeRow(idx) { setModeRows((rows) => rows.filter((_, i) => i !== idx)); }
+  function addModeRow() {
+    setModeRows((rows) => {
+      const cleared = rows.length === 1 ? [{ ...rows[0], amount: '' }] : rows;
+      return [...cleared, { mode: 'Card', amount: '' }];
+    });
+  }
+  function removeModeRow(idx) {
+    setModeRows((rows) => {
+      const remaining = rows.filter((_, i) => i !== idx);
+      return remaining.length === 1 ? [{ ...remaining[0], amount }] : remaining;
+    });
+  }
 
   function reset() {
     setSelectedPatient(null);
@@ -150,7 +167,15 @@ export default function AdvanceTab() {
                 <select className="fi" value={row.mode} onChange={(e) => updateModeRow(idx, 'mode', e.target.value)} style={{ flex: 1 }}>
                   {MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <input type="number" className="fi" value={row.amount} onChange={(e) => updateModeRow(idx, 'amount', e.target.value)} placeholder="Amount" style={{ flex: 1 }} />
+                <input
+                  type="number"
+                  className="fi"
+                  value={row.amount}
+                  onChange={(e) => updateModeRow(idx, 'amount', e.target.value)}
+                  placeholder={modeRows.length === 1 ? 'Auto-filled from amount above' : 'Amount'}
+                  readOnly={modeRows.length === 1}
+                  style={{ flex: 1, background: modeRows.length === 1 ? 'var(--g50)' : '#fff' }}
+                />
                 {modeRows.length > 1 && <button className="btn" onClick={() => removeModeRow(idx)} style={{ padding: '4px 10px' }}>x</button>}
               </div>
             ))}
