@@ -1,3 +1,6 @@
+mkdir -p 'app/(main)/master-data'
+
+cat > 'app/(main)/master-data/page.js' << 'EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -234,3 +237,6 @@ export default function MasterDataPage() {
   );
 }
 
+EOF
+
+echo "Master Data Drugs tab renamed to Pharmacy."
