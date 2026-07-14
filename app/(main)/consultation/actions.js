@@ -50,13 +50,46 @@ export async function getConsultationData(queueEntryId) {
     encounter = newEncounter;
   }
 
+  // Section 12: exam is 1:1 with the encounter, auto-created on first
+  // open -- same pattern as the encounter itself and the optometry
+  // assessment.
+  let { data: examination } = await supabase
+    .from('clinical_examinations')
+    .select('*')
+    .eq('encounter_id', encounter.id)
+    .maybeSingle();
+
+  if (!examination) {
+    const { data: newExam, error: examError } = await supabase
+      .from('clinical_examinations')
+      .insert({ encounter_id: encounter.id })
+      .select()
+      .single();
+    if (examError) return { error: examError.message };
+    examination = newExam;
+  }
+
   const [{ data: diagnoses }, { data: prescriptions }, { data: investigations }] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('investigation_orders').select('*').eq('encounter_id', encounter.id).order('created_at'),
   ]);
 
-  return { entry, findings, iopReadings, encounter, diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [] };
+  return { entry, findings, iopReadings, encounter, examination, diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [] };
+}
+
+// ── EXAMINATION (Section 12, M19 Examination tab) ──
+export async function saveExamination(examinationId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('clinical_examinations')
+    .update({ ...fields, recorded_by: userData?.user?.id || null, updated_at: new Date().toISOString() })
+    .eq('id', examinationId);
+
+  if (error) return { error: error.message };
+  return { success: true };
 }
 
 // ── DIAGNOSES ──

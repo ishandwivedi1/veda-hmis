@@ -15,6 +15,7 @@ import {
   sendForInvestigationFromConsultation,
 } from '@/app/(main)/consultation/actions';
 import { markForSurgery } from '@/app/(main)/surgical/actions';
+import ExaminationTab from './examination-tab';
 
 export default function ConsultationForm({ queueEntryId }) {
   const [data, setData] = useState(null);
@@ -25,6 +26,7 @@ export default function ConsultationForm({ queueEntryId }) {
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
   const [surgeryLoading, setSurgeryLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('exam');
   const router = useRouter();
 
   // Diagnosis form
@@ -132,7 +134,7 @@ export default function ConsultationForm({ queueEntryId }) {
   const f = data.findings;
 
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto' }}>
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)', marginRight: 6 }}></i>Consultation -- {data.entry.token}</div>
         <div style={{ fontSize: 13, color: 'var(--g500)' }}>
@@ -171,6 +173,22 @@ export default function ConsultationForm({ queueEntryId }) {
         );
       })()}
 
+      {/* TABS */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
+        <button type="button" className={`snbtn ${activeTab === 'exam' ? 'active' : ''}`} style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'exam' ? '#fff' : 'transparent', color: activeTab === 'exam' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'exam' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }} onClick={() => setActiveTab('exam')}>
+          <i className="ti ti-microscope"></i> Examination
+        </button>
+        <button type="button" className={`snbtn ${activeTab === 'plan' ? 'active' : ''}`} style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'plan' ? '#fff' : 'transparent', color: activeTab === 'plan' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'plan' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }} onClick={() => setActiveTab('plan')}>
+          <i className="ti ti-clipboard-text"></i> Diagnosis &amp; Plan
+        </button>
+      </div>
+
+      {activeTab === 'exam' && (
+        <ExaminationTab examination={data.examination} onSaved={refresh} />
+      )}
+
+      {activeTab === 'plan' && (
+      <>
       {/* DIAGNOSIS */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Diagnosis</div>
@@ -275,6 +293,9 @@ export default function ConsultationForm({ queueEntryId }) {
           </div>
         )}
       </div>
+
+      </>
+      )}
 
       {/* ACTIONS */}
       <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
