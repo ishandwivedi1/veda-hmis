@@ -13,9 +13,35 @@ import {
   completeConsultation,
   sendForDilationFromConsultation,
   sendForInvestigationFromConsultation,
+  toggleWorkflowRequest,
+  completeWorkflowRequest,
 } from '@/app/(main)/consultation/actions';
 import { markForSurgery } from '@/app/(main)/surgical/actions';
 import ExaminationTab from './examination-tab';
+
+const WF_ITEMS = {
+  Biometry: { icon: 'ti-ruler-measure', color: '#818cf8' },
+  'Medical Fitness': { icon: 'ti-heart-rate-monitor', color: '#c4b5fd' },
+  Counselling: { icon: 'ti-messages', color: '#fcd34d' },
+};
+
+function elapsedMin(iso) {
+  if (!iso) return 0;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+}
+
+function TabButton({ active, onClick, icon, label }) {
+  return (
+    <button
+      type="button"
+      className={`snbtn ${active ? 'active' : ''}`}
+      style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: active ? '#fff' : 'transparent', color: active ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+      onClick={onClick}
+    >
+      <i className={`ti ${icon}`}></i> {label}
+    </button>
+  );
+}
 
 export default function ConsultationForm({ queueEntryId }) {
   const [data, setData] = useState(null);
@@ -116,11 +142,23 @@ export default function ConsultationForm({ queueEntryId }) {
     setError('');
     setLoading(true);
     const result = kind === 'dilate'
-      ? await sendForDilationFromConsultation(queueEntryId)
-      : await sendForInvestigationFromConsultation(queueEntryId);
+      ? await sendForDilationFromConsultation(queueEntryId, data.encounter.id)
+      : await sendForInvestigationFromConsultation(queueEntryId, data.encounter.id);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
     router.push('/queue');
+  }
+
+  async function handleToggleWorkflow(kind) {
+    setError('');
+    const result = await toggleWorkflowRequest(data.entry.visits.id, data.encounter.id, kind);
+    if (result.error) { setError(result.error); return; }
+    refresh();
+  }
+
+  async function handleCompleteWorkflow(id) {
+    await completeWorkflowRequest(id, data.encounter.id);
+    refresh();
   }
 
   if (loadError) {
@@ -132,9 +170,23 @@ export default function ConsultationForm({ queueEntryId }) {
 
   const patient = data.entry.visits.patients;
   const f = data.findings;
+  const activeWorkflows = data.workflowRequests.filter((w) => w.status === 'Requested');
+  const openInvestigations = data.investigations.filter((i) => i.status !== 'Completed' && i.status !== 'Verified');
+  const pendingRx = data.prescriptions.filter((r) => r.status !== 'Dispensed');
+
+  // ── ACTION TRACKER: every downstream action generated this
+  // encounter, in one checklist -- prescriptions, investigations,
+  // workflow requests.
+  const trackerRows = [
+    ...data.prescriptions.map((r) => ({ label: `${r.drug_name} (${r.eye})`, dept: 'Pharmacy', status: r.status, icon: 'ti-pill', color: 'var(--purple)' })),
+    ...data.investigations.map((i) => ({ label: `${i.name} (${i.eye})`, dept: 'Investigation', status: i.status, icon: 'ti-flask', color: 'var(--teal)' })),
+    ...data.workflowRequests.map((w) => ({
+      label: w.kind, dept: w.kind === 'Counselling' ? 'Counsellor' : w.kind === 'Medical Fitness' ? 'Pre-op Fitness' : 'Biometry', status: w.status, icon: WF_ITEMS[w.kind]?.icon || 'ti-clipboard', color: 'var(--amber)', wfId: w.id, resolvable: w.status === 'Requested',
+    })),
+  ];
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1180, margin: '0 auto' }}>
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)', marginRight: 6 }}></i>Consultation -- {data.entry.token}</div>
         <div style={{ fontSize: 13, color: 'var(--g500)' }}>
@@ -173,144 +225,243 @@ export default function ConsultationForm({ queueEntryId }) {
         );
       })()}
 
-      {/* TABS */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
-        <button type="button" className={`snbtn ${activeTab === 'exam' ? 'active' : ''}`} style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'exam' ? '#fff' : 'transparent', color: activeTab === 'exam' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'exam' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }} onClick={() => setActiveTab('exam')}>
-          <i className="ti ti-microscope"></i> Examination
-        </button>
-        <button type="button" className={`snbtn ${activeTab === 'plan' ? 'active' : ''}`} style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'plan' ? '#fff' : 'transparent', color: activeTab === 'plan' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'plan' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }} onClick={() => setActiveTab('plan')}>
-          <i className="ti ti-clipboard-text"></i> Diagnosis &amp; Plan
-        </button>
+      {/* WORKFLOW CONTROLS -- Biometry / Medical Fitness / Counselling.
+          Independent toggles: a patient can need more than one at once.
+          Dilation/Investigation stay in the Actions bar below since
+          those physically move the queue entry, not just flag a task. */}
+      <div style={{ background: '#0f172a', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.5px', marginRight: 4 }}>Request:</span>
+        {Object.keys(WF_ITEMS).map((kind) => {
+          const isActive = activeWorkflows.some((w) => w.kind === kind);
+          return (
+            <button
+              key={kind}
+              type="button"
+              className="btn btn-sm"
+              style={{
+                background: isActive ? WF_ITEMS[kind].color : 'rgba(255,255,255,.08)',
+                color: isActive ? '#0f172a' : '#e2e8f0',
+                borderColor: isActive ? WF_ITEMS[kind].color : 'rgba(255,255,255,.2)',
+                fontWeight: isActive ? 700 : 600,
+              }}
+              onClick={() => handleToggleWorkflow(kind)}
+            >
+              <i className={`ti ${WF_ITEMS[kind].icon}`}></i> {kind}{isActive ? ' -- Requested' : ''}
+            </button>
+          );
+        })}
       </div>
 
-      {activeTab === 'exam' && (
-        <ExaminationTab examination={data.examination} onSaved={refresh} />
-      )}
-
-      {activeTab === 'plan' && (
-      <>
-      {/* DIAGNOSIS */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Diagnosis</div>
-        {data.diagnoses.map((d) => (
-          <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-            <span>
-              <strong>{d.name}</strong> -- {d.eye} -- <span style={{ color: d.category === 'primary' ? 'var(--blue)' : 'var(--g500)' }}>{d.category}</span>
-            </span>
-            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeDiagnosis(d.id); refresh(); }}>Remove</button>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20, alignItems: 'start' }}>
+        {/* MAIN COLUMN */}
+        <div>
+          {/* TABS */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
+            <TabButton active={activeTab === 'exam'} onClick={() => setActiveTab('exam')} icon="ti-microscope" label="Examination" />
+            <TabButton active={activeTab === 'plan'} onClick={() => setActiveTab('plan')} icon="ti-clipboard-text" label="Diagnosis & Plan" />
+            <TabButton active={activeTab === 'tracker'} onClick={() => setActiveTab('tracker')} icon="ti-chart-line" label="Action Tracker" />
           </div>
-        ))}
-        <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-          <input className="fi" placeholder="Diagnosis name" value={dxName} onChange={(e) => setDxName(e.target.value)} style={{ flex: 2 }} />
-          <select className="fi" value={dxCategory} onChange={(e) => setDxCategory(e.target.value)} style={{ flex: 1 }}>
-            <option value="primary">Primary</option>
-            <option value="secondary">Secondary</option>
-            <option value="associated">Associated</option>
-            <option value="systemic">Systemic</option>
-          </select>
-          <select className="fi" value={dxEye} onChange={(e) => setDxEye(e.target.value)} style={{ width: 70 }}>
-            <option value="OD">OD</option>
-            <option value="OS">OS</option>
-            <option value="OU">OU</option>
-          </select>
-          <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddDiagnosis}>Add</button>
-        </div>
-      </div>
 
-      {/* PRESCRIPTION */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Prescription</div>
-        {data.prescriptions.map((r) => (
-          <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-            <span>
-              <strong>{r.drug_name}</strong> -- {r.dosage} {r.frequency} x {r.duration} -- {r.eye}
-            </span>
-            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(r.id); refresh(); }}>Remove</button>
-          </div>
-        ))}
-        <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-          <input className="fi" placeholder="Drug name" value={rxDrug} onChange={(e) => setRxDrug(e.target.value)} style={{ flex: '2 1 160px' }} />
-          <select className="fi" value={rxDosage} onChange={(e) => setRxDosage(e.target.value)} style={{ flex: '1 1 90px' }}>
-            <option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option>
-          </select>
-          <select className="fi" value={rxFrequency} onChange={(e) => setRxFrequency(e.target.value)} style={{ flex: '1 1 90px' }}>
-            <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
-          </select>
-          <select className="fi" value={rxDuration} onChange={(e) => setRxDuration(e.target.value)} style={{ flex: '1 1 100px' }}>
-            <option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option><option>Ongoing</option>
-          </select>
-          <select className="fi" value={rxEye} onChange={(e) => setRxEye(e.target.value)} style={{ width: 70 }}>
-            <option value="RE">RE</option><option value="LE">LE</option><option value="BE">BE</option>
-          </select>
-          <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddPrescription}>Add</button>
-        </div>
-      </div>
+          {activeTab === 'exam' && (
+            <ExaminationTab examination={data.examination} encounterId={data.encounter.id} onSaved={refresh} />
+          )}
 
-      {/* INVESTIGATIONS */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Investigations</div>
-        {data.investigations.map((i) => (
-          <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-            <span>
-              <strong>{i.name}</strong> -- {i.eye} -- {i.priority}
-            </span>
-            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id); refresh(); }}>Remove</button>
-          </div>
-        ))}
-        <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-          <input className="fi" placeholder="Investigation name" value={invName} onChange={(e) => setInvName(e.target.value)} style={{ flex: 2 }} />
-          <select className="fi" value={invEye} onChange={(e) => setInvEye(e.target.value)} style={{ width: 70 }}>
-            <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
-          </select>
-          <select className="fi" value={invPriority} onChange={(e) => setInvPriority(e.target.value)} style={{ flex: 1 }}>
-            <option>Routine</option><option>Urgent</option>
-          </select>
-          <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddInvestigation}>Add</button>
-        </div>
-      </div>
+          {activeTab === 'plan' && (
+            <>
+              {/* DIAGNOSIS */}
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Diagnosis</div>
+                {data.diagnoses.map((d) => (
+                  <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                    <span>
+                      <strong>{d.name}</strong> -- {d.eye} -- <span style={{ color: d.category === 'primary' ? 'var(--blue)' : 'var(--g500)' }}>{d.category}</span>
+                    </span>
+                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeDiagnosis(d.id, data.encounter.id); refresh(); }}>Remove</button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                  <input className="fi" placeholder="Diagnosis name" value={dxName} onChange={(e) => setDxName(e.target.value)} style={{ flex: 2 }} />
+                  <select className="fi" value={dxCategory} onChange={(e) => setDxCategory(e.target.value)} style={{ flex: 1 }}>
+                    <option value="primary">Primary</option>
+                    <option value="secondary">Secondary</option>
+                    <option value="associated">Associated</option>
+                    <option value="systemic">Systemic</option>
+                  </select>
+                  <select className="fi" value={dxEye} onChange={(e) => setDxEye(e.target.value)} style={{ width: 70 }}>
+                    <option value="OD">OD</option>
+                    <option value="OS">OS</option>
+                    <option value="OU">OU</option>
+                  </select>
+                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddDiagnosis}>Add</button>
+                </div>
+              </div>
 
-      {/* SURGERY */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        {!showSurgery ? (
-          <button className="btn" onClick={() => setShowSurgery(true)}>
-            <i className="ti ti-scalpel"></i> Mark for Surgery
-          </button>
-        ) : (
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Mark for Surgery</div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              <input className="fi" placeholder="Procedure (e.g. Phacoemulsification + IOL)" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }} />
-              <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
-                <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
-              </select>
+              {/* PRESCRIPTION */}
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Prescription</div>
+                {data.prescriptions.map((r) => (
+                  <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                    <span>
+                      <strong>{r.drug_name}</strong> -- {r.dosage} {r.frequency} x {r.duration} -- {r.eye}
+                    </span>
+                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(r.id, data.encounter.id); refresh(); }}>Remove</button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                  <input className="fi" placeholder="Drug name" value={rxDrug} onChange={(e) => setRxDrug(e.target.value)} style={{ flex: '2 1 160px' }} />
+                  <select className="fi" value={rxDosage} onChange={(e) => setRxDosage(e.target.value)} style={{ flex: '1 1 90px' }}>
+                    <option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option>
+                  </select>
+                  <select className="fi" value={rxFrequency} onChange={(e) => setRxFrequency(e.target.value)} style={{ flex: '1 1 90px' }}>
+                    <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
+                  </select>
+                  <select className="fi" value={rxDuration} onChange={(e) => setRxDuration(e.target.value)} style={{ flex: '1 1 100px' }}>
+                    <option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option><option>Ongoing</option>
+                  </select>
+                  <select className="fi" value={rxEye} onChange={(e) => setRxEye(e.target.value)} style={{ width: 70 }}>
+                    <option value="RE">RE</option><option value="LE">LE</option><option value="BE">BE</option>
+                  </select>
+                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddPrescription}>Add</button>
+                </div>
+              </div>
+
+              {/* INVESTIGATIONS */}
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Investigations</div>
+                {data.investigations.map((i) => (
+                  <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                    <span>
+                      <strong>{i.name}</strong> -- {i.eye} -- {i.priority}
+                    </span>
+                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                  <input className="fi" placeholder="Investigation name" value={invName} onChange={(e) => setInvName(e.target.value)} style={{ flex: 2 }} />
+                  <select className="fi" value={invEye} onChange={(e) => setInvEye(e.target.value)} style={{ width: 70 }}>
+                    <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+                  </select>
+                  <select className="fi" value={invPriority} onChange={(e) => setInvPriority(e.target.value)} style={{ flex: 1 }}>
+                    <option>Routine</option><option>Urgent</option>
+                  </select>
+                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddInvestigation}>Add</button>
+                </div>
+              </div>
+
+              {/* SURGERY */}
+              <div className="card" style={{ marginBottom: 16 }}>
+                {!showSurgery ? (
+                  <button className="btn" onClick={() => setShowSurgery(true)}>
+                    <i className="ti ti-scalpel"></i> Mark for Surgery
+                  </button>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Mark for Surgery</div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                      <input className="fi" placeholder="Procedure (e.g. Phacoemulsification + IOL)" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }} />
+                      <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
+                        <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
+                        {surgeryLoading ? 'Saving...' : 'Save'}
+                      </button>
+                      <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'tracker' && (
+            <div className="card">
+              <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-chart-line" style={{ color: 'var(--blue)' }}></i> Actions Generated This Encounter</div>
+              {trackerRows.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 24, color: 'var(--g400)', fontSize: 13 }}>Add items to Diagnosis &amp; Plan to see actions here.</div>
+              )}
+              {trackerRows.map((a, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderBottom: '1px solid var(--g100)' }}>
+                  <i className={`ti ${a.icon}`} style={{ color: a.color, fontSize: 15 }}></i>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>{a.label}</div>
+                    <div style={{ fontSize: 10, color: 'var(--g400)' }}>{a.dept}</div>
+                  </div>
+                  <span className={`badge ${a.status === 'Done' || a.status === 'Completed' || a.status === 'Dispensed' || a.status === 'Verified' ? 'b-green' : a.status === 'Cancelled' ? 'b-gray' : 'b-amber'}`}>{a.status}</span>
+                  {a.resolvable && (
+                    <button className="btn btn-sm" onClick={() => handleCompleteWorkflow(a.wfId)}>Mark Done</button>
+                  )}
+                </div>
+              ))}
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
-                {surgeryLoading ? 'Saving...' : 'Save'}
-              </button>
-              <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
+          )}
+
+          {/* ACTIONS */}
+          <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+            <button className="btn btn-primary" onClick={handleComplete} disabled={loading}>
+              {loading ? 'Working...' : 'Complete Visit'}
+            </button>
+            <button className="btn" onClick={() => handleSendOut('dilate')} disabled={loading}>
+              Send for Dilation
+            </button>
+            <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
+              Send for Investigation
+            </button>
+          </div>
+        </div>
+
+        {/* RIGHT PANEL */}
+        <div>
+          {/* ENCOUNTER STATUS */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-activity" style={{ color: 'var(--blue)' }}></i> Encounter Status</div>
+            <div style={{ fontSize: 12, color: 'var(--g600)', lineHeight: 1.9 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Status</span><span className="badge b-blue">{data.encounter.status}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Started</span><span>{new Date(data.encounter.started_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>In progress</span><span style={{ fontWeight: 700 }}>{elapsedMin(data.encounter.started_at)}m</span></div>
             </div>
           </div>
-        )}
-      </div>
 
-      </>
-      )}
+          {/* OUTSTANDING TASKS */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-list-checks" style={{ color: 'var(--amber)' }}></i> Outstanding Tasks</div>
+            {openInvestigations.length === 0 && activeWorkflows.length === 0 && pendingRx.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing outstanding.</div>
+            )}
+            {openInvestigations.map((i) => (
+              <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+                <i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i><span style={{ flex: 1 }}>{i.name}</span><span className="badge b-amber" style={{ fontSize: 9 }}>{i.status}</span>
+              </div>
+            ))}
+            {activeWorkflows.map((w) => (
+              <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+                <i className={`ti ${WF_ITEMS[w.kind]?.icon || 'ti-clipboard'}`} style={{ color: 'var(--amber)' }}></i><span style={{ flex: 1 }}>{w.kind}</span><span className="badge b-amber" style={{ fontSize: 9 }}>Requested</span>
+              </div>
+            ))}
+            {pendingRx.map((r) => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+                <i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i><span style={{ flex: 1 }}>{r.drug_name}</span><span className="badge b-amber" style={{ fontSize: 9 }}>{r.status}</span>
+              </div>
+            ))}
+          </div>
 
-      {/* ACTIONS */}
-      <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" onClick={handleComplete} disabled={loading}>
-          {loading ? 'Working...' : 'Complete Visit'}
-        </button>
-        <button className="btn" onClick={() => handleSendOut('dilate')} disabled={loading}>
-          Send for Dilation
-        </button>
-        <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
-          Send for Investigation
-        </button>
+          {/* AUDIT LOG */}
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
+            <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+              {data.auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity yet.</div>}
+              {data.auditLog.map((a) => (
+                <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)' }}>
+                  <div style={{ color: 'var(--teal)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                  <div>{a.message}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
 

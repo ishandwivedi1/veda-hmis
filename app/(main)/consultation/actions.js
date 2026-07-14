@@ -3,6 +3,10 @@
 import { createClient } from '@/lib/supabase-server';
 import { doctorComplete, doctorSendOut } from '@/app/(main)/queue/actions';
 
+async function addAudit(supabase, encounterId, message, userId) {
+  await supabase.from('encounter_audit_log').insert({ encounter_id: encounterId, message, created_by: userId || null });
+}
+
 export async function getConsultationData(queueEntryId) {
   const supabase = await createClient();
 
@@ -40,6 +44,8 @@ export async function getConsultationData(queueEntryId) {
     .eq('status', 'In Consultation')
     .maybeSingle();
 
+  const { data: userData } = await supabase.auth.getUser();
+
   if (!encounter) {
     const { data: newEncounter, error: encError } = await supabase
       .from('encounters')
@@ -48,6 +54,7 @@ export async function getConsultationData(queueEntryId) {
       .single();
     if (encError) return { error: encError.message };
     encounter = newEncounter;
+    await addAudit(supabase, encounter.id, 'Encounter started', userData?.user?.id);
   }
 
   // Section 12: exam is 1:1 with the encounter, auto-created on first
@@ -69,17 +76,23 @@ export async function getConsultationData(queueEntryId) {
     examination = newExam;
   }
 
-  const [{ data: diagnoses }, { data: prescriptions }, { data: investigations }] = await Promise.all([
+  const [{ data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog }] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('investigation_orders').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('workflow_requests').select('*').eq('visit_id', visitId).order('requested_at', { ascending: false }),
+    supabase.from('encounter_audit_log').select('*').eq('encounter_id', encounter.id).order('created_at', { ascending: false }),
   ]);
 
-  return { entry, findings, iopReadings, encounter, examination, diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [] };
+  return {
+    entry, findings, iopReadings, encounter, examination,
+    diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [],
+    workflowRequests: workflowRequests || [], auditLog: auditLog || [],
+  };
 }
 
 // ── EXAMINATION (Section 12, M19 Examination tab) ──
-export async function saveExamination(examinationId, fields) {
+export async function saveExamination(examinationId, encounterId, fields) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
@@ -89,6 +102,7 @@ export async function saveExamination(examinationId, fields) {
     .eq('id', examinationId);
 
   if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Examination saved', userData?.user?.id);
   return { success: true };
 }
 
@@ -109,6 +123,8 @@ export async function addDiagnosis(encounterId, values) {
     }
   }
 
+  const { data: userData } = await supabase.auth.getUser();
+
   const { error } = await supabase.from('diagnoses').insert({
     encounter_id: encounterId,
     name: values.name,
@@ -117,19 +133,23 @@ export async function addDiagnosis(encounterId, values) {
   });
 
   if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Diagnosis added: ${values.name} (${values.eye}, ${values.category})`, userData?.user?.id);
   return { success: true };
 }
 
-export async function removeDiagnosis(id) {
+export async function removeDiagnosis(id, encounterId) {
   const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('diagnoses').delete().eq('id', id);
   if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Diagnosis removed', userData?.user?.id);
   return { success: true };
 }
 
 // ── PRESCRIPTIONS ──
 export async function addPrescription(encounterId, values) {
   const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('prescriptions').insert({
     encounter_id: encounterId,
     drug_name: values.drugName,
@@ -139,19 +159,23 @@ export async function addPrescription(encounterId, values) {
     eye: values.eye,
   });
   if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Prescription added: ${values.drugName} (${values.eye})`, userData?.user?.id);
   return { success: true };
 }
 
-export async function removePrescription(id) {
+export async function removePrescription(id, encounterId) {
   const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('prescriptions').delete().eq('id', id);
   if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Prescription removed', userData?.user?.id);
   return { success: true };
 }
 
 // ── INVESTIGATIONS ──
 export async function addInvestigation(encounterId, values) {
   const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('investigation_orders').insert({
     encounter_id: encounterId,
     name: values.name,
@@ -159,19 +183,72 @@ export async function addInvestigation(encounterId, values) {
     priority: values.priority,
   });
   if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Investigation ordered: ${values.name} (${values.eye}, ${values.priority})`, userData?.user?.id);
   return { success: true };
 }
 
-export async function removeInvestigation(id) {
+export async function removeInvestigation(id, encounterId) {
   const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('investigation_orders').delete().eq('id', id);
   if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Investigation removed', userData?.user?.id);
+  return { success: true };
+}
+
+// ── WORKFLOW REQUESTS (Biometry / Medical Fitness / Counselling) ──
+// Independent, non-exclusive toggles -- a visit can have more than one
+// open at a time, unlike Dilation/Investigation which move the queue
+// entry itself. Toggling an already-open request cancels it.
+export async function toggleWorkflowRequest(visitId, encounterId, kind) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { data: existing } = await supabase
+    .from('workflow_requests')
+    .select('*')
+    .eq('visit_id', visitId)
+    .eq('kind', kind)
+    .eq('status', 'Requested')
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from('workflow_requests')
+      .update({ status: 'Cancelled', resolved_at: new Date().toISOString(), resolved_by: userData?.user?.id || null })
+      .eq('id', existing.id);
+    if (error) return { error: error.message };
+    await addAudit(supabase, encounterId, `Workflow request cancelled: ${kind}`, userData?.user?.id);
+    return { success: true, active: false };
+  }
+
+  const { error } = await supabase.from('workflow_requests').insert({
+    visit_id: visitId, encounter_id: encounterId, kind, requested_by: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Workflow requested: ${kind}`, userData?.user?.id);
+  return { success: true, active: true };
+}
+
+// Mark a workflow request (Biometry/Fitness/Counselling) as done --
+// used by whichever staff member actually completes it (e.g. the
+// counsellor marking a Counselling request resolved).
+export async function completeWorkflowRequest(id, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('workflow_requests')
+    .update({ status: 'Completed', resolved_at: new Date().toISOString(), resolved_by: userData?.user?.id || null })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Workflow request marked complete', userData?.user?.id);
   return { success: true };
 }
 
 // ── ENCOUNTER ACTIONS ──
 export async function completeConsultation(encounterId, queueEntryId) {
   const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
 
   const { error } = await supabase
     .from('encounters')
@@ -179,16 +256,25 @@ export async function completeConsultation(encounterId, queueEntryId) {
     .eq('id', encounterId);
 
   if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Encounter completed', userData?.user?.id);
 
   return doctorComplete(queueEntryId);
 }
 
-export async function sendForDilationFromConsultation(queueEntryId) {
-  return doctorSendOut(queueEntryId, 'dilate');
+export async function sendForDilationFromConsultation(queueEntryId, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const result = await doctorSendOut(queueEntryId, 'dilate');
+  if (!result.error) await addAudit(supabase, encounterId, 'Sent for Dilation', userData?.user?.id);
+  return result;
 }
 
-export async function sendForInvestigationFromConsultation(queueEntryId) {
-  return doctorSendOut(queueEntryId, 'investigate');
+export async function sendForInvestigationFromConsultation(queueEntryId, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const result = await doctorSendOut(queueEntryId, 'investigate');
+  if (!result.error) await addAudit(supabase, encounterId, 'Sent for Investigation', userData?.user?.id);
+  return result;
 }
 
 

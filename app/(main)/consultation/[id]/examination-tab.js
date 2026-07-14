@@ -120,7 +120,7 @@ function RegionSection({ regionKey, region, open, onToggle, status, state, onSel
   );
 }
 
-export default function ExaminationTab({ examination, onSaved }) {
+export default function ExaminationTab({ examination, encounterId, onSaved }) {
   const [regionState, setRegionState] = useState({
     external: emptyRegionState(EXT_STRUCTS),
     anterior: emptyRegionState(ANT_STRUCTS),
@@ -223,7 +223,7 @@ export default function ExaminationTab({ examination, onSaved }) {
       glaucoma_status: (cdrRe || cdrLe || gonioRe || gonioLe || discAppearance) ? 'Done' : status.glaucoma,
       remarks_re: remarksRe, remarks_le: remarksLe,
     };
-    const result = await saveExamination(examination.id, fields);
+    const result = await saveExamination(examination.id, encounterId, fields);
     setSaving(false);
     if (result.error) { setSavedMsg(''); return; }
     setSavedMsg('Examination saved.');
