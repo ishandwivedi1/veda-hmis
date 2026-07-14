@@ -81,7 +81,7 @@ export async function getConsultationData(queueEntryId) {
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
     { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
-    { data: diagnosisHistoryRaw },
+    { data: diagnosisHistoryRaw }, { data: doctorRepeatFindings },
   ] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
@@ -99,6 +99,7 @@ export async function getConsultationData(queueEntryId) {
       .from('visits')
       .select('id, encounters(id, created_at, diagnoses(id, name, category, eye, status, created_at))')
       .eq('patient_id', patientId),
+    supabase.from('doctor_repeat_findings').select('*').eq('encounter_id', encounter.id).order('recorded_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -113,6 +114,7 @@ export async function getConsultationData(queueEntryId) {
     workflowRequests: workflowRequests || [], auditLog: auditLog || [],
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
+    doctorRepeatFindings: doctorRepeatFindings || [],
   };
 }
 
@@ -154,6 +156,34 @@ export async function saveHistory(encounterId, fields) {
 
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, 'History saved', userData?.user?.id);
+  return { success: true };
+}
+
+// ── DOCTOR REPEAT/VERIFIED FINDINGS (CDP-004) ──
+// Never overwrites optometry_assessments -- adds a separate, timestamped
+// entry the doctor owns. Used both to add a repeat check alongside an
+// existing optometry reading, and to record initial values directly
+// when no optometry step happened for this visit at all.
+export async function addDoctorRepeatFinding(encounterId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from('doctor_repeat_findings').insert({
+    encounter_id: encounterId,
+    re_va: fields.reVa || null,
+    le_va: fields.leVa || null,
+    re_iop: fields.reIop ? parseFloat(fields.reIop) : null,
+    le_iop: fields.leIop ? parseFloat(fields.leIop) : null,
+    re_sph: fields.reSph || null,
+    le_sph: fields.leSph || null,
+    re_cyl: fields.reCyl || null,
+    le_cyl: fields.leCyl || null,
+    notes: fields.notes || null,
+    recorded_by: userData?.user?.id || null,
+  });
+
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Doctor repeat findings recorded', userData?.user?.id);
   return { success: true };
 }
 
