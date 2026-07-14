@@ -76,18 +76,43 @@ export async function getConsultationData(queueEntryId) {
     examination = newExam;
   }
 
-  const [{ data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog }] = await Promise.all([
+  const patientId = entry.visits.patients.id;
+
+  const [
+    { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
+    { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
+    { data: diagnosisHistoryRaw },
+  ] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('investigation_orders').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('workflow_requests').select('*').eq('visit_id', visitId).order('requested_at', { ascending: false }),
     supabase.from('encounter_audit_log').select('*').eq('encounter_id', encounter.id).order('created_at', { ascending: false }),
+    supabase.from('plan_optical_advice').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_procedures').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_referrals').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_counselling_items').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_followups').select('*').eq('encounter_id', encounter.id).maybeSingle(),
+    // Longitudinal (cross-visit) diagnosis history: every diagnosis this
+    // patient has, across all their encounters, via visits -> encounters.
+    supabase
+      .from('visits')
+      .select('id, encounters(id, created_at, diagnoses(id, name, category, eye, status, created_at))')
+      .eq('patient_id', patientId),
   ]);
+
+  const diagnosisHistory = (diagnosisHistoryRaw || [])
+    .flatMap((v) => v.encounters || [])
+    .filter((e) => e.id !== encounter.id)
+    .flatMap((e) => (e.diagnoses || []).map((d) => ({ ...d, encounterDate: e.created_at })))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   return {
     entry, findings, iopReadings, encounter, examination,
     diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [],
     workflowRequests: workflowRequests || [], auditLog: auditLog || [],
+    opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
+    counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
   };
 }
 
@@ -103,6 +128,32 @@ export async function saveExamination(examinationId, encounterId, fields) {
 
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, 'Examination saved', userData?.user?.id);
+  return { success: true };
+}
+
+// ── STRUCTURED HISTORY (Section 11.9) ──
+// Batched save, same pattern as Examination -- not per-keystroke.
+export async function saveHistory(encounterId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('encounters')
+    .update({
+      chief_complaint: fields.chiefComplaint,
+      chief_complaint_chips: fields.chiefComplaintChips,
+      hx_duration: fields.hxDuration,
+      hx_laterality: fields.hxLaterality,
+      hx_hopi: fields.hxHopi,
+      ocular_history: fields.ocularHistory,
+      medical_history: fields.medicalHistory,
+      family_history: fields.familyHistory,
+      hx_drug_allergy: fields.hxDrugAllergy,
+    })
+    .eq('id', encounterId);
+
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'History saved', userData?.user?.id);
   return { success: true };
 }
 
@@ -242,6 +293,107 @@ export async function completeWorkflowRequest(id, encounterId) {
     .eq('id', id);
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, 'Workflow request marked complete', userData?.user?.id);
+  return { success: true };
+}
+
+// ── MANAGEMENT PLAN EXPANSION (Ch.14) ──
+export async function addOpticalAdvice(encounterId, advice) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('plan_optical_advice').insert({ encounter_id: encounterId, advice, created_by: userData?.user?.id || null });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Optical advice added: ${advice}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeOpticalAdvice(id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_optical_advice').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Optical advice removed', null);
+  return { success: true };
+}
+
+export async function addProcedure(encounterId, name, eye) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('plan_procedures').insert({ encounter_id: encounterId, name, eye, created_by: userData?.user?.id || null });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Procedure planned: ${name} (${eye})`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeProcedure(id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_procedures').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Procedure removed', null);
+  return { success: true };
+}
+
+export async function addReferral(encounterId, destination, reason) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('plan_referrals').insert({ encounter_id: encounterId, destination, reason, created_by: userData?.user?.id || null });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Referral added: ${destination}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeReferral(id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_referrals').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Referral removed', null);
+  return { success: true };
+}
+
+export async function addCounsellingItem(encounterId, topic) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('plan_counselling_items').insert({ encounter_id: encounterId, topic, created_by: userData?.user?.id || null });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Counselling topic added: ${topic}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeCounsellingItem(id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_counselling_items').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Counselling topic removed', null);
+  return { success: true };
+}
+
+// Any plan item (optical/procedure/referral/counselling) marked done --
+// used from the Action Tracker tab.
+export async function completePlanItem(table, id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from(table).update({ status: 'Done' }).eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Plan item marked done', null);
+  return { success: true };
+}
+
+// Follow-up is one record per encounter -- upsert by encounter_id.
+export async function saveFollowup(encounterId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('plan_followups')
+    .upsert(
+      { encounter_id: encounterId, after_period: fields.after, visit_type: fields.type, clinic: fields.clinic, instructions: fields.instructions, created_by: userData?.user?.id || null },
+      { onConflict: 'encounter_id' }
+    );
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Follow-up scheduled: ${fields.after} -- ${fields.type}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function savePatientInstructions(encounterId, instructions) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('encounters').update({ patient_instructions: instructions }).eq('id', encounterId);
+  if (error) return { error: error.message };
   return { success: true };
 }
 
