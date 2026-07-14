@@ -1,3 +1,6 @@
+mkdir -p "app/(main)/doctor-dashboard"
+
+cat > "app/(main)/doctor-dashboard/page.js" << 'EOF'
 'use client';
 
 import Link from 'next/link';
@@ -183,3 +186,6 @@ export default function DoctorDashboardPage() {
   );
 }
 
+EOF
+
+echo "Doctor Dashboard fix applied - elapsed time now shown for in-consultation patient."
