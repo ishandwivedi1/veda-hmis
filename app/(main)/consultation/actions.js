@@ -17,12 +17,21 @@ export async function getConsultationData(queueEntryId) {
   const visitId = entry.visits.id;
 
   const { data: findings } = await supabase
-    .from('optometry_findings')
+    .from('optometry_assessments')
     .select('*')
     .eq('visit_id', visitId)
-    .order('recorded_at', { ascending: false })
-    .limit(1)
+    .eq('status', 'Completed')
     .maybeSingle();
+
+  let iopReadings = [];
+  if (findings) {
+    const { data: readings } = await supabase
+      .from('optometry_iop_readings')
+      .select('*')
+      .eq('assessment_id', findings.id)
+      .order('recorded_at', { ascending: true });
+    iopReadings = readings || [];
+  }
 
   let { data: encounter } = await supabase
     .from('encounters')
@@ -47,7 +56,7 @@ export async function getConsultationData(queueEntryId) {
     supabase.from('investigation_orders').select('*').eq('encounter_id', encounter.id).order('created_at'),
   ]);
 
-  return { entry, findings, encounter, diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [] };
+  return { entry, findings, iopReadings, encounter, diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [] };
 }
 
 // ── DIAGNOSES ──
@@ -148,4 +157,5 @@ export async function sendForDilationFromConsultation(queueEntryId) {
 export async function sendForInvestigationFromConsultation(queueEntryId) {
   return doctorSendOut(queueEntryId, 'investigate');
 }
+
 

@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/queue', label: 'Queue Management', icon: 'ti-list-numbers', section: 'Clinical' },
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
+  { href: '/optometry-dashboard', label: 'Optometry Queue', icon: 'ti-eye-check', section: 'Optometrist' },
   { href: '/surgical', label: 'Surgical Coordination', icon: 'ti-scalpel', section: 'Surgical' },
   { href: '/ot-schedule', label: 'OT Scheduling', icon: 'ti-calendar-time', section: 'Surgical' },
   { href: '/master-data', label: 'Master Data', icon: 'ti-database', section: 'Administration' },
@@ -34,7 +35,8 @@ const PAGE_TITLES = [
   { match: /^\/visits\/new/, title: 'Create Walk-in Visit' },
   { match: /^\/visits/, title: 'Visits' },
   { match: /^\/queue/, title: 'Queue Management' },
-  { match: /^\/optometry/, title: 'Optometry' },
+  { match: /^\/optometry-dashboard/, title: 'Optometry Queue' },
+  { match: /^\/optometry/, title: 'Optometry Assessment' },
   { match: /^\/consultation/, title: 'Doctor Consultation' },
   { match: /^\/investigation/, title: 'Investigation' },
   { match: /^\/billing/, title: 'Billing' },
@@ -123,4 +125,5 @@ export default function AppShell({ children }) {
     </div>
   );
 }
+
 

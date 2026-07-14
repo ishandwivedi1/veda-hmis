@@ -142,17 +142,34 @@ export default function ConsultationForm({ queueEntryId }) {
 
       {error && <div className="msg-err">{error}</div>}
 
-      {f && (
-        <div className="card" style={{ marginBottom: 16, background: 'var(--g50)' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 6 }}>Optometry Findings</div>
-          <div style={{ fontSize: 12, color: 'var(--g600)' }}>
-            VA: RE {f.re_va || '--'} / LE {f.le_va || '--'} &nbsp;&nbsp;
-            IOP: RE {f.re_iop || '--'} / LE {f.le_iop || '--'} &nbsp;&nbsp;
-            Sph: RE {f.re_sph || '--'} / LE {f.le_sph || '--'} &nbsp;&nbsp;
-            Cyl: RE {f.re_cyl || '--'} / LE {f.le_cyl || '--'}
+      {f && (() => {
+        const latestIop = (eye) => {
+          const readings = (data.iopReadings || []).filter((r) => r.eye === eye);
+          return readings.length ? readings[readings.length - 1].value : null;
+        };
+        const reIop = latestIop('RE');
+        const leIop = latestIop('LE');
+        const reSph = f.ref_final_re_sph || f.ref_obj_re_sph;
+        const leSph = f.ref_final_le_sph || f.ref_obj_le_sph;
+        const reCyl = f.ref_final_re_cyl || f.ref_obj_re_cyl;
+        const leCyl = f.ref_final_le_cyl || f.ref_obj_le_cyl;
+        return (
+          <div className="card" style={{ marginBottom: 16, background: 'var(--g50)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 6 }}>
+              Optometry Findings <span style={{ fontWeight: 400, color: 'var(--g400)' }}>({f.va_scale})</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--g600)' }}>
+              VA: RE {f.re_dist_unaided || '--'} / LE {f.le_dist_unaided || '--'} &nbsp;&nbsp;
+              IOP: RE {reIop ?? '--'} / LE {leIop ?? '--'} &nbsp;&nbsp;
+              Sph: RE {reSph || '--'} / LE {leSph || '--'} &nbsp;&nbsp;
+              Cyl: RE {reCyl || '--'} / LE {leCyl || '--'}
+            </div>
+            {f.observations_text && (
+              <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 6 }}>Observations: {f.observations_text}</div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* DIAGNOSIS */}
       <div className="card" style={{ marginBottom: 16 }}>
@@ -274,4 +291,5 @@ export default function ConsultationForm({ queueEntryId }) {
     </div>
   );
 }
+
 
