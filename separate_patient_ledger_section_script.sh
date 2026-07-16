@@ -1,3 +1,6 @@
+mkdir -p "app/components" "app/(main)/payments/ledger" "app/(main)/payments/credit-note"
+
+cat > "app/components/AppShell.js" << 'EOF'
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -148,3 +151,68 @@ export default function AppShell({ children }) {
 }
 
 
+EOF
+
+cat > "app/(main)/payments/payments-tabs.js" << 'EOF'
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+const TABS = [
+  { href: '/payments', label: 'Dashboard', icon: 'ti-layout-dashboard' },
+  { href: '/payments/collect', label: 'Collect Payment', icon: 'ti-cash' },
+  { href: '/payments/advance', label: 'Advance', icon: 'ti-wallet' },
+  { href: '/payments/adjustments', label: 'Adjustments', icon: 'ti-adjustments' },
+  { href: '/payments/receipt', label: 'Receipt', icon: 'ti-receipt-2' },
+  { href: '/payments/cancel', label: 'Refund / Modification', icon: 'ti-receipt-refund' },
+  { href: '/payments/reports', label: 'Reports', icon: 'ti-file-report' },
+];
+
+export default function PaymentsTabs() {
+  const pathname = usePathname();
+  return (
+    <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+      {TABS.map((t) => (
+        <Link
+          key={t.href}
+          href={t.href}
+          className={pathname === t.href ? 'btn btn-primary' : 'btn'}
+          style={{ textDecoration: 'none' }}
+        >
+          <i className={`ti ${t.icon}`}></i> {t.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+EOF
+
+cat > "app/(main)/payments/ledger/page.js" << 'EOF'
+import LedgerTab from './ledger-tab';
+
+export default function LedgerPage() {
+  return (
+    <div>
+      <LedgerTab />
+    </div>
+  );
+}
+
+EOF
+
+cat > "app/(main)/payments/credit-note/page.js" << 'EOF'
+import CreditNoteTab from './credit-note-tab';
+
+export default function CreditNotePage() {
+  return (
+    <div>
+      <CreditNoteTab />
+    </div>
+  );
+}
+
+EOF
+
+echo "Patient Ledger is now its own sidebar section, separate from Payments tabs."
