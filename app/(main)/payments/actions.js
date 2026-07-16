@@ -24,6 +24,99 @@ export async function getAllUnpaidInvoices() {
   return data || [];
 }
 
+// ── CREDIT NOTES ──
+export async function getApprovers() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('profiles').select('id, full_name, designation').eq('status', 'Active').order('full_name');
+  return data || [];
+}
+
+export async function createCreditNote(patientId, invoiceId, amount, reason, approvedBy, remarks) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('create_credit_note', {
+    p_patient_id: patientId,
+    p_invoice_id: invoiceId,
+    p_amount: amount,
+    p_reason: reason,
+    p_approved_by: approvedBy,
+    p_remarks: remarks || null,
+  });
+  if (error) return { error: error.message };
+  return { creditNote: data };
+}
+
+export async function getCreditNoteRegister() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('credit_notes')
+    .select('*, patients(first_name, last_name, uhid), invoices(invoice_number), profiles!credit_notes_approved_by_fkey(full_name)')
+    .order('created_at', { ascending: false })
+    .limit(50);
+  return data || [];
+}
+
+// ── UNIFIED PATIENT LEDGER (Invoice / Payment / Advance / Advance
+// Adjustment / Credit Note / Refund, interleaved with a running
+// balance). patient_ledger itself is deliberately NOT a source here --
+// it's an internal advance-balance tracker (get_advance_balance sums
+// it), and every event it records already has a richer counterpart in
+// payments/invoices/credit_notes, so including both would double-count.
+export async function getPatientUnifiedLedger(patientId) {
+  const supabase = await createClient();
+
+  const [{ data: invoices }, { data: payments }, { data: refunds }, { data: creditNotes }] = await Promise.all([
+    supabase.from('invoices').select('id, invoice_number, net, status, created_at, visits(visit_number)').eq('patient_id', patientId),
+    supabase.from('payments').select('*, payment_modes(mode, amount)').eq('patient_id', patientId),
+    supabase.from('payment_refunds').select('*, payments!inner(patient_id, receipt_number), invoices(invoice_number, visits(visit_number))').eq('payments.patient_id', patientId),
+    supabase.from('credit_notes').select('*, invoices(invoice_number, visits(visit_number))').eq('patient_id', patientId),
+  ]);
+
+  const PAYMENT_TYPE_LABEL = { advance: 'Advance', advance_adjustment: 'Advance Adjustment', credit_note: 'Credit Note' };
+
+  const entries = [];
+
+  (invoices || []).forEach((inv) => {
+    entries.push({
+      date: inv.created_at, type: 'Invoice', ref: inv.invoice_number, visit: inv.visits?.visit_number || '--',
+      desc: `Invoice ${inv.invoice_number}`, debit: Number(inv.net), credit: 0, by: 'System',
+    });
+  });
+
+  (payments || []).forEach((p) => {
+    if (p.payment_type === 'credit_note') return; // shown from credit_notes instead, richer detail there
+    const type = PAYMENT_TYPE_LABEL[p.payment_type] || 'Payment';
+    const modeDesc = (p.payment_modes || []).map((m) => m.mode).join('+') || 'Advance';
+    entries.push({
+      date: p.collected_at, type, ref: p.receipt_number, visit: '--',
+      desc: `${type} via ${modeDesc}${p.remarks ? ' -- ' + p.remarks : ''}`, debit: 0, credit: Number(p.total_amount), by: 'Staff',
+    });
+  });
+
+  (refunds || []).forEach((r) => {
+    entries.push({
+      date: r.refunded_at, type: 'Refund', ref: r.payments?.receipt_number || '--', visit: r.invoices?.visits?.visit_number || '--',
+      desc: `Refund against ${r.invoices?.invoice_number || '--'} -- ${r.reason}`, debit: Number(r.amount), credit: 0, by: 'Staff',
+    });
+  });
+
+  (creditNotes || []).forEach((cn) => {
+    entries.push({
+      date: cn.created_at, type: 'Credit Note', ref: cn.credit_note_number, visit: cn.invoices?.visits?.visit_number || '--',
+      desc: `${cn.reason} -- against ${cn.invoices?.invoice_number || '--'}`, debit: 0, credit: Number(cn.amount), by: 'Staff',
+    });
+  });
+
+  entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  let balance = 0;
+  entries.forEach((e) => {
+    balance += e.debit - e.credit;
+    e.balance = balance;
+  });
+
+  return entries.reverse(); // newest first for display
+}
+
 export async function searchPatientsForPayment(q) {
   if (!q) return [];
   const supabase = await createClient();

@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { href: '/visits', label: 'Visits', icon: 'ti-door-enter', section: 'Front Office' },
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', section: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', section: 'Finance' },
-  { href: '/payments/advance', label: 'Patient Ledger', icon: 'ti-book', section: 'Finance' },
+  { href: '/payments/ledger', label: 'Patient Ledger', icon: 'ti-book', section: 'Finance' },
   { href: '/payments/reports', label: 'Reports', icon: 'ti-report-money', section: 'Finance' },
   { href: '/queue', label: 'Queue Management', icon: 'ti-list-numbers', section: 'Clinical' },
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
