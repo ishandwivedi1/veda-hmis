@@ -13,6 +13,17 @@ export async function getPatientById(patientId) {
   return { patient: data };
 }
 
+export async function getAllUnpaidInvoices() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('invoices')
+    .select('id, invoice_number, net, paid, status, created_at, patients(id, first_name, last_name, uhid)')
+    .in('status', ['Pending', 'Partial'])
+    .order('created_at', { ascending: false })
+    .limit(50);
+  return data || [];
+}
+
 export async function searchPatientsForPayment(q) {
   if (!q) return [];
   const supabase = await createClient();
