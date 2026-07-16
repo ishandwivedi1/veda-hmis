@@ -117,6 +117,67 @@ export async function getPatientUnifiedLedger(patientId) {
   return entries.reverse(); // newest first for display
 }
 
+// ── EDIT PAYMENT (clerical corrections only -- mode/reference/remarks,
+// never amount) ──
+export async function editPaymentClerical(paymentId, modes, reference, remarks, reason) {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('edit_payment_clerical', {
+    p_payment_id: paymentId,
+    p_modes: modes,
+    p_reference: reference || null,
+    p_remarks: remarks || null,
+    p_reason: reason,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function getPaymentEditHistory(paymentId) {
+  const supabase = await createClient();
+  const { data } = await supabase.from('payment_edits').select('*, profiles(full_name)').eq('payment_id', paymentId).order('edited_at', { ascending: false });
+  return data || [];
+}
+
+// ── REFUND (patient-first flow) ──
+export async function getPatientPayments(patientId) {
+  const supabase = await createClient();
+  const { data: payments } = await supabase
+    .from('payments')
+    .select('*, payment_modes(mode, amount), payment_allocations(id, invoice_id, amount, invoices(invoice_number))')
+    .eq('patient_id', patientId)
+    .order('collected_at', { ascending: false });
+
+  const rows = payments || [];
+  const paymentIds = rows.map((p) => p.id);
+
+  let refundedByPaymentInvoice = {};
+  if (paymentIds.length > 0) {
+    const { data: refunds } = await supabase.from('payment_refunds').select('payment_id, invoice_id, amount').in('payment_id', paymentIds);
+    (refunds || []).forEach((r) => {
+      const key = `${r.payment_id}:${r.invoice_id}`;
+      refundedByPaymentInvoice[key] = (refundedByPaymentInvoice[key] || 0) + Number(r.amount);
+    });
+  }
+
+  return rows.map((p) => ({
+    ...p,
+    payment_allocations: (p.payment_allocations || []).map((a) => {
+      const alreadyRefunded = refundedByPaymentInvoice[`${p.id}:${a.invoice_id}`] || 0;
+      return { ...a, alreadyRefunded, refundable: Number(a.amount) - alreadyRefunded };
+    }),
+  }));
+}
+
+export async function getRefundRegister() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('payment_refunds')
+    .select('*, payments(receipt_number, patients(first_name, last_name, uhid)), invoices(invoice_number), profiles!payment_refunds_approved_by_fkey(full_name)')
+    .order('refunded_at', { ascending: false })
+    .limit(50);
+  return data || [];
+}
+
 export async function searchPatientsForPayment(q) {
   if (!q) return [];
   const supabase = await createClient();
@@ -284,13 +345,15 @@ export async function getRefundHistory(paymentId) {
   return data || [];
 }
 
-export async function refundPayment(paymentId, invoiceId, amount, reason) {
+export async function refundPayment(paymentId, invoiceId, amount, reason, refundMode, approvedBy) {
   const supabase = await createClient();
   const { error } = await supabase.rpc('refund_payment', {
     p_payment_id: paymentId,
     p_invoice_id: invoiceId,
     p_amount: amount,
     p_reason: reason,
+    p_refund_mode: refundMode || null,
+    p_approved_by: approvedBy || null,
   });
   if (error) return { error: error.message };
   return { success: true };

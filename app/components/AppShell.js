@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/payments/reports', label: 'Reports', icon: 'ti-report-money', section: 'Finance' },
   { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', section: 'Patient Ledger' },
   { href: '/payments/credit-note', label: 'Credit Note', icon: 'ti-file-minus', section: 'Patient Ledger' },
+  { href: '/payments/refund', label: 'Refund', icon: 'ti-rotate-clockwise', section: 'Patient Ledger' },
   { href: '/queue', label: 'Queue Management', icon: 'ti-list-numbers', section: 'Clinical' },
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
