@@ -1,3 +1,6 @@
+mkdir -p "app/(main)/payments"
+
+cat > "app/(main)/payments/actions.js" << 'EOF'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -543,3 +546,6 @@ export async function collectPayment(patientId, invoiceIds, amount, modes, refer
 }
 
 
+EOF
+
+echo "Collection report now only counts real cash-in (invoice_payment + advance) - matches Payment Mode Summary."
