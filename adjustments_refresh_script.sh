@@ -1,3 +1,6 @@
+mkdir -p "app/(main)/payments/adjustments"
+
+cat > "app/(main)/payments/adjustments/adjustments-tab.js" << 'EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -148,3 +151,6 @@ export default function AdjustmentsTab() {
 }
 
 
+EOF
+
+echo "Adjustments now has a Refresh button so newly-created invoices show up without re-picking the patient."
