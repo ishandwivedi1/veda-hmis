@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, refundPayment, getRefundRegister } from '../actions';
+import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, refundPayment, getRefundRegister, getTodaysVisits } from '../actions';
+import TodaysVisitsWidget from '../todays-visits-widget';
 
 const REASONS = ['Excess payment', 'Cancelled service', 'Duplicate payment', 'Service not rendered', 'Patient request -- approved', 'Other approved reason'];
 const MODES = ['Cash', 'UPI (to patient)', 'Bank Transfer', 'Cheque'];
@@ -25,10 +26,12 @@ export default function RefundTab() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [todaysVisits, setTodaysVisits] = useState([]);
 
   useEffect(() => {
     getApprovers().then(setApprovers);
     refreshRegister();
+    getTodaysVisits().then(setTodaysVisits);
   }, []);
 
   async function refreshRegister() {
@@ -117,6 +120,9 @@ export default function RefundTab() {
                   ))}
                 </div>
               )}
+              <div style={{ marginTop: 16 }}>
+                <TodaysVisitsWidget visits={todaysVisits} onSelect={pickPatient} />
+              </div>
             </div>
           ) : (
             <div>

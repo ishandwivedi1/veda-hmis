@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { searchPatientsForPayment, getAdvanceBalance, collectAdvance, getCurrentBalancesByPatient, getLedgerHistory } from '../actions';
+import { searchPatientsForPayment, getAdvanceBalance, collectAdvance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits } from '../actions';
+import TodaysVisitsWidget from '../todays-visits-widget';
 
 const ADVANCE_TYPES = ['Surgery Advance', 'General Advance', 'Package Advance', 'Other'];
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -31,6 +32,7 @@ export default function AdvanceTab() {
 
   const [balances, setBalances] = useState([]);
   const [history, setHistory] = useState([]);
+  const [todaysVisits, setTodaysVisits] = useState([]);
 
   const refreshSidebar = useCallback(async () => {
     setBalances(await getCurrentBalancesByPatient());
@@ -38,6 +40,7 @@ export default function AdvanceTab() {
   }, []);
 
   useEffect(() => { refreshSidebar(); }, [refreshSidebar]);
+  useEffect(() => { getTodaysVisits().then(setTodaysVisits); }, []);
 
   const modesTotal = modeRows.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0);
 
@@ -201,6 +204,8 @@ export default function AdvanceTab() {
       </div>
 
       <div>
+        <TodaysVisitsWidget visits={todaysVisits} onSelect={pickPatient} />
+
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-title" style={{ marginBottom: 10 }}>
             <i className="ti ti-wallet" style={{ color: 'var(--purple)' }}></i> Current Balance by Patient
@@ -241,4 +246,5 @@ export default function AdvanceTab() {
     </div>
   );
 }
+
 

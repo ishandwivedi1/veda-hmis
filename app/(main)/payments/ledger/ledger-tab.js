@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { searchPatientsForPayment, getPatientUnifiedLedger, getAdvanceBalance, getOutstandingInvoices } from '../actions';
+import { useState, useEffect } from 'react';
+import { searchPatientsForPayment, getPatientUnifiedLedger, getAdvanceBalance, getOutstandingInvoices, getTodaysVisits } from '../actions';
+import TodaysVisitsWidget from '../todays-visits-widget';
 
 const TYPE_COLOR = {
   Invoice: 'var(--red)', Payment: 'var(--green)', Advance: 'var(--purple)',
@@ -24,6 +25,9 @@ export default function LedgerTab() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [loading, setLoading] = useState(false);
+  const [todaysVisits, setTodaysVisits] = useState([]);
+
+  useEffect(() => { getTodaysVisits().then(setTodaysVisits); }, []);
 
   async function handleSearch() {
     if (!searchQuery.trim()) return;
@@ -74,21 +78,24 @@ export default function LedgerTab() {
         </div>
 
         {!patient ? (
-          <div>
-            <label className="flbl">Search patient (name, UHID, or mobile)</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input className="fi" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Type to search..." />
-              <button className="btn btn-primary" onClick={handleSearch}><i className="ti ti-search"></i> Search</button>
-            </div>
-            {searchResults.length > 0 && (
-              <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
-                {searchResults.map((p) => (
-                  <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid}
-                  </div>
-                ))}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div>
+              <label className="flbl">Search patient (name, UHID, or mobile)</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="fi" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Type to search..." />
+                <button className="btn btn-primary" onClick={handleSearch}><i className="ti ti-search"></i> Search</button>
               </div>
-            )}
+              {searchResults.length > 0 && (
+                <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
+                  {searchResults.map((p) => (
+                    <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                      <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <TodaysVisitsWidget visits={todaysVisits} onSelect={pickPatient} />
           </div>
         ) : (
           <div>

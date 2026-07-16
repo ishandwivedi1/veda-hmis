@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { searchPatientsForPayment, getOutstandingInvoices, getApprovers, createCreditNote, getCreditNoteRegister } from '../actions';
+import { searchPatientsForPayment, getOutstandingInvoices, getApprovers, createCreditNote, getCreditNoteRegister, getTodaysVisits } from '../actions';
+import TodaysVisitsWidget from '../todays-visits-widget';
 
 const REASONS = ['Billing correction', 'Service cancellation', 'Approved financial adjustment', 'Goodwill gesture', 'Insurance adjustment', 'Other'];
 
@@ -22,10 +23,12 @@ export default function CreditNoteTab() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [todaysVisits, setTodaysVisits] = useState([]);
 
   useEffect(() => {
     getApprovers().then(setApprovers);
     refreshRegister();
+    getTodaysVisits().then(setTodaysVisits);
   }, []);
 
   async function refreshRegister() {
@@ -103,6 +106,9 @@ export default function CreditNoteTab() {
                 ))}
               </div>
             )}
+            <div style={{ marginTop: 16 }}>
+              <TodaysVisitsWidget visits={todaysVisits} onSelect={pickPatient} />
+            </div>
           </div>
         ) : (
           <div>

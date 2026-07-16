@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getCurrentBalancesByPatient, getAdvanceBalance, getOutstandingInvoices, getPatientLedgerAudit, applyAdjustment } from '../actions';
+import { getCurrentBalancesByPatient, getAdvanceBalance, getOutstandingInvoices, getPatientLedgerAudit, applyAdjustment, getTodaysVisits } from '../actions';
+import TodaysVisitsWidget from '../todays-visits-widget';
 
 export default function AdjustmentsTab() {
   const [patientsWithBalance, setPatientsWithBalance] = useState([]);
@@ -9,6 +10,7 @@ export default function AdjustmentsTab() {
   const [balance, setBalance] = useState(0);
   const [invoices, setInvoices] = useState([]);
   const [audit, setAudit] = useState([]);
+  const [todaysVisits, setTodaysVisits] = useState([]);
 
   const [amount, setAmount] = useState('');
   const [invoiceId, setInvoiceId] = useState('');
@@ -21,6 +23,7 @@ export default function AdjustmentsTab() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { getTodaysVisits().then(setTodaysVisits); }, []);
 
   async function loadPatientData(patient) {
     setBalance(await getAdvanceBalance(patient.id));
@@ -28,12 +31,16 @@ export default function AdjustmentsTab() {
     setAudit(await getPatientLedgerAudit(patient.id));
   }
 
-  async function pickPatient(entry) {
+  async function selectPatient(patient) {
     setError(''); setSuccess('');
-    setSelected(entry.patient);
-    await loadPatientData(entry.patient);
+    setSelected(patient);
+    await loadPatientData(patient);
     setAmount('');
     setInvoiceId('');
+  }
+
+  async function pickPatient(entry) {
+    await selectPatient(entry.patient);
   }
 
   async function handleRefresh() {
@@ -72,6 +79,8 @@ export default function AdjustmentsTab() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 20 }}>
         <div>
+          <TodaysVisitsWidget visits={todaysVisits} onSelect={selectPatient} />
+
           <label className="flbl" style={{ marginBottom: 8 }}>Patients with advance balance</label>
           {patientsWithBalance.map((entry, i) => (
             <div
