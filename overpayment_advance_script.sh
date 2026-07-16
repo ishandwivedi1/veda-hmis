@@ -1,3 +1,6 @@
+mkdir -p "app/(main)/payments/collect"
+
+cat > "app/(main)/payments/collect/collect-payment-tab.js" << 'EOF'
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -331,3 +334,6 @@ export default function CollectPaymentTab() {
 }
 
 
+EOF
+
+echo "Collect Payment now surfaces overpayment-to-advance credit on the receipt screen."
