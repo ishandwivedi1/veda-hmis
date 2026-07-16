@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, refundPayment, getRefundRegister, getTodaysVisits } from '../actions';
+import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, refundPayment, refundAdvance, getRefundRegister, getTodaysVisits } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
 
 const REASONS = ['Excess payment', 'Cancelled service', 'Duplicate payment', 'Service not rendered', 'Patient request -- approved', 'Other approved reason'];
@@ -62,7 +62,13 @@ export default function RefundTab() {
 
   function startRefund(payment, allocation) {
     setError(''); setSuccess('');
-    setRefundFor({ payment, allocation });
+    setRefundFor({ kind: 'invoice', payment, allocation });
+    setAmount(''); setReason(''); setMode(''); setApprovedBy(''); setRemarks('');
+  }
+
+  function startRefundAdvance() {
+    setError(''); setSuccess('');
+    setRefundFor({ kind: 'advance' });
     setAmount(''); setReason(''); setMode(''); setApprovedBy(''); setRemarks('');
   }
 
@@ -73,20 +79,29 @@ export default function RefundTab() {
     setError('');
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setError('Enter a valid refund amount.'); return; }
-    if (amt > refundFor.allocation.refundable) { setError(`Refund amount cannot exceed what remains refundable (Rs.${refundFor.allocation.refundable.toFixed(2)}).`); return; }
     if (!reason) { setError('Select a refund reason.'); return; }
     if (!mode) { setError('Select a refund mode.'); return; }
     if (!approvedBy) { setError('Select an approver.'); return; }
 
     setLoading(true);
-    const result = await refundPayment(refundFor.payment.id, refundFor.allocation.invoice_id, amt, reason, mode, approvedBy);
+    let result;
+    if (refundFor.kind === 'advance') {
+      if (amt > advanceBalance) { setLoading(false); setError(`Refund amount cannot exceed the available advance balance (Rs.${advanceBalance}).`); return; }
+      result = await refundAdvance(patient.id, amt, reason, mode, approvedBy);
+    } else {
+      if (amt > refundFor.allocation.refundable) { setLoading(false); setError(`Refund amount cannot exceed what remains refundable (Rs.${refundFor.allocation.refundable.toFixed(2)}).`); return; }
+      result = await refundPayment(refundFor.payment.id, refundFor.allocation.invoice_id, amt, reason, mode, approvedBy);
+    }
     setLoading(false);
 
     if (result.error) { setError(result.error); return; }
-    setSuccess(`Refund of Rs.${amt.toFixed(2)} processed against ${refundFor.allocation.invoices?.invoice_number}.`);
+    setSuccess(refundFor.kind === 'advance'
+      ? `Refund of Rs.${amt.toFixed(2)} processed from advance balance.`
+      : `Refund of Rs.${amt.toFixed(2)} processed against ${refundFor.allocation.invoices?.invoice_number}.`);
     setRefundFor(null);
-    const pmts = await getPatientPayments(patient.id);
+    const [pmts, balance] = await Promise.all([getPatientPayments(patient.id), getAdvanceBalance(patient.id)]);
     setPayments(pmts);
+    setAdvanceBalance(balance);
     refreshRegister();
   }
 
@@ -139,6 +154,20 @@ export default function RefundTab() {
                 </div>
               </div>
 
+              {advanceBalance > 0 && (
+                <div className="card" style={{ padding: '10px 12px', marginBottom: 8, background: 'var(--purple-lt)', border: '1px solid var(--purple)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: 12 }}>
+                      <i className="ti ti-wallet" style={{ color: 'var(--purple)' }}></i> Advance balance: <strong style={{ color: 'var(--purple)' }}>Rs.{advanceBalance}</strong>
+                      <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Not tied to any invoice -- refund it directly from the pooled balance.</div>
+                    </div>
+                    <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={startRefundAdvance}>
+                      Refund from Advance
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <label className="flbl" style={{ marginBottom: 8 }}>Receipts -- select what to refund</label>
               {payments.map((p) => (
                 <div key={p.id} className="card" style={{ padding: '10px 12px', marginBottom: 8 }}>
@@ -163,7 +192,9 @@ export default function RefundTab() {
               {refundFor && (
                 <div style={{ border: '1.5px solid var(--amber)', borderRadius: 8, padding: 14, marginTop: 12 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
-                    Refund against {refundFor.allocation.invoices?.invoice_number} -- up to Rs.{refundFor.allocation.refundable.toFixed(2)}
+                    {refundFor.kind === 'advance'
+                      ? `Refund from advance balance -- up to Rs.${advanceBalance}`
+                      : `Refund against ${refundFor.allocation.invoices?.invoice_number} -- up to Rs.${refundFor.allocation.refundable.toFixed(2)}`}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                     <div>
@@ -219,8 +250,8 @@ export default function RefundTab() {
             <tbody>
               {register.map((r) => (
                 <tr key={r.id}>
-                  <td style={{ fontSize: 12 }}>{r.payments?.patients?.first_name} {r.payments?.patients?.last_name}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{r.invoices?.invoice_number || '--'}</td>
+                  <td style={{ fontSize: 12 }}>{r.patients?.first_name} {r.patients?.last_name}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{r.invoices?.invoice_number || 'Advance'}</td>
                   <td style={{ fontSize: 12, fontWeight: 600 }}>Rs.{Number(r.amount).toFixed(2)}</td>
                   <td style={{ fontSize: 11 }}>{r.refund_mode || '--'}</td>
                   <td style={{ fontSize: 11 }}>{r.reason}</td>
