@@ -29,7 +29,8 @@ const NAV_ITEMS = [
   { href: '/optometry-reports', label: 'Optometry Reports', icon: 'ti-chart-bar', section: 'Optometrist' },
   { href: '/surgical', label: 'Surgical Coordination', icon: 'ti-scalpel', section: 'Surgical' },
   { href: '/ot-schedule', label: 'OT Scheduling', icon: 'ti-calendar-time', section: 'Surgical' },
-  { href: '/master-data', label: 'Master Data', icon: 'ti-database', section: 'Administration' },
+  { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', section: 'Administration' },
+  { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', section: 'Administration' },
   { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration' },
 ];
 
@@ -58,6 +59,8 @@ const PAGE_TITLES = [
   { match: /^\/pharmacy/, title: 'Pharmacy' },
   { match: /^\/surgical/, title: 'Surgical Coordination' },
   { match: /^\/ot-schedule/, title: 'OT Scheduling' },
+  { match: /^\/master-data\/clinical/, title: 'Clinical Masters' },
+  { match: /^\/master-data\/financial/, title: 'Financial Masters' },
   { match: /^\/master-data/, title: 'Master Data' },
   { match: /^\/users/, title: 'User Management' },
 ];
