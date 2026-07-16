@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { searchInvoices, getInvoiceById, recordPayment } from '../actions';
+import { searchInvoices, getInvoiceById } from '../actions';
 
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
 
@@ -13,9 +13,7 @@ export default function InvoiceDetailsTab() {
   const [invoices, setInvoices] = useState([]);
   const [selected, setSelected] = useState(null);
   const [lineItems, setLineItems] = useState([]);
-  const [paymentAmount, setPaymentAmount] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const runSearch = useCallback(async () => {
     setInvoices(await searchInvoices(query, deptFilter));
@@ -29,19 +27,6 @@ export default function InvoiceDetailsTab() {
     if (details.error) { setError(details.error); return; }
     setSelected(details.invoice);
     setLineItems(details.lineItems);
-  }
-
-  async function handleRecordPayment() {
-    setError('');
-    const amt = parseFloat(paymentAmount);
-    if (!amt || amt <= 0) { setError('Enter a valid payment amount.'); return; }
-    setLoading(true);
-    const result = await recordPayment(selected.id, amt);
-    setLoading(false);
-    if (result.error) { setError(result.error); return; }
-    setPaymentAmount('');
-    openInvoice(selected);
-    runSearch();
   }
 
   const balanceDue = selected ? Number(selected.net) - Number(selected.paid) : 0;
@@ -125,11 +110,16 @@ export default function InvoiceDetailsTab() {
 
           {balanceDue > 0 && selected.status !== 'Cancelled' && (
             <div className="card">
-              <div className="card-title" style={{ marginBottom: 10 }}>Collect Payment</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input type="number" className="fi" placeholder={`Up to Rs.${balanceDue}`} value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
-                <button className="btn btn-primary" onClick={handleRecordPayment} disabled={loading}>{loading ? 'Recording...' : 'Record'}</button>
+              <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 10 }}>
+                Balance of Rs.{balanceDue} still due on this invoice.
               </div>
+              <a
+                href={`/payments/collect?patientId=${selected.patient_id}&invoiceId=${selected.id}`}
+                className="btn btn-primary"
+                style={{ textDecoration: 'none' }}
+              >
+                <i className="ti ti-cash"></i> Collect Payment
+              </a>
             </div>
           )}
         </div>
@@ -137,4 +127,5 @@ export default function InvoiceDetailsTab() {
     </div>
   );
 }
+
 

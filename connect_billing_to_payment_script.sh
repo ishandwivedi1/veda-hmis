@@ -1,4 +1,4 @@
-mkdir -p "app/(main)/payments/collect" "app/(main)/billing/new"
+ mkdir -p "app/(main)/payments/collect" "app/(main)/billing/new"
 
 cat > "app/(main)/payments/actions.js" << 'EOF'
 'use server';
