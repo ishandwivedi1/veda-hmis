@@ -5,13 +5,11 @@ import {
   toggleStatus,
   getDrugs, addDrug,
   getDiagnosesMaster, addDiagnosisMaster,
-  getInvestigationsMaster, addInvestigationMaster,
 } from '../actions';
 
 const TABS = [
   { key: 'drugs', label: 'Pharmacy', table: 'master_drugs' },
   { key: 'diagnoses', label: 'Diagnoses', table: 'master_diagnoses' },
-  { key: 'investigations', label: 'Investigations', table: 'master_investigations' },
 ];
 
 function StatusToggle({ record, table, onUpdate }) {
@@ -38,7 +36,6 @@ export default function ClinicalMastersPage() {
   const [activeTab, setActiveTab] = useState('drugs');
   const [drugs, setDrugs] = useState([]);
   const [diagnoses, setDiagnoses] = useState([]);
-  const [investigations, setInvestigations] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
@@ -46,7 +43,6 @@ export default function ClinicalMastersPage() {
   const refresh = useCallback(async () => {
     setDrugs(await getDrugs());
     setDiagnoses(await getDiagnosesMaster());
-    setInvestigations(await getInvestigationsMaster());
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -62,7 +58,6 @@ export default function ClinicalMastersPage() {
     let result;
     if (activeTab === 'drugs') result = await addDrug(form);
     else if (activeTab === 'diagnoses') result = await addDiagnosisMaster(form);
-    else if (activeTab === 'investigations') result = await addInvestigationMaster(form);
 
     if (result?.error) { setError(result.error); return; }
     setForm({});
@@ -114,15 +109,6 @@ export default function ClinicalMastersPage() {
                 <input className="fi" placeholder="Category (e.g. Lens, Retina)" onChange={update('category')} />
               </div>
             )}
-            {activeTab === 'investigations' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-                <input className="fi" placeholder="Code" onChange={update('code')} />
-                <input className="fi" placeholder="Name" onChange={update('name')} />
-                <input className="fi" placeholder="Dept" onChange={update('dept')} />
-                <input type="number" className="fi" placeholder="Rate" onChange={update('rate')} />
-                <input type="number" className="fi" placeholder="GST %" onChange={update('gstPct')} />
-              </div>
-            )}
             <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
           </div>
         )}
@@ -150,21 +136,6 @@ export default function ClinicalMastersPage() {
                 <tr key={d.id}>
                   <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.name}</td><td>{d.category}</td>
                   <td><StatusToggle record={d} table="master_diagnoses" onUpdate={refresh} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {activeTab === 'investigations' && (
-          <table className="tbl">
-            <thead><tr><th>Code</th><th>Name</th><th>Dept</th><th>Rate</th><th>GST%</th><th>Status</th></tr></thead>
-            <tbody>
-              {investigations.map((i) => (
-                <tr key={i.id}>
-                  <td style={{ fontFamily: 'monospace' }}>{i.code}</td><td>{i.name}</td><td>{i.dept}</td>
-                  <td>Rs.{i.rate}</td><td>{i.gst_pct}%</td>
-                  <td><StatusToggle record={i} table="master_investigations" onUpdate={refresh} /></td>
                 </tr>
               ))}
             </tbody>

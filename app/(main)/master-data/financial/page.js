@@ -121,6 +121,11 @@ export default function FinancialMastersPage() {
 
           {error && <div className="msg-err">{error}</div>}
           {success && <div className="msg-success"><i className="ti ti-circle-check"></i> {success}</div>}
+          {activeTab === 'services' && (
+            <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Investigation rates live here too -- filter or set Dept to &quot;Investigation&quot;. This is the single source of truth for every priced item; nothing else in the app maintains a separate copy.
+            </div>
+          )}
 
           {showAdd && (
             <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>

@@ -126,20 +126,11 @@ export async function addDiagnosisMaster(values) {
   return { success: true };
 }
 
-// ── INVESTIGATIONS (master catalog) ──
-export async function getInvestigationsMaster() {
-  const supabase = await createClient();
-  const { data } = await supabase.from('master_investigations').select('*').order('name');
-  return data || [];
-}
-export async function addInvestigationMaster(values) {
-  const supabase = await createClient();
-  const { error } = await supabase.from('master_investigations').insert({
-    code: values.code, name: values.name, dept: values.dept,
-    rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
-  });
-  if (error) return { error: error.message };
-  return { success: true };
-}
+// NOTE: Investigations previously had their own master_investigations
+// table here, but it was empty and unused everywhere except this
+// module -- every real investigation (with its actual rate) already
+// lives in master_services where dept = 'Investigation'. Consolidated
+// into Financial Masters (Migration 48) to avoid the same item ever
+// having two different prices in two different places.
 
 
