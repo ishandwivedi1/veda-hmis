@@ -5,7 +5,7 @@ import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApp
 import TodaysVisitsWidget from '../todays-visits-widget';
 
 const REASONS = ['Excess payment', 'Cancelled service', 'Duplicate payment', 'Service not rendered', 'Patient request -- approved', 'Other approved reason'];
-const MODES = ['Cash', 'UPI (to patient)', 'Bank Transfer', 'Cheque'];
+const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 
 export default function RefundTab() {
   const [searchQuery, setSearchQuery] = useState('');
