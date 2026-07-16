@@ -125,7 +125,19 @@ export default function PaymentReportsTab() {
               )}
             </tbody>
           </table>
-          {report.total !== null && (
+          {report.summary && (
+            <div style={{ display: 'flex', gap: 20, justifyContent: 'flex-end', padding: '10px 0', borderTop: '1px solid var(--g200)', marginTop: 10 }}>
+              {report.summary.map((s) => (
+                <div key={s.label} style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, color: 'var(--g500)', textTransform: 'uppercase' }}>{s.label}</div>
+                  <div style={{ fontSize: s.emphasize ? 16 : 13, fontWeight: 700, color: s.value < 0 ? 'var(--red)' : s.emphasize ? 'var(--green)' : 'var(--g800)' }}>
+                    {s.value < 0 ? '-' : ''}Rs.{Math.abs(s.value).toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {report.total !== null && !report.summary && (
             <div style={{ textAlign: 'right', fontWeight: 700, marginTop: 10, fontSize: 14 }}>
               Total: Rs.{report.total.toFixed(2)}
             </div>
@@ -135,4 +147,5 @@ export default function PaymentReportsTab() {
     </div>
   );
 }
+
 
