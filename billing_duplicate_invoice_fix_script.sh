@@ -1,3 +1,6 @@
+mkdir -p "app/(main)/billing/new"
+
+cat > "app/(main)/billing/new/new-invoice-tab.js" << 'EOF'
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -314,3 +317,6 @@ export default function NewInvoiceTab() {
 }
 
 
+EOF
+
+echo "Frontend guard added against duplicate invoice auto-fill requests."
