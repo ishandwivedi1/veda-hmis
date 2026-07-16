@@ -1,3 +1,6 @@
+mkdir -p "app/(main)/front-office-dashboard"
+
+cat > "app/(main)/front-office-dashboard/page.js" << 'EOF'
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
@@ -320,3 +323,6 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
 }
 
 
+EOF
+
+echo "Front Office Dashboard billing status now correctly aggregates across all invoices per visit."
