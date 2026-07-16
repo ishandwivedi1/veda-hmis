@@ -2,6 +2,17 @@
 
 import { createClient } from '@/lib/supabase-server';
 
+export async function getPatientById(patientId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('patients')
+    .select('id, uhid, first_name, last_name, mobile')
+    .eq('id', patientId)
+    .single();
+  if (error) return { error: error.message };
+  return { patient: data };
+}
+
 export async function searchPatientsForPayment(q) {
   if (!q) return [];
   const supabase = await createClient();
@@ -301,4 +312,5 @@ export async function collectPayment(patientId, invoiceIds, amount, modes, refer
   if (error) return { error: error.message };
   return { payment: data };
 }
+
 

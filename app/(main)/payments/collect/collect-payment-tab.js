@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { searchPatientsForPayment, getOutstandingInvoices, collectPayment, getAdvanceBalance } from '../actions';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { searchPatientsForPayment, getOutstandingInvoices, collectPayment, getAdvanceBalance, getPatientById } from '../actions';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 
@@ -12,6 +13,7 @@ export default function CollectPaymentTab() {
   const [invoices, setInvoices] = useState([]);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
   const [advanceBalance, setAdvanceBalance] = useState(0);
+  const [highlightInvoiceId, setHighlightInvoiceId] = useState(null);
 
   const [amount, setAmount] = useState('');
   const [modeRows, setModeRows] = useState([{ mode: 'Cash', amount: '' }]);
@@ -21,6 +23,25 @@ export default function CollectPaymentTab() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState(null);
+  const searchParams = useSearchParams();
+  const urlPatientId = searchParams.get('patientId');
+  const urlInvoiceId = searchParams.get('invoiceId');
+  const autofillDoneFor = useRef(null);
+
+  // Arrived from "Finalize invoice" -- auto-load the patient and their
+  // outstanding invoices (including the one just billed) instead of
+  // requiring a manual search.
+  useEffect(() => {
+    if (!urlPatientId) return;
+    if (autofillDoneFor.current === urlPatientId) return;
+    autofillDoneFor.current = urlPatientId;
+    (async () => {
+      const result = await getPatientById(urlPatientId);
+      if (result.error) { setError(result.error); return; }
+      if (urlInvoiceId) setHighlightInvoiceId(urlInvoiceId);
+      await pickPatient(result.patient);
+    })();
+  }, [urlPatientId, urlInvoiceId]);
 
   // In the common case (single payment mode), the mode's amount should
   // always match the amount collecting -- no need to type the same
@@ -176,10 +197,18 @@ export default function CollectPaymentTab() {
             {invoices.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', marginBottom: 14 }}>No outstanding invoices for this patient.</div>}
             <div style={{ marginBottom: 14 }}>
               {invoices.map((inv) => (
-                <label key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 4px', borderBottom: '1px solid var(--g100)', fontSize: 13, cursor: 'pointer' }}>
+                <label
+                  key={inv.id}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 4px',
+                    borderBottom: '1px solid var(--g100)', fontSize: 13, cursor: 'pointer',
+                    background: inv.id === highlightInvoiceId ? 'var(--green-lt)' : 'transparent', borderRadius: 4,
+                  }}
+                >
                   <span>
                     <input type="checkbox" checked={selectedInvoiceIds.includes(inv.id)} onChange={() => toggleInvoice(inv.id)} style={{ marginRight: 8 }} />
                     {inv.invoice_number} -- <span className={`badge ${inv.status === 'Partial' ? 'b-amber' : 'b-red'}`}>{inv.status}</span>
+                    {inv.id === highlightInvoiceId && <span className="badge b-green" style={{ marginLeft: 6 }}>Just billed</span>}
                   </span>
                   <span style={{ fontWeight: 600 }}>Rs.{(inv.net - inv.paid).toFixed(2)}</span>
                 </label>
@@ -231,7 +260,7 @@ export default function CollectPaymentTab() {
             </div>
 
             <button className="btn btn-green" onClick={handleCollect} disabled={loading}>
-              <i className="ti ti-circle-check"></i> {loading ? 'Collecting...' : 'Collect payment'}
+              <i className="ti ti-circle-check"></i> {loading ? 'Finalizing...' : 'Finalize Payment'}
             </button>
           </div>
         )}
@@ -256,4 +285,5 @@ export default function CollectPaymentTab() {
     </div>
   );
 }
+
 

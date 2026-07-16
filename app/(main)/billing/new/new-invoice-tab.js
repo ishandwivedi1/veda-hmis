@@ -57,8 +57,6 @@ export default function NewInvoiceTab() {
 
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [finalized, setFinalized] = useState(false);
-  const [savedInvoice, setSavedInvoice] = useState(null);
   const [todaysVisits, setTodaysVisits] = useState([]);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -183,8 +181,7 @@ export default function NewInvoiceTab() {
   async function handleFinalize() {
     const inv = await commitInvoice();
     if (!inv) return;
-    setSavedInvoice(inv);
-    setFinalized(true);
+    router.push(`/payments/collect?patientId=${contextPatient.id}&invoiceId=${inv.id}`);
   }
 
   async function handleSaveDraft() {
@@ -198,8 +195,6 @@ export default function NewInvoiceTab() {
     setContextVisit(null);
     setExistingInvoices([]);
     setDraftLines([]);
-    setFinalized(false);
-    setSavedInvoice(null);
     contextLoadedFor.current = null;
     router.push('/billing/new');
   }
@@ -233,17 +228,6 @@ export default function NewInvoiceTab() {
                 ))}
               </div>
             )}
-          </div>
-        ) : finalized ? (
-          <div className="msg-success">
-            <i className="ti ti-circle-check"></i> Invoice finalized for {contextPatient.first_name} {contextPatient.last_name} -- Net Rs.{savedInvoice.net}.{' '}
-            <a href={`/billing/details?q=${contextPatient.uhid}`} style={{ color: 'var(--blue)' }}>Go collect payment in Invoice Details &rarr;</a>
-            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-              <a href={`/invoice-print/${savedInvoice.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
-                <i className="ti ti-printer"></i> Print / PDF
-              </a>
-              <button className="btn btn-sm" onClick={startOver}>Start a new invoice</button>
-            </div>
           </div>
         ) : (
           <div>
@@ -360,7 +344,7 @@ export default function NewInvoiceTab() {
           </div>
         )}
 
-        {contextPatient && !finalized && (
+        {contextPatient && (
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}>
               <i className="ti ti-calculator" style={{ color: 'var(--green)' }}></i> Running Total
