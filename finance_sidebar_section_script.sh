@@ -1,3 +1,6 @@
+mkdir -p "app/components"
+
+cat > "app/components/AppShell.js" << 'EOF'
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -147,3 +150,6 @@ export default function AppShell({ children }) {
 }
 
 
+EOF
+
+echo "Added Finance sidebar section (Billing, Payments, Patient Ledger, Reports); fixed nav highlighting for nested routes."
