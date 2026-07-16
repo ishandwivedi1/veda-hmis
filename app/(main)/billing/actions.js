@@ -21,7 +21,7 @@ export async function getInvoicesForVisit(visitId) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('invoices')
-    .select('*, patients(first_name, last_name, uhid, mobile)')
+    .select('*, patients(id, first_name, last_name, uhid, mobile)')
     .eq('visit_id', visitId)
     .order('created_at', { ascending: false });
   if (error) return { error: error.message };
@@ -105,7 +105,7 @@ export async function getVisitWithPatient(visitId) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('visits')
-    .select('*, patients(first_name, last_name, uhid, mobile)')
+    .select('*, patients(id, first_name, last_name, uhid, mobile)')
     .eq('id', visitId)
     .single();
   if (error) return { error: error.message };
@@ -114,7 +114,7 @@ export async function getVisitWithPatient(visitId) {
 
 export async function getInvoiceById(invoiceId) {
   const supabase = await createClient();
-  const { data: invoice, error } = await supabase.from('invoices').select('*, patients(first_name, last_name, uhid, mobile)').eq('id', invoiceId).single();
+  const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, last_name, uhid, mobile)').eq('id', invoiceId).single();
   if (error) return { error: error.message };
   const { data: lineItems } = await supabase.from('invoice_line_items').select('*').eq('invoice_id', invoiceId).order('id');
   return { invoice, lineItems: lineItems || [] };
