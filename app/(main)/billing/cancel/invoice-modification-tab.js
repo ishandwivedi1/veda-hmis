@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { searchInvoices, getInvoiceById, getServiceCatalog, addLineItem, removeLineItem, cancelInvoice, getTodaysInvoicesForModification } from '../actions';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { searchInvoices, getInvoiceById, getServiceCatalog, addLineItem, removeLineItem, cancelInvoice, getTodaysInvoicesForModification, getInvoicesForVisit } from '../actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Surgery', 'Pharmacy'];
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
@@ -12,6 +13,10 @@ export default function InvoiceModificationTab() {
   const [selected, setSelected] = useState(null);
   const [lineItems, setLineItems] = useState([]);
   const [catalog, setCatalog] = useState([]);
+  const [visitInvoices, setVisitInvoices] = useState(null);
+  const searchParams = useSearchParams();
+  const urlVisitId = searchParams.get('visitId');
+  const visitLoadedFor = useRef(null);
 
   const [dept, setDept] = useState('');
   const [serviceCode, setServiceCode] = useState('');
@@ -40,10 +45,30 @@ export default function InvoiceModificationTab() {
 
   useEffect(() => { getServiceCatalog().then(setCatalog); loadToday(); }, [loadToday]);
 
+  // Arrived via "Modify" from Front Office Dashboard or New Invoice --
+  // jump straight to this visit's invoice(s) instead of a generic
+  // search. If there's exactly one, open it directly; if more than
+  // one, show them as a pre-filtered pick list.
+  useEffect(() => {
+    if (!urlVisitId) return;
+    if (visitLoadedFor.current === urlVisitId) return;
+    visitLoadedFor.current = urlVisitId;
+    (async () => {
+      const result = await getInvoicesForVisit(urlVisitId);
+      const invoices = result.invoices || [];
+      if (invoices.length === 1) {
+        openInvoice(invoices[0]);
+      } else {
+        setVisitInvoices(invoices);
+      }
+    })();
+  }, [urlVisitId]);
+
   const servicesForDept = catalog.filter((s) => s.dept === dept);
 
   async function handleSearch() {
     if (!searchQuery.trim()) return;
+    setVisitInvoices(null);
     setResults(await searchInvoices(searchQuery.trim()));
     setSearched(true);
   }
@@ -128,7 +153,26 @@ export default function InvoiceModificationTab() {
           <button className="btn btn-primary" onClick={handleSearch}><i className="ti ti-search"></i></button>
         </div>
 
-        {searched ? (
+        {visitInvoices ? (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue)', textTransform: 'uppercase', marginBottom: 6 }}>
+              Invoices for this visit
+            </div>
+            {visitInvoices.map((inv) => (
+              <div key={inv.id} onClick={() => openInvoice(inv)} style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong>{inv.purpose}</strong>
+                  <span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span>
+                </div>
+                <div style={{ color: 'var(--g500)', fontFamily: 'monospace' }}>{inv.invoice_number} -- Rs.{inv.net}</div>
+              </div>
+            ))}
+            {visitInvoices.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No invoices found for this visit.</div>}
+            <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setVisitInvoices(null)}>
+              &larr; Back to today&apos;s invoices
+            </button>
+          </>
+        ) : searched ? (
           <>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 6 }}>
               Search Results
@@ -299,4 +343,5 @@ export default function InvoiceModificationTab() {
     </div>
   );
 }
+
 

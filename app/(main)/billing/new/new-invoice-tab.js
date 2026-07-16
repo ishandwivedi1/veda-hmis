@@ -4,21 +4,32 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   searchPatientsForInvoice,
-  createStandaloneInvoice,
+  getMostRecentVisitForPatient,
+  getVisitWithPatient,
+  getInvoicesForVisit,
+  createInvoiceForVisit,
   getInvoiceById,
   getServiceCatalog,
   addLineItem,
   removeLineItem,
   getTodaysVisitsForBilling,
-  getInvoiceForVisit,
 } from '../actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Surgery', 'Pharmacy'];
+const PURPOSES = ['Consultation', 'Investigation', 'Pharmacy', 'Surgery', 'Combined', 'Other'];
+const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
 
 export default function NewInvoiceTab() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [selectedPatient, setSelectedPatient] = useState(null);
+
+  // Context: who we're billing, and what visit (if any) it's tied to.
+  const [contextPatient, setContextPatient] = useState(null);
+  const [contextVisit, setContextVisit] = useState(null);
+  const [existingInvoices, setExistingInvoices] = useState([]);
+  const [purpose, setPurpose] = useState('Consultation');
+  const [creating, setCreating] = useState(false);
+
   const [invoice, setInvoice] = useState(null);
   const [lineItems, setLineItems] = useState([]);
   const [catalog, setCatalog] = useState([]);
@@ -38,30 +49,27 @@ export default function NewInvoiceTab() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlVisitId = searchParams.get('visitId');
-  const autoFillRequestedFor = useRef(null);
+  const contextLoadedFor = useRef(null);
 
   useEffect(() => {
     getServiceCatalog().then(setCatalog);
     getTodaysVisitsForBilling().then(setTodaysVisits);
   }, []);
 
-  // If we arrived here via a "Bill" link elsewhere in the app (e.g. from
-  // Visits or Front Office Dashboard), open that visit's real invoice
-  // automatically -- so the redirect still feels seamless, not like
-  // starting over. Guarded so this can only ever request once per
-  // visitId, even if the component re-renders or effects re-run before
-  // the first request resolves (the RPC itself is now also race-safe
-  // at the database level -- this is just belt-and-suspenders).
+  // Arrived via a "New Invoice" link elsewhere in the app -- load the
+  // visit + patient context and show what invoices already exist
+  // before offering to create another. Never auto-creates anything.
   useEffect(() => {
     if (!urlVisitId) return;
-    if (autoFillRequestedFor.current === urlVisitId) return;
-    autoFillRequestedFor.current = urlVisitId;
+    if (contextLoadedFor.current === urlVisitId) return;
+    contextLoadedFor.current = urlVisitId;
     (async () => {
-      const details = await getInvoiceForVisit(urlVisitId);
+      const details = await getVisitWithPatient(urlVisitId);
       if (details.error) { setError(details.error); return; }
-      setSelectedPatient(details.visit.patients);
-      setInvoice(details.invoice);
-      setLineItems(details.lineItems);
+      setContextPatient(details.visit.patients);
+      setContextVisit(details.visit);
+      const invResult = await getInvoicesForVisit(urlVisitId);
+      setExistingInvoices(invResult.invoices || []);
     })();
   }, [urlVisitId]);
 
@@ -75,21 +83,41 @@ export default function NewInvoiceTab() {
 
   async function pickPatient(p) {
     setError('');
-    setSelectedPatient(p);
     setSearchResults([]);
     setSearchQuery('');
-    const result = await createStandaloneInvoice(p.id);
-    if (result.error) { setError(result.error); return; }
-    const details = await getInvoiceById(result.invoice.id);
-    setInvoice(details.invoice);
-    setLineItems(details.lineItems);
+    setContextPatient(p);
+    const visit = await getMostRecentVisitForPatient(p.id);
+    setContextVisit(visit);
+    if (visit) {
+      const invResult = await getInvoicesForVisit(visit.id);
+      setExistingInvoices(invResult.invoices || []);
+    } else {
+      setExistingInvoices([]);
+    }
   }
 
   async function pickVisit(v) {
     setError('');
-    setSelectedPatient(v.patients);
-    const details = await getInvoiceForVisit(v.id);
+    setContextPatient(v.patients);
+    setContextVisit(v);
+    const invResult = await getInvoicesForVisit(v.id);
+    setExistingInvoices(invResult.invoices || []);
+  }
+
+  async function openExistingInvoice(inv) {
+    const details = await getInvoiceById(inv.id);
     if (details.error) { setError(details.error); return; }
+    setInvoice(details.invoice);
+    setLineItems(details.lineItems);
+  }
+
+  async function handleCreateInvoice() {
+    setError('');
+    setCreating(true);
+    const result = await createInvoiceForVisit(contextPatient.id, contextVisit?.id || null, purpose);
+    setCreating(false);
+    if (result.error) { setError(result.error); return; }
+    const details = await getInvoiceById(result.invoice.id);
     setInvoice(details.invoice);
     setLineItems(details.lineItems);
   }
@@ -134,10 +162,14 @@ export default function NewInvoiceTab() {
   }
 
   function startOver() {
-    setSelectedPatient(null);
+    setContextPatient(null);
+    setContextVisit(null);
+    setExistingInvoices([]);
     setInvoice(null);
     setLineItems([]);
     setFinalized(false);
+    contextLoadedFor.current = null;
+    router.push('/billing/new');
   }
 
   function handleFinalize() {
@@ -147,10 +179,6 @@ export default function NewInvoiceTab() {
   }
 
   function handleSaveDraft() {
-    // Every line item is already saved to the database the moment it's
-    // added -- there's no separate "draft" storage to write to. This
-    // just confirms that and lets staff step away and resume later from
-    // Invoice Details.
     router.push('/billing/details');
   }
 
@@ -163,7 +191,7 @@ export default function NewInvoiceTab() {
 
         {error && <div className="msg-err">{error}</div>}
 
-        {!selectedPatient ? (
+        {!contextPatient ? (
           <div>
             <label className="flbl">Find patient (name, UHID, or mobile)</label>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -182,8 +210,8 @@ export default function NewInvoiceTab() {
           </div>
         ) : finalized ? (
           <div className="msg-success">
-            <i className="ti ti-circle-check"></i> Invoice finalized for {selectedPatient.first_name} {selectedPatient.last_name} -- Net Rs.{invoice.net}.{' '}
-            <a href={`/billing/details?q=${selectedPatient.uhid}`} style={{ color: 'var(--blue)' }}>Go collect payment in Invoice Details &rarr;</a>
+            <i className="ti ti-circle-check"></i> Invoice finalized for {contextPatient.first_name} {contextPatient.last_name} -- Net Rs.{invoice.net}.{' '}
+            <a href={`/billing/details?q=${contextPatient.uhid}`} style={{ color: 'var(--blue)' }}>Go collect payment in Invoice Details &rarr;</a>
             <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
               <a href={`/invoice-print/${invoice.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
                 <i className="ti ti-printer"></i> Print / PDF
@@ -191,10 +219,61 @@ export default function NewInvoiceTab() {
               <button className="btn btn-sm" onClick={startOver}>Start a new invoice</button>
             </div>
           </div>
+        ) : !invoice ? (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16 }}>
+              <span>
+                <strong>{contextPatient.first_name} {contextPatient.last_name}</strong> -- {contextPatient.uhid}
+                {contextVisit && <span style={{ color: 'var(--g500)' }}> -- Visit {contextVisit.visit_number || '--'}</span>}
+              </span>
+              <button className="btn btn-sm" onClick={startOver}>Change / New</button>
+            </div>
+
+            {existingInvoices.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 8 }}>
+                  This visit already has {existingInvoices.length} invoice{existingInvoices.length > 1 ? 's' : ''}
+                </div>
+                {existingInvoices.map((inv) => (
+                  <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', border: '1px solid var(--g200)', borderRadius: 8, marginBottom: 6 }}>
+                    <div>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12 }}>{inv.invoice_number}</span>
+                      <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--g500)' }}>{inv.purpose} -- Rs.{inv.net}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span>
+                      <a href={`/billing/cancel?visitId=${contextVisit.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                        Modify
+                      </a>
+                    </div>
+                  </div>
+                ))}
+                <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginTop: 8 }}>
+                  <i className="ti ti-info-circle"></i> To add items to one of these, use <strong>Modify</strong> above instead of creating a new invoice.
+                </div>
+              </div>
+            )}
+
+            <div style={{ border: '1.5px dashed var(--g200)', borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
+                <i className="ti ti-plus"></i> Start a new invoice
+              </div>
+              <label className="flbl">Purpose</label>
+              <select className="fi" value={purpose} onChange={(e) => setPurpose(e.target.value)} style={{ marginBottom: 10 }}>
+                {PURPOSES.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <button className="btn btn-primary" onClick={handleCreateInvoice} disabled={creating}>
+                {creating ? 'Creating...' : 'Create Invoice'}
+              </button>
+            </div>
+          </div>
         ) : (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16 }}>
-              <span><strong>{selectedPatient.first_name} {selectedPatient.last_name}</strong> -- {selectedPatient.uhid}</span>
+              <span>
+                <strong>{contextPatient.first_name} {contextPatient.last_name}</strong> -- {contextPatient.uhid}
+                <span style={{ marginLeft: 8 }} className="badge b-blue">{invoice.purpose}</span>
+              </span>
               <button className="btn btn-sm" onClick={startOver}>Change / New</button>
             </div>
 
@@ -281,7 +360,7 @@ export default function NewInvoiceTab() {
           <div className="card-title" style={{ marginBottom: 10 }}>
             <i className="ti ti-door-enter" style={{ color: 'var(--blue)' }}></i> Today&apos;s Visits
           </div>
-          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Click a visit to auto-fill and continue their invoice.</div>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Click a visit to bill against it.</div>
           {todaysVisits.map((v) => (
             <div
               key={v.id}
@@ -312,5 +391,4 @@ export default function NewInvoiceTab() {
     </div>
   );
 }
-
 

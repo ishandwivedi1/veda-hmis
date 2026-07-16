@@ -13,30 +13,34 @@ export async function getTodaysVisitsForBilling() {
   return data || [];
 }
 
-export async function getInvoiceForVisit(visitId) {
+// Lists every invoice already on a visit -- used both by New Invoice
+// (to show what exists before deciding to create another) and by
+// Invoice Modification (to jump straight to a visit's invoice(s)
+// instead of a generic search).
+export async function getInvoicesForVisit(visitId) {
   const supabase = await createClient();
-
-  const { data: visit, error: visitError } = await supabase
-    .from('visits')
+  const { data, error } = await supabase
+    .from('invoices')
     .select('*, patients(first_name, last_name, uhid, mobile)')
-    .eq('id', visitId)
-    .single();
+    .eq('visit_id', visitId)
+    .order('created_at', { ascending: false });
+  if (error) return { error: error.message };
+  return { invoices: data || [] };
+}
 
-  if (visitError) return { error: visitError.message };
-
-  const { data: invoice, error: invError } = await supabase.rpc('get_or_create_invoice_for_visit', {
-    p_visit_id: visitId,
+// Always creates a brand new invoice -- creating one is now always a
+// deliberate action (the "New Invoice" button + a chosen purpose), so
+// there's no "get or reuse" ambiguity here. Adding to an existing
+// invoice happens through Invoice Modification instead.
+export async function createInvoiceForVisit(patientId, visitId, purpose) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('create_invoice_for_visit', {
+    p_patient_id: patientId,
+    p_visit_id: visitId || null,
+    p_purpose: purpose || 'Consultation',
   });
-
-  if (invError) return { error: invError.message };
-
-  const { data: lineItems } = await supabase
-    .from('invoice_line_items')
-    .select('*')
-    .eq('invoice_id', invoice.id)
-    .order('id');
-
-  return { visit, invoice, lineItems: lineItems || [] };
+  if (error) return { error: error.message };
+  return { invoice: data };
 }
 
 export async function getServiceCatalog() {
@@ -86,22 +90,26 @@ export async function searchPatientsForInvoice(q) {
   return data || [];
 }
 
-export async function createStandaloneInvoice(patientId) {
+export async function getMostRecentVisitForPatient(patientId) {
   const supabase = await createClient();
-  const { data: visit } = await supabase
+  const { data } = await supabase
     .from('visits')
-    .select('id')
+    .select('id, visit_number, visit_type, created_at')
     .eq('patient_id', patientId)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-
-  const { data, error } = await supabase.rpc('create_standalone_invoice', {
-    p_patient_id: patientId,
-    p_visit_id: visit?.id || null,
-  });
+  return data || null;
+}
+export async function getVisitWithPatient(visitId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('visits')
+    .select('*, patients(first_name, last_name, uhid, mobile)')
+    .eq('id', visitId)
+    .single();
   if (error) return { error: error.message };
-  return { invoice: data };
+  return { visit: data };
 }
 
 export async function getInvoiceById(invoiceId) {
@@ -229,4 +237,5 @@ export async function recordPayment(invoiceId, amount) {
   if (error) return { error: error.message };
   return { success: true };
 }
+
 

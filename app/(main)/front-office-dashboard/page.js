@@ -190,9 +190,16 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                     <td><span className={`badge ${v.status === 'Open' ? 'b-blue' : 'b-gray'}`}>{v.status}</span></td>
                     <td><span className={`badge ${BILLING_BADGE[billStatus]}`}>{billStatus}</span></td>
                     <td>
-                      <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
-                        <i className="ti ti-receipt"></i> Bill
-                      </Link>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                          <i className="ti ti-receipt"></i> New Invoice
+                        </Link>
+                        {billStatus !== '--' && (
+                          <Link href={`/billing/cancel?visitId=${v.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                            <i className="ti ti-edit"></i> Modify
+                          </Link>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -291,4 +298,5 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     </div>
   );
 }
+
 
