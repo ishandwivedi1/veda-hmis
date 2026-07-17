@@ -1,16 +1,50 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { updateOptometryFindings, createOptometryAssessmentForVisit } from '@/app/(main)/consultation/actions';
-import { addIopReading } from '@/app/(main)/optometry/actions';
+import { useState } from 'react';
+import { addDoctorRepeatFinding } from '@/app/(main)/consultation/actions';
 
-// Same VA scale/field definitions as the optometrist's own entry form
-// (app/(main)/optometry/[id]/optometry-workspace.js) -- kept in sync so
-// this editable view behaves identically, just reached from Consultation.
-const VA_SNELLEN = ['6/6', '6/9', '6/12', '6/18', '6/24', '6/36', '6/60', '3/60', '2/60', '1/60'];
-const VA_SPECIAL = ['CF', 'HM', 'PL', 'NPL'];
-const VA_LOGMAR = ['0.0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.8', '1.0', '1.3'];
-const VA_ETDRS = ['85', '80', '75', '70', '65', '60', '55', '50', '45', '40'];
+// Numeric-aware compare -- treats "12" and "12.0" as equal, falls back
+// to trimmed string compare for VA notations like "6/6" or "CF 1m".
+function differs(a, b) {
+  if (a === null || a === undefined || a === '') return false;
+  if (b === null || b === undefined || b === '') return false;
+  const na = parseFloat(a);
+  const nb = parseFloat(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && `${na}` === `${a}`.trim() && `${nb}` === `${b}`.trim()) {
+    return Math.abs(na - nb) > 0.001;
+  }
+  return String(a).trim() !== String(b).trim();
+}
+
+// Inline chip -- shows the doctor's latest repeat value next to the
+// optometrist's own field. Never implies the optometrist's value was
+// overwritten (CDP-004): both stay visible side by side.
+function DoctorChip({ optoValue, doctorValue }) {
+  if (doctorValue === null || doctorValue === undefined || doctorValue === '') return null;
+  const flagged = differs(optoValue, doctorValue);
+  return (
+    <div
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '2px 8px', borderRadius: 20,
+        fontSize: 11, fontWeight: 700,
+        background: flagged ? 'rgba(220,38,38,0.1)' : 'rgba(15,118,110,0.08)',
+        color: flagged ? 'var(--red)' : 'var(--teal)',
+      }}
+    >
+      <i className={`ti ti-${flagged ? 'alert-triangle' : 'stethoscope'}`} style={{ fontSize: 11 }}></i>
+      Dr: {doctorValue}{flagged ? ' (differs)' : ''}
+    </div>
+  );
+}
+
+function ReadField({ label, value }) {
+  return (
+    <div>
+      <label className="flbl">{label}</label>
+      <div style={{ fontSize: 13, color: value ? 'var(--g800)' : 'var(--g400)' }}>{value || '--'}</div>
+    </div>
+  );
+}
 
 const VA_FIELDS = [
   { key: 're_dist_unaided', label: 'Distance -- Unaided', eye: 'RE' },
@@ -23,163 +57,41 @@ const VA_FIELDS = [
   { key: 'le_near_unaided', label: 'Near -- Unaided', eye: 'LE' },
 ];
 
-const OBS_CHIPS = ['Poor fixation', 'Excessive blinking', 'Difficulty cooperating', 'Media opacity limiting measurement', 'Nystagmus noted', 'Patient anxious'];
-
-function vaValuesForScale(scale) {
-  return scale === 'LogMAR' ? VA_LOGMAR : scale === 'ETDRS' ? VA_ETDRS : VA_SNELLEN;
-}
-
-function emptyForm() {
-  const f = {
-    va_scale: 'Snellen',
-    ref_pd: '', ref_vd: '',
-    iop_method: 'Non-Contact Tonometer (NCT)', iop_time: '',
-    add_k1: '', add_k2: '', add_axial_length: '', add_pachymetry: '', add_white_to_white: '', add_schirmer: '',
-    add_color_vision: '', add_ocular_motility: '', add_syringing: '',
-    observation_chips: [], observations_text: '',
-  };
-  VA_FIELDS.forEach((f2) => { f[f2.key] = ''; });
-  ['obj', 'subj', 'final'].forEach((type) => {
-    ['re', 'le'].forEach((eye) => {
-      ['sph', 'cyl', 'axis'].forEach((p) => { f[`ref_${type}_${eye}_${p}`] = ''; });
-      if (type === 'final') f[`ref_${type}_${eye}_add`] = '';
-    });
-  });
-  return f;
-}
-
-function AsmtSection({ num, color, title, open, onToggle, children }) {
-  return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <div
-        style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-        onClick={onToggle}
-      >
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 22, height: 22, borderRadius: '50%', background: color, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{num}</span>
-          {title}
-        </div>
-        <i className={`ti ti-chevron-${open ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
-      </div>
-      {open && <div style={{ padding: 16 }}>{children}</div>}
-    </div>
-  );
-}
-
-function VaOptPills({ values, selected, onSelect }) {
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-      {values.map((v) => (
-        <div
-          key={v}
-          onClick={() => onSelect(v)}
-          style={{
-            padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-            border: `1.5px solid ${selected === v ? 'var(--teal)' : 'var(--g200)'}`,
-            background: selected === v ? 'var(--teal)' : '#fff',
-            color: selected === v ? '#fff' : 'var(--g600)',
-          }}
-        >
-          {v}
-        </div>
-      ))}
-      {VA_SPECIAL.map((v) => (
-        <div
-          key={v}
-          onClick={() => onSelect(v)}
-          style={{
-            padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-            border: `1.5px dashed ${selected === v ? 'var(--amber)' : 'var(--g200)'}`,
-            borderStyle: selected === v ? 'solid' : 'dashed',
-            background: selected === v ? 'var(--amber)' : '#fff',
-            color: selected === v ? '#fff' : 'var(--g600)',
-          }}
-        >
-          {v}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export default function OptometryTab({ findings, iopReadings, visitId, encounterId, onSaved }) {
-  const [form, setForm] = useState(emptyForm());
+export default function OptometryTab({ findings, iopReadings, doctorRepeatFindings, encounterId, onSaved }) {
   const [openSections, setOpenSections] = useState({ va: true, refraction: true, iop: true, additional: false, obs: false });
-  const [refTab, setRefTab] = useState('final');
-  const [reIopInput, setReIopInput] = useState('');
-  const [leIopInput, setLeIopInput] = useState('');
-  const [error, setError] = useState('');
-  const [okMsg, setOkMsg] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    if (!findings) { setForm(emptyForm()); return; }
-    const f = emptyForm();
-    Object.keys(f).forEach((key) => {
-      if (findings[key] !== null && findings[key] !== undefined) f[key] = findings[key];
-    });
-    setForm(f);
-    setDirty(false);
-  }, [findings]);
-
-  function setField(key, value) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    setDirty(true);
-  }
-
-  function setRef(type, eye, part, value) {
-    setField(`ref_${type}_${eye}_${part}`, value);
-  }
-
-  function toggleObsChip(chip) {
-    setForm((prev) => {
-      const has = prev.observation_chips.includes(chip);
-      return { ...prev, observation_chips: has ? prev.observation_chips.filter((c) => c !== chip) : [...prev.observation_chips, chip] };
-    });
-    setDirty(true);
-  }
+  const [showRepeatForm, setShowRepeatForm] = useState(false);
+  const [repeatReVa, setRepeatReVa] = useState('');
+  const [repeatLeVa, setRepeatLeVa] = useState('');
+  const [repeatReIop, setRepeatReIop] = useState('');
+  const [repeatLeIop, setRepeatLeIop] = useState('');
+  const [repeatReSph, setRepeatReSph] = useState('');
+  const [repeatLeSph, setRepeatLeSph] = useState('');
+  const [repeatReCyl, setRepeatReCyl] = useState('');
+  const [repeatLeCyl, setRepeatLeCyl] = useState('');
+  const [repeatNotes, setRepeatNotes] = useState('');
+  const [repeatSaving, setRepeatSaving] = useState(false);
 
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  async function handleAddIop(eye) {
-    const value = eye === 'RE' ? reIopInput : leIopInput;
-    if (!value || !findings) return;
-    const result = await addIopReading(findings.id, eye, value);
-    if (result.error) { setError(result.error); return; }
-    setError('');
-    if (eye === 'RE') setReIopInput(''); else setLeIopInput('');
+  async function handleAddRepeatFinding() {
+    setRepeatSaving(true);
+    const result = await addDoctorRepeatFinding(encounterId, {
+      reVa: repeatReVa, leVa: repeatLeVa, reIop: repeatReIop, leIop: repeatLeIop,
+      reSph: repeatReSph, leSph: repeatLeSph, reCyl: repeatReCyl, leCyl: repeatLeCyl, notes: repeatNotes,
+    });
+    setRepeatSaving(false);
+    if (result.error) return;
+    setRepeatReVa(''); setRepeatLeVa(''); setRepeatReIop(''); setRepeatLeIop('');
+    setRepeatReSph(''); setRepeatLeSph(''); setRepeatReCyl(''); setRepeatLeCyl(''); setRepeatNotes('');
+    setShowRepeatForm(false);
     if (onSaved) onSaved();
   }
 
-  async function handleSave() {
-    if (!findings) return;
-    setSaving(true);
-    setError('');
-    setOkMsg('');
-    const result = await updateOptometryFindings(findings.id, encounterId, form);
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setOkMsg(result.changedCount > 0 ? `Saved -- ${result.changedCount} field(s) updated. Visible in Optometry History.` : 'No changes to save.');
-    setDirty(false);
-    if (onSaved) onSaved();
-  }
-
-  async function handleCreate() {
-    setCreating(true);
-    setError('');
-    const result = await createOptometryAssessmentForVisit(visitId, encounterId);
-    setCreating(false);
-    if (result.error) { setError(result.error); return; }
-    if (onSaved) onSaved();
-  }
-
-  const vaScaleValues = vaValuesForScale(form.va_scale);
-  const reIopSorted = (iopReadings || []).filter((r) => r.eye === 'RE');
-  const leIopSorted = (iopReadings || []).filter((r) => r.eye === 'LE');
+  const latestFinding = (doctorRepeatFindings || [])[0] || null;
+  const reIop = (iopReadings || []).filter((r) => r.eye === 'RE');
+  const leIop = (iopReadings || []).filter((r) => r.eye === 'LE');
 
   function iopReadingRow(r, list, i) {
     const isHigh = r.value > 21;
@@ -196,190 +108,248 @@ export default function OptometryTab({ findings, iopReadings, visitId, encounter
     );
   }
 
-  if (!findings) {
-    return (
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 8 }}>
-          <i className="ti ti-eye-check" style={{ color: 'var(--teal)' }}></i> Optometry Findings
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>No optometry assessment on file for this visit.</div>
-        <button type="button" className="btn btn-primary" onClick={handleCreate} disabled={creating}>
-          {creating ? 'Creating...' : 'Start Assessment Here'}
-        </button>
-        {error && <div className="msg-err" style={{ marginTop: 10 }}>{error}</div>}
-      </div>
-    );
-  }
-
   return (
     <div>
-      <div className="msg-warn" style={{ background: 'var(--amber-lt)', color: 'var(--amber)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-        <i className="ti ti-edit"></i> Editable -- this is the optometrist's own record. Any change you save here updates it directly and is logged to Optometry History so the optometrist can see what changed.
-      </div>
-      {error && <div className="msg-err">{error}</div>}
-      {okMsg && <div className="msg-success">{okMsg}</div>}
-
-      {/* SECTION 1: VISUAL ACUITY */}
-      <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={1} color="var(--teal)" title="Visual Acuity" open={openSections.va} onToggle={() => toggleSection('va')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, padding: '8px 12px', background: 'var(--g50)', borderRadius: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase' }}>Scale:</span>
-            {['Snellen', 'LogMAR', 'ETDRS'].map((s) => (
-              <div
-                key={s}
-                onClick={() => setField('va_scale', s)}
-                style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${form.va_scale === s ? 'var(--teal)' : 'var(--g200)'}`, background: form.va_scale === s ? 'var(--teal)' : '#fff', color: form.va_scale === s ? '#fff' : 'var(--g600)' }}
-              >
-                {s}
-              </div>
-            ))}
+      {!findings ? (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-title" style={{ marginBottom: 8 }}>
+            <i className="ti ti-eye-check" style={{ color: 'var(--teal)' }}></i> Optometry Findings
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {['RE', 'LE'].map((eye) => (
-              <div key={eye}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: eye === 'RE' ? 'var(--blue)' : 'var(--teal)', marginBottom: 8, padding: '6px 10px', background: eye === 'RE' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 8 }}>
-                  <i className="ti ti-eye"></i> {eye === 'RE' ? 'Right Eye (OD)' : 'Left Eye (OS)'}
+          <div style={{ fontSize: 12, color: 'var(--g500)' }}>No optometry assessment on file for this visit. You can enter readings directly below.</div>
+        </div>
+      ) : (
+        <>
+          <div className="msg-err" style={{ marginBottom: 12 }}>
+            <i className="ti ti-lock"></i> Optometrist's sheet -- read only, auto-filled. Any correction is recorded separately below and never overwrites this record (CDP-004).
+          </div>
+
+          {/* SECTION 1: VISUAL ACUITY */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: openSections.va ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => toggleSection('va')}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)' }}>
+                  <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--teal)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, marginRight: 8 }}>1</span>
+                  Visual Acuity ({findings.va_scale || 'Snellen'})
                 </div>
-                {VA_FIELDS.filter((f) => f.eye === eye).map((f) => (
-                  <div key={f.key} style={{ marginBottom: 12 }}>
-                    <label className="flbl">{f.label}</label>
-                    <VaOptPills values={vaScaleValues} selected={form[f.key]} onSelect={(v) => setField(f.key, v)} />
+                <i className={`ti ti-chevron-${openSections.va ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+              </div>
+              {openSections.va && (
+                <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  {['RE', 'LE'].map((eye) => (
+                    <div key={eye}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: eye === 'RE' ? 'var(--blue)' : 'var(--teal)', marginBottom: 8, padding: '6px 10px', background: eye === 'RE' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 8 }}>
+                        <i className="ti ti-eye"></i> {eye === 'RE' ? 'Right Eye (OD)' : 'Left Eye (OS)'}
+                      </div>
+                      {VA_FIELDS.filter((f) => f.eye === eye).map((f) => (
+                        <div key={f.key} style={{ marginBottom: 12 }}>
+                          <ReadField label={f.label} value={findings[f.key]} />
+                          {f.key === (eye === 'RE' ? 're_dist_unaided' : 'le_dist_unaided') && (
+                            <DoctorChip optoValue={findings[f.key]} doctorValue={eye === 'RE' ? latestFinding?.re_va : latestFinding?.le_va} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SECTION 2: REFRACTION */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: openSections.refraction ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => toggleSection('refraction')}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)' }}>
+                  <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--blue)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, marginRight: 8 }}>2</span>
+                  Refraction
+                </div>
+                <i className={`ti ti-chevron-${openSections.refraction ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+              </div>
+              {openSections.refraction && (
+                <div style={{ padding: 16 }}>
+                  {['obj', 'subj', 'final'].map((type) => (
+                    <div key={type} style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', marginBottom: 6 }}>
+                        {type === 'obj' ? 'Objective (Auto-Rx)' : type === 'subj' ? 'Subjective' : 'Final Rx'}
+                      </div>
+                      <table className="tbl">
+                        <thead>
+                          <tr><th></th><th>SPH</th><th>CYL</th><th>AXIS</th>{type === 'final' && <th>ADD (near)</th>}</tr>
+                        </thead>
+                        <tbody>
+                          {['re', 'le'].map((eye) => (
+                            <tr key={eye}>
+                              <td style={{ fontWeight: 700, fontSize: 12 }}>{eye.toUpperCase()}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                {findings[`ref_${type}_${eye}_sph`] || '--'}
+                                {type === 'final' && <DoctorChip optoValue={findings[`ref_${type}_${eye}_sph`]} doctorValue={eye === 're' ? latestFinding?.re_sph : latestFinding?.le_sph} />}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                {findings[`ref_${type}_${eye}_cyl`] || '--'}
+                                {type === 'final' && <DoctorChip optoValue={findings[`ref_${type}_${eye}_cyl`]} doctorValue={eye === 're' ? latestFinding?.re_cyl : latestFinding?.le_cyl} />}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>{findings[`ref_${type}_${eye}_axis`] || '--'}</td>
+                              {type === 'final' && <td style={{ textAlign: 'center' }}>{findings[`ref_${type}_${eye}_add`] || '--'}</td>}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <ReadField label="Pupillary Distance (PD)" value={findings.ref_pd} />
+                    <ReadField label="Vertex Distance" value={findings.ref_vd} />
                   </div>
-                ))}
-              </div>
-            ))}
+                </div>
+              )}
+            </div>
           </div>
-        </AsmtSection>
-      </div>
 
-      {/* SECTION 2: REFRACTION */}
-      <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={2} color="var(--blue)" title="Refraction" open={openSections.refraction} onToggle={() => toggleSection('refraction')}>
-          <div style={{ display: 'flex', gap: 4, marginBottom: 14, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
-            {[['obj', 'Objective (Auto-Rx)'], ['subj', 'Subjective'], ['final', 'Final Rx']].map(([key, label]) => (
-              <button key={key} type="button" className={`snbtn ${refTab === key ? 'active' : ''}`} style={{ flex: 1, padding: '7px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: 'none', background: refTab === key ? '#fff' : 'transparent', color: refTab === key ? 'var(--teal)' : 'var(--g500)', cursor: 'pointer', boxShadow: refTab === key ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }} onClick={() => setRefTab(key)}>
-                {label}
-              </button>
-            ))}
+          {/* SECTION 3: IOP */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: openSections.iop ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => toggleSection('iop')}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)' }}>
+                  <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--purple)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, marginRight: 8 }}>3</span>
+                  Intraocular Pressure ({findings.iop_method || '--'})
+                </div>
+                <i className={`ti ti-chevron-${openSections.iop ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+              </div>
+              {openSections.iop && (
+                <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  {[['RE', reIop], ['LE', leIop]].map(([eye, list]) => (
+                    <div key={eye}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: eye === 'RE' ? 'var(--blue)' : 'var(--teal)', marginBottom: 8, padding: '5px 10px', background: eye === 'RE' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 8 }}>
+                        <i className="ti ti-eye"></i> {eye === 'RE' ? 'Right Eye (OD)' : 'Left Eye (OS)'}
+                      </div>
+                      {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No readings recorded</div>}
+                      {list.map((r, i) => iopReadingRow(r, list, i))}
+                      <DoctorChip optoValue={list.length ? list[list.length - 1].value : null} doctorValue={eye === 'RE' ? latestFinding?.re_iop : latestFinding?.le_iop} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          <table className="tbl" style={{ marginBottom: 10 }}>
-            <thead>
-              <tr><th></th><th>SPH</th><th>CYL</th><th>AXIS</th>{refTab === 'final' && <th>ADD (near)</th>}</tr>
-            </thead>
-            <tbody>
-              {['re', 'le'].map((eye) => (
-                <tr key={eye}>
-                  <td style={{ fontWeight: 700, fontSize: 12 }}>{eye.toUpperCase()}</td>
-                  <td><input className="fi fi-sm" style={{ textAlign: 'center' }} value={form[`ref_${refTab}_${eye}_sph`]} onChange={(e) => setRef(refTab, eye, 'sph', e.target.value)} placeholder="--" /></td>
-                  <td><input className="fi fi-sm" style={{ textAlign: 'center' }} value={form[`ref_${refTab}_${eye}_cyl`]} onChange={(e) => setRef(refTab, eye, 'cyl', e.target.value)} placeholder="--" /></td>
-                  <td><input className="fi fi-sm" style={{ textAlign: 'center' }} value={form[`ref_${refTab}_${eye}_axis`]} onChange={(e) => setRef(refTab, eye, 'axis', e.target.value)} placeholder="--" /></td>
-                  {refTab === 'final' && (
-                    <td><input className="fi fi-sm" style={{ textAlign: 'center' }} value={form[`ref_${refTab}_${eye}_add`]} onChange={(e) => setRef(refTab, eye, 'add', e.target.value)} placeholder="--" /></td>
+
+          {/* SECTION 4: ADDITIONAL MEASUREMENTS */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: openSections.additional ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => toggleSection('additional')}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)' }}>
+                  <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--amber)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, marginRight: 8 }}>4</span>
+                  Additional Measurements
+                </div>
+                <i className={`ti ti-chevron-${openSections.additional ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+              </div>
+              {openSections.additional && (
+                <div style={{ padding: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+                    <ReadField label="Keratometry K1" value={findings.add_k1} />
+                    <ReadField label="Keratometry K2" value={findings.add_k2} />
+                    <ReadField label="Axial Length" value={findings.add_axial_length} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+                    <ReadField label="Pachymetry (CCT)" value={findings.add_pachymetry} />
+                    <ReadField label="White-to-White" value={findings.add_white_to_white} />
+                    <ReadField label="Schirmer test (RE/LE)" value={findings.add_schirmer} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                    <ReadField label="Color vision" value={findings.add_color_vision} />
+                    <ReadField label="Ocular motility" value={findings.add_ocular_motility} />
+                    <ReadField label="Syringing" value={findings.add_syringing} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SECTION 5: CLINICAL OBSERVATIONS */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: openSections.obs ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => toggleSection('obs')}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)' }}>
+                  <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--g500)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, marginRight: 8 }}>5</span>
+                  Clinical Observations
+                </div>
+                <i className={`ti ti-chevron-${openSections.obs ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+              </div>
+              {openSections.obs && (
+                <div style={{ padding: 16 }}>
+                  {findings.observation_chips?.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
+                      {findings.observation_chips.map((chip) => (
+                        <div key={chip} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, border: '1.5px solid var(--teal)', background: 'var(--teal)', color: '#fff' }}>{chip}</div>
+                      ))}
+                    </div>
                   )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div><label className="flbl">Pupillary Distance (PD)</label><input className="fi fi-sm" value={form.ref_pd} onChange={(e) => setField('ref_pd', e.target.value)} placeholder="e.g. 62mm" /></div>
-            <div><label className="flbl">Vertex Distance</label><input className="fi fi-sm" value={form.ref_vd} onChange={(e) => setField('ref_vd', e.target.value)} placeholder="e.g. 12mm" /></div>
-          </div>
-        </AsmtSection>
-      </div>
-
-      {/* SECTION 3: IOP */}
-      <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={3} color="var(--purple)" title="Intraocular Pressure" open={openSections.iop} onToggle={() => toggleSection('iop')}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div>
-              <label className="flbl">Method</label>
-              <select className="fi fi-sm" value={form.iop_method} onChange={(e) => setField('iop_method', e.target.value)}>
-                {['Non-Contact Tonometer (NCT)', 'Goldmann Applanation', 'Perkins', 'Tono-Pen', 'iCare'].map((m) => <option key={m}>{m}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="flbl">Measurement time</label>
-              <input className="fi fi-sm" value={form.iop_time} onChange={(e) => setField('iop_time', e.target.value)} placeholder="e.g. 10:30 AM" />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {[['RE', reIopSorted, reIopInput, setReIopInput], ['LE', leIopSorted, leIopInput, setLeIopInput]].map(([eye, list, val, setVal]) => (
-              <div key={eye}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: eye === 'RE' ? 'var(--blue)' : 'var(--teal)', marginBottom: 8, padding: '5px 10px', background: eye === 'RE' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 8 }}>
-                  <i className="ti ti-eye"></i> {eye === 'RE' ? 'Right Eye (OD)' : 'Left Eye (OS)'}
+                  <ReadField label="Additional observations" value={findings.observations_text} />
                 </div>
-                {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No readings yet</div>}
-                {list.map((r, i) => iopReadingRow(r, list, i))}
-                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                  <input type="number" className="fi fi-sm" style={{ flex: 1 }} placeholder="mmHg" min="1" max="80" value={val} onChange={(e) => setVal(e.target.value)} />
-                  <button type="button" className="btn btn-sm btn-primary" onClick={() => handleAddIop(eye)}><i className="ti ti-plus"></i> Add reading</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </AsmtSection>
-      </div>
-
-      {/* SECTION 4: ADDITIONAL MEASUREMENTS */}
-      <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={4} color="var(--amber)" title="Additional Measurements" open={openSections.additional} onToggle={() => toggleSection('additional')}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <div><label className="flbl">Keratometry K1</label><input className="fi fi-sm" value={form.add_k1} onChange={(e) => setField('add_k1', e.target.value)} placeholder="e.g. 43.50 D" /></div>
-            <div><label className="flbl">Keratometry K2</label><input className="fi fi-sm" value={form.add_k2} onChange={(e) => setField('add_k2', e.target.value)} placeholder="e.g. 44.25 D" /></div>
-            <div><label className="flbl">Axial Length</label><input className="fi fi-sm" value={form.add_axial_length} onChange={(e) => setField('add_axial_length', e.target.value)} placeholder="e.g. 23.2 mm" /></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <div><label className="flbl">Pachymetry (CCT)</label><input className="fi fi-sm" value={form.add_pachymetry} onChange={(e) => setField('add_pachymetry', e.target.value)} placeholder="e.g. 542 microns" /></div>
-            <div><label className="flbl">White-to-White</label><input className="fi fi-sm" value={form.add_white_to_white} onChange={(e) => setField('add_white_to_white', e.target.value)} placeholder="e.g. 11.8 mm" /></div>
-            <div><label className="flbl">Schirmer test (RE/LE)</label><input className="fi fi-sm" value={form.add_schirmer} onChange={(e) => setField('add_schirmer', e.target.value)} placeholder="e.g. 8/6 mm" /></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            <div>
-              <label className="flbl">Color vision</label>
-              <select className="fi fi-sm" value={form.add_color_vision} onChange={(e) => setField('add_color_vision', e.target.value)}>
-                <option value="">Not tested</option><option>Normal</option><option>Deficient</option><option>Unable to test</option>
-              </select>
-            </div>
-            <div>
-              <label className="flbl">Ocular motility</label>
-              <select className="fi fi-sm" value={form.add_ocular_motility} onChange={(e) => setField('add_ocular_motility', e.target.value)}>
-                <option value="">Not tested</option><option>Full in all directions</option><option>Restricted</option><option>Nystagmus present</option>
-              </select>
-            </div>
-            <div>
-              <label className="flbl">Syringing</label>
-              <select className="fi fi-sm" value={form.add_syringing} onChange={(e) => setField('add_syringing', e.target.value)}>
-                <option value="">Not done</option><option>Patent RE</option><option>Patent LE</option><option>Patent bilateral</option><option>Block RE</option><option>Block LE</option>
-              </select>
+              )}
             </div>
           </div>
-        </AsmtSection>
-      </div>
+        </>
+      )}
 
-      {/* SECTION 5: CLINICAL OBSERVATIONS */}
-      <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={5} color="var(--g500)" title="Clinical Observations" open={openSections.obs} onToggle={() => toggleSection('obs')}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-            {OBS_CHIPS.map((chip) => (
-              <div
-                key={chip}
-                onClick={() => toggleObsChip(chip)}
-                style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${form.observation_chips.includes(chip) ? 'var(--teal)' : 'var(--g200)'}`, background: form.observation_chips.includes(chip) ? 'var(--teal)' : '#fff', color: form.observation_chips.includes(chip) ? '#fff' : 'var(--g600)' }}
-              >
-                {chip}
-              </div>
-            ))}
+      {/* DOCTOR'S REPEAT / VERIFIED FINDINGS -- feeds back into Optometry
+          History (CDP-004): a separate, timestamped record, never an
+          overwrite of the optometrist's own row. */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-title" style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+          <span><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Doctor&apos;s Repeat / Verified Findings</span>
+          {!showRepeatForm && (
+            <button type="button" className="btn btn-sm" onClick={() => setShowRepeatForm(true)}>
+              <i className="ti ti-plus"></i> {findings ? 'Add Repeat Reading' : 'Enter Readings'}
+            </button>
+          )}
+        </div>
+
+        {(doctorRepeatFindings || []).length === 0 && !showRepeatForm && (
+          <div style={{ fontSize: 12, color: 'var(--g400)' }}>No doctor-recorded readings yet.</div>
+        )}
+
+        {(doctorRepeatFindings || []).map((r) => (
+          <div key={r.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+            <div style={{ color: 'var(--g400)', fontSize: 10 }}>{new Date(r.recorded_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+            <div style={{ color: 'var(--g600)' }}>
+              VA: RE {r.re_va || '--'} / LE {r.le_va || '--'} &nbsp;&nbsp;
+              IOP: RE {r.re_iop ?? '--'} / LE {r.le_iop ?? '--'} &nbsp;&nbsp;
+              Sph: RE {r.re_sph || '--'} / LE {r.le_sph || '--'} &nbsp;&nbsp;
+              Cyl: RE {r.re_cyl || '--'} / LE {r.le_cyl || '--'}
+            </div>
+            {r.notes && <div style={{ color: 'var(--g500)', fontSize: 11, marginTop: 2 }}>{r.notes}</div>}
           </div>
-          <label className="flbl">Additional observations</label>
-          <textarea className="fi" rows={2} value={form.observations_text} onChange={(e) => setField('observations_text', e.target.value)} placeholder="e.g. Patient had difficulty with right eye assessment due to glare sensitivity..." />
-        </AsmtSection>
-      </div>
+        ))}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-        <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving || !dirty}>
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
-        {!dirty && <span style={{ fontSize: 11, color: 'var(--g400)' }}>No unsaved changes</span>}
+        {showRepeatForm && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--g100)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+              <div><label className="flbl">RE VA</label><input className="fi fi-sm" value={repeatReVa} onChange={(e) => setRepeatReVa(e.target.value)} placeholder="e.g. 6/9" /></div>
+              <div><label className="flbl">LE VA</label><input className="fi fi-sm" value={repeatLeVa} onChange={(e) => setRepeatLeVa(e.target.value)} placeholder="e.g. 6/12" /></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+              <div><label className="flbl">RE IOP</label><input type="number" className="fi fi-sm" value={repeatReIop} onChange={(e) => setRepeatReIop(e.target.value)} /></div>
+              <div><label className="flbl">LE IOP</label><input type="number" className="fi fi-sm" value={repeatLeIop} onChange={(e) => setRepeatLeIop(e.target.value)} /></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <div><label className="flbl">RE Sph</label><input className="fi fi-sm" value={repeatReSph} onChange={(e) => setRepeatReSph(e.target.value)} placeholder="-2.00" /></div>
+              <div><label className="flbl">RE Cyl</label><input className="fi fi-sm" value={repeatReCyl} onChange={(e) => setRepeatReCyl(e.target.value)} placeholder="-0.50" /></div>
+              <div><label className="flbl">LE Sph</label><input className="fi fi-sm" value={repeatLeSph} onChange={(e) => setRepeatLeSph(e.target.value)} placeholder="-1.50" /></div>
+              <div><label className="flbl">LE Cyl</label><input className="fi fi-sm" value={repeatLeCyl} onChange={(e) => setRepeatLeCyl(e.target.value)} placeholder="-0.25" /></div>
+            </div>
+            <input className="fi fi-sm" placeholder="Notes (optional)" value={repeatNotes} onChange={(e) => setRepeatNotes(e.target.value)} style={{ marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button type="button" className="btn btn-sm btn-primary" onClick={handleAddRepeatFinding} disabled={repeatSaving}>
+                {repeatSaving ? 'Saving...' : 'Save Reading'}
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => setShowRepeatForm(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 8 }}>
+          Saved readings appear back in the optometrist's Assessment History, flagged wherever they differ from the original.
+        </div>
       </div>
     </div>
   );

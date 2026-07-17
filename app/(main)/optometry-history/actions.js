@@ -21,6 +21,7 @@ export async function getOptometryHistory(filterStatus) {
   if (error) return { error: error.message };
 
   const ids = (assessments || []).map((a) => a.id);
+  const visitIds = [...new Set((assessments || []).map((a) => a.visit_id).filter(Boolean))];
 
   // Full IOP reading history per assessment (not just the latest value --
   // the detail view needs the whole trend; the summary row still only
@@ -39,31 +40,57 @@ export async function getOptometryHistory(filterStatus) {
     });
   }
 
-  // Doctor overrides: the doctor edits this assessment directly (no
-  // separate shadow table). Every changed field is logged to this same
-  // assessment's audit log as "Doctor override -- ...", so we detect
-  // corrections by scanning for that prefix.
-  let overriddenIds = new Set();
-  if (ids.length > 0) {
-    const { data: overrideLogs } = await supabase
-      .from('optometry_audit_log')
-      .select('assessment_id')
-      .in('assessment_id', ids)
-      .like('message', 'Doctor override%');
-    (overrideLogs || []).forEach((l) => overriddenIds.add(l.assessment_id));
+  // Doctor corrections (CDP-004): doctor_repeat_findings never overwrites
+  // optometry_assessments -- it's a separate, timestamped table keyed by
+  // encounter_id. Walk visit -> encounter -> findings to attach any
+  // doctor-recorded values for the same visit.
+  let findingsByVisit = {};
+  if (visitIds.length > 0) {
+    const { data: encounters } = await supabase
+      .from('encounters')
+      .select('id, visit_id')
+      .in('visit_id', visitIds);
+
+    const encounterToVisit = {};
+    (encounters || []).forEach((e) => { encounterToVisit[e.id] = e.visit_id; });
+    const encounterIds = Object.keys(encounterToVisit);
+
+    if (encounterIds.length > 0) {
+      const { data: findings } = await supabase
+        .from('doctor_repeat_findings')
+        .select('*')
+        .in('encounter_id', encounterIds)
+        .order('recorded_at', { ascending: false });
+
+      const recordedByIds = [...new Set((findings || []).map((f) => f.recorded_by).filter(Boolean))];
+      let profileMap = {};
+      if (recordedByIds.length > 0) {
+        const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', recordedByIds);
+        (profiles || []).forEach((p) => { profileMap[p.id] = p.full_name; });
+      }
+
+      (findings || []).forEach((f) => {
+        const visitId = encounterToVisit[f.encounter_id];
+        if (!visitId) return;
+        if (!findingsByVisit[visitId]) findingsByVisit[visitId] = [];
+        findingsByVisit[visitId].push({ ...f, recorded_by_name: profileMap[f.recorded_by] || '--' });
+      });
+    }
   }
 
   const rows = (assessments || []).map((a) => {
     const readings = readingsByAssessment[a.id] || { RE: [], LE: [] };
     const lastRe = readings.RE.length ? readings.RE[readings.RE.length - 1].value : null;
     const lastLe = readings.LE.length ? readings.LE[readings.LE.length - 1].value : null;
+    const doctorFindings = findingsByVisit[a.visit_id] || [];
 
     return {
       ...a,
       iopRe: lastRe,
       iopLe: lastLe,
       iopReadings: readings,
-      hasDoctorCorrection: overriddenIds.has(a.id),
+      doctorFindings,
+      hasDoctorCorrection: doctorFindings.length > 0,
     };
   });
 
@@ -94,25 +121,32 @@ export async function getAssessmentDetail(assessmentId) {
     supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessmentId).order('created_at', { ascending: false }),
   ]);
 
-  // Resolve "created_by" profile names for audit entries (mostly useful
-  // for "Doctor override" lines, so the optometrist can see who made
-  // the change) without needing a DB-level foreign key embed.
-  const createdByIds = [...new Set((auditLog || []).map((a) => a.created_by).filter(Boolean))];
-  let profileMap = {};
-  if (createdByIds.length > 0) {
-    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', createdByIds);
-    (profiles || []).forEach((p) => { profileMap[p.id] = p.full_name; });
-  }
-  const annotatedAuditLog = (auditLog || []).map((a) => ({
-    ...a,
-    created_by_name: profileMap[a.created_by] || null,
-    isDoctorOverride: (a.message || '').startsWith('Doctor override'),
-  }));
+  // Doctor corrections (CDP-004): doctor_repeat_findings never overwrites
+  // this assessment -- it's a separate, timestamped table keyed by
+  // encounter_id. Pull every finding recorded against any encounter for
+  // this visit.
+  let doctorFindings = [];
+  if (assessment.visit_id) {
+    const { data: encounters } = await supabase.from('encounters').select('id').eq('visit_id', assessment.visit_id);
+    const encounterIds = (encounters || []).map((e) => e.id);
 
-  return {
-    assessment,
-    iopReadings: iopReadings || [],
-    auditLog: annotatedAuditLog,
-    overrideCount: annotatedAuditLog.filter((a) => a.isDoctorOverride).length,
-  };
+    if (encounterIds.length > 0) {
+      const { data: findings } = await supabase
+        .from('doctor_repeat_findings')
+        .select('*')
+        .in('encounter_id', encounterIds)
+        .order('recorded_at', { ascending: false });
+
+      const recordedByIds = [...new Set((findings || []).map((f) => f.recorded_by).filter(Boolean))];
+      let profileMap = {};
+      if (recordedByIds.length > 0) {
+        const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', recordedByIds);
+        (profiles || []).forEach((p) => { profileMap[p.id] = p.full_name; });
+      }
+      doctorFindings = (findings || []).map((f) => ({ ...f, recorded_by_name: profileMap[f.recorded_by] || '--' }));
+    }
+  }
+
+  return { assessment, iopReadings: iopReadings || [], auditLog: auditLog || [], doctorFindings };
 }
+

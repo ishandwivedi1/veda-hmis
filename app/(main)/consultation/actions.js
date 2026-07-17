@@ -81,7 +81,7 @@ export async function getConsultationData(queueEntryId) {
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
     { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
-    { data: diagnosisHistoryRaw },
+    { data: diagnosisHistoryRaw }, { data: doctorRepeatFindings },
   ] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
@@ -99,6 +99,7 @@ export async function getConsultationData(queueEntryId) {
       .from('visits')
       .select('id, encounters(id, created_at, diagnoses(id, name, category, eye, status, created_at))')
       .eq('patient_id', patientId),
+    supabase.from('doctor_repeat_findings').select('*').eq('encounter_id', encounter.id).order('recorded_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -113,6 +114,7 @@ export async function getConsultationData(queueEntryId) {
     workflowRequests: workflowRequests || [], auditLog: auditLog || [],
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
+    doctorRepeatFindings: doctorRepeatFindings || [],
   };
 }
 
@@ -157,99 +159,33 @@ export async function saveHistory(encounterId, fields) {
   return { success: true };
 }
 
-// ── DOCTOR EDITS OPTOMETRY FINDINGS DIRECTLY (in-place override) ──
-// The doctor edits the optometrist's own assessment record. Every
-// changed field is written to that assessment's audit log (the same
-// log the optometrist sees in Optometry History) as a before/after
-// entry, so the optometrist can see exactly what was changed and by
-// whom -- without a separate shadow record.
-const OPTOM_FIELD_LABELS = {
-  va_scale: 'VA Scale',
-  re_dist_unaided: 'RE Dist Unaided', re_dist_glasses: 'RE Dist Glasses', re_dist_ph: 'RE Dist Pinhole', re_near_unaided: 'RE Near Unaided',
-  le_dist_unaided: 'LE Dist Unaided', le_dist_glasses: 'LE Dist Glasses', le_dist_ph: 'LE Dist Pinhole', le_near_unaided: 'LE Near Unaided',
-  ref_pd: 'PD', ref_vd: 'VD',
-  ref_obj_re_sph: 'RE Obj Sph', ref_obj_re_cyl: 'RE Obj Cyl', ref_obj_re_axis: 'RE Obj Axis',
-  ref_obj_le_sph: 'LE Obj Sph', ref_obj_le_cyl: 'LE Obj Cyl', ref_obj_le_axis: 'LE Obj Axis',
-  ref_subj_re_sph: 'RE Subj Sph', ref_subj_re_cyl: 'RE Subj Cyl', ref_subj_re_axis: 'RE Subj Axis',
-  ref_subj_le_sph: 'LE Subj Sph', ref_subj_le_cyl: 'LE Subj Cyl', ref_subj_le_axis: 'LE Subj Axis',
-  ref_final_re_sph: 'RE Final Sph', ref_final_re_cyl: 'RE Final Cyl', ref_final_re_axis: 'RE Final Axis', ref_final_re_add: 'RE Final Add',
-  ref_final_le_sph: 'LE Final Sph', ref_final_le_cyl: 'LE Final Cyl', ref_final_le_axis: 'LE Final Axis', ref_final_le_add: 'LE Final Add',
-  iop_method: 'IOP Method', iop_time: 'IOP Time',
-  add_k1: 'Keratometry K1', add_k2: 'Keratometry K2', add_axial_length: 'Axial Length', add_pachymetry: 'Pachymetry',
-  add_white_to_white: 'White-to-White', add_schirmer: 'Schirmer', add_color_vision: 'Color Vision',
-  add_ocular_motility: 'Ocular Motility', add_syringing: 'Syringing',
-  observation_chips: 'Observation Tags', observations_text: 'Observations',
-};
-
-export async function updateOptometryFindings(assessmentId, encounterId, fields) {
+// ── DOCTOR REPEAT/VERIFIED FINDINGS (CDP-004) ──
+// Never overwrites optometry_assessments -- adds a separate, timestamped
+// entry the doctor owns. Used both to add a repeat check alongside an
+// existing optometry reading, and to record initial values directly
+// when no optometry step happened for this visit at all.
+export async function addDoctorRepeatFinding(encounterId, fields) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
-  const doctorId = userData?.user?.id || null;
 
-  const { data: current, error: fetchError } = await supabase
-    .from('optometry_assessments')
-    .select('*')
-    .eq('id', assessmentId)
-    .single();
-  if (fetchError) return { error: fetchError.message };
-
-  const changes = [];
-  const updatePayload = {};
-  Object.keys(OPTOM_FIELD_LABELS).forEach((key) => {
-    if (fields[key] === undefined) return;
-    const oldVal = current[key];
-    const newVal = fields[key];
-    const oldStr = Array.isArray(oldVal) ? oldVal.join(', ') : (oldVal ?? '');
-    const newStr = Array.isArray(newVal) ? newVal.join(', ') : (newVal ?? '');
-    if (oldStr === newStr) return;
-    updatePayload[key] = newVal;
-    changes.push({ label: OPTOM_FIELD_LABELS[key], oldStr: oldStr || '--', newStr: newStr || '--' });
+  const { error } = await supabase.from('doctor_repeat_findings').insert({
+    encounter_id: encounterId,
+    re_va: fields.reVa || null,
+    le_va: fields.leVa || null,
+    re_iop: fields.reIop ? parseFloat(fields.reIop) : null,
+    le_iop: fields.leIop ? parseFloat(fields.leIop) : null,
+    re_sph: fields.reSph || null,
+    le_sph: fields.leSph || null,
+    re_cyl: fields.reCyl || null,
+    le_cyl: fields.leCyl || null,
+    notes: fields.notes || null,
+    recorded_by: userData?.user?.id || null,
   });
 
-  if (changes.length === 0) return { success: true, changedCount: 0 };
-
-  const { error: updateError } = await supabase
-    .from('optometry_assessments')
-    .update({ ...updatePayload, updated_at: new Date().toISOString() })
-    .eq('id', assessmentId);
-  if (updateError) return { error: updateError.message };
-
-  for (const c of changes) {
-    await supabase.from('optometry_audit_log').insert({
-      assessment_id: assessmentId,
-      message: `Doctor override -- ${c.label}: "${c.oldStr}" -> "${c.newStr}"`,
-      created_by: doctorId,
-    });
-  }
-
-  if (encounterId) {
-    await addAudit(supabase, encounterId, `Optometry findings overridden -- ${changes.length} field(s) changed`, doctorId);
-  }
-
-  return { success: true, changedCount: changes.length };
-}
-
-// Lets the doctor start an optometry assessment directly when the
-// patient never went through Optometry -- same table, just created and
-// initially owned from the consultation side instead of the queue.
-export async function createOptometryAssessmentForVisit(visitId, encounterId) {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const doctorId = userData?.user?.id || null;
-
-  const { data: assessment, error } = await supabase
-    .from('optometry_assessments')
-    .insert({ visit_id: visitId, recorded_by: doctorId, completed_by: doctorId, status: 'Completed', completed_at: new Date().toISOString() })
-    .select()
-    .single();
   if (error) return { error: error.message };
-
-  await supabase.from('optometry_audit_log').insert({ assessment_id: assessment.id, message: 'Assessment started by Doctor -- no prior Optometry visit', created_by: doctorId });
-  if (encounterId) await addAudit(supabase, encounterId, 'Optometry assessment created directly by doctor', doctorId);
-
-  return { assessment };
+  await addAudit(supabase, encounterId, 'Doctor repeat findings recorded', userData?.user?.id);
+  return { success: true };
 }
-
 
 // ── DIAGNOSES ──
 export async function addDiagnosis(encounterId, values) {

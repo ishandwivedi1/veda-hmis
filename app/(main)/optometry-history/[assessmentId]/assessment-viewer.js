@@ -17,6 +17,40 @@ const VA_FIELDS = [
   { key: 'le_near_unaided', label: 'Near -- Unaided', eye: 'LE' },
 ];
 
+// Numeric-aware compare -- treats "12" and "12.0" as equal, falls back
+// to trimmed string compare for VA notations like "6/6" or "CF 1m".
+function differs(a, b) {
+  if (a === null || a === undefined || a === '') return false;
+  if (b === null || b === undefined || b === '') return false;
+  const na = parseFloat(a);
+  const nb = parseFloat(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && `${na}` === `${a}`.trim() && `${nb}` === `${b}`.trim()) {
+    return Math.abs(na - nb) > 0.001;
+  }
+  return String(a).trim() !== String(b).trim();
+}
+
+// Small inline chip shown under/next to a field when the doctor recorded
+// a different value for the same measurement (CDP-004: doctor_repeat_findings
+// never overwrites the optometrist's own row, so both are always visible).
+function DoctorChip({ optoValue, doctorValue }) {
+  if (doctorValue === null || doctorValue === undefined || doctorValue === '') return null;
+  const flagged = differs(optoValue, doctorValue);
+  return (
+    <div
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '2px 8px', borderRadius: 20,
+        fontSize: 11, fontWeight: 700,
+        background: flagged ? 'rgba(220,38,38,0.1)' : 'rgba(15,118,110,0.08)',
+        color: flagged ? 'var(--red)' : 'var(--teal)',
+      }}
+    >
+      <i className={`ti ti-${flagged ? 'alert-triangle' : 'stethoscope'}`} style={{ fontSize: 11 }}></i>
+      Dr: {doctorValue}{flagged ? ' (differs)' : ''}
+    </div>
+  );
+}
+
 function AsmtSection({ num, color, title, open, onToggle, children }) {
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -50,7 +84,7 @@ export default function AssessmentViewer({ assessmentId }) {
   const [assessment, setAssessment] = useState(null);
   const [iopReadings, setIopReadings] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
-  const [overrideCount, setOverrideCount] = useState(0);
+  const [doctorFindings, setDoctorFindings] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [openSections, setOpenSections] = useState({ va: true, refraction: true, iop: true, additional: true, obs: true });
   const router = useRouter();
@@ -61,7 +95,7 @@ export default function AssessmentViewer({ assessmentId }) {
       setAssessment(result.assessment);
       setIopReadings(result.iopReadings);
       setAuditLog(result.auditLog);
-      setOverrideCount(result.overrideCount);
+      setDoctorFindings(result.doctorFindings);
     });
   }, [assessmentId]);
 
@@ -73,6 +107,7 @@ export default function AssessmentViewer({ assessmentId }) {
   if (!assessment) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
   const patient = assessment.visits?.patients;
+  const latestFinding = doctorFindings[0] || null;
   const reIop = iopReadings.filter((r) => r.eye === 'RE');
   const leIop = iopReadings.filter((r) => r.eye === 'LE');
 
@@ -111,11 +146,11 @@ export default function AssessmentViewer({ assessmentId }) {
 
       {/* LOCK / STATUS BANNER */}
       <div className="msg-err" style={{ marginBottom: 12 }}>
-        <i className="ti ti-lock"></i> Historical record -- read only. Current values shown, including any doctor edits.
+        <i className="ti ti-lock"></i> Historical record -- read only. This is exactly as the optometrist recorded it{doctorFindings.length > 0 ? ', with any doctor-recorded corrections shown alongside.' : '.'}
       </div>
-      {overrideCount > 0 && (
+      {doctorFindings.length > 0 && (
         <div className="msg-warn" style={{ background: 'var(--amber-lt)', color: 'var(--amber)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-          <i className="ti ti-alert-triangle"></i> A doctor has overridden {overrideCount} field{overrideCount > 1 ? 's' : ''} on this record. See the highlighted entries in the Audit Log below for exactly what changed and when.
+          <i className="ti ti-alert-triangle"></i> The doctor recorded {doctorFindings.length} repeat finding{doctorFindings.length > 1 ? 's' : ''} for this visit. Values marked <strong>"differs"</strong> below are different from the optometrist's original reading.
         </div>
       )}
 
@@ -132,6 +167,9 @@ export default function AssessmentViewer({ assessmentId }) {
                   <div key={f.key} style={{ marginBottom: 12 }}>
                     <label className="flbl">{f.label}</label>
                     <VaPill value={assessment[f.key]} />
+                    {f.key === (eye === 'RE' ? 're_dist_unaided' : 'le_dist_unaided') && (
+                      <div><DoctorChip optoValue={assessment[f.key]} doctorValue={eye === 'RE' ? latestFinding?.re_va : latestFinding?.le_va} /></div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -158,8 +196,14 @@ export default function AssessmentViewer({ assessmentId }) {
                   {['re', 'le'].map((eye) => (
                     <tr key={eye}>
                       <td style={{ fontWeight: 700, fontSize: 12 }}>{eye.toUpperCase()}</td>
-                      <td style={{ textAlign: 'center' }}>{assessment[`ref_${type}_${eye}_sph`] || '--'}</td>
-                      <td style={{ textAlign: 'center' }}>{assessment[`ref_${type}_${eye}_cyl`] || '--'}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {assessment[`ref_${type}_${eye}_sph`] || '--'}
+                        {type === 'final' && <DoctorChip optoValue={assessment[`ref_${type}_${eye}_sph`]} doctorValue={eye === 're' ? latestFinding?.re_sph : latestFinding?.le_sph} />}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {assessment[`ref_${type}_${eye}_cyl`] || '--'}
+                        {type === 'final' && <DoctorChip optoValue={assessment[`ref_${type}_${eye}_cyl`]} doctorValue={eye === 're' ? latestFinding?.re_cyl : latestFinding?.le_cyl} />}
+                      </td>
                       <td style={{ textAlign: 'center' }}>{assessment[`ref_${type}_${eye}_axis`] || '--'}</td>
                       {type === 'final' && <td style={{ textAlign: 'center' }}>{assessment[`ref_${type}_${eye}_add`] || '--'}</td>}
                     </tr>
@@ -186,6 +230,10 @@ export default function AssessmentViewer({ assessmentId }) {
                 </div>
                 {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No readings recorded</div>}
                 {list.map((r, i) => iopReadingRow(r, list, i))}
+                <DoctorChip
+                  optoValue={list.length ? list[list.length - 1].value : null}
+                  doctorValue={eye === 'RE' ? latestFinding?.re_iop : latestFinding?.le_iop}
+                />
               </div>
             ))}
           </div>
@@ -232,30 +280,41 @@ export default function AssessmentViewer({ assessmentId }) {
         </AsmtSection>
       </div>
 
-      {/* AUDIT LOG -- doctor overrides are highlighted here since they're
-          logged as regular entries on this same assessment (no separate
-          shadow table). */}
+      {/* DOCTOR CORRECTIONS DETAIL */}
+      {doctorFindings.length > 0 && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-title" style={{ marginBottom: 10, color: 'var(--red)' }}>
+            <i className="ti ti-stethoscope"></i> Doctor Corrections ({doctorFindings.length})
+          </div>
+          {doctorFindings.map((f) => (
+            <div key={f.id} style={{ fontSize: 12, color: 'var(--g700)', padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
+              <div><strong>{f.recorded_by_name}</strong> -- {new Date(f.recorded_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+              <div style={{ marginTop: 2, color: 'var(--g500)' }}>
+                {[
+                  f.re_va && `RE VA: ${f.re_va}`,
+                  f.le_va && `LE VA: ${f.le_va}`,
+                  f.re_iop != null && `RE IOP: ${f.re_iop}`,
+                  f.le_iop != null && `LE IOP: ${f.le_iop}`,
+                  f.re_sph && `RE Sph: ${f.re_sph}`,
+                  f.le_sph && `LE Sph: ${f.le_sph}`,
+                  f.re_cyl && `RE Cyl: ${f.re_cyl}`,
+                  f.le_cyl && `LE Cyl: ${f.le_cyl}`,
+                ].filter(Boolean).join(' -- ')}
+              </div>
+              {f.notes && <div style={{ marginTop: 2, fontStyle: 'italic' }}>{f.notes}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* AUDIT LOG */}
       <div className="card">
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
         {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity recorded.</div>}
         {auditLog.map((a) => (
-          <div
-            key={a.id}
-            style={{
-              fontSize: 11, padding: '6px 8px', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8,
-              background: a.isDoctorOverride ? 'rgba(220,38,38,0.06)' : 'transparent',
-              borderRadius: a.isDoctorOverride ? 6 : 0,
-              marginBottom: a.isDoctorOverride ? 2 : 0,
-            }}
-          >
-            <span style={{ color: a.isDoctorOverride ? 'var(--red)' : 'var(--g400)', flexShrink: 0 }}>
-              {new Date(a.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-            </span>
-            <span style={{ color: a.isDoctorOverride ? 'var(--red)' : 'var(--g500)', fontWeight: a.isDoctorOverride ? 600 : 400 }}>
-              {a.isDoctorOverride && <i className="ti ti-stethoscope" style={{ marginRight: 4 }}></i>}
-              {a.message}
-              {a.isDoctorOverride && a.created_by_name && <span style={{ fontWeight: 400 }}> -- {a.created_by_name}</span>}
-            </span>
+          <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8 }}>
+            <span style={{ color: 'var(--g400)' }}>{new Date(a.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+            <span>{a.message}</span>
           </div>
         ))}
       </div>
