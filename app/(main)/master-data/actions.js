@@ -28,6 +28,41 @@ export async function toggleStatus(table, id, currentStatus, code) {
   return { success: true };
 }
 
+// ── IOP METHODS (Clinical Master -- used in Optometry Assessment) ──
+export async function getIopMethods() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_iop_methods').select('*').order('name');
+  return data || [];
+}
+export async function addIopMethod(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_iop_methods').insert({ code: values.code, name: values.name, status: 'Active' });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_iop_methods', values.code, 'Create', `${values.name} created`);
+  return { success: true };
+}
+
+// ── CLINICAL OBSERVATIONS (Clinical Master -- quick-pick chips in
+// Optometry Assessment's Clinical Observations section) ──
+export async function getClinicalObservations() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_clinical_observations').select('*').order('name');
+  return data || [];
+}
+export async function addClinicalObservation(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_clinical_observations').insert({ code: values.code, name: values.name, status: 'Active' });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_clinical_observations', values.code, 'Create', `${values.name} created`);
+  return { success: true };
+}
+
 // ── DOCTORS (Clinical Master) ──
 // Deliberately NOT a separate table -- doctors are profiles (same
 // source User Management and Appointments' doctor dropdown already

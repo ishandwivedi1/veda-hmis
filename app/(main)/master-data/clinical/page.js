@@ -6,12 +6,16 @@ import {
   getDiagnosesMaster, addDiagnosisMaster,
   getDoctorsMaster,
   getProcedures, addProcedure,
+  getIopMethods, addIopMethod,
+  getClinicalObservations, addClinicalObservation,
 } from '../actions';
 
 const TABS = [
   { key: 'doctors', label: 'Doctor' },
   { key: 'procedures', label: 'Procedure' },
   { key: 'diagnoses', label: 'Diagnoses' },
+  { key: 'iopMethods', label: 'IOP Methods' },
+  { key: 'observations', label: 'Clinical Observations' },
 ];
 
 function StatusToggle({ record, table, onUpdate, codeField = 'code' }) {
@@ -39,6 +43,8 @@ export default function ClinicalMastersPage() {
   const [diagnoses, setDiagnoses] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [procedures, setProcedures] = useState([]);
+  const [iopMethods, setIopMethods] = useState([]);
+  const [observations, setObservations] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
@@ -47,6 +53,8 @@ export default function ClinicalMastersPage() {
     setDiagnoses(await getDiagnosesMaster());
     setDoctors(await getDoctorsMaster());
     setProcedures(await getProcedures());
+    setIopMethods(await getIopMethods());
+    setObservations(await getClinicalObservations());
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -58,7 +66,11 @@ export default function ClinicalMastersPage() {
   async function handleAdd() {
     setError('');
     if (!form.code || !form.name) { setError('Code and name are required.'); return; }
-    const result = activeTab === 'procedures' ? await addProcedure(form) : await addDiagnosisMaster(form);
+    let result;
+    if (activeTab === 'procedures') result = await addProcedure(form);
+    else if (activeTab === 'iopMethods') result = await addIopMethod(form);
+    else if (activeTab === 'observations') result = await addClinicalObservation(form);
+    else result = await addDiagnosisMaster(form);
     if (result?.error) { setError(result.error); return; }
     setForm({});
     setShowAdd(false);
@@ -82,7 +94,7 @@ export default function ClinicalMastersPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
-          {(activeTab === 'diagnoses' || activeTab === 'procedures') && (
+          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'iopMethods' || activeTab === 'observations') && (
             <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(!showAdd)}>
               <i className="ti ti-plus"></i> Add New
             </button>
@@ -139,6 +151,68 @@ export default function ClinicalMastersPage() {
                 ))}
                 {procedures.length === 0 && (
                   <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No procedures added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'iopMethods' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Populates the Method dropdown in Optometry Assessment's IOP section.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name (e.g. Goldmann Applanation)" onChange={update('name')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Status</th></tr></thead>
+              <tbody>
+                {iopMethods.map((m) => (
+                  <tr key={m.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{m.code}</td><td>{m.name}</td>
+                    <td><StatusToggle record={m} table="master_iop_methods" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+                {iopMethods.length === 0 && (
+                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No IOP methods added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'observations' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Populates the quick-pick chips in Optometry Assessment's Clinical Observations section.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name (e.g. Poor fixation)" onChange={update('name')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Status</th></tr></thead>
+              <tbody>
+                {observations.map((o) => (
+                  <tr key={o.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{o.code}</td><td>{o.name}</td>
+                    <td><StatusToggle record={o} table="master_clinical_observations" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+                {observations.length === 0 && (
+                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No observations added yet.</td></tr>
                 )}
               </tbody>
             </table>

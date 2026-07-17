@@ -1,3 +1,518 @@
+mkdir -p "app/(main)/master-data/clinical" "app/(main)/optometry/[id]"
+
+cat > "app/(main)/master-data/actions.js" << 'EOF'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+
+async function logMasterAudit(supabase, masterTable, recordCode, action, detail) {
+  const { data: userData } = await supabase.auth.getUser();
+  await supabase.from('master_data_audit_log').insert({
+    master_table: masterTable, record_code: recordCode, action, detail, changed_by: userData?.user?.id || null,
+  });
+}
+
+export async function getMasterAuditLog(masterTable) {
+  const supabase = await createClient();
+  let q = supabase.from('master_data_audit_log').select('*, profiles(full_name)').order('changed_at', { ascending: false }).limit(30);
+  if (masterTable) q = q.eq('master_table', masterTable);
+  const { data } = await q;
+  return data || [];
+}
+
+// Generic toggle works the same way across all 5 master tables --
+// every one of them uses the same status column and Active/Inactive values.
+export async function toggleStatus(table, id, currentStatus, code) {
+  const supabase = await createClient();
+  const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
+  const { error } = await supabase.from(table).update({ status: newStatus }).eq('id', id);
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, table, code || id, newStatus === 'Active' ? 'Reactivate' : 'Deactivate', `Status changed to ${newStatus}`);
+  return { success: true };
+}
+
+// ── IOP METHODS (Clinical Master -- used in Optometry Assessment) ──
+export async function getIopMethods() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_iop_methods').select('*').order('name');
+  return data || [];
+}
+export async function addIopMethod(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_iop_methods').insert({ code: values.code, name: values.name, status: 'Active' });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_iop_methods', values.code, 'Create', `${values.name} created`);
+  return { success: true };
+}
+
+// ── CLINICAL OBSERVATIONS (Clinical Master -- quick-pick chips in
+// Optometry Assessment's Clinical Observations section) ──
+export async function getClinicalObservations() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_clinical_observations').select('*').order('name');
+  return data || [];
+}
+export async function addClinicalObservation(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_clinical_observations').insert({ code: values.code, name: values.name, status: 'Active' });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_clinical_observations', values.code, 'Create', `${values.name} created`);
+  return { success: true };
+}
+
+// ── DOCTORS (Clinical Master) ──
+// Deliberately NOT a separate table -- doctors are profiles (same
+// source User Management and Appointments' doctor dropdown already
+// use). This is a management view onto that same data, filtered to
+// doctor-type designations, showing both Active and Inactive (unlike
+// the dropdown-facing getDoctors() in appointments/actions.js, which
+// only wants Active ones). New doctor accounts are still created in
+// User Management (needs a real login, service-role auth) -- this tab
+// is for reference and status management only.
+export async function getDoctorsMaster() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, full_name, designation, status')
+    .or('designation.ilike.%ophthalmologist%,designation.ilike.%doctor%')
+    .order('full_name');
+  return data || [];
+}
+
+// ── SERVICES ──
+export async function getServices() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_services').select('*').order('name');
+  return data || [];
+}
+export async function addService(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_services').insert({
+    code: values.code, name: values.name, dept: values.dept,
+    rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
+  });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_services', values.code, 'Create', `${values.name} created -- Rs.${values.rate}, ${values.gstPct || 0}% GST`);
+  return { success: true };
+}
+export async function updateService(id, oldValues, values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_services').update({
+    name: values.name, dept: values.dept, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
+  }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.name !== values.name) changes.push(`Name ${oldValues.name} -> ${values.name}`);
+  if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
+  if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
+  if (oldValues.dept !== values.dept) changes.push(`Dept ${oldValues.dept} -> ${values.dept}`);
+  await logMasterAudit(supabase, 'master_services', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+
+// ── PACKAGES ──
+export async function getPackages() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_packages').select('*, master_procedures(name)').order('name');
+  return data || [];
+}
+export async function addPackage(values) {
+  const supabase = await createClient();
+  const { data: code, error: codeError } = await supabase.rpc('next_package_code');
+  if (codeError) return { error: codeError.message };
+  const { data: newPackage, error } = await supabase.from('master_packages').insert({
+    code, name: values.name, price: 0, includes: values.includes || null,
+    procedure_id: values.procedureId || null, status: 'Active',
+  }).select().single();
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_packages', code, 'Create', `${values.name} created`);
+  return { success: true, package: newPackage };
+}
+export async function updatePackage(id, oldValues, values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_packages').update({
+    name: values.name, includes: values.includes, procedure_id: values.procedureId || null,
+  }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.name !== values.name) changes.push(`Name ${oldValues.name} -> ${values.name}`);
+  if (oldValues.includes !== values.includes) changes.push('Includes updated');
+  await logMasterAudit(supabase, 'master_packages', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+
+// ── PACKAGE CONSTITUENTS (breakup for billing / insurance requests) ──
+export async function getPackageLineItems(packageId) {
+  const supabase = await createClient();
+  const { data } = await supabase.from('package_line_items').select('*').eq('package_id', packageId).order('sort_order');
+  return data || [];
+}
+export async function addPackageLineItem(packageId, description, amount) {
+  const supabase = await createClient();
+  const { data: existing } = await supabase.from('package_line_items').select('sort_order').eq('package_id', packageId).order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const { error } = await supabase.from('package_line_items').insert({
+    package_id: packageId, description, amount: parseFloat(amount) || 0, sort_order: (existing?.sort_order || 0) + 1,
+  });
+  if (error) return { error: error.message };
+  await supabase.rpc('recompute_package_price', { p_package_id: packageId });
+  const { data: pkg } = await supabase.from('master_packages').select('code').eq('id', packageId).single();
+  await logMasterAudit(supabase, 'master_packages', pkg?.code || packageId, 'Edit', `Constituent added: ${description} -- Rs.${amount}`);
+  return { success: true };
+}
+export async function removePackageLineItem(id, packageId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('package_line_items').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await supabase.rpc('recompute_package_price', { p_package_id: packageId });
+  const { data: pkg } = await supabase.from('master_packages').select('code').eq('id', packageId).single();
+  await logMasterAudit(supabase, 'master_packages', pkg?.code || packageId, 'Edit', 'Constituent removed');
+  return { success: true };
+}
+
+// ── PROCEDURES (Clinical Master -- the surgery TYPE a doctor advises,
+// e.g. "Cataract Surgery". No price -- pure clinical classification.
+// Multiple billing Packages can point at one procedure.) ──
+export async function getProcedures() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_procedures').select('*').order('name');
+  return data || [];
+}
+export async function addProcedure(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_procedures').insert({
+    code: values.code, name: values.name, category: values.category, status: 'Active',
+  });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_procedures', values.code, 'Create', `${values.name} created`);
+  return { success: true };
+}
+
+// ── DRUGS ──
+export async function getDrugs() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_drugs').select('*').order('generic');
+  return data || [];
+}
+export async function addDrug(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_drugs').insert({
+    code: values.code, brand: values.brand, generic: values.generic, strength: values.strength,
+    form: values.form, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
+  });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_drugs', values.code, 'Create', `${values.generic} (${values.brand}) created -- Rs.${values.rate}`);
+  return { success: true };
+}
+export async function updateDrug(id, oldValues, values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_drugs').update({
+    brand: values.brand, generic: values.generic, strength: values.strength, form: values.form,
+    rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
+  }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.generic !== values.generic) changes.push(`Generic ${oldValues.generic} -> ${values.generic}`);
+  if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
+  if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
+  await logMasterAudit(supabase, 'master_drugs', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+
+// ── DIAGNOSES ──
+export async function getDiagnosesMaster() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_diagnoses').select('*').order('name');
+  return data || [];
+}
+export async function addDiagnosisMaster(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_diagnoses').insert({
+    code: values.code, name: values.name, category: values.category, status: 'Active',
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// NOTE: Investigations previously had their own master_investigations
+// table here, but it was empty and unused everywhere except this
+// module -- every real investigation (with its actual rate) already
+// lives in master_services where dept = 'Investigation'. Consolidated
+// into Financial Masters (Migration 48) to avoid the same item ever
+// having two different prices in two different places.
+
+
+EOF
+
+cat > "app/(main)/master-data/clinical/page.js" << 'EOF'
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  toggleStatus,
+  getDiagnosesMaster, addDiagnosisMaster,
+  getDoctorsMaster,
+  getProcedures, addProcedure,
+  getIopMethods, addIopMethod,
+  getClinicalObservations, addClinicalObservation,
+} from '../actions';
+
+const TABS = [
+  { key: 'doctors', label: 'Doctor' },
+  { key: 'procedures', label: 'Procedure' },
+  { key: 'diagnoses', label: 'Diagnoses' },
+  { key: 'iopMethods', label: 'IOP Methods' },
+  { key: 'observations', label: 'Clinical Observations' },
+];
+
+function StatusToggle({ record, table, onUpdate, codeField = 'code' }) {
+  const [loading, setLoading] = useState(false);
+  async function handleToggle() {
+    setLoading(true);
+    await toggleStatus(table, record.id, record.status, record[codeField]);
+    setLoading(false);
+    onUpdate();
+  }
+  return (
+    <button
+      className={`badge ${record.status === 'Active' ? 'b-green' : 'b-gray'}`}
+      style={{ border: 'none', cursor: 'pointer' }}
+      onClick={handleToggle}
+      disabled={loading}
+    >
+      {record.status}
+    </button>
+  );
+}
+
+export default function ClinicalMastersPage() {
+  const [activeTab, setActiveTab] = useState('doctors');
+  const [diagnoses, setDiagnoses] = useState([]);
+  const [doctors, setDoctors] = useState([]);
+  const [procedures, setProcedures] = useState([]);
+  const [iopMethods, setIopMethods] = useState([]);
+  const [observations, setObservations] = useState([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({});
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    setDiagnoses(await getDiagnosesMaster());
+    setDoctors(await getDoctorsMaster());
+    setProcedures(await getProcedures());
+    setIopMethods(await getIopMethods());
+    setObservations(await getClinicalObservations());
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  function update(field) {
+    return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  }
+
+  async function handleAdd() {
+    setError('');
+    if (!form.code || !form.name) { setError('Code and name are required.'); return; }
+    let result;
+    if (activeTab === 'procedures') result = await addProcedure(form);
+    else if (activeTab === 'iopMethods') result = await addIopMethod(form);
+    else if (activeTab === 'observations') result = await addClinicalObservation(form);
+    else result = await addDiagnosisMaster(form);
+    if (result?.error) { setError(result.error); return; }
+    setForm({});
+    setShowAdd(false);
+    refresh();
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className={activeTab === t.key ? 'btn btn-primary' : 'btn'}
+            onClick={() => { setActiveTab(t.key); setShowAdd(false); setError(''); }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
+          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'iopMethods' || activeTab === 'observations') && (
+            <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(!showAdd)}>
+              <i className="ti ti-plus"></i> Add New
+            </button>
+          )}
+        </div>
+
+        {error && <div className="msg-err">{error}</div>}
+
+        {activeTab === 'doctors' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Reference list only -- the same record used everywhere a doctor is selected (Appointments, Visits, Surgery). To onboard a new doctor with real login access, use User Management; status set here (Active/Inactive) is the same status shown there.
+            </div>
+            <table className="tbl">
+              <thead><tr><th>Name</th><th>Designation</th><th>Status</th></tr></thead>
+              <tbody>
+                {doctors.map((d) => (
+                  <tr key={d.id}>
+                    <td style={{ fontWeight: 600 }}>{d.full_name}</td><td>{d.designation}</td>
+                    <td><StatusToggle record={d} table="profiles" onUpdate={refresh} codeField="full_name" /></td>
+                  </tr>
+                ))}
+                {doctors.length === 0 && (
+                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No doctor profiles found. Create one in User Management.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'procedures' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--teal-lt)', color: 'var(--teal)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> The clinical surgery type a doctor advises (e.g. &quot;Cataract Surgery&quot;) -- no price here. Billing packages for this procedure are set up separately in Financial Masters, and multiple packages can offer the same procedure at different price points.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name (e.g. Cataract Surgery)" onChange={update('name')} />
+                  <input className="fi" placeholder="Category (e.g. Cataract, Glaucoma, Retina)" onChange={update('category')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th></tr></thead>
+              <tbody>
+                {procedures.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{p.code}</td><td>{p.name}</td><td>{p.category}</td>
+                    <td><StatusToggle record={p} table="master_procedures" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+                {procedures.length === 0 && (
+                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No procedures added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'iopMethods' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Populates the Method dropdown in Optometry Assessment's IOP section.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name (e.g. Goldmann Applanation)" onChange={update('name')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Status</th></tr></thead>
+              <tbody>
+                {iopMethods.map((m) => (
+                  <tr key={m.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{m.code}</td><td>{m.name}</td>
+                    <td><StatusToggle record={m} table="master_iop_methods" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+                {iopMethods.length === 0 && (
+                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No IOP methods added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'observations' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Populates the quick-pick chips in Optometry Assessment's Clinical Observations section.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name (e.g. Poor fixation)" onChange={update('name')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Status</th></tr></thead>
+              <tbody>
+                {observations.map((o) => (
+                  <tr key={o.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{o.code}</td><td>{o.name}</td>
+                    <td><StatusToggle record={o} table="master_clinical_observations" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+                {observations.length === 0 && (
+                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No observations added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'diagnoses' && (
+          <>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name" onChange={update('name')} />
+                  <input className="fi" placeholder="Category (e.g. Lens, Retina)" onChange={update('category')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th></tr></thead>
+              <tbody>
+                {diagnoses.map((d) => (
+                  <tr key={d.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.name}</td><td>{d.category}</td>
+                    <td><StatusToggle record={d} table="master_diagnoses" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+EOF
+
+cat > "app/(main)/optometry/[id]/optometry-workspace.js" << 'EOF'
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -530,3 +1045,6 @@ export default function OptometryWorkspace({ queueEntryId }) {
 }
 
 
+EOF
+
+echo "IOP Methods and Clinical Observations moved from hardcoded arrays into Clinical Masters."
