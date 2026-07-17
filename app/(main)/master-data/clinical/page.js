@@ -5,10 +5,12 @@ import {
   toggleStatus,
   getDiagnosesMaster, addDiagnosisMaster,
   getDoctorsMaster,
+  getProcedures, addProcedure,
 } from '../actions';
 
 const TABS = [
   { key: 'doctors', label: 'Doctor' },
+  { key: 'procedures', label: 'Procedure' },
   { key: 'diagnoses', label: 'Diagnoses' },
 ];
 
@@ -36,6 +38,7 @@ export default function ClinicalMastersPage() {
   const [activeTab, setActiveTab] = useState('doctors');
   const [diagnoses, setDiagnoses] = useState([]);
   const [doctors, setDoctors] = useState([]);
+  const [procedures, setProcedures] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
@@ -43,6 +46,7 @@ export default function ClinicalMastersPage() {
   const refresh = useCallback(async () => {
     setDiagnoses(await getDiagnosesMaster());
     setDoctors(await getDoctorsMaster());
+    setProcedures(await getProcedures());
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -54,7 +58,7 @@ export default function ClinicalMastersPage() {
   async function handleAdd() {
     setError('');
     if (!form.code || !form.name) { setError('Code and name are required.'); return; }
-    const result = await addDiagnosisMaster(form);
+    const result = activeTab === 'procedures' ? await addProcedure(form) : await addDiagnosisMaster(form);
     if (result?.error) { setError(result.error); return; }
     setForm({});
     setShowAdd(false);
@@ -78,7 +82,7 @@ export default function ClinicalMastersPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
-          {activeTab === 'diagnoses' && (
+          {(activeTab === 'diagnoses' || activeTab === 'procedures') && (
             <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(!showAdd)}>
               <i className="ti ti-plus"></i> Add New
             </button>
@@ -103,6 +107,38 @@ export default function ClinicalMastersPage() {
                 ))}
                 {doctors.length === 0 && (
                   <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No doctor profiles found. Create one in User Management.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'procedures' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--teal-lt)', color: 'var(--teal)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> The clinical surgery type a doctor advises (e.g. &quot;Cataract Surgery&quot;) -- no price here. Billing packages for this procedure are set up separately in Financial Masters, and multiple packages can offer the same procedure at different price points.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name (e.g. Cataract Surgery)" onChange={update('name')} />
+                  <input className="fi" placeholder="Category (e.g. Cataract, Glaucoma, Retina)" onChange={update('category')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th></tr></thead>
+              <tbody>
+                {procedures.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{p.code}</td><td>{p.name}</td><td>{p.category}</td>
+                    <td><StatusToggle record={p} table="master_procedures" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+                {procedures.length === 0 && (
+                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No procedures added yet.</td></tr>
                 )}
               </tbody>
             </table>

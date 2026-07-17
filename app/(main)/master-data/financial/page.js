@@ -5,11 +5,13 @@ import {
   toggleStatus,
   getServices, addService, updateService,
   getPackages, addPackage, updatePackage,
+  getPackageLineItems, addPackageLineItem, removePackageLineItem,
   getDrugs, addDrug, updateDrug,
+  getProcedures,
   getMasterAuditLog,
 } from '../actions';
 
-const SERVICE_DEPTS = ['Consultation', 'Investigation', 'Surgery'];
+const SERVICE_DEPTS = ['Consultation', 'Investigation'];
 const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key: 'Pharmacy', type: 'drug' }, { key: 'Packages', type: 'package' }];
 
 function StatusToggle({ record, table, onUpdate }) {
@@ -32,6 +34,7 @@ export default function FinancialMastersPage() {
   const [services, setServices] = useState([]);
   const [packages, setPackages] = useState([]);
   const [drugs, setDrugs] = useState([]);
+  const [procedures, setProcedures] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
@@ -40,6 +43,11 @@ export default function FinancialMastersPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  const [constituentsFor, setConstituentsFor] = useState(null);
+  const [constituents, setConstituents] = useState([]);
+  const [newLineDesc, setNewLineDesc] = useState('');
+  const [newLineAmount, setNewLineAmount] = useState('');
+
   const tabDef = TABS.find((t) => t.key === activeTab);
   const auditTable = tabDef.type === 'package' ? 'master_packages' : tabDef.type === 'drug' ? 'master_drugs' : 'master_services';
 
@@ -47,6 +55,7 @@ export default function FinancialMastersPage() {
     setServices(await getServices());
     setPackages(await getPackages());
     setDrugs(await getDrugs());
+    setProcedures(await getProcedures());
     setAuditLog(await getMasterAuditLog(auditTable));
   }, [auditTable]);
 
@@ -65,6 +74,8 @@ export default function FinancialMastersPage() {
     setError(''); setSuccess('');
     if (tabDef.type === 'drug') {
       if (!form.code || !form.generic) { setError('Code and generic name are required.'); return; }
+    } else if (tabDef.type === 'package') {
+      if (!form.name) { setError('Name is required.'); return; }
     } else if (!form.code || !form.name) {
       setError('Code and name are required.'); return;
     }
@@ -75,16 +86,17 @@ export default function FinancialMastersPage() {
     else result = await addService({ ...form, dept: activeTab });
 
     if (result?.error) { setError(result.error); return; }
-    setSuccess(`${form.name || form.generic} added.`);
+    setSuccess(`${form.name || form.generic} added${tabDef.type === 'package' ? ' -- add its constituents to set the price' : ''}.`);
     setForm({});
     setShowAdd(false);
     refresh();
+    if (tabDef.type === 'package' && result.package) openConstituents(result.package);
   }
 
   function startEdit(record) {
     setError(''); setSuccess('');
     setEditingId(record.id);
-    if (tabDef.type === 'package') setEditForm({ name: record.name, price: record.price, includes: record.includes });
+    if (tabDef.type === 'package') setEditForm({ name: record.name, includes: record.includes, procedureId: record.procedure_id || '' });
     else if (tabDef.type === 'drug') setEditForm({ brand: record.brand, generic: record.generic, strength: record.strength, form: record.form, rate: record.rate, gstPct: record.gst_pct });
     else setEditForm({ name: record.name, rate: record.rate, gstPct: record.gst_pct });
   }
@@ -105,6 +117,35 @@ export default function FinancialMastersPage() {
     setEditingId(null);
     refresh();
   }
+
+  async function openConstituents(pkg) {
+    setConstituentsFor(pkg);
+    setConstituents(await getPackageLineItems(pkg.id));
+    setNewLineDesc(''); setNewLineAmount('');
+  }
+
+  function closeConstituents() {
+    setConstituentsFor(null);
+    setConstituents([]);
+  }
+
+  async function handleAddLine() {
+    if (!newLineDesc.trim() || !newLineAmount) { setError('Description and amount are required.'); return; }
+    setError('');
+    const result = await addPackageLineItem(constituentsFor.id, newLineDesc, newLineAmount);
+    if (result?.error) { setError(result.error); return; }
+    setNewLineDesc(''); setNewLineAmount('');
+    setConstituents(await getPackageLineItems(constituentsFor.id));
+    refresh();
+  }
+
+  async function handleRemoveLine(id) {
+    await removePackageLineItem(id, constituentsFor.id);
+    setConstituents(await getPackageLineItems(constituentsFor.id));
+    refresh();
+  }
+
+  const constituentsTotal = constituents.reduce((s, c) => s + Number(c.amount), 0);
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
@@ -154,11 +195,16 @@ export default function FinancialMastersPage() {
                 </div>
               )}
               {tabDef.type === 'package' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
-                  <input className="fi" placeholder="Name" onChange={update('name')} />
-                  <input type="number" className="fi" placeholder="Price" onChange={update('price')} />
-                  <input className="fi" placeholder="Includes (description)" style={{ gridColumn: 'span 3' }} onChange={update('includes')} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Name (e.g. Cataract Surgery -- Standard IOL)" onChange={update('name')} />
+                  <select className="fi" onChange={update('procedureId')} defaultValue="">
+                    <option value="">-- Link to procedure (optional) --</option>
+                    {procedures.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <input className="fi" placeholder="Includes (description)" style={{ gridColumn: 'span 2' }} onChange={update('includes')} />
+                  <div style={{ gridColumn: 'span 2', fontSize: 11, color: 'var(--g500)' }}>
+                    Code auto-generates (PKG001, PKG002...). Price is set by adding constituents after saving.
+                  </div>
                 </div>
               )}
               <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
@@ -232,15 +278,20 @@ export default function FinancialMastersPage() {
 
           {tabDef.type === 'package' && (
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Price</th><th>Includes</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Procedure</th><th>Price</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {packages.map((p) => (
                   editingId === p.id ? (
                     <tr key={p.id} style={{ background: 'var(--g50)' }}>
                       <td style={{ fontFamily: 'monospace' }}>{p.code}</td>
                       <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
-                      <td><input type="number" className="fi fi-sm" style={{ width: 90 }} value={editForm.price} onChange={updateEdit('price')} /></td>
-                      <td><input className="fi fi-sm" value={editForm.includes} onChange={updateEdit('includes')} /></td>
+                      <td>
+                        <select className="fi fi-sm" value={editForm.procedureId} onChange={updateEdit('procedureId')}>
+                          <option value="">--</option>
+                          {procedures.map((pr) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+                        </select>
+                      </td>
+                      <td>Rs.{p.price}</td>
                       <td><span className={`badge ${p.status === 'Active' ? 'b-green' : 'b-gray'}`}>{p.status}</span></td>
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm btn-primary" onClick={() => saveEdit(p)}>Save</button>
@@ -249,14 +300,61 @@ export default function FinancialMastersPage() {
                     </tr>
                   ) : (
                     <tr key={p.id}>
-                      <td style={{ fontFamily: 'monospace' }}>{p.code}</td><td>{p.name}</td><td>Rs.{p.price}</td><td>{p.includes}</td>
+                      <td style={{ fontFamily: 'monospace' }}>{p.code}</td><td>{p.name}</td>
+                      <td style={{ fontSize: 12, color: 'var(--g500)' }}>{p.master_procedures?.name || '--'}</td>
+                      <td style={{ fontWeight: 600 }}>Rs.{p.price}</td>
                       <td><StatusToggle record={p} table="master_packages" onUpdate={refresh} /></td>
-                      <td><button className="btn btn-sm" onClick={() => startEdit(p)}><i className="ti ti-edit"></i></button></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm" onClick={() => openConstituents(p)}><i className="ti ti-list-details"></i> Breakup</button>
+                        <button className="btn btn-sm" onClick={() => startEdit(p)}><i className="ti ti-edit"></i></button>
+                      </td>
                     </tr>
                   )
                 ))}
+                {packages.length === 0 && (
+                  <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No packages yet.</td></tr>
+                )}
               </tbody>
             </table>
+          )}
+
+          {constituentsFor && (
+            <div style={{ border: '1.5px solid var(--teal)', borderRadius: 8, padding: 14, marginTop: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  <i className="ti ti-list-details" style={{ color: 'var(--teal)' }}></i> Breakup -- {constituentsFor.name} ({constituentsFor.code})
+                </div>
+                <button className="btn btn-sm" onClick={closeConstituents}><i className="ti ti-x"></i> Close</button>
+              </div>
+              <div className="msg-info" style={{ background: 'var(--teal-lt)', color: 'var(--teal)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+                <i className="ti ti-info-circle"></i> The package price is always the sum of these constituents -- this is what gets shown when a patient or insurer asks for an itemized breakup.
+              </div>
+              <table className="tbl" style={{ marginBottom: 12 }}>
+                <thead><tr><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th></th></tr></thead>
+                <tbody>
+                  {constituents.map((c) => (
+                    <tr key={c.id}>
+                      <td>{c.description}</td>
+                      <td style={{ textAlign: 'right' }}>Rs.{Number(c.amount).toFixed(2)}</td>
+                      <td><button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => handleRemoveLine(c.id)}>Remove</button></td>
+                    </tr>
+                  ))}
+                  {constituents.length === 0 && (
+                    <tr><td colSpan={3} style={{ padding: 12, textAlign: 'center', color: 'var(--g400)' }}>No constituents yet -- price is Rs.0 until you add some.</td></tr>
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 700 }}>
+                    <td>Total</td><td style={{ textAlign: 'right' }}>Rs.{constituentsTotal.toFixed(2)}</td><td></td>
+                  </tr>
+                </tfoot>
+              </table>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="fi" placeholder="e.g. Surgeon Fee, OT Charges, IOL, Consumables..." value={newLineDesc} onChange={(e) => setNewLineDesc(e.target.value)} style={{ flex: 2 }} />
+                <input type="number" className="fi" placeholder="Amount" value={newLineAmount} onChange={(e) => setNewLineAmount(e.target.value)} style={{ flex: 1 }} />
+                <button className="btn btn-primary btn-sm" onClick={handleAddLine}><i className="ti ti-plus"></i> Add</button>
+              </div>
+            </div>
           )}
         </div>
       </div>

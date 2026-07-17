@@ -84,33 +84,80 @@ export async function updateService(id, oldValues, values) {
 // ── PACKAGES ──
 export async function getPackages() {
   const supabase = await createClient();
-  const { data } = await supabase.from('master_packages').select('*').order('name');
+  const { data } = await supabase.from('master_packages').select('*, master_procedures(name)').order('name');
   return data || [];
 }
 export async function addPackage(values) {
   const supabase = await createClient();
-  const { error } = await supabase.from('master_packages').insert({
-    code: values.code, name: values.name, price: parseFloat(values.price) || 0,
-    includes: values.includes, status: 'Active',
+  const { data: code, error: codeError } = await supabase.rpc('next_package_code');
+  if (codeError) return { error: codeError.message };
+  const { data: newPackage, error } = await supabase.from('master_packages').insert({
+    code, name: values.name, price: 0, includes: values.includes || null,
+    procedure_id: values.procedureId || null, status: 'Active',
+  }).select().single();
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_packages', code, 'Create', `${values.name} created`);
+  return { success: true, package: newPackage };
+}
+export async function updatePackage(id, oldValues, values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_packages').update({
+    name: values.name, includes: values.includes, procedure_id: values.procedureId || null,
+  }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.name !== values.name) changes.push(`Name ${oldValues.name} -> ${values.name}`);
+  if (oldValues.includes !== values.includes) changes.push('Includes updated');
+  await logMasterAudit(supabase, 'master_packages', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+
+// ── PACKAGE CONSTITUENTS (breakup for billing / insurance requests) ──
+export async function getPackageLineItems(packageId) {
+  const supabase = await createClient();
+  const { data } = await supabase.from('package_line_items').select('*').eq('package_id', packageId).order('sort_order');
+  return data || [];
+}
+export async function addPackageLineItem(packageId, description, amount) {
+  const supabase = await createClient();
+  const { data: existing } = await supabase.from('package_line_items').select('sort_order').eq('package_id', packageId).order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const { error } = await supabase.from('package_line_items').insert({
+    package_id: packageId, description, amount: parseFloat(amount) || 0, sort_order: (existing?.sort_order || 0) + 1,
+  });
+  if (error) return { error: error.message };
+  await supabase.rpc('recompute_package_price', { p_package_id: packageId });
+  const { data: pkg } = await supabase.from('master_packages').select('code').eq('id', packageId).single();
+  await logMasterAudit(supabase, 'master_packages', pkg?.code || packageId, 'Edit', `Constituent added: ${description} -- Rs.${amount}`);
+  return { success: true };
+}
+export async function removePackageLineItem(id, packageId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('package_line_items').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await supabase.rpc('recompute_package_price', { p_package_id: packageId });
+  const { data: pkg } = await supabase.from('master_packages').select('code').eq('id', packageId).single();
+  await logMasterAudit(supabase, 'master_packages', pkg?.code || packageId, 'Edit', 'Constituent removed');
+  return { success: true };
+}
+
+// ── PROCEDURES (Clinical Master -- the surgery TYPE a doctor advises,
+// e.g. "Cataract Surgery". No price -- pure clinical classification.
+// Multiple billing Packages can point at one procedure.) ──
+export async function getProcedures() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_procedures').select('*').order('name');
+  return data || [];
+}
+export async function addProcedure(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_procedures').insert({
+    code: values.code, name: values.name, category: values.category, status: 'Active',
   });
   if (error) {
     if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
     return { error: error.message };
   }
-  await logMasterAudit(supabase, 'master_packages', values.code, 'Create', `${values.name} created -- Rs.${values.price}`);
-  return { success: true };
-}
-export async function updatePackage(id, oldValues, values) {
-  const supabase = await createClient();
-  const { error } = await supabase.from('master_packages').update({
-    name: values.name, price: parseFloat(values.price) || 0, includes: values.includes,
-  }).eq('id', id);
-  if (error) return { error: error.message };
-  const changes = [];
-  if (oldValues.name !== values.name) changes.push(`Name ${oldValues.name} -> ${values.name}`);
-  if (String(oldValues.price) !== String(values.price)) changes.push(`Price Rs.${oldValues.price} -> Rs.${values.price}`);
-  if (oldValues.includes !== values.includes) changes.push(`Includes updated`);
-  await logMasterAudit(supabase, 'master_packages', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  await logMasterAudit(supabase, 'master_procedures', values.code, 'Create', `${values.name} created`);
   return { success: true };
 }
 
