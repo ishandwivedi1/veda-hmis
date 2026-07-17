@@ -1,3 +1,6 @@
+mkdir -p "app/(main)/master-data/financial"
+
+cat > "app/(main)/master-data/financial/page.js" << 'EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -233,3 +236,6 @@ export default function FinancialMastersPage() {
   );
 }
 
+EOF
+
+echo "Financial Masters now has separate tabs per department (Consultation/Investigation/Pharmacy/Surgery) plus Packages."
