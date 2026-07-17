@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { getOptometryHistory } from './actions';
 
 function patientName(row) {
@@ -13,6 +14,7 @@ export default function OptometryHistoryPage() {
   const [filter, setFilter] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   const refresh = useCallback(async (status) => {
     setLoading(true);
@@ -56,7 +58,11 @@ export default function OptometryHistoryPage() {
               const by = r.status === 'Completed' ? (r.completed_by_profile?.full_name || '--') : (r.recorded_by_profile?.full_name || '--');
               const dt = new Date(r.completed_at || r.updated_at || r.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
               return (
-                <tr key={r.id}>
+                <tr
+                  key={r.id}
+                  onClick={() => router.push(`/optometry-history/${r.id}`)}
+                  style={{ cursor: 'pointer' }}
+                >
                   <td style={{ fontSize: 11 }}>{dt}</td>
                   <td>
                     <strong>{patientName(r)}</strong>
@@ -67,7 +73,14 @@ export default function OptometryHistoryPage() {
                   <td style={{ fontWeight: 600 }}>{r.le_dist_unaided || '--'}</td>
                   <td style={{ fontWeight: 600, color: iopReHigh ? 'var(--red)' : 'var(--g700)' }}>{r.iopRe ?? '--'}{iopReHigh ? ' !' : ''}</td>
                   <td style={{ fontWeight: 600, color: iopLeHigh ? 'var(--red)' : 'var(--g700)' }}>{r.iopLe ?? '--'}{iopLeHigh ? ' !' : ''}</td>
-                  <td><span className={`badge ${r.status === 'Completed' ? 'b-green' : 'b-amber'}`}>{r.status}</span></td>
+                  <td>
+                    <span className={`badge ${r.status === 'Completed' ? 'b-green' : 'b-amber'}`}>{r.status}</span>
+                    {r.hasDoctorCorrection && (
+                      <span className="badge" style={{ marginLeft: 6, background: 'rgba(220,38,38,0.1)', color: 'var(--red)' }} title="Doctor recorded a differing finding for this visit">
+                        <i className="ti ti-alert-triangle" style={{ fontSize: 11 }}></i> Correction
+                      </span>
+                    )}
+                  </td>
                   <td style={{ fontSize: 12 }}>{by}</td>
                 </tr>
               );
@@ -81,4 +94,3 @@ export default function OptometryHistoryPage() {
     </div>
   );
 }
-
