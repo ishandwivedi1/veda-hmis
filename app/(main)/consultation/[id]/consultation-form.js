@@ -348,7 +348,7 @@ export default function ConsultationForm({ queueEntryId }) {
             <OptometryTab
               findings={data.findings}
               iopReadings={data.iopReadings}
-              doctorRepeatFindings={data.doctorRepeatFindings}
+              visitId={data.entry.visits.id}
               encounterId={data.encounter.id}
               onSaved={refresh}
             />
