@@ -28,9 +28,9 @@ import {
   savePatientInstructions,
 } from '@/app/(main)/consultation/actions';
 import { markForSurgery } from '@/app/(main)/surgical/actions';
-import { getProcedures as getProcedureMasters } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import HistoryTab from './history-tab';
+import OptometryTab from './optometry-tab';
 
 const WF_ITEMS = {
   Biometry: { icon: 'ti-ruler-measure', color: '#818cf8' },
@@ -63,7 +63,6 @@ export default function ConsultationForm({ queueEntryId }) {
   const [loading, setLoading] = useState(false);
   const [showSurgery, setShowSurgery] = useState(false);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
-  const [procedureMasters, setProcedureMasters] = useState([]);
   const [surgeryEye, setSurgeryEye] = useState('OU');
   const [surgeryLoading, setSurgeryLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('history');
@@ -113,10 +112,6 @@ export default function ConsultationForm({ queueEntryId }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    getProcedureMasters().then((all) => setProcedureMasters(all.filter((p) => p.status === 'Active')));
-  }, []);
 
   useEffect(() => {
     if (!data) return;
@@ -232,7 +227,7 @@ export default function ConsultationForm({ queueEntryId }) {
 
   async function handleMarkForSurgery() {
     setError('');
-    if (!surgeryProcedure) { setError('Select a procedure.'); return; }
+    if (!surgeryProcedure.trim()) { setError('Procedure name is required.'); return; }
     setSurgeryLoading(true);
     const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye);
     setSurgeryLoading(false);
@@ -335,6 +330,7 @@ export default function ConsultationForm({ queueEntryId }) {
           {/* TABS */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-message" label="History" />
+            <TabButton active={activeTab === 'optometry'} onClick={() => setActiveTab('optometry')} icon="ti-eye-check" label="Optometry" />
             <TabButton active={activeTab === 'exam'} onClick={() => setActiveTab('exam')} icon="ti-microscope" label="Examination" />
             <TabButton active={activeTab === 'plan'} onClick={() => setActiveTab('plan')} icon="ti-clipboard-text" label="Diagnosis & Plan" />
             <TabButton active={activeTab === 'tracker'} onClick={() => setActiveTab('tracker')} icon="ti-chart-line" label="Action Tracker" />
@@ -344,8 +340,16 @@ export default function ConsultationForm({ queueEntryId }) {
             <HistoryTab
               encounter={data.encounter}
               findings={data.findings}
+              onSaved={refresh}
+            />
+          )}
+
+          {activeTab === 'optometry' && (
+            <OptometryTab
+              findings={data.findings}
               iopReadings={data.iopReadings}
               doctorRepeatFindings={data.doctorRepeatFindings}
+              encounterId={data.encounter.id}
               onSaved={refresh}
             />
           )}
@@ -462,10 +466,7 @@ export default function ConsultationForm({ queueEntryId }) {
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Mark for Surgery</div>
                     <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                      <select className="fi" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }}>
-                        <option value="">-- Select procedure --</option>
-                        {procedureMasters.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
-                      </select>
+                      <input className="fi" placeholder="Procedure (e.g. Phacoemulsification + IOL)" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }} />
                       <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
                         <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
                       </select>
