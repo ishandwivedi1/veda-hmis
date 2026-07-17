@@ -63,6 +63,47 @@ export async function addClinicalObservation(values) {
   return { success: true };
 }
 
+// ── HISTORY OPTIONS (Clinical Master -- chip options in the doctor's
+// Consultation History tab: Chief Complaint, Ocular/Medical/Family
+// History). Four categories in one table; code is unique per category
+// (not globally) since e.g. "Glaucoma" is a legitimate chip in both
+// Ocular History and Family History. ──
+export async function getHistoryOptions() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_history_options').select('*').order('category').order('name');
+  return data || [];
+}
+export async function addHistoryOption(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_history_options').insert({
+    code: values.code, name: values.name, category: values.category, status: 'Active',
+  });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists in this category.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_history_options', values.code, 'Create', `${values.name} (${values.category}) created`);
+  return { success: true };
+}
+
+// Active-only, grouped by category -- what the doctor's Consultation
+// History tab actually renders as selectable chips
+// (app/(main)/consultation/[id]/history-tab.js).
+export async function getActiveHistoryOptions() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('master_history_options')
+    .select('category, name')
+    .eq('status', 'Active')
+    .order('name');
+
+  const grouped = { chief_complaint: [], ocular_history: [], medical_history: [], family_history: [] };
+  (data || []).forEach((row) => {
+    if (grouped[row.category]) grouped[row.category].push(row.name);
+  });
+  return grouped;
+}
+
 // ── DOCTORS (Clinical Master) ──
 // Deliberately NOT a separate table -- doctors are profiles (same
 // source User Management and Appointments' doctor dropdown already

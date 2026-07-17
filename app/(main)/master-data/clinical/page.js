@@ -8,6 +8,7 @@ import {
   getProcedures, addProcedure,
   getIopMethods, addIopMethod,
   getClinicalObservations, addClinicalObservation,
+  getHistoryOptions, addHistoryOption,
 } from '../actions';
 
 const TABS = [
@@ -16,7 +17,15 @@ const TABS = [
   { key: 'diagnoses', label: 'Diagnoses' },
   { key: 'iopMethods', label: 'IOP Methods' },
   { key: 'observations', label: 'Clinical Observations' },
+  { key: 'historyOptions', label: 'History Options' },
 ];
+
+const HISTORY_CATEGORY_LABELS = {
+  chief_complaint: 'Chief Complaint',
+  ocular_history: 'Ocular History',
+  medical_history: 'Medical History',
+  family_history: 'Family History',
+};
 
 function StatusToggle({ record, table, onUpdate, codeField = 'code' }) {
   const [loading, setLoading] = useState(false);
@@ -45,6 +54,7 @@ export default function ClinicalMastersPage() {
   const [procedures, setProcedures] = useState([]);
   const [iopMethods, setIopMethods] = useState([]);
   const [observations, setObservations] = useState([]);
+  const [historyOptions, setHistoryOptions] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
@@ -55,6 +65,7 @@ export default function ClinicalMastersPage() {
     setProcedures(await getProcedures());
     setIopMethods(await getIopMethods());
     setObservations(await getClinicalObservations());
+    setHistoryOptions(await getHistoryOptions());
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -65,11 +76,13 @@ export default function ClinicalMastersPage() {
 
   async function handleAdd() {
     setError('');
+    if (activeTab === 'historyOptions' && !form.category) { setError('Category is required.'); return; }
     if (!form.code || !form.name) { setError('Code and name are required.'); return; }
     let result;
     if (activeTab === 'procedures') result = await addProcedure(form);
     else if (activeTab === 'iopMethods') result = await addIopMethod(form);
     else if (activeTab === 'observations') result = await addClinicalObservation(form);
+    else if (activeTab === 'historyOptions') result = await addHistoryOption(form);
     else result = await addDiagnosisMaster(form);
     if (result?.error) { setError(result.error); return; }
     setForm({});
@@ -94,7 +107,7 @@ export default function ClinicalMastersPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
-          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'iopMethods' || activeTab === 'observations') && (
+          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions') && (
             <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(!showAdd)}>
               <i className="ti ti-plus"></i> Add New
             </button>
@@ -213,6 +226,44 @@ export default function ClinicalMastersPage() {
                 ))}
                 {observations.length === 0 && (
                   <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No observations added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'historyOptions' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Populates the selectable chips in the doctor's Consultation History tab -- Chief Complaint, Ocular/Medical/Family History. Code is unique per category, so the same chip name (e.g. "Glaucoma") can appear in more than one category.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  <select className="fi" onChange={update('category')} defaultValue="">
+                    <option value="" disabled>Category</option>
+                    {Object.entries(HISTORY_CATEGORY_LABELS).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name (e.g. Watering)" onChange={update('name')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Category</th><th>Code</th><th>Name</th><th>Status</th></tr></thead>
+              <tbody>
+                {historyOptions.map((h) => (
+                  <tr key={h.id}>
+                    <td><span className="badge b-gray">{HISTORY_CATEGORY_LABELS[h.category] || h.category}</span></td>
+                    <td style={{ fontFamily: 'monospace' }}>{h.code}</td><td>{h.name}</td>
+                    <td><StatusToggle record={h} table="master_history_options" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+                {historyOptions.length === 0 && (
+                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No history options added yet.</td></tr>
                 )}
               </tbody>
             </table>

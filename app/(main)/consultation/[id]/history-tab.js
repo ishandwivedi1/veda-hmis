@@ -2,11 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { saveHistory } from '@/app/(main)/consultation/actions';
-
-const CC_TEMPLATES = ['Diminution of vision', 'Watering', 'Pain', 'Redness', 'Headache', 'Floaters', 'Flashes', 'Double vision', 'Blurring', 'Follow-up'];
-const OCULAR_HX = ['Cataract surgery', 'Glaucoma', 'Trauma', 'LASIK', 'Retinal disease', 'Laser procedure', 'Intravitreal injection'];
-const MEDICAL_HX = ['Diabetes', 'Hypertension', 'Thyroid disease', 'Cardiac disease', 'Renal disease', 'Autoimmune'];
-const FAMILY_HX = ['Glaucoma', 'High myopia', 'Retinal disorders', 'None known'];
+import { getActiveHistoryOptions } from '@/app/(main)/master-data/actions';
 
 function Chip({ label, selected, onClick }) {
   return (
@@ -36,6 +32,20 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
   const [drugAllergy, setDrugAllergy] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
+
+  // Chip option lists come from Master Data (Clinical -- History
+  // Options tab): app/(main)/master-data/actions.js:getActiveHistoryOptions,
+  // table master_history_options. No hardcoded arrays; staff add/retire
+  // options from Master Data -> Clinical -> History Options.
+  const [options, setOptions] = useState({ chief_complaint: [], ocular_history: [], medical_history: [], family_history: [] });
+  const [optionsLoading, setOptionsLoading] = useState(true);
+
+  useEffect(() => {
+    getActiveHistoryOptions().then((result) => {
+      setOptions(result);
+      setOptionsLoading(false);
+    });
+  }, []);
 
   useEffect(() => {
     if (!encounter) return;
@@ -69,9 +79,8 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
 
   return (
     <div>
-      {/* OPTOMETRY FINDINGS -- moved to its own "Optometry" tab, which
-          shows the full sheet (not just this one-line summary) and is
-          where doctor corrections are recorded (CDP-004). */}
+      {/* OPTOMETRY FINDINGS -- see the "Optometry" tab for the full
+          sheet and to record a correction. */}
       <div className="card" style={{ marginBottom: 12, background: 'var(--g50)' }}>
         <div style={{ fontSize: 12, color: 'var(--g600)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <i className="ti ti-eye-check" style={{ color: 'var(--teal)' }}></i>
@@ -84,7 +93,8 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-message" style={{ color: 'var(--blue)' }}></i> Chief Complaint</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-          {CC_TEMPLATES.map((c) => (
+          {optionsLoading && <span style={{ fontSize: 11, color: 'var(--g400)' }}>Loading options...</span>}
+          {options.chief_complaint.map((c) => (
             <Chip key={c} label={c} selected={ccChips.includes(c)} onClick={() => toggle(ccChips, setCcChips, c)} />
           ))}
         </div>
@@ -113,13 +123,13 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
           <div>
             <label className="flbl">Ocular history</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {OCULAR_HX.map((c) => <Chip key={c} label={c} selected={ocular.includes(c)} onClick={() => toggle(ocular, setOcular, c)} />)}
+              {options.ocular_history.map((c) => <Chip key={c} label={c} selected={ocular.includes(c)} onClick={() => toggle(ocular, setOcular, c)} />)}
             </div>
           </div>
           <div>
             <label className="flbl">Medical history</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {MEDICAL_HX.map((c) => <Chip key={c} label={c} selected={medical.includes(c)} onClick={() => toggle(medical, setMedical, c)} />)}
+              {options.medical_history.map((c) => <Chip key={c} label={c} selected={medical.includes(c)} onClick={() => toggle(medical, setMedical, c)} />)}
             </div>
           </div>
         </div>
@@ -131,7 +141,7 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
           <div>
             <label className="flbl">Family history</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {FAMILY_HX.map((c) => <Chip key={c} label={c} selected={family.includes(c)} onClick={() => toggle(family, setFamily, c)} />)}
+              {options.family_history.map((c) => <Chip key={c} label={c} selected={family.includes(c)} onClick={() => toggle(family, setFamily, c)} />)}
             </div>
           </div>
         </div>
