@@ -28,6 +28,25 @@ export async function toggleStatus(table, id, currentStatus, code) {
   return { success: true };
 }
 
+// ── DOCTORS (Clinical Master) ──
+// Deliberately NOT a separate table -- doctors are profiles (same
+// source User Management and Appointments' doctor dropdown already
+// use). This is a management view onto that same data, filtered to
+// doctor-type designations, showing both Active and Inactive (unlike
+// the dropdown-facing getDoctors() in appointments/actions.js, which
+// only wants Active ones). New doctor accounts are still created in
+// User Management (needs a real login, service-role auth) -- this tab
+// is for reference and status management only.
+export async function getDoctorsMaster() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, full_name, designation, status')
+    .or('designation.ilike.%ophthalmologist%,designation.ilike.%doctor%')
+    .order('full_name');
+  return data || [];
+}
+
 // ── SERVICES ──
 export async function getServices() {
   const supabase = await createClient();
@@ -107,7 +126,25 @@ export async function addDrug(values) {
     code: values.code, brand: values.brand, generic: values.generic, strength: values.strength,
     form: values.form, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
   });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_drugs', values.code, 'Create', `${values.generic} (${values.brand}) created -- Rs.${values.rate}`);
+  return { success: true };
+}
+export async function updateDrug(id, oldValues, values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_drugs').update({
+    brand: values.brand, generic: values.generic, strength: values.strength, form: values.form,
+    rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
+  }).eq('id', id);
   if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.generic !== values.generic) changes.push(`Generic ${oldValues.generic} -> ${values.generic}`);
+  if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
+  if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
+  await logMasterAudit(supabase, 'master_drugs', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
   return { success: true };
 }
 

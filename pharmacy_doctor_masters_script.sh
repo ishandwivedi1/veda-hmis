@@ -1,3 +1,326 @@
+mkdir -p "app/(main)/master-data/clinical" "app/(main)/master-data/financial"
+
+cat > "app/(main)/master-data/actions.js" << 'EOF'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+
+async function logMasterAudit(supabase, masterTable, recordCode, action, detail) {
+  const { data: userData } = await supabase.auth.getUser();
+  await supabase.from('master_data_audit_log').insert({
+    master_table: masterTable, record_code: recordCode, action, detail, changed_by: userData?.user?.id || null,
+  });
+}
+
+export async function getMasterAuditLog(masterTable) {
+  const supabase = await createClient();
+  let q = supabase.from('master_data_audit_log').select('*, profiles(full_name)').order('changed_at', { ascending: false }).limit(30);
+  if (masterTable) q = q.eq('master_table', masterTable);
+  const { data } = await q;
+  return data || [];
+}
+
+// Generic toggle works the same way across all 5 master tables --
+// every one of them uses the same status column and Active/Inactive values.
+export async function toggleStatus(table, id, currentStatus, code) {
+  const supabase = await createClient();
+  const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
+  const { error } = await supabase.from(table).update({ status: newStatus }).eq('id', id);
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, table, code || id, newStatus === 'Active' ? 'Reactivate' : 'Deactivate', `Status changed to ${newStatus}`);
+  return { success: true };
+}
+
+// ── DOCTORS (Clinical Master) ──
+// Deliberately NOT a separate table -- doctors are profiles (same
+// source User Management and Appointments' doctor dropdown already
+// use). This is a management view onto that same data, filtered to
+// doctor-type designations, showing both Active and Inactive (unlike
+// the dropdown-facing getDoctors() in appointments/actions.js, which
+// only wants Active ones). New doctor accounts are still created in
+// User Management (needs a real login, service-role auth) -- this tab
+// is for reference and status management only.
+export async function getDoctorsMaster() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, full_name, designation, status')
+    .or('designation.ilike.%ophthalmologist%,designation.ilike.%doctor%')
+    .order('full_name');
+  return data || [];
+}
+
+// ── SERVICES ──
+export async function getServices() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_services').select('*').order('name');
+  return data || [];
+}
+export async function addService(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_services').insert({
+    code: values.code, name: values.name, dept: values.dept,
+    rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
+  });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_services', values.code, 'Create', `${values.name} created -- Rs.${values.rate}, ${values.gstPct || 0}% GST`);
+  return { success: true };
+}
+export async function updateService(id, oldValues, values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_services').update({
+    name: values.name, dept: values.dept, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
+  }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.name !== values.name) changes.push(`Name ${oldValues.name} -> ${values.name}`);
+  if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
+  if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
+  if (oldValues.dept !== values.dept) changes.push(`Dept ${oldValues.dept} -> ${values.dept}`);
+  await logMasterAudit(supabase, 'master_services', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+
+// ── PACKAGES ──
+export async function getPackages() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_packages').select('*').order('name');
+  return data || [];
+}
+export async function addPackage(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_packages').insert({
+    code: values.code, name: values.name, price: parseFloat(values.price) || 0,
+    includes: values.includes, status: 'Active',
+  });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_packages', values.code, 'Create', `${values.name} created -- Rs.${values.price}`);
+  return { success: true };
+}
+export async function updatePackage(id, oldValues, values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_packages').update({
+    name: values.name, price: parseFloat(values.price) || 0, includes: values.includes,
+  }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.name !== values.name) changes.push(`Name ${oldValues.name} -> ${values.name}`);
+  if (String(oldValues.price) !== String(values.price)) changes.push(`Price Rs.${oldValues.price} -> Rs.${values.price}`);
+  if (oldValues.includes !== values.includes) changes.push(`Includes updated`);
+  await logMasterAudit(supabase, 'master_packages', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+
+// ── DRUGS ──
+export async function getDrugs() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_drugs').select('*').order('generic');
+  return data || [];
+}
+export async function addDrug(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_drugs').insert({
+    code: values.code, brand: values.brand, generic: values.generic, strength: values.strength,
+    form: values.form, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
+  });
+  if (error) {
+    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_drugs', values.code, 'Create', `${values.generic} (${values.brand}) created -- Rs.${values.rate}`);
+  return { success: true };
+}
+export async function updateDrug(id, oldValues, values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_drugs').update({
+    brand: values.brand, generic: values.generic, strength: values.strength, form: values.form,
+    rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
+  }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.generic !== values.generic) changes.push(`Generic ${oldValues.generic} -> ${values.generic}`);
+  if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
+  if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
+  await logMasterAudit(supabase, 'master_drugs', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+
+// ── DIAGNOSES ──
+export async function getDiagnosesMaster() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_diagnoses').select('*').order('name');
+  return data || [];
+}
+export async function addDiagnosisMaster(values) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_diagnoses').insert({
+    code: values.code, name: values.name, category: values.category, status: 'Active',
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// NOTE: Investigations previously had their own master_investigations
+// table here, but it was empty and unused everywhere except this
+// module -- every real investigation (with its actual rate) already
+// lives in master_services where dept = 'Investigation'. Consolidated
+// into Financial Masters (Migration 48) to avoid the same item ever
+// having two different prices in two different places.
+
+
+EOF
+
+cat > "app/(main)/master-data/clinical/page.js" << 'EOF'
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  toggleStatus,
+  getDiagnosesMaster, addDiagnosisMaster,
+  getDoctorsMaster,
+} from '../actions';
+
+const TABS = [
+  { key: 'doctors', label: 'Doctor' },
+  { key: 'diagnoses', label: 'Diagnoses' },
+];
+
+function StatusToggle({ record, table, onUpdate, codeField = 'code' }) {
+  const [loading, setLoading] = useState(false);
+  async function handleToggle() {
+    setLoading(true);
+    await toggleStatus(table, record.id, record.status, record[codeField]);
+    setLoading(false);
+    onUpdate();
+  }
+  return (
+    <button
+      className={`badge ${record.status === 'Active' ? 'b-green' : 'b-gray'}`}
+      style={{ border: 'none', cursor: 'pointer' }}
+      onClick={handleToggle}
+      disabled={loading}
+    >
+      {record.status}
+    </button>
+  );
+}
+
+export default function ClinicalMastersPage() {
+  const [activeTab, setActiveTab] = useState('doctors');
+  const [diagnoses, setDiagnoses] = useState([]);
+  const [doctors, setDoctors] = useState([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({});
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    setDiagnoses(await getDiagnosesMaster());
+    setDoctors(await getDoctorsMaster());
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  function update(field) {
+    return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  }
+
+  async function handleAdd() {
+    setError('');
+    if (!form.code || !form.name) { setError('Code and name are required.'); return; }
+    const result = await addDiagnosisMaster(form);
+    if (result?.error) { setError(result.error); return; }
+    setForm({});
+    setShowAdd(false);
+    refresh();
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className={activeTab === t.key ? 'btn btn-primary' : 'btn'}
+            onClick={() => { setActiveTab(t.key); setShowAdd(false); setError(''); }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
+          {activeTab === 'diagnoses' && (
+            <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(!showAdd)}>
+              <i className="ti ti-plus"></i> Add New
+            </button>
+          )}
+        </div>
+
+        {error && <div className="msg-err">{error}</div>}
+
+        {activeTab === 'doctors' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Reference list only -- the same record used everywhere a doctor is selected (Appointments, Visits, Surgery). To onboard a new doctor with real login access, use User Management; status set here (Active/Inactive) is the same status shown there.
+            </div>
+            <table className="tbl">
+              <thead><tr><th>Name</th><th>Designation</th><th>Status</th></tr></thead>
+              <tbody>
+                {doctors.map((d) => (
+                  <tr key={d.id}>
+                    <td style={{ fontWeight: 600 }}>{d.full_name}</td><td>{d.designation}</td>
+                    <td><StatusToggle record={d} table="profiles" onUpdate={refresh} codeField="full_name" /></td>
+                  </tr>
+                ))}
+                {doctors.length === 0 && (
+                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No doctor profiles found. Create one in User Management.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'diagnoses' && (
+          <>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                  <input className="fi" placeholder="Name" onChange={update('name')} />
+                  <input className="fi" placeholder="Category (e.g. Lens, Retina)" onChange={update('category')} />
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th></tr></thead>
+              <tbody>
+                {diagnoses.map((d) => (
+                  <tr key={d.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.name}</td><td>{d.category}</td>
+                    <td><StatusToggle record={d} table="master_diagnoses" onUpdate={refresh} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+EOF
+
+cat > "app/(main)/master-data/financial/page.js" << 'EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -284,3 +607,6 @@ export default function FinancialMastersPage() {
   );
 }
 
+EOF
+
+echo "Pharmacy moved fully to Financial Masters (has pricing); Doctor tab added to Clinical Masters (view into profiles, no duplication)."
