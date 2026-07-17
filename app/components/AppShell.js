@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/visits', label: 'Visits', icon: 'ti-door-enter', section: 'Front Office' },
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', section: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', section: 'Finance' },
+  { href: '/cash-management', label: 'Cash Management', icon: 'ti-cash-register', section: 'Finance' },
   { href: '/payments/reports', label: 'Reports', icon: 'ti-report-money', section: 'Finance' },
   { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', section: 'Patient Ledger' },
   { href: '/payments/credit-note', label: 'Credit Note', icon: 'ti-file-minus', section: 'Patient Ledger' },
@@ -29,8 +30,7 @@ const NAV_ITEMS = [
   { href: '/optometry-reports', label: 'Optometry Reports', icon: 'ti-chart-bar', section: 'Optometrist' },
   { href: '/surgical', label: 'Surgical Coordination', icon: 'ti-scalpel', section: 'Surgical' },
   { href: '/ot-schedule', label: 'OT Scheduling', icon: 'ti-calendar-time', section: 'Surgical' },
-  { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', section: 'Administration' },
-  { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', section: 'Administration' },
+  { href: '/master-data', label: 'Master Data', icon: 'ti-database', section: 'Administration' },
   { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration' },
 ];
 
@@ -56,11 +56,10 @@ const PAGE_TITLES = [
   { match: /^\/investigation/, title: 'Investigation' },
   { match: /^\/billing/, title: 'Billing' },
   { match: /^\/payments/, title: 'Payments' },
+  { match: /^\/cash-management/, title: 'Cash Management' },
   { match: /^\/pharmacy/, title: 'Pharmacy' },
   { match: /^\/surgical/, title: 'Surgical Coordination' },
   { match: /^\/ot-schedule/, title: 'OT Scheduling' },
-  { match: /^\/master-data\/clinical/, title: 'Clinical Masters' },
-  { match: /^\/master-data\/financial/, title: 'Financial Masters' },
   { match: /^\/master-data/, title: 'Master Data' },
   { match: /^\/users/, title: 'User Management' },
 ];
