@@ -6,15 +6,29 @@ function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
+// A plain date string compared against a timestamptz column is
+// interpreted at UTC midnight by Postgres, not IST midnight -- that
+// mismatch is exactly what made the readiness check disagree with
+// close_day() (which correctly uses the ist_date() helper). Building
+// explicit +05:30 boundaries makes the two agree.
+function istDayBoundsUTC(dateStr) {
+  const d = dateStr || todayIST();
+  return {
+    dateStr: d,
+    startUTC: new Date(`${d}T00:00:00+05:30`).toISOString(),
+    endUTC: new Date(`${d}T23:59:59.999+05:30`).toISOString(),
+  };
+}
+
 export async function getTodayCollectionSummary() {
   const supabase = await createClient();
-  const today = todayIST();
+  const { startUTC, endUTC } = istDayBoundsUTC();
 
   const { data: payments } = await supabase
     .from('payments')
     .select('*, payment_modes(mode, amount), patients(first_name, last_name)')
-    .gte('collected_at', today)
-    .lte('collected_at', `${today}T23:59:59`)
+    .gte('collected_at', startUTC)
+    .lte('collected_at', endUTC)
     .order('collected_at', { ascending: false });
 
   const rows = payments || [];
@@ -116,6 +130,20 @@ export async function reopenDay(date, reason) {
   const { error } = await supabase.rpc('reopen_day', { p_date: date, p_reason: reason });
   if (error) return { error: error.message };
   return { success: true };
+}
+
+export async function getDayOpening() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const { data } = await supabase.from('day_openings').select('*, profiles(full_name)').eq('opening_date', today).maybeSingle();
+  return data;
+}
+
+export async function openDay(openingBalance, remarks) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('open_day', { p_date: null, p_opening_balance: openingBalance || 0, p_remarks: remarks || null });
+  if (error) return { error: error.message };
+  return { opening: data };
 }
 
 export async function isTodayClosed() {
