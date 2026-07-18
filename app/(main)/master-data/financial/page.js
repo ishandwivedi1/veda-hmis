@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   toggleStatus,
-  getServices, addService, updateService,
-  getPackages, addPackage, updatePackage,
+  getServices, addService, updateService, deleteService,
+  getPackages, addPackage, updatePackage, deletePackage,
   getPackageLineItems, addPackageLineItem, removePackageLineItem,
-  getDrugs, addDrug, updateDrug,
+  getDrugs, addDrug, updateDrug, deleteDrug,
   getProcedures,
   getMasterAuditLog,
 } from '../actions';
@@ -73,11 +73,11 @@ export default function FinancialMastersPage() {
   async function handleAdd() {
     setError(''); setSuccess('');
     if (tabDef.type === 'drug') {
-      if (!form.code || !form.generic) { setError('Code and generic name are required.'); return; }
+      if (!form.generic) { setError('Generic name is required.'); return; }
     } else if (tabDef.type === 'package') {
       if (!form.name) { setError('Name is required.'); return; }
-    } else if (!form.code || !form.name) {
-      setError('Code and name are required.'); return;
+    } else if (!form.name) {
+      setError('Name is required.'); return;
     }
 
     let result;
@@ -115,6 +115,18 @@ export default function FinancialMastersPage() {
     if (result?.error) { setError(result.error); return; }
     setSuccess('Updated.');
     setEditingId(null);
+    refresh();
+  }
+
+  async function handleDelete(record) {
+    if (!window.confirm(`Delete "${record.name || record.generic}"? This cannot be undone. If it's in use elsewhere, deletion will be blocked and you should mark it Inactive instead.`)) return;
+    setError(''); setSuccess('');
+    let result;
+    if (tabDef.type === 'package') result = await deletePackage(record.id, record.code);
+    else if (tabDef.type === 'drug') result = await deleteDrug(record.id, record.code);
+    else result = await deleteService(record.id, record.code);
+    if (result?.error) { setError(result.error); return; }
+    setSuccess('Deleted.');
     refresh();
   }
 
@@ -173,19 +185,23 @@ export default function FinancialMastersPage() {
           {error && <div className="msg-err">{error}</div>}
           {success && <div className="msg-success"><i className="ti ti-circle-check"></i> {success}</div>}
 
+          {(tabDef.type === 'service' || tabDef.type === 'drug') && (
+            <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Code is generated automatically from the name.
+            </div>
+          )}
+
           {showAdd && (
             <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
               {tabDef.type === 'service' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Name" onChange={update('name')} />
                   <input type="number" className="fi" placeholder="Rate" onChange={update('rate')} />
                   <input type="number" className="fi" placeholder="GST %" onChange={update('gstPct')} />
                 </div>
               )}
               {tabDef.type === 'drug' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Brand" onChange={update('brand')} />
                   <input className="fi" placeholder="Generic name" onChange={update('generic')} />
                   <input className="fi" placeholder="Strength (e.g. 0.5%)" onChange={update('strength')} />
@@ -233,7 +249,10 @@ export default function FinancialMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{s.code}</td><td>{s.name}</td>
                       <td>Rs.{s.rate}</td><td>{s.gst_pct}%</td>
                       <td><StatusToggle record={s} table="master_services" onUpdate={refresh} /></td>
-                      <td><button className="btn btn-sm" onClick={() => startEdit(s)}><i className="ti ti-edit"></i></button></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm" onClick={() => startEdit(s)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" onClick={() => handleDelete(s)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
+                      </td>
                     </tr>
                   )
                 ))}
@@ -268,7 +287,10 @@ export default function FinancialMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.brand}</td><td>{d.generic}</td><td>{d.strength}</td>
                       <td>Rs.{d.rate}</td><td>{d.gst_pct}%</td>
                       <td><StatusToggle record={d} table="master_drugs" onUpdate={refresh} /></td>
-                      <td><button className="btn btn-sm" onClick={() => startEdit(d)}><i className="ti ti-edit"></i></button></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm" onClick={() => startEdit(d)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" onClick={() => handleDelete(d)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
+                      </td>
                     </tr>
                   )
                 ))}
@@ -307,6 +329,7 @@ export default function FinancialMastersPage() {
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => openConstituents(p)}><i className="ti ti-list-details"></i> Breakup</button>
                         <button className="btn btn-sm" onClick={() => startEdit(p)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" onClick={() => handleDelete(p)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
                       </td>
                     </tr>
                   )
@@ -327,7 +350,7 @@ export default function FinancialMastersPage() {
                 <button className="btn btn-sm" onClick={closeConstituents}><i className="ti ti-x"></i> Close</button>
               </div>
               <div className="msg-info" style={{ background: 'var(--teal-lt)', color: 'var(--teal)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-                <i className="ti ti-info-circle"></i> The package price is always the sum of these constituents -- this is what gets shown when a patient or insurer asks for an itemized breakup.
+                <i className="ti ti-info-circle"></i> The package price is always the sum of these constituents.
               </div>
               <table className="tbl" style={{ marginBottom: 12 }}>
                 <thead><tr><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th></th></tr></thead>
@@ -381,4 +404,3 @@ export default function FinancialMastersPage() {
     </div>
   );
 }
-
