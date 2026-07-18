@@ -13,7 +13,6 @@ import {
   completeConsultation,
   sendForDilationFromConsultation,
   sendForInvestigationFromConsultation,
-  toggleWorkflowRequest,
   completeWorkflowRequest,
   addOpticalAdvice,
   removeOpticalAdvice,
@@ -26,6 +25,7 @@ import {
   completePlanItem,
   saveFollowup,
   savePatientInstructions,
+  saveDraft,
 } from '@/app/(main)/consultation/actions';
 import { markForSurgery } from '@/app/(main)/surgical/actions';
 import { getDiagnosesMaster, getDrugs, getServices } from '@/app/(main)/master-data/actions';
@@ -267,11 +267,13 @@ export default function ConsultationForm({ queueEntryId }) {
     router.push('/queue');
   }
 
-  async function handleToggleWorkflow(kind) {
+  async function handleSaveDraft() {
     setError('');
-    const result = await toggleWorkflowRequest(data.entry.visits.id, data.encounter.id, kind);
+    setLoading(true);
+    const result = await saveDraft(data.encounter.id);
+    setLoading(false);
     if (result.error) { setError(result.error); return; }
-    refresh();
+    router.push('/queue');
   }
 
   async function handleCompleteWorkflow(id) {
@@ -313,29 +315,6 @@ export default function ConsultationForm({ queueEntryId }) {
       </div>
 
       {error && <div className="msg-err">{error}</div>}
-
-      <div style={{ background: '#0f172a', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.5px', marginRight: 4 }}>Request:</span>
-        {Object.keys(WF_ITEMS).map((kind) => {
-          const isActive = activeWorkflows.some((w) => w.kind === kind);
-          return (
-            <button
-              key={kind}
-              type="button"
-              className="btn btn-sm"
-              style={{
-                background: isActive ? WF_ITEMS[kind].color : 'rgba(255,255,255,.08)',
-                color: isActive ? '#0f172a' : '#e2e8f0',
-                borderColor: isActive ? WF_ITEMS[kind].color : 'rgba(255,255,255,.2)',
-                fontWeight: isActive ? 700 : 600,
-              }}
-              onClick={() => handleToggleWorkflow(kind)}
-            >
-              <i className={`ti ${WF_ITEMS[kind].icon}`}></i> {kind}{isActive ? ' -- Requested' : ''}
-            </button>
-          );
-        })}
-      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20, alignItems: 'start' }}>
         <div>
@@ -651,6 +630,9 @@ export default function ConsultationForm({ queueEntryId }) {
           )}
 
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+            <button className="btn" onClick={handleSaveDraft} disabled={loading}>
+              <i className="ti ti-device-floppy"></i> Save Draft
+            </button>
             <button className="btn btn-primary" onClick={handleComplete} disabled={loading}>
               {loading ? 'Working...' : 'Complete Visit'}
             </button>
@@ -660,6 +642,9 @@ export default function ConsultationForm({ queueEntryId }) {
             <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
               Send for Investigation
             </button>
+            <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>
+              <i className="ti ti-printer"></i> Print Visit Summary
+            </a>
           </div>
         </div>
 

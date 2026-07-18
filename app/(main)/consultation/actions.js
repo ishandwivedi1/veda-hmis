@@ -523,4 +523,11 @@ export async function sendForInvestigationFromConsultation(queueEntryId, encount
   return result;
 }
 
+export async function saveDraft(encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  await addAudit(supabase, encounterId, 'Consultation saved as draft', userData?.user?.id);
+  return { success: true };
+}
+
 
