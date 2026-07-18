@@ -28,6 +28,7 @@ import {
   savePatientInstructions,
 } from '@/app/(main)/consultation/actions';
 import { markForSurgery } from '@/app/(main)/surgical/actions';
+import { getDiagnosesMaster, getDrugs, getServices } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import HistoryTab from './history-tab';
 import OptometryTab from './optometry-tab';
@@ -99,6 +100,21 @@ export default function ConsultationForm({ queueEntryId }) {
   const [fuSaved, setFuSaved] = useState(false);
   const [patientInstructions, setPatientInstructions] = useState('');
   const [instructionsSaved, setInstructionsSaved] = useState(false);
+
+  // Master Data options for the Diagnosis/Prescription/Investigation
+  // dropdowns -- fetched once on mount, not re-fetched on every add/remove.
+  const [diagnosisOptions, setDiagnosisOptions] = useState([]);
+  const [drugOptions, setDrugOptions] = useState([]);
+  const [investigationOptions, setInvestigationOptions] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      const [dx, dr, sv] = await Promise.all([getDiagnosesMaster(), getDrugs(), getServices()]);
+      setDiagnosisOptions(dx.filter((d) => d.status === 'Active'));
+      setDrugOptions(dr.filter((d) => d.status === 'Active'));
+      setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation'));
+    })();
+  }, []);
 
   const refresh = useCallback(async () => {
     const result = await getConsultationData(queueEntryId);
@@ -378,7 +394,7 @@ export default function ConsultationForm({ queueEntryId }) {
 
               {/* DIAGNOSIS */}
               <div className="card" style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Diagnosis</div>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Diagnosis</div>
                 {data.diagnoses.map((d) => (
                   <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
                     <span>
@@ -387,7 +403,11 @@ export default function ConsultationForm({ queueEntryId }) {
                     <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeDiagnosis(d.id, data.encounter.id); refresh(); }}>Remove</button>
                   </div>
                 ))}
-                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setDxName(e.target.value); }}>
+                  <option value="">-- Pick from Diagnoses master (or type below) --</option>
+                  {diagnosisOptions.map((d) => <option key={d.id} value={d.name}>{d.name}{d.category ? ` (${d.category})` : ''}</option>)}
+                </select>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   <input className="fi" placeholder="Diagnosis name" value={dxName} onChange={(e) => setDxName(e.target.value)} style={{ flex: 2 }} />
                   <select className="fi" value={dxCategory} onChange={(e) => setDxCategory(e.target.value)} style={{ flex: 1 }}>
                     <option value="primary">Primary</option>
@@ -406,7 +426,7 @@ export default function ConsultationForm({ queueEntryId }) {
 
               {/* PRESCRIPTION */}
               <div className="card" style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Prescription</div>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i> Prescription</div>
                 {data.prescriptions.map((r) => (
                   <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
                     <span>
@@ -415,7 +435,11 @@ export default function ConsultationForm({ queueEntryId }) {
                     <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(r.id, data.encounter.id); refresh(); }}>Remove</button>
                   </div>
                 ))}
-                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setRxDrug(e.target.value); }}>
+                  <option value="">-- Pick from Pharmacy master (or type below) --</option>
+                  {drugOptions.map((d) => <option key={d.id} value={d.generic}>{d.generic}{d.brand ? ` (${d.brand})` : ''}{d.strength ? ` -- ${d.strength}` : ''}</option>)}
+                </select>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                   <input className="fi" placeholder="Drug name" value={rxDrug} onChange={(e) => setRxDrug(e.target.value)} style={{ flex: '2 1 160px' }} />
                   <select className="fi" value={rxDosage} onChange={(e) => setRxDosage(e.target.value)} style={{ flex: '1 1 90px' }}>
                     <option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option>
@@ -435,7 +459,7 @@ export default function ConsultationForm({ queueEntryId }) {
 
               {/* INVESTIGATIONS */}
               <div className="card" style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Investigations</div>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
                 {data.investigations.map((i) => (
                   <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
                     <span>
@@ -444,7 +468,11 @@ export default function ConsultationForm({ queueEntryId }) {
                     <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
                   </div>
                 ))}
-                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setInvName(e.target.value); }}>
+                  <option value="">-- Pick from Investigations master (or type below) --</option>
+                  {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name} -- Rs.{s.rate}</option>)}
+                </select>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   <input className="fi" placeholder="Investigation name" value={invName} onChange={(e) => setInvName(e.target.value)} style={{ flex: 2 }} />
                   <select className="fi" value={invEye} onChange={(e) => setInvEye(e.target.value)} style={{ width: 70 }}>
                     <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
