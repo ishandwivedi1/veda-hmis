@@ -57,6 +57,16 @@ function TabButton({ active, onClick, icon, label }) {
   );
 }
 
+function GroupHeader({ num, color, title }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 12px' }}>
+      <span style={{ width: 24, height: 24, borderRadius: '50%', background: color, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{num}</span>
+      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--g800)' }}>{title}</span>
+      <div style={{ flex: 1, height: 1, background: 'var(--g200)' }}></div>
+    </div>
+  );
+}
+
 export default function ConsultationForm({ queueEntryId }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -69,24 +79,20 @@ export default function ConsultationForm({ queueEntryId }) {
   const [activeTab, setActiveTab] = useState('history');
   const router = useRouter();
 
-  // Diagnosis form
   const [dxName, setDxName] = useState('');
   const [dxCategory, setDxCategory] = useState('primary');
   const [dxEye, setDxEye] = useState('OU');
 
-  // Prescription form
   const [rxDrug, setRxDrug] = useState('');
   const [rxDosage, setRxDosage] = useState('1 drop');
   const [rxFrequency, setRxFrequency] = useState('BD');
   const [rxDuration, setRxDuration] = useState('1 week');
   const [rxEye, setRxEye] = useState('BE');
 
-  // Investigation form
   const [invName, setInvName] = useState('');
   const [invEye, setInvEye] = useState('OU');
   const [invPriority, setInvPriority] = useState('Routine');
 
-  // Management Plan expansion forms
   const [optText, setOptText] = useState('');
   const [procName, setProcName] = useState('');
   const [procEye, setProcEye] = useState('OD');
@@ -101,8 +107,6 @@ export default function ConsultationForm({ queueEntryId }) {
   const [patientInstructions, setPatientInstructions] = useState('');
   const [instructionsSaved, setInstructionsSaved] = useState(false);
 
-  // Master Data options for the Diagnosis/Prescription/Investigation
-  // dropdowns -- fetched once on mount, not re-fetched on every add/remove.
   const [diagnosisOptions, setDiagnosisOptions] = useState([]);
   const [drugOptions, setDrugOptions] = useState([]);
   const [investigationOptions, setInvestigationOptions] = useState([]);
@@ -287,9 +291,6 @@ export default function ConsultationForm({ queueEntryId }) {
   const openInvestigations = data.investigations.filter((i) => i.status !== 'Completed' && i.status !== 'Verified');
   const pendingRx = data.prescriptions.filter((r) => r.status !== 'Dispensed');
 
-  // ── ACTION TRACKER: every downstream action generated this
-  // encounter, in one checklist -- prescriptions, investigations,
-  // workflow requests.
   const trackerRows = [
     ...data.prescriptions.map((r) => ({ label: `${r.drug_name} (${r.eye})`, dept: 'Pharmacy', status: r.status, icon: 'ti-pill', color: 'var(--purple)' })),
     ...data.investigations.map((i) => ({ label: `${i.name} (${i.eye})`, dept: 'Investigation', status: i.status, icon: 'ti-flask', color: 'var(--teal)' })),
@@ -313,10 +314,6 @@ export default function ConsultationForm({ queueEntryId }) {
 
       {error && <div className="msg-err">{error}</div>}
 
-      {/* WORKFLOW CONTROLS -- Biometry / Medical Fitness / Counselling.
-          Independent toggles: a patient can need more than one at once.
-          Dilation/Investigation stay in the Actions bar below since
-          those physically move the queue entry, not just flag a task. */}
       <div style={{ background: '#0f172a', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.5px', marginRight: 4 }}>Request:</span>
         {Object.keys(WF_ITEMS).map((kind) => {
@@ -341,9 +338,7 @@ export default function ConsultationForm({ queueEntryId }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20, alignItems: 'start' }}>
-        {/* MAIN COLUMN */}
         <div>
-          {/* TABS */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-message" label="History" />
             <TabButton active={activeTab === 'optometry'} onClick={() => setActiveTab('optometry')} icon="ti-eye-check" label="Optometry" />
@@ -376,9 +371,10 @@ export default function ConsultationForm({ queueEntryId }) {
 
           {activeTab === 'plan' && (
             <>
-              {/* DIAGNOSIS HISTORY (longitudinal, read-only, Section 13.15) */}
+              <GroupHeader num={1} color="var(--teal)" title="Diagnosis" />
+
               {data.diagnosisHistory.length > 0 && (
-                <div className="card" style={{ marginBottom: 16, background: 'var(--g50)' }}>
+                <div className="card" style={{ marginBottom: 12, background: 'var(--g50)' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 8 }}>
                     <i className="ti ti-history" style={{ color: 'var(--g400)' }}></i> Diagnosis History <span style={{ fontWeight: 400, color: 'var(--g400)' }}>(prior visits, read-only)</span>
                   </div>
@@ -392,8 +388,7 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               )}
 
-              {/* DIAGNOSIS */}
-              <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card" style={{ marginBottom: 20 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Diagnosis</div>
                 {data.diagnoses.map((d) => (
                   <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
@@ -403,6 +398,7 @@ export default function ConsultationForm({ queueEntryId }) {
                     <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeDiagnosis(d.id, data.encounter.id); refresh(); }}>Remove</button>
                   </div>
                 ))}
+                {data.diagnoses.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No diagnosis added yet.</div>}
                 <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setDxName(e.target.value); }}>
                   <option value="">-- Pick from Diagnoses master (or type below) --</option>
                   {diagnosisOptions.map((d) => <option key={d.id} value={d.name}>{d.name}{d.category ? ` (${d.category})` : ''}</option>)}
@@ -424,8 +420,9 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               </div>
 
-              {/* PRESCRIPTION */}
-              <div className="card" style={{ marginBottom: 16 }}>
+              <GroupHeader num={2} color="var(--blue)" title="Treatment" />
+
+              <div className="card" style={{ marginBottom: 12 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i> Prescription</div>
                 {data.prescriptions.map((r) => (
                   <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
@@ -435,6 +432,7 @@ export default function ConsultationForm({ queueEntryId }) {
                     <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(r.id, data.encounter.id); refresh(); }}>Remove</button>
                   </div>
                 ))}
+                {data.prescriptions.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No prescriptions added yet.</div>}
                 <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setRxDrug(e.target.value); }}>
                   <option value="">-- Pick from Pharmacy master (or type below) --</option>
                   {drugOptions.map((d) => <option key={d.id} value={d.generic}>{d.generic}{d.brand ? ` (${d.brand})` : ''}{d.strength ? ` -- ${d.strength}` : ''}</option>)}
@@ -457,8 +455,7 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               </div>
 
-              {/* INVESTIGATIONS */}
-              <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card" style={{ marginBottom: 12 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
                 {data.investigations.map((i) => (
                   <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
@@ -468,6 +465,7 @@ export default function ConsultationForm({ queueEntryId }) {
                     <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
                   </div>
                 ))}
+                {data.investigations.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No investigations ordered yet.</div>}
                 <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setInvName(e.target.value); }}>
                   <option value="">-- Pick from Investigations master (or type below) --</option>
                   {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name} -- Rs.{s.rate}</option>)}
@@ -484,37 +482,60 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               </div>
 
-              {/* SURGERY */}
-              <div className="card" style={{ marginBottom: 16 }}>
-                {!showSurgery ? (
-                  <button className="btn" onClick={() => setShowSurgery(true)}>
-                    <i className="ti ti-scalpel"></i> Mark for Surgery
-                  </button>
-                ) : (
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Mark for Surgery</div>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                      <input className="fi" placeholder="Procedure (e.g. Phacoemulsification + IOL)" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }} />
-                      <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
-                        <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
-                      </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> Procedures</div>
+                  {data.procedures.map((p) => (
+                    <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                      <span>{p.name} -- {p.eye}</span>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeProcedure(p.id, data.encounter.id); refresh(); }}>Remove</button>
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
-                        {surgeryLoading ? 'Saving...' : 'Save'}
-                      </button>
-                      <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
-                    </div>
+                  ))}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '8px 0' }}>
+                    {['YAG Capsulotomy', 'Intravitreal Injection', 'FB Removal', 'Syringing'].map((q) => (
+                      <span key={q} className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => setProcName(q)}>{q}</span>
+                    ))}
                   </div>
-                )}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input className="fi fi-sm" placeholder="Procedure name..." value={procName} onChange={(e) => setProcName(e.target.value)} style={{ flex: 1 }} />
+                    <select className="fi fi-sm" value={procEye} onChange={(e) => setProcEye(e.target.value)} style={{ width: 70 }}>
+                      <option>OD</option><option>OS</option><option>OU</option>
+                    </select>
+                    <button className="btn btn-sm btn-primary" onClick={handleAddProcedure}>Add</button>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery</div>
+                  {!showSurgery ? (
+                    <button className="btn" onClick={() => setShowSurgery(true)}>
+                      <i className="ti ti-scalpel"></i> Mark for Surgery
+                    </button>
+                  ) : (
+                    <div>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                        <input className="fi" placeholder="Procedure (e.g. Phacoemulsification + IOL)" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }} />
+                        <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
+                          <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+                        </select>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
+                          {surgeryLoading ? 'Saving...' : 'Save'}
+                        </button>
+                        <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* MANAGEMENT PLAN EXPANSION (Ch.14) */}
+              <GroupHeader num={3} color="var(--amber)" title="Patient Management" />
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
-                  {/* OPTICAL ADVICE */}
                   <div className="card" style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}><i className="ti ti-glasses" style={{ color: 'var(--indigo)' }}></i> Optical Advice</div>
+                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-glasses" style={{ color: 'var(--indigo)' }}></i> Optical Advice</div>
                     {data.opticalAdvice.map((o) => (
                       <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                         <span>{o.advice}</span>
@@ -532,34 +553,8 @@ export default function ConsultationForm({ queueEntryId }) {
                     </div>
                   </div>
 
-                  {/* PROCEDURES */}
                   <div className="card" style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> Procedures</div>
-                    {data.procedures.map((p) => (
-                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                        <span>{p.name} -- {p.eye}</span>
-                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeProcedure(p.id, data.encounter.id); refresh(); }}>Remove</button>
-                      </div>
-                    ))}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '8px 0' }}>
-                      {['YAG Capsulotomy', 'Intravitreal Injection', 'FB Removal', 'Syringing'].map((q) => (
-                        <span key={q} className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => setProcName(q)}>{q}</span>
-                      ))}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input className="fi fi-sm" placeholder="Procedure name..." value={procName} onChange={(e) => setProcName(e.target.value)} style={{ flex: 1 }} />
-                      <select className="fi fi-sm" value={procEye} onChange={(e) => setProcEye(e.target.value)} style={{ width: 70 }}>
-                        <option>OD</option><option>OS</option><option>OU</option>
-                      </select>
-                      <button className="btn btn-sm btn-primary" onClick={handleAddProcedure}>Add</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  {/* REFERRAL */}
-                  <div className="card" style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}><i className="ti ti-arrow-right-circle" style={{ color: 'var(--amber)' }}></i> Referral</div>
+                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-arrow-right-circle" style={{ color: 'var(--amber)' }}></i> Referral</div>
                     {data.referrals.map((r) => (
                       <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                         <span>{r.destination}{r.reason ? ` -- ${r.reason}` : ''}</span>
@@ -576,9 +571,8 @@ export default function ConsultationForm({ queueEntryId }) {
                     </div>
                   </div>
 
-                  {/* COUNSELLING TOPICS */}
-                  <div className="card" style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}><i className="ti ti-messages" style={{ color: 'var(--teal)' }}></i> Counselling Topics</div>
+                  <div className="card">
+                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-messages" style={{ color: 'var(--teal)' }}></i> Counselling Topics</div>
                     {data.counsellingItems.map((c) => (
                       <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                         <span>{c.topic}</span>
@@ -595,10 +589,11 @@ export default function ConsultationForm({ queueEntryId }) {
                       <button className="btn btn-sm" style={{ background: 'var(--teal)', color: '#fff', border: 'none' }} onClick={handleAddCounsel}>Add</button>
                     </div>
                   </div>
+                </div>
 
-                  {/* FOLLOW-UP */}
+                <div>
                   <div className="card" style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}><i className="ti ti-calendar-plus" style={{ color: 'var(--green)' }}></i> Follow-up</div>
+                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-calendar-plus" style={{ color: 'var(--green)' }}></i> Follow-up</div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
                       <select className="fi fi-sm" value={fuAfter} onChange={(e) => setFuAfter(e.target.value)}>
                         <option>1 week</option><option>2 weeks</option><option>1 month</option><option>3 months</option><option>6 months</option><option>1 year</option><option>SOS</option>
@@ -619,7 +614,6 @@ export default function ConsultationForm({ queueEntryId }) {
                     )}
                   </div>
 
-                  {/* PATIENT INSTRUCTIONS */}
                   <div className="card">
                     <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-notes" style={{ color: 'var(--g400)' }}></i> Patient Instructions</div>
                     <textarea className="fi fi-sm" rows={2} value={patientInstructions} onChange={(e) => setPatientInstructions(e.target.value)} placeholder="Instructions, precautions, diet, activity restrictions..." style={{ marginBottom: 8 }} />
@@ -656,7 +650,6 @@ export default function ConsultationForm({ queueEntryId }) {
             </div>
           )}
 
-          {/* ACTIONS */}
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             <button className="btn btn-primary" onClick={handleComplete} disabled={loading}>
               {loading ? 'Working...' : 'Complete Visit'}
@@ -670,9 +663,7 @@ export default function ConsultationForm({ queueEntryId }) {
           </div>
         </div>
 
-        {/* RIGHT PANEL */}
         <div>
-          {/* ENCOUNTER STATUS */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-activity" style={{ color: 'var(--blue)' }}></i> Encounter Status</div>
             <div style={{ fontSize: 12, color: 'var(--g600)', lineHeight: 1.9 }}>
@@ -682,7 +673,6 @@ export default function ConsultationForm({ queueEntryId }) {
             </div>
           </div>
 
-          {/* OUTSTANDING TASKS */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-list-checks" style={{ color: 'var(--amber)' }}></i> Outstanding Tasks</div>
             {openInvestigations.length === 0 && activeWorkflows.length === 0 && pendingRx.length === 0 && (
@@ -705,7 +695,6 @@ export default function ConsultationForm({ queueEntryId }) {
             ))}
           </div>
 
-          {/* AUDIT LOG */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
@@ -723,4 +712,3 @@ export default function ConsultationForm({ queueEntryId }) {
     </div>
   );
 }
-
