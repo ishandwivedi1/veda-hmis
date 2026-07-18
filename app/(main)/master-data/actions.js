@@ -9,6 +9,44 @@ async function logMasterAudit(supabase, masterTable, recordCode, action, detail)
   });
 }
 
+// Matches the database's initcap() normalization used for patient names
+// (see app/(main)/patients/new/registration-form.js) -- applied here so
+// master data names are consistent no matter how staff typed them in.
+function toTitleCase(str) {
+  if (!str) return str;
+  return str.trim().toLowerCase().replace(/(^|[\s-'])\S/g, (c) => c.toUpperCase());
+}
+
+// Codes are never typed by staff -- every master table auto-generates its
+// own PREFIX + zero-padded sequence number, continuing from whatever's
+// already in the table. `filter` scopes the sequence (e.g. per-department
+// for services, per-category for history options) since those tables
+// share one physical table across several logical code sequences.
+async function nextCode(supabase, table, prefix, width, filter) {
+  let q = supabase.from(table).select('code');
+  if (filter) q = filter(q);
+  const { data } = await q;
+  const re = new RegExp(`^${prefix}(\\d+)$`);
+  let max = 0;
+  (data || []).forEach((row) => {
+    const m = row.code?.match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return `${prefix}${String(max + 1).padStart(width, '0')}`;
+}
+
+// Generic hard delete works the same way across all master tables --
+// permanent removal, logged like every other change. Foreign-key-backed
+// references (e.g. a Package linked to a Procedure) surface as a normal
+// error rather than silently cascading.
+export async function deleteMasterRecord(table, id, code) {
+  const supabase = await createClient();
+  const { error } = await supabase.from(table).delete().eq('id', id);
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, table, code || id, 'Delete', `${code || id} deleted`);
+  return { success: true };
+}
+
 export async function getMasterAuditLog(masterTable) {
   const supabase = await createClient();
   let q = supabase.from('master_data_audit_log').select('*, profiles(full_name)').order('changed_at', { ascending: false }).limit(30);
@@ -36,12 +74,22 @@ export async function getIopMethods() {
 }
 export async function addIopMethod(values) {
   const supabase = await createClient();
-  const { error } = await supabase.from('master_iop_methods').insert({ code: values.code, name: values.name, status: 'Active' });
+  const name = toTitleCase(values.name);
+  const code = await nextCode(supabase, 'master_iop_methods', 'IOPM', 2);
+  const { error } = await supabase.from('master_iop_methods').insert({ code, name, status: 'Active' });
   if (error) {
-    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    if (error.code === '23505') return { error: 'Code collision generating a new code -- please try again.' };
     return { error: error.message };
   }
-  await logMasterAudit(supabase, 'master_iop_methods', values.code, 'Create', `${values.name} created`);
+  await logMasterAudit(supabase, 'master_iop_methods', code, 'Create', `${name} created`);
+  return { success: true };
+}
+export async function updateIopMethod(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = toTitleCase(values.name);
+  const { error } = await supabase.from('master_iop_methods').update({ name }).eq('id', id);
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_iop_methods', oldValues.code, 'Edit', oldValues.name !== name ? `Name ${oldValues.name} -> ${name}` : 'No field changes');
   return { success: true };
 }
 
@@ -54,12 +102,22 @@ export async function getClinicalObservations() {
 }
 export async function addClinicalObservation(values) {
   const supabase = await createClient();
-  const { error } = await supabase.from('master_clinical_observations').insert({ code: values.code, name: values.name, status: 'Active' });
+  const name = toTitleCase(values.name);
+  const code = await nextCode(supabase, 'master_clinical_observations', 'OBS', 2);
+  const { error } = await supabase.from('master_clinical_observations').insert({ code, name, status: 'Active' });
   if (error) {
-    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    if (error.code === '23505') return { error: 'Code collision generating a new code -- please try again.' };
     return { error: error.message };
   }
-  await logMasterAudit(supabase, 'master_clinical_observations', values.code, 'Create', `${values.name} created`);
+  await logMasterAudit(supabase, 'master_clinical_observations', code, 'Create', `${name} created`);
+  return { success: true };
+}
+export async function updateClinicalObservation(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = toTitleCase(values.name);
+  const { error } = await supabase.from('master_clinical_observations').update({ name }).eq('id', id);
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_clinical_observations', oldValues.code, 'Edit', oldValues.name !== name ? `Name ${oldValues.name} -> ${name}` : 'No field changes');
   return { success: true };
 }
 
@@ -73,16 +131,35 @@ export async function getHistoryOptions() {
   const { data } = await supabase.from('master_history_options').select('*').order('category').order('name');
   return data || [];
 }
+// Code prefix is per-category since the same table backs all four
+// categories but code uniqueness (and the sequence numbering) is scoped
+// to one category at a time -- see master_history_options_category_code_key.
+const HISTORY_CODE_PREFIXES = {
+  chief_complaint: 'CC', ocular_history: 'OH', medical_history: 'MH', family_history: 'FH',
+};
+
 export async function addHistoryOption(values) {
   const supabase = await createClient();
+  const prefix = HISTORY_CODE_PREFIXES[values.category];
+  if (!prefix) return { error: 'Invalid category.' };
+  const name = toTitleCase(values.name);
+  const code = await nextCode(supabase, 'master_history_options', prefix, 3, (q) => q.eq('category', values.category));
   const { error } = await supabase.from('master_history_options').insert({
-    code: values.code, name: values.name, category: values.category, status: 'Active',
+    code, name, category: values.category, status: 'Active',
   });
   if (error) {
-    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists in this category.` };
+    if (error.code === '23505') return { error: 'Code collision generating a new code -- please try again.' };
     return { error: error.message };
   }
-  await logMasterAudit(supabase, 'master_history_options', values.code, 'Create', `${values.name} (${values.category}) created`);
+  await logMasterAudit(supabase, 'master_history_options', code, 'Create', `${name} (${values.category}) created`);
+  return { success: true };
+}
+export async function updateHistoryOption(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = toTitleCase(values.name);
+  const { error } = await supabase.from('master_history_options').update({ name }).eq('id', id);
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_history_options', oldValues.code, 'Edit', oldValues.name !== name ? `Name ${oldValues.name} -> ${name}` : 'No field changes');
   return { success: true };
 }
 
@@ -131,25 +208,29 @@ export async function getServices() {
 }
 export async function addService(values) {
   const supabase = await createClient();
+  const name = toTitleCase(values.name);
+  const prefix = values.dept.slice(0, 3).toUpperCase();
+  const code = await nextCode(supabase, 'master_services', prefix, 3, (q) => q.eq('dept', values.dept));
   const { error } = await supabase.from('master_services').insert({
-    code: values.code, name: values.name, dept: values.dept,
+    code, name, dept: values.dept,
     rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
   });
   if (error) {
-    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    if (error.code === '23505') return { error: 'Code collision generating a new code -- please try again.' };
     return { error: error.message };
   }
-  await logMasterAudit(supabase, 'master_services', values.code, 'Create', `${values.name} created -- Rs.${values.rate}, ${values.gstPct || 0}% GST`);
+  await logMasterAudit(supabase, 'master_services', code, 'Create', `${name} created -- Rs.${values.rate}, ${values.gstPct || 0}% GST`);
   return { success: true };
 }
 export async function updateService(id, oldValues, values) {
   const supabase = await createClient();
+  const name = toTitleCase(values.name);
   const { error } = await supabase.from('master_services').update({
-    name: values.name, dept: values.dept, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
+    name, dept: values.dept, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
   }).eq('id', id);
   if (error) return { error: error.message };
   const changes = [];
-  if (oldValues.name !== values.name) changes.push(`Name ${oldValues.name} -> ${values.name}`);
+  if (oldValues.name !== name) changes.push(`Name ${oldValues.name} -> ${name}`);
   if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
   if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
   if (oldValues.dept !== values.dept) changes.push(`Dept ${oldValues.dept} -> ${values.dept}`);
@@ -165,24 +246,26 @@ export async function getPackages() {
 }
 export async function addPackage(values) {
   const supabase = await createClient();
+  const name = toTitleCase(values.name);
   const { data: code, error: codeError } = await supabase.rpc('next_package_code');
   if (codeError) return { error: codeError.message };
   const { data: newPackage, error } = await supabase.from('master_packages').insert({
-    code, name: values.name, price: 0, includes: values.includes || null,
+    code, name, price: 0, includes: values.includes || null,
     procedure_id: values.procedureId || null, status: 'Active',
   }).select().single();
   if (error) return { error: error.message };
-  await logMasterAudit(supabase, 'master_packages', code, 'Create', `${values.name} created`);
+  await logMasterAudit(supabase, 'master_packages', code, 'Create', `${name} created`);
   return { success: true, package: newPackage };
 }
 export async function updatePackage(id, oldValues, values) {
   const supabase = await createClient();
+  const name = toTitleCase(values.name);
   const { error } = await supabase.from('master_packages').update({
-    name: values.name, includes: values.includes, procedure_id: values.procedureId || null,
+    name, includes: values.includes, procedure_id: values.procedureId || null,
   }).eq('id', id);
   if (error) return { error: error.message };
   const changes = [];
-  if (oldValues.name !== values.name) changes.push(`Name ${oldValues.name} -> ${values.name}`);
+  if (oldValues.name !== name) changes.push(`Name ${oldValues.name} -> ${name}`);
   if (oldValues.includes !== values.includes) changes.push('Includes updated');
   await logMasterAudit(supabase, 'master_packages', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
   return { success: true };
@@ -226,14 +309,27 @@ export async function getProcedures() {
 }
 export async function addProcedure(values) {
   const supabase = await createClient();
+  const name = toTitleCase(values.name);
+  const code = await nextCode(supabase, 'master_procedures', 'PR', 3);
   const { error } = await supabase.from('master_procedures').insert({
-    code: values.code, name: values.name, category: values.category, status: 'Active',
+    code, name, category: values.category, status: 'Active',
   });
   if (error) {
-    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    if (error.code === '23505') return { error: 'Code collision generating a new code -- please try again.' };
     return { error: error.message };
   }
-  await logMasterAudit(supabase, 'master_procedures', values.code, 'Create', `${values.name} created`);
+  await logMasterAudit(supabase, 'master_procedures', code, 'Create', `${name} created`);
+  return { success: true };
+}
+export async function updateProcedure(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = toTitleCase(values.name);
+  const { error } = await supabase.from('master_procedures').update({ name, category: values.category }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.name !== name) changes.push(`Name ${oldValues.name} -> ${name}`);
+  if (oldValues.category !== values.category) changes.push(`Category ${oldValues.category} -> ${values.category}`);
+  await logMasterAudit(supabase, 'master_procedures', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
   return { success: true };
 }
 
@@ -245,26 +341,31 @@ export async function getDrugs() {
 }
 export async function addDrug(values) {
   const supabase = await createClient();
+  const brand = toTitleCase(values.brand);
+  const generic = toTitleCase(values.generic);
+  const code = await nextCode(supabase, 'master_drugs', 'DRG', 3);
   const { error } = await supabase.from('master_drugs').insert({
-    code: values.code, brand: values.brand, generic: values.generic, strength: values.strength,
+    code, brand, generic, strength: values.strength,
     form: values.form, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
   });
   if (error) {
-    if (error.code === '23505') return { error: `Duplicate code: ${values.code} already exists.` };
+    if (error.code === '23505') return { error: 'Code collision generating a new code -- please try again.' };
     return { error: error.message };
   }
-  await logMasterAudit(supabase, 'master_drugs', values.code, 'Create', `${values.generic} (${values.brand}) created -- Rs.${values.rate}`);
+  await logMasterAudit(supabase, 'master_drugs', code, 'Create', `${generic} (${brand}) created -- Rs.${values.rate}`);
   return { success: true };
 }
 export async function updateDrug(id, oldValues, values) {
   const supabase = await createClient();
+  const brand = toTitleCase(values.brand);
+  const generic = toTitleCase(values.generic);
   const { error } = await supabase.from('master_drugs').update({
-    brand: values.brand, generic: values.generic, strength: values.strength, form: values.form,
+    brand, generic, strength: values.strength, form: values.form,
     rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
   }).eq('id', id);
   if (error) return { error: error.message };
   const changes = [];
-  if (oldValues.generic !== values.generic) changes.push(`Generic ${oldValues.generic} -> ${values.generic}`);
+  if (oldValues.generic !== generic) changes.push(`Generic ${oldValues.generic} -> ${generic}`);
   if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
   if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
   await logMasterAudit(supabase, 'master_drugs', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
@@ -279,10 +380,27 @@ export async function getDiagnosesMaster() {
 }
 export async function addDiagnosisMaster(values) {
   const supabase = await createClient();
+  const name = toTitleCase(values.name);
+  const code = await nextCode(supabase, 'master_diagnoses', 'DIAG', 4);
   const { error } = await supabase.from('master_diagnoses').insert({
-    code: values.code, name: values.name, category: values.category, status: 'Active',
+    code, name, category: values.category, status: 'Active',
   });
+  if (error) {
+    if (error.code === '23505') return { error: 'Code collision generating a new code -- please try again.' };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_diagnoses', code, 'Create', `${name} created`);
+  return { success: true };
+}
+export async function updateDiagnosisMaster(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = toTitleCase(values.name);
+  const { error } = await supabase.from('master_diagnoses').update({ name, category: values.category }).eq('id', id);
   if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.name !== name) changes.push(`Name ${oldValues.name} -> ${name}`);
+  if (oldValues.category !== values.category) changes.push(`Category ${oldValues.category} -> ${values.category}`);
+  await logMasterAudit(supabase, 'master_diagnoses', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
   return { success: true };
 }
 

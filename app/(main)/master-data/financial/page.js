@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   toggleStatus,
+  deleteMasterRecord,
   getServices, addService, updateService,
   getPackages, addPackage, updatePackage,
   getPackageLineItems, addPackageLineItem, removePackageLineItem,
@@ -73,11 +74,9 @@ export default function FinancialMastersPage() {
   async function handleAdd() {
     setError(''); setSuccess('');
     if (tabDef.type === 'drug') {
-      if (!form.code || !form.generic) { setError('Code and generic name are required.'); return; }
-    } else if (tabDef.type === 'package') {
-      if (!form.name) { setError('Name is required.'); return; }
-    } else if (!form.code || !form.name) {
-      setError('Code and name are required.'); return;
+      if (!form.generic) { setError('Generic name is required.'); return; }
+    } else if (!form.name) {
+      setError('Name is required.'); return;
     }
 
     let result;
@@ -115,6 +114,16 @@ export default function FinancialMastersPage() {
     if (result?.error) { setError(result.error); return; }
     setSuccess('Updated.');
     setEditingId(null);
+    refresh();
+  }
+
+  async function handleDelete(table, record, label) {
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+    setError(''); setSuccess('');
+    const result = await deleteMasterRecord(table, record.id, record.code);
+    if (result?.error) { setError(result.error); return; }
+    setSuccess('Deleted.');
+    if (constituentsFor?.id === record.id) closeConstituents();
     refresh();
   }
 
@@ -176,22 +185,26 @@ export default function FinancialMastersPage() {
           {showAdd && (
             <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
               {tabDef.type === 'service' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Name" onChange={update('name')} />
                   <input type="number" className="fi" placeholder="Rate" onChange={update('rate')} />
                   <input type="number" className="fi" placeholder="GST %" onChange={update('gstPct')} />
+                  <div style={{ gridColumn: 'span 3', fontSize: 11, color: 'var(--g500)' }}>
+                    Code auto-generates ({activeTab.slice(0, 3).toUpperCase()}001, {activeTab.slice(0, 3).toUpperCase()}002...).
+                  </div>
                 </div>
               )}
               {tabDef.type === 'drug' && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
                   <input className="fi" placeholder="Brand" onChange={update('brand')} />
                   <input className="fi" placeholder="Generic name" onChange={update('generic')} />
                   <input className="fi" placeholder="Strength (e.g. 0.5%)" onChange={update('strength')} />
                   <input className="fi" placeholder="Form (e.g. Eye Drop)" onChange={update('form')} />
                   <input type="number" className="fi" placeholder="Rate" onChange={update('rate')} />
                   <input type="number" className="fi" placeholder="GST %" onChange={update('gstPct')} />
+                  <div style={{ gridColumn: 'span 4', fontSize: 11, color: 'var(--g500)' }}>
+                    Code auto-generates (DRG001, DRG002...).
+                  </div>
                 </div>
               )}
               {tabDef.type === 'package' && (
@@ -233,7 +246,10 @@ export default function FinancialMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{s.code}</td><td>{s.name}</td>
                       <td>Rs.{s.rate}</td><td>{s.gst_pct}%</td>
                       <td><StatusToggle record={s} table="master_services" onUpdate={refresh} /></td>
-                      <td><button className="btn btn-sm" onClick={() => startEdit(s)}><i className="ti ti-edit"></i></button></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm" onClick={() => startEdit(s)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleDelete('master_services', s, s.name)}><i className="ti ti-trash"></i></button>
+                      </td>
                     </tr>
                   )
                 ))}
@@ -268,7 +284,10 @@ export default function FinancialMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.brand}</td><td>{d.generic}</td><td>{d.strength}</td>
                       <td>Rs.{d.rate}</td><td>{d.gst_pct}%</td>
                       <td><StatusToggle record={d} table="master_drugs" onUpdate={refresh} /></td>
-                      <td><button className="btn btn-sm" onClick={() => startEdit(d)}><i className="ti ti-edit"></i></button></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm" onClick={() => startEdit(d)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleDelete('master_drugs', d, d.generic)}><i className="ti ti-trash"></i></button>
+                      </td>
                     </tr>
                   )
                 ))}
@@ -307,6 +326,7 @@ export default function FinancialMastersPage() {
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => openConstituents(p)}><i className="ti ti-list-details"></i> Breakup</button>
                         <button className="btn btn-sm" onClick={() => startEdit(p)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleDelete('master_packages', p, p.name)}><i className="ti ti-trash"></i></button>
                       </td>
                     </tr>
                   )

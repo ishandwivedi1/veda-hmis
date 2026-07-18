@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   toggleStatus,
-  getDiagnosesMaster, addDiagnosisMaster,
+  deleteMasterRecord,
+  getDiagnosesMaster, addDiagnosisMaster, updateDiagnosisMaster,
   getDoctorsMaster,
-  getProcedures, addProcedure,
-  getIopMethods, addIopMethod,
-  getClinicalObservations, addClinicalObservation,
-  getHistoryOptions, addHistoryOption,
+  getProcedures, addProcedure, updateProcedure,
+  getIopMethods, addIopMethod, updateIopMethod,
+  getClinicalObservations, addClinicalObservation, updateClinicalObservation,
+  getHistoryOptions, addHistoryOption, updateHistoryOption,
 } from '../actions';
 
 const TABS = [
@@ -47,6 +48,15 @@ function StatusToggle({ record, table, onUpdate, codeField = 'code' }) {
   );
 }
 
+function RowActions({ record, onEdit, onDelete }) {
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      <button className="btn btn-sm" onClick={() => onEdit(record)}><i className="ti ti-edit"></i></button>
+      <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => onDelete(record)}><i className="ti ti-trash"></i></button>
+    </div>
+  );
+}
+
 export default function ClinicalMastersPage() {
   const [activeTab, setActiveTab] = useState('doctors');
   const [diagnoses, setDiagnoses] = useState([]);
@@ -58,6 +68,9 @@ export default function ClinicalMastersPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
+
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
 
   const refresh = useCallback(async () => {
     setDiagnoses(await getDiagnosesMaster());
@@ -73,11 +86,14 @@ export default function ClinicalMastersPage() {
   function update(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
   }
+  function updateEdit(field) {
+    return (e) => setEditForm((f) => ({ ...f, [field]: e.target.value }));
+  }
 
   async function handleAdd() {
     setError('');
     if (activeTab === 'historyOptions' && !form.category) { setError('Category is required.'); return; }
-    if (!form.code || !form.name) { setError('Code and name are required.'); return; }
+    if (!form.name) { setError('Name is required.'); return; }
     let result;
     if (activeTab === 'procedures') result = await addProcedure(form);
     else if (activeTab === 'iopMethods') result = await addIopMethod(form);
@@ -90,6 +106,40 @@ export default function ClinicalMastersPage() {
     refresh();
   }
 
+  function startEdit(record) {
+    setError('');
+    setShowAdd(false);
+    setEditingId(record.id);
+    if (activeTab === 'procedures' || activeTab === 'diagnoses') setEditForm({ name: record.name, category: record.category || '' });
+    else setEditForm({ name: record.name });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setError('');
+  }
+
+  async function saveEdit(record) {
+    setError('');
+    let result;
+    if (activeTab === 'procedures') result = await updateProcedure(record.id, record, editForm);
+    else if (activeTab === 'iopMethods') result = await updateIopMethod(record.id, record, editForm);
+    else if (activeTab === 'observations') result = await updateClinicalObservation(record.id, record, editForm);
+    else if (activeTab === 'historyOptions') result = await updateHistoryOption(record.id, record, editForm);
+    else result = await updateDiagnosisMaster(record.id, record, editForm);
+    if (result?.error) { setError(result.error); return; }
+    setEditingId(null);
+    refresh();
+  }
+
+  async function handleDelete(table, record) {
+    if (!window.confirm(`Delete "${record.name}"? This cannot be undone.`)) return;
+    setError('');
+    const result = await deleteMasterRecord(table, record.id, record.code);
+    if (result?.error) { setError(result.error); return; }
+    refresh();
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
@@ -97,7 +147,7 @@ export default function ClinicalMastersPage() {
           <button
             key={t.key}
             className={activeTab === t.key ? 'btn btn-primary' : 'btn'}
-            onClick={() => { setActiveTab(t.key); setShowAdd(false); setError(''); }}
+            onClick={() => { setActiveTab(t.key); setShowAdd(false); setEditingId(null); setError(''); }}
           >
             {t.label}
           </button>
@@ -108,7 +158,7 @@ export default function ClinicalMastersPage() {
         <div className="card-head">
           <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
           {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions') && (
-            <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(!showAdd)}>
+            <button className="btn btn-primary btn-sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
               <i className="ti ti-plus"></i> Add New
             </button>
           )}
@@ -145,25 +195,39 @@ export default function ClinicalMastersPage() {
             </div>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Name (e.g. Cataract Surgery)" onChange={update('name')} />
                   <input className="fi" placeholder="Category (e.g. Cataract, Glaucoma, Retina)" onChange={update('category')} />
                 </div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 6 }}>Code auto-generates (PR001, PR002...).</div>
                 <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
               </div>
             )}
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {procedures.map((p) => (
-                  <tr key={p.id}>
-                    <td style={{ fontFamily: 'monospace' }}>{p.code}</td><td>{p.name}</td><td>{p.category}</td>
-                    <td><StatusToggle record={p} table="master_procedures" onUpdate={refresh} /></td>
-                  </tr>
+                  editingId === p.id ? (
+                    <tr key={p.id} style={{ background: 'var(--g50)' }}>
+                      <td style={{ fontFamily: 'monospace' }}>{p.code}</td>
+                      <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
+                      <td><input className="fi fi-sm" value={editForm.category} onChange={updateEdit('category')} /></td>
+                      <td><span className={`badge ${p.status === 'Active' ? 'b-green' : 'b-gray'}`}>{p.status}</span></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveEdit(p)}>Save</button>
+                        <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={p.id}>
+                      <td style={{ fontFamily: 'monospace' }}>{p.code}</td><td>{p.name}</td><td>{p.category}</td>
+                      <td><StatusToggle record={p} table="master_procedures" onUpdate={refresh} /></td>
+                      <td><RowActions record={p} onEdit={startEdit} onDelete={(r) => handleDelete('master_procedures', r)} /></td>
+                    </tr>
+                  )
                 ))}
                 {procedures.length === 0 && (
-                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No procedures added yet.</td></tr>
+                  <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No procedures added yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -177,24 +241,35 @@ export default function ClinicalMastersPage() {
             </div>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
-                  <input className="fi" placeholder="Name (e.g. Goldmann Applanation)" onChange={update('name')} />
-                </div>
+                <input className="fi" placeholder="Name (e.g. Goldmann Applanation)" onChange={update('name')} />
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 6 }}>Code auto-generates (IOPM01, IOPM02...).</div>
                 <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
               </div>
             )}
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Status</th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {iopMethods.map((m) => (
-                  <tr key={m.id}>
-                    <td style={{ fontFamily: 'monospace' }}>{m.code}</td><td>{m.name}</td>
-                    <td><StatusToggle record={m} table="master_iop_methods" onUpdate={refresh} /></td>
-                  </tr>
+                  editingId === m.id ? (
+                    <tr key={m.id} style={{ background: 'var(--g50)' }}>
+                      <td style={{ fontFamily: 'monospace' }}>{m.code}</td>
+                      <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
+                      <td><span className={`badge ${m.status === 'Active' ? 'b-green' : 'b-gray'}`}>{m.status}</span></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveEdit(m)}>Save</button>
+                        <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={m.id}>
+                      <td style={{ fontFamily: 'monospace' }}>{m.code}</td><td>{m.name}</td>
+                      <td><StatusToggle record={m} table="master_iop_methods" onUpdate={refresh} /></td>
+                      <td><RowActions record={m} onEdit={startEdit} onDelete={(r) => handleDelete('master_iop_methods', r)} /></td>
+                    </tr>
+                  )
                 ))}
                 {iopMethods.length === 0 && (
-                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No IOP methods added yet.</td></tr>
+                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No IOP methods added yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -208,24 +283,35 @@ export default function ClinicalMastersPage() {
             </div>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
-                  <input className="fi" placeholder="Name (e.g. Poor fixation)" onChange={update('name')} />
-                </div>
+                <input className="fi" placeholder="Name (e.g. Poor fixation)" onChange={update('name')} />
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 6 }}>Code auto-generates (OBS01, OBS02...).</div>
                 <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
               </div>
             )}
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Status</th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {observations.map((o) => (
-                  <tr key={o.id}>
-                    <td style={{ fontFamily: 'monospace' }}>{o.code}</td><td>{o.name}</td>
-                    <td><StatusToggle record={o} table="master_clinical_observations" onUpdate={refresh} /></td>
-                  </tr>
+                  editingId === o.id ? (
+                    <tr key={o.id} style={{ background: 'var(--g50)' }}>
+                      <td style={{ fontFamily: 'monospace' }}>{o.code}</td>
+                      <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
+                      <td><span className={`badge ${o.status === 'Active' ? 'b-green' : 'b-gray'}`}>{o.status}</span></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveEdit(o)}>Save</button>
+                        <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={o.id}>
+                      <td style={{ fontFamily: 'monospace' }}>{o.code}</td><td>{o.name}</td>
+                      <td><StatusToggle record={o} table="master_clinical_observations" onUpdate={refresh} /></td>
+                      <td><RowActions record={o} onEdit={startEdit} onDelete={(r) => handleDelete('master_clinical_observations', r)} /></td>
+                    </tr>
+                  )
                 ))}
                 {observations.length === 0 && (
-                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No observations added yet.</td></tr>
+                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No observations added yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -239,31 +325,45 @@ export default function ClinicalMastersPage() {
             </div>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                   <select className="fi" onChange={update('category')} defaultValue="">
                     <option value="" disabled>Category</option>
                     {Object.entries(HISTORY_CATEGORY_LABELS).map(([key, label]) => (
                       <option key={key} value={key}>{label}</option>
                     ))}
                   </select>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
                   <input className="fi" placeholder="Name (e.g. Watering)" onChange={update('name')} />
                 </div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 6 }}>Code auto-generates per category (CC001, OH001, MH001, FH001...).</div>
                 <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
               </div>
             )}
             <table className="tbl">
-              <thead><tr><th>Category</th><th>Code</th><th>Name</th><th>Status</th></tr></thead>
+              <thead><tr><th>Category</th><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {historyOptions.map((h) => (
-                  <tr key={h.id}>
-                    <td><span className="badge b-gray">{HISTORY_CATEGORY_LABELS[h.category] || h.category}</span></td>
-                    <td style={{ fontFamily: 'monospace' }}>{h.code}</td><td>{h.name}</td>
-                    <td><StatusToggle record={h} table="master_history_options" onUpdate={refresh} /></td>
-                  </tr>
+                  editingId === h.id ? (
+                    <tr key={h.id} style={{ background: 'var(--g50)' }}>
+                      <td><span className="badge b-gray">{HISTORY_CATEGORY_LABELS[h.category] || h.category}</span></td>
+                      <td style={{ fontFamily: 'monospace' }}>{h.code}</td>
+                      <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
+                      <td><span className={`badge ${h.status === 'Active' ? 'b-green' : 'b-gray'}`}>{h.status}</span></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveEdit(h)}>Save</button>
+                        <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={h.id}>
+                      <td><span className="badge b-gray">{HISTORY_CATEGORY_LABELS[h.category] || h.category}</span></td>
+                      <td style={{ fontFamily: 'monospace' }}>{h.code}</td><td>{h.name}</td>
+                      <td><StatusToggle record={h} table="master_history_options" onUpdate={refresh} /></td>
+                      <td><RowActions record={h} onEdit={startEdit} onDelete={(r) => handleDelete('master_history_options', r)} /></td>
+                    </tr>
+                  )
                 ))}
                 {historyOptions.length === 0 && (
-                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No history options added yet.</td></tr>
+                  <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No history options added yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -274,23 +374,40 @@ export default function ClinicalMastersPage() {
           <>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Code" onChange={update('code')} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Name" onChange={update('name')} />
                   <input className="fi" placeholder="Category (e.g. Lens, Retina)" onChange={update('category')} />
                 </div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 6 }}>Code auto-generates (DIAG0001, DIAG0002...).</div>
                 <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
               </div>
             )}
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {diagnoses.map((d) => (
-                  <tr key={d.id}>
-                    <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.name}</td><td>{d.category}</td>
-                    <td><StatusToggle record={d} table="master_diagnoses" onUpdate={refresh} /></td>
-                  </tr>
+                  editingId === d.id ? (
+                    <tr key={d.id} style={{ background: 'var(--g50)' }}>
+                      <td style={{ fontFamily: 'monospace' }}>{d.code}</td>
+                      <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
+                      <td><input className="fi fi-sm" value={editForm.category} onChange={updateEdit('category')} /></td>
+                      <td><span className={`badge ${d.status === 'Active' ? 'b-green' : 'b-gray'}`}>{d.status}</span></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveEdit(d)}>Save</button>
+                        <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={d.id}>
+                      <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.name}</td><td>{d.category}</td>
+                      <td><StatusToggle record={d} table="master_diagnoses" onUpdate={refresh} /></td>
+                      <td><RowActions record={d} onEdit={startEdit} onDelete={(r) => handleDelete('master_diagnoses', r)} /></td>
+                    </tr>
+                  )
                 ))}
+                {diagnoses.length === 0 && (
+                  <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No diagnoses added yet.</td></tr>
+                )}
               </tbody>
             </table>
           </>
@@ -299,4 +416,3 @@ export default function ClinicalMastersPage() {
     </div>
   );
 }
-
