@@ -9,6 +9,7 @@ import {
   getIopMethods, addIopMethod, updateIopMethod, deleteIopMethod,
   getClinicalObservations, addClinicalObservation, updateClinicalObservation, deleteClinicalObservation,
   getHistoryOptions, addHistoryOption, updateHistoryOption, deleteHistoryOption,
+  getIolCatalog, addIolCatalogItem, updateIolCatalogItem, deleteIolCatalogItem,
 } from '../actions';
 
 const TABS = [
@@ -18,7 +19,10 @@ const TABS = [
   { key: 'iopMethods', label: 'IOP Methods' },
   { key: 'observations', label: 'Clinical Observations' },
   { key: 'historyOptions', label: 'History Options' },
+  { key: 'iolCatalog', label: 'IOL Catalog' },
 ];
+
+const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
 
 const HISTORY_CATEGORY_LABELS = {
   chief_complaint: 'Chief Complaint',
@@ -55,6 +59,7 @@ export default function ClinicalMastersPage() {
   const [iopMethods, setIopMethods] = useState([]);
   const [observations, setObservations] = useState([]);
   const [historyOptions, setHistoryOptions] = useState([]);
+  const [iolCatalog, setIolCatalog] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
@@ -69,6 +74,7 @@ export default function ClinicalMastersPage() {
     setIopMethods(await getIopMethods());
     setObservations(await getClinicalObservations());
     setHistoryOptions(await getHistoryOptions());
+    setIolCatalog(await getIolCatalog());
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -88,12 +94,15 @@ export default function ClinicalMastersPage() {
     setError('');
     if (activeTab === 'historyOptions' && !form.category) { setError('Category is required.'); return; }
     if ((activeTab === 'procedures' || activeTab === 'diagnoses') && !form.category) { setError('Category is required.'); return; }
-    if (!form.name) { setError('Name is required.'); return; }
+    if (activeTab === 'iolCatalog') {
+      if (!form.brand || !form.model || !form.category) { setError('Brand, model, and category are required.'); return; }
+    } else if (!form.name) { setError('Name is required.'); return; }
     let result;
     if (activeTab === 'procedures') result = await addProcedure(form);
     else if (activeTab === 'iopMethods') result = await addIopMethod(form);
     else if (activeTab === 'observations') result = await addClinicalObservation(form);
     else if (activeTab === 'historyOptions') result = await addHistoryOption(form);
+    else if (activeTab === 'iolCatalog') result = await addIolCatalogItem(form);
     else result = await addDiagnosisMaster(form);
     if (result?.error) { setError(result.error); return; }
     setForm({});
@@ -105,6 +114,7 @@ export default function ClinicalMastersPage() {
     setError('');
     setEditingId(record.id);
     if (activeTab === 'procedures' || activeTab === 'diagnoses') setEditForm({ name: record.name, category: record.category });
+    else if (activeTab === 'iolCatalog') setEditForm({ brand: record.brand, model: record.model, manufacturer: record.manufacturer, category: record.category });
     else setEditForm({ name: record.name });
   }
   function cancelEdit() {
@@ -118,6 +128,7 @@ export default function ClinicalMastersPage() {
     else if (activeTab === 'iopMethods') result = await updateIopMethod(record.id, record, editForm);
     else if (activeTab === 'observations') result = await updateClinicalObservation(record.id, record, editForm);
     else if (activeTab === 'historyOptions') result = await updateHistoryOption(record.id, record, editForm);
+    else if (activeTab === 'iolCatalog') result = await updateIolCatalogItem(record.id, record, editForm);
     else result = await updateDiagnosisMaster(record.id, record, editForm);
     if (result?.error) { setError(result.error); return; }
     setEditingId(null);
@@ -125,18 +136,24 @@ export default function ClinicalMastersPage() {
   }
 
   async function handleDelete(record) {
-    if (!window.confirm(`Delete "${record.name}"? This cannot be undone. If it's in use elsewhere, deletion will be blocked and you should mark it Inactive instead.`)) return;
+    const label = activeTab === 'iolCatalog' ? `${record.brand} -- ${record.model}` : record.name;
+    if (!window.confirm(`Delete "${label}"? This cannot be undone. If it's in use elsewhere, deletion will be blocked and you should mark it Inactive instead.`)) return;
     setError('');
     let result;
     if (activeTab === 'procedures') result = await deleteProcedure(record.id, record.code);
     else if (activeTab === 'iopMethods') result = await deleteIopMethod(record.id, record.code);
     else if (activeTab === 'observations') result = await deleteClinicalObservation(record.id, record.code);
     else if (activeTab === 'historyOptions') result = await deleteHistoryOption(record.id, record.code);
+    else if (activeTab === 'iolCatalog') result = await deleteIolCatalogItem(record.id, record.code);
     else result = await deleteDiagnosisMaster(record.id, record.code);
     if (result?.error) { setError(result.error); return; }
     refresh();
   }
 
+  // Shared row renderer for the 3 simple code/name(/category) tabs --
+  // Procedures, IOP Methods, Clinical Observations, Diagnoses. History
+  // Options has its own render (extra Category column with a fixed
+  // list, not free text).
   function renderSimpleRow(record, table, withCategory) {
     if (editingId === record.id) {
       return (
@@ -183,7 +200,7 @@ export default function ClinicalMastersPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
-          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions') && (
+          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions' || activeTab === 'iolCatalog') && (
             <button className="btn btn-primary btn-sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
               <i className="ti ti-plus"></i> Add New
             </button>
@@ -217,7 +234,7 @@ export default function ClinicalMastersPage() {
         {activeTab === 'procedures' && (
           <>
             <div className="msg-info" style={{ background: 'var(--teal-lt)', color: 'var(--teal)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-              <i className="ti ti-info-circle"></i> The clinical surgery type a doctor advises -- no price here. Billing packages for this procedure are set up separately in Financial Masters. Code is generated automatically from the name.
+              <i className="ti ti-info-circle"></i> The clinical surgery type a doctor advises (e.g. &quot;Cataract Surgery&quot;) -- no price here. Billing packages for this procedure are set up separately in Financial Masters, and multiple packages can offer the same procedure at different price points. Code is generated automatically from the name.
             </div>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
@@ -289,7 +306,7 @@ export default function ClinicalMastersPage() {
         {activeTab === 'historyOptions' && (
           <>
             <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-              <i className="ti ti-info-circle"></i> Populates the chips in the doctor's Consultation History tab. Code is unique per category, so "Glaucoma" can appear in more than one category.
+              <i className="ti ti-info-circle"></i> Populates the selectable chips in the doctor's Consultation History tab -- Chief Complaint, Ocular/Medical/Family History. Code is generated automatically and is unique per category, so the same chip name (e.g. "Glaucoma") can appear in more than one category.
             </div>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
@@ -361,6 +378,69 @@ export default function ClinicalMastersPage() {
                 {diagnoses.map((d) => renderSimpleRow(d, 'master_diagnoses', true))}
                 {diagnoses.length === 0 && (
                   <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No diagnoses added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'iolCatalog' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--indigo-lt, var(--purple-lt))', color: 'var(--indigo, var(--purple))', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Populates the "Specific IOL" dropdown in Biometry &amp; IOL Planning's Surgeon Approval screen (M29). Code is generated automatically from brand + model.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Brand (e.g. Alcon)" onChange={update('brand')} />
+                  <input className="fi" placeholder="Model (e.g. AcrySof IQ)" onChange={update('model')} />
+                  <input className="fi" placeholder="Manufacturer" onChange={update('manufacturer')} />
+                  <select className="fi" onChange={update('category')} defaultValue="">
+                    <option value="" disabled>Category</option>
+                    {IOL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Brand</th><th>Model</th><th>Manufacturer</th><th>Category</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {iolCatalog.map((i) => (
+                  editingId === i.id ? (
+                    <tr key={i.id} style={{ background: 'var(--g50)' }}>
+                      <td style={{ fontFamily: 'monospace' }}>{i.code}</td>
+                      <td><input className="fi fi-sm" value={editForm.brand} onChange={updateEdit('brand')} /></td>
+                      <td><input className="fi fi-sm" value={editForm.model} onChange={updateEdit('model')} /></td>
+                      <td><input className="fi fi-sm" value={editForm.manufacturer || ''} onChange={updateEdit('manufacturer')} /></td>
+                      <td>
+                        <select className="fi fi-sm" value={editForm.category} onChange={updateEdit('category')}>
+                          {IOL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </td>
+                      <td><span className={`badge ${i.status === 'Active' ? 'b-green' : 'b-gray'}`}>{i.status}</span></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveEdit(i)}>Save</button>
+                        <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={i.id}>
+                      <td style={{ fontFamily: 'monospace' }}>{i.code}</td>
+                      <td style={{ fontWeight: 600 }}>{i.brand}</td>
+                      <td>{i.model}</td>
+                      <td style={{ color: 'var(--g500)' }}>{i.manufacturer || '--'}</td>
+                      <td><span className="badge b-gray">{i.category}</span></td>
+                      <td><StatusToggle record={i} table="master_iol_catalog" onUpdate={refresh} /></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm" onClick={() => startEdit(i)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" onClick={() => handleDelete(i)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
+                      </td>
+                    </tr>
+                  )
+                ))}
+                {iolCatalog.length === 0 && (
+                  <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No IOL catalog items added yet.</td></tr>
                 )}
               </tbody>
             </table>

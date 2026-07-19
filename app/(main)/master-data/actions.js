@@ -17,6 +17,8 @@ export async function getMasterAuditLog(masterTable) {
   return data || [];
 }
 
+// Generic toggle works the same way across all master tables -- every
+// one of them uses the same status column and Active/Inactive values.
 export async function toggleStatus(table, id, currentStatus, code) {
   const supabase = await createClient();
   const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
@@ -26,6 +28,15 @@ export async function toggleStatus(table, id, currentStatus, code) {
   return { success: true };
 }
 
+// ── SHARED HELPERS: auto-code + consistent text formatting ──
+// Applied everywhere a person types a free-text name/label into a
+// master, so two staff members never accidentally create "iol",
+// "IOL", and "Iol" as three different-looking entries, and nobody has
+// to invent a unique code by hand.
+
+// Title-cases each word, collapses repeated whitespace, trims ends.
+// Deliberately simple/predictable rather than clever -- staff can
+// still see exactly what they typed, just consistently capitalized.
 function normalizeName(s) {
   return (s || '')
     .trim()
@@ -33,6 +44,11 @@ function normalizeName(s) {
     .replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 }
 
+// Derives a code from the name (upper-snake-case), and appends _2,
+// _3... if that code is already taken. scopeColumn/scopeValue let a
+// table scope uniqueness to a subset (e.g. master_history_options
+// scopes by category, since "Glaucoma" is legitimately both an Ocular
+// History and a Family History option).
 async function generateUniqueCode(supabase, table, name, scopeColumn, scopeValue) {
   const base = (name || 'ITEM').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'ITEM';
   let code = base;
@@ -47,6 +63,9 @@ async function generateUniqueCode(supabase, table, name, scopeColumn, scopeValue
   }
 }
 
+// Delete with a friendly message instead of a raw Postgres error when
+// the record is still referenced elsewhere (e.g. a service used on a
+// past invoice) -- staff should mark it Inactive in that case instead.
 async function deleteMasterRecord(supabase, table, id, code) {
   const { error } = await supabase.from(table).delete().eq('id', id);
   if (error) {
@@ -57,6 +76,7 @@ async function deleteMasterRecord(supabase, table, id, code) {
   return { success: true };
 }
 
+// ── IOP METHODS (Clinical Master -- used in Optometry Assessment) ──
 export async function getIopMethods() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_iop_methods').select('*').order('name');
@@ -84,6 +104,8 @@ export async function deleteIopMethod(id, code) {
   return deleteMasterRecord(supabase, 'master_iop_methods', id, code);
 }
 
+// ── CLINICAL OBSERVATIONS (Clinical Master -- quick-pick chips in
+// Optometry Assessment's Clinical Observations section) ──
 export async function getClinicalObservations() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_clinical_observations').select('*').order('name');
@@ -111,6 +133,11 @@ export async function deleteClinicalObservation(id, code) {
   return deleteMasterRecord(supabase, 'master_clinical_observations', id, code);
 }
 
+// ── HISTORY OPTIONS (Clinical Master -- chip options in the doctor's
+// Consultation History tab: Chief Complaint, Ocular/Medical/Family
+// History). Four categories in one table; code is unique per category
+// (not globally) since e.g. "Glaucoma" is a legitimate chip in both
+// Ocular History and Family History. ──
 export async function getHistoryOptions() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_history_options').select('*').order('category').order('name');
@@ -138,6 +165,9 @@ export async function deleteHistoryOption(id, code) {
   return deleteMasterRecord(supabase, 'master_history_options', id, code);
 }
 
+// Active-only, grouped by category -- what the doctor's Consultation
+// History tab actually renders as selectable chips
+// (app/(main)/consultation/[id]/history-tab.js).
 export async function getActiveHistoryOptions() {
   const supabase = await createClient();
   const { data } = await supabase
@@ -153,6 +183,16 @@ export async function getActiveHistoryOptions() {
   return grouped;
 }
 
+// ── DOCTORS (Clinical Master) ──
+// Deliberately NOT a separate table -- doctors are profiles (same
+// source User Management and Appointments' doctor dropdown already
+// use). This is a management view onto that same data, filtered to
+// doctor-type designations, showing both Active and Inactive (unlike
+// the dropdown-facing getDoctors() in appointments/actions.js, which
+// only wants Active ones). New doctor accounts are still created in
+// User Management (needs a real login, service-role auth), and name
+// changes belong there too (it's tied to their login identity) -- so
+// this tab intentionally offers status management only, no Edit/Delete.
 export async function getDoctorsMaster() {
   const supabase = await createClient();
   const { data } = await supabase
@@ -163,6 +203,7 @@ export async function getDoctorsMaster() {
   return data || [];
 }
 
+// ── SERVICES ──
 export async function getServices() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_services').select('*').order('name');
@@ -199,6 +240,7 @@ export async function deleteService(id, code) {
   return deleteMasterRecord(supabase, 'master_services', id, code);
 }
 
+// ── PACKAGES ──
 export async function getPackages() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_packages').select('*, master_procedures(name)').order('name');
@@ -233,10 +275,13 @@ export async function updatePackage(id, oldValues, values) {
 }
 export async function deletePackage(id, code) {
   const supabase = await createClient();
+  // Constituents belong to the package -- clear them first so the
+  // package row itself isn't blocked by its own line items.
   await supabase.from('package_line_items').delete().eq('package_id', id);
   return deleteMasterRecord(supabase, 'master_packages', id, code);
 }
 
+// ── PACKAGE CONSTITUENTS (breakup for billing / insurance requests) ──
 export async function getPackageLineItems(packageId) {
   const supabase = await createClient();
   const { data } = await supabase.from('package_line_items').select('*').eq('package_id', packageId).order('sort_order');
@@ -264,6 +309,9 @@ export async function removePackageLineItem(id, packageId) {
   return { success: true };
 }
 
+// ── PROCEDURES (Clinical Master -- the surgery TYPE a doctor advises,
+// e.g. "Cataract Surgery". No price -- pure clinical classification.
+// Multiple billing Packages can point at one procedure.) ──
 export async function getProcedures() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_procedures').select('*').order('name');
@@ -296,6 +344,7 @@ export async function deleteProcedure(id, code) {
   return deleteMasterRecord(supabase, 'master_procedures', id, code);
 }
 
+// ── DRUGS ──
 export async function getDrugs() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_drugs').select('*').order('generic');
@@ -336,6 +385,7 @@ export async function deleteDrug(id, code) {
   return deleteMasterRecord(supabase, 'master_drugs', id, code);
 }
 
+// ── DIAGNOSES ──
 export async function getDiagnosesMaster() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_diagnoses').select('*').order('name');
@@ -367,3 +417,62 @@ export async function deleteDiagnosisMaster(id, code) {
   const supabase = await createClient();
   return deleteMasterRecord(supabase, 'master_diagnoses', id, code);
 }
+
+// ── IOL CATALOG (Clinical Master, M29 -- referenced by Biometry &
+// IOL Planning's Surgeon Approval screen). Brand/model act as the
+// name-equivalent fields for code generation and normalization. ──
+export async function getIolCatalog() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_iol_catalog').select('*').order('brand').order('model');
+  return data || [];
+}
+export async function addIolCatalogItem(values) {
+  const supabase = await createClient();
+  const brand = normalizeName(values.brand);
+  const model = normalizeName(values.model);
+  const manufacturer = normalizeName(values.manufacturer);
+  const code = await generateUniqueCode(supabase, 'master_iol_catalog', `${brand} ${model}`);
+  const { error } = await supabase.from('master_iol_catalog').insert({
+    code, brand, model, manufacturer, category: values.category, status: 'Active',
+  });
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_iol_catalog', code, 'Create', `${brand} -- ${model} (${values.category}) created`);
+  return { success: true };
+}
+export async function updateIolCatalogItem(id, oldValues, values) {
+  const supabase = await createClient();
+  const brand = normalizeName(values.brand);
+  const model = normalizeName(values.model);
+  const manufacturer = normalizeName(values.manufacturer);
+  const { error } = await supabase.from('master_iol_catalog').update({ brand, model, manufacturer, category: values.category }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.brand !== brand) changes.push(`Brand ${oldValues.brand} -> ${brand}`);
+  if (oldValues.model !== model) changes.push(`Model ${oldValues.model} -> ${model}`);
+  if (oldValues.category !== values.category) changes.push(`Category ${oldValues.category} -> ${values.category}`);
+  await logMasterAudit(supabase, 'master_iol_catalog', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+export async function deleteIolCatalogItem(id, code) {
+  const supabase = await createClient();
+  return deleteMasterRecord(supabase, 'master_iol_catalog', id, code);
+}
+
+// Active-only, grouped by category -- what Surgeon Approval's "Specific
+// IOL" dropdown actually consumes.
+export async function getActiveIolCatalog() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('master_iol_catalog')
+    .select('id, code, brand, model, manufacturer, category')
+    .eq('status', 'Active')
+    .order('brand');
+  return data || [];
+}
+
+// NOTE: Investigations previously had their own master_investigations
+// table here, but it was empty and unused everywhere except this
+// module -- every real investigation (with its actual rate) already
+// lives in master_services where dept = 'Investigation'. Consolidated
+// into Financial Masters (Migration 48) to avoid the same item ever
+// having two different prices in two different places.

@@ -96,9 +96,9 @@ export default function FinancialMastersPage() {
   function startEdit(record) {
     setError(''); setSuccess('');
     setEditingId(record.id);
-    if (tabDef.type === 'package') setEditForm({ name: record.name, includes: record.includes, procedureId: record.procedure_id || '' });
-    else if (tabDef.type === 'drug') setEditForm({ brand: record.brand, generic: record.generic, strength: record.strength, form: record.form, rate: record.rate, gstPct: record.gst_pct });
-    else setEditForm({ name: record.name, rate: record.rate, gstPct: record.gst_pct });
+    if (tabDef.type === 'package') setEditForm({ name: record.name || '', includes: record.includes || '', procedureId: record.procedure_id || '' });
+    else if (tabDef.type === 'drug') setEditForm({ brand: record.brand || '', generic: record.generic || '', strength: record.strength || '', form: record.form || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
+    else setEditForm({ name: record.name || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
   }
 
   function cancelEdit() {

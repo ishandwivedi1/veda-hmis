@@ -523,6 +523,14 @@ export async function sendForInvestigationFromConsultation(queueEntryId, encount
   return result;
 }
 
+export async function sendForBiometryFromConsultation(queueEntryId, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const result = await doctorSendOut(queueEntryId, 'biometry');
+  if (!result.error) await addAudit(supabase, encounterId, 'Sent for Biometry', userData?.user?.id);
+  return result;
+}
+
 export async function saveDraft(encounterId) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();

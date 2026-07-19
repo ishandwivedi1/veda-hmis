@@ -104,7 +104,7 @@ export async function doctorComplete(id) {
 
 export async function doctorSendOut(id, kind) {
   const supabase = await createClient();
-  const status = kind === 'dilate' ? 'Awaiting Dilation' : 'Awaiting Investigation';
+  const status = kind === 'dilate' ? 'Awaiting Dilation' : kind === 'biometry' ? 'Awaiting Biometry' : 'Awaiting Investigation';
   const { error } = await supabase
     .from('queue_entries')
     .update({ status, sent_out_at: new Date().toISOString() })
