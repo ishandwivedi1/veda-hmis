@@ -28,7 +28,7 @@ export async function getBiometryQueue() {
       .from('biometry_records')
       .select('*')
       .in('visit_id', visitIds)
-      .in('status', ['Awaiting Biometry', 'Measured', 'Calculated']);
+      .in('status', ['Awaiting Biometry', 'Measured', 'Calculated', 'Approved']);
     (records || []).forEach((r) => { recordsByVisit[r.visit_id] = r; });
   }
 
@@ -70,14 +70,20 @@ export async function getBiometryQueue() {
 export async function getOrCreateBiometryRecord(visitId, encounterId) {
   const supabase = await createClient();
 
+  // Reuse ANY existing non-cancelled record for this visit -- including
+  // Approved ones. Previously this only matched in-flight statuses, so
+  // reopening an already-approved patient (e.g. from the Queue, since
+  // queue_entries.status doesn't change on approval) silently created a
+  // second, blank record for the same visit.
   const { data: existing } = await supabase
     .from('biometry_records')
     .select('id')
     .eq('visit_id', visitId)
-    .in('status', ['Awaiting Biometry', 'Measured', 'Calculated'])
-    .maybeSingle();
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1);
 
-  if (existing) return { id: existing.id };
+  if (existing && existing.length > 0) return { id: existing[0].id };
 
   const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
 

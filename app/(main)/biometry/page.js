@@ -8,6 +8,7 @@ const STATUS_BADGE = {
   'Awaiting Biometry': 'b-gray',
   Measured: 'b-amber',
   Calculated: 'b-blue',
+  Approved: 'b-green',
 };
 
 function KpiCard({ label, value, sub, color }) {
@@ -83,7 +84,7 @@ export default function BiometryQueuePage() {
               </div>
             </div>
             <button className="btn btn-sm btn-primary" onClick={() => handleOpen(row)} disabled={openingId === row.queueEntryId}>
-              <i className="ti ti-ruler-measure"></i> {openingId === row.queueEntryId ? 'Opening...' : 'Measure'}
+              <i className={`ti ${row.status === 'Approved' ? 'ti-eye' : 'ti-ruler-measure'}`}></i> {openingId === row.queueEntryId ? 'Opening...' : row.status === 'Approved' ? 'View' : 'Measure'}
             </button>
           </div>
         ))}
