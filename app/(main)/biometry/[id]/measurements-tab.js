@@ -16,58 +16,109 @@ const MEAS_FIELDS = [
 ];
 
 const DEVICES = ['ZEISS IOLMaster 700', 'Haag-Streit Lenstar', 'NIDEK AL-Scan', 'Manual A-Scan'];
+const REQUIRED_FIELDS = ['axl', 'k1', 'k2', 'acd'];
 
-function EyeColumn({ label, eyeKey, values, onChange, disabled, headColor, headBg }) {
+function emptySet(device) {
+  return { device, axl: '', k1: '', k2: '', acd: '', lt: '', wtw: '' };
+}
+
+function isComplete(set) {
+  return REQUIRED_FIELDS.every((f) => set[f] && String(set[f]).trim());
+}
+
+// Each eye can hold multiple tagged readings -- e.g. Manual A-Scan AND
+// an optical biometer, when both were used (fallback for dense
+// cataracts, or cross-checking). Every reading keeps its own device tag.
+function EyeSets({ label, eyeKey, sets, onFieldChange, onRemoveSet, onAddSet, disabled, headColor, headBg }) {
+  const [newDevice, setNewDevice] = useState(DEVICES[0]);
+
   return (
     <div>
       <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, background: headBg, color: headColor, borderRadius: '8px 8px 0 0' }}>
         <i className="ti ti-eye" style={{ fontSize: 11 }}></i> {label}
       </div>
       <div style={{ border: '1px solid var(--g200)', borderTop: 'none', borderRadius: '0 0 8px 8px', padding: '10px 12px' }}>
-        {MEAS_FIELDS.map((f) => (
-          <div key={f.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-            <span style={{ color: 'var(--g500)', flex: 1 }}>{f.label}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input
-                type="text"
-                value={values[f.key] || ''}
-                onChange={(e) => onChange(eyeKey, f.key, e.target.value)}
-                disabled={disabled}
-                placeholder="--"
-                style={{ width: 90, padding: '4px 7px', border: '1.5px solid var(--g200)', borderRadius: 8, fontSize: 12, textAlign: 'right' }}
-              />
-              <span style={{ fontSize: 10, color: 'var(--g400)' }}>{f.unit}</span>
+        {sets.length === 0 && <div style={{ fontSize: 11, color: 'var(--g400)', padding: '4px 0' }}>No readings yet.</div>}
+
+        {sets.map((set, idx) => (
+          <div key={idx} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: idx < sets.length - 1 || !disabled ? '1px dashed var(--g200)' : 'none' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span className={`badge ${isComplete(set) ? 'b-green' : 'b-gray'}`} style={{ fontSize: 10 }}>
+                <i className="ti ti-device-tablet" style={{ fontSize: 10 }}></i> {set.device}
+              </span>
+              {!disabled && (
+                <button className="btn" style={{ padding: '1px 7px', fontSize: 10 }} onClick={() => onRemoveSet(eyeKey, idx)}>Remove</button>
+              )}
             </div>
+            {MEAS_FIELDS.map((f) => (
+              <div key={f.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', fontSize: 12 }}>
+                <span style={{ color: 'var(--g500)', flex: 1 }}>{f.label}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input
+                    type="text"
+                    value={set[f.key] || ''}
+                    onChange={(e) => onFieldChange(eyeKey, idx, f.key, e.target.value)}
+                    disabled={disabled}
+                    placeholder="--"
+                    style={{ width: 90, padding: '4px 7px', border: '1.5px solid var(--g200)', borderRadius: 8, fontSize: 12, textAlign: 'right' }}
+                  />
+                  <span style={{ fontSize: 10, color: 'var(--g400)' }}>{f.unit}</span>
+                </div>
+              </div>
+            ))}
           </div>
         ))}
+
+        {!disabled && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <select className="fi fi-sm" style={{ flex: 1 }} value={newDevice} onChange={(e) => setNewDevice(e.target.value)}>
+              {DEVICES.map((d) => <option key={d}>{d}</option>)}
+            </select>
+            <button className="btn btn-sm" onClick={() => onAddSet(eyeKey, newDevice)}><i className="ti ti-plus"></i> Add reading</button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 export default function MeasurementsTab({ record, recordId, onSaved }) {
-  const [measurements, setMeasurements] = useState({ re: {}, le: {} });
+  const [measurements, setMeasurements] = useState({ re: [], le: [] });
   const [procedureName, setProcedureName] = useState('');
   const [surgicalEye, setSurgicalEye] = useState('');
-  const [device, setDevice] = useState(DEVICES[0]);
   const [remarks, setRemarks] = useState('');
   const [error, setError] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setMeasurements(record.measurements && Object.keys(record.measurements).length ? record.measurements : { re: {}, le: {} });
+    const m = record.measurements || {};
+    setMeasurements({
+      re: Array.isArray(m.re) ? m.re : (m.re && Object.keys(m.re).length ? [{ ...m.re, device: record.verify_device || 'Unspecified' }] : []),
+      le: Array.isArray(m.le) ? m.le : (m.le && Object.keys(m.le).length ? [{ ...m.le, device: record.verify_device || 'Unspecified' }] : []),
+    });
     setProcedureName(record.procedure_name || '');
     setSurgicalEye(record.surgical_eye || '');
-    setDevice(record.verify_device || DEVICES[0]);
     setRemarks(record.verify_remarks || '');
   }, [record]);
 
   const canEdit = record.status !== 'Calculated' && record.status !== 'Approved';
   const isVerified = record.status === 'Calculated' || record.status === 'Approved';
 
-  function setField(eyeKey, fieldKey, value) {
-    setMeasurements((prev) => ({ ...prev, [eyeKey]: { ...prev[eyeKey], [fieldKey]: value } }));
+  function setFieldInSet(eyeKey, idx, fieldKey, value) {
+    setMeasurements((prev) => {
+      const list = [...(prev[eyeKey] || [])];
+      list[idx] = { ...list[idx], [fieldKey]: value };
+      return { ...prev, [eyeKey]: list };
+    });
+  }
+
+  function addSet(eyeKey, device) {
+    setMeasurements((prev) => ({ ...prev, [eyeKey]: [...(prev[eyeKey] || []), emptySet(device)] }));
+  }
+
+  function removeSet(eyeKey, idx) {
+    setMeasurements((prev) => ({ ...prev, [eyeKey]: (prev[eyeKey] || []).filter((_, i) => i !== idx) }));
   }
 
   async function handleSaveSurgicalDetails() {
@@ -89,12 +140,15 @@ export default function MeasurementsTab({ record, recordId, onSaved }) {
     if (!procedureName.trim()) { setError('Enter the planned procedure before verifying.'); return; }
     setSaving(true);
     await handleSaveSurgicalDetails();
-    const result = await verifyBiometryMeasurements(recordId, measurements, surgicalEye, device, remarks);
+    const result = await verifyBiometryMeasurements(recordId, measurements, surgicalEye, remarks);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setOkMsg('Measurements verified. IOL Calculation tab is now available.');
     if (onSaved) onSaved();
   }
+
+  const surgicalEyeKey = surgicalEye === 'RE' ? 're' : surgicalEye === 'LE' ? 'le' : null;
+  const surgicalEyeHasComplete = surgicalEyeKey ? (measurements[surgicalEyeKey] || []).some(isComplete) : false;
 
   return (
     <div>
@@ -125,16 +179,16 @@ export default function MeasurementsTab({ record, recordId, onSaved }) {
           <div className="card-title"><i className="ti ti-ruler-measure" style={{ color: 'var(--indigo)' }}></i> Biometric Measurements</div>
           <span className={`badge ${isVerified ? 'b-green' : 'b-gray'}`}>{isVerified ? 'Verified' : 'Not verified'}</span>
         </div>
+        <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 11, marginBottom: 10 }}>
+          <i className="ti ti-info-circle"></i> Add a reading per device used -- e.g. Manual A-Scan and an optical biometer both, if both were taken for this patient. Each reading keeps its own device tag.
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, border: '1px solid var(--g200)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ borderRight: '1px solid var(--g200)' }}>
-            <EyeColumn label="Right Eye (OD)" eyeKey="re" values={measurements.re || {}} onChange={setField} disabled={!canEdit} headColor="var(--blue)" headBg="var(--blue-lt)" />
+            <EyeSets label="Right Eye (OD)" eyeKey="re" sets={measurements.re || []} onFieldChange={setFieldInSet} onRemoveSet={removeSet} onAddSet={addSet} disabled={!canEdit} headColor="var(--blue)" headBg="var(--blue-lt)" />
           </div>
           <div>
-            <EyeColumn label="Left Eye (OS)" eyeKey="le" values={measurements.le || {}} onChange={setField} disabled={!canEdit} headColor="var(--teal)" headBg="var(--teal-lt)" />
+            <EyeSets label="Left Eye (OS)" eyeKey="le" sets={measurements.le || []} onFieldChange={setFieldInSet} onRemoveSet={removeSet} onAddSet={addSet} disabled={!canEdit} headColor="var(--teal)" headBg="var(--teal-lt)" />
           </div>
-        </div>
-        <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 11, marginTop: 10 }}>
-          <i className="ti ti-info-circle"></i> Confirm correct eye before verifying. Verification triggers IOL calculation eligibility.
         </div>
       </div>
 
@@ -145,18 +199,13 @@ export default function MeasurementsTab({ record, recordId, onSaved }) {
       {canEdit && (
         <div className="card">
           <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-shield-check" style={{ color: 'var(--green)' }}></i> Verification</div>
-          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Verification confirms technical accuracy -- not the surgical plan. Only after verification can the surgeon calculate and approve.</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-            <div>
-              <label className="flbl">Device used</label>
-              <select className="fi fi-sm" value={device} onChange={(e) => setDevice(e.target.value)}>
-                {DEVICES.map((d) => <option key={d}>{d}</option>)}
-              </select>
-            </div>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
+            Verification confirms technical accuracy -- not the surgical plan. Requires at least one complete reading (AXL, K1, K2, ACD) for the surgical eye.
+            {surgicalEyeKey && !surgicalEyeHasComplete && <span style={{ color: 'var(--amber)', fontWeight: 600 }}> No complete reading yet for {surgicalEye}.</span>}
           </div>
           <div style={{ marginBottom: 10 }}>
             <label className="flbl">Technician remarks</label>
-            <input className="fi fi-sm" placeholder="e.g. Good fixation, signal quality excellent, 3 readings averaged..." value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+            <input className="fi fi-sm" placeholder="e.g. Optical biometry unreliable due to dense cataract, A-Scan used as backup..." value={remarks} onChange={(e) => setRemarks(e.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-sm" style={{ background: 'var(--indigo)', color: '#fff', border: 'none' }} onClick={handleVerify} disabled={saving}>

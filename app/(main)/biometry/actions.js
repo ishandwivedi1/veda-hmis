@@ -146,7 +146,7 @@ export async function saveBiometryDraft(id, measurements) {
 // AUTO-BIO-001: verification is what triggers calculation eligibility --
 // there's no separate persisted "Measured" state in practice, mirroring
 // the source workflow (jumps straight to Calculated).
-export async function verifyBiometryMeasurements(id, measurements, surgicalEye, device, remarks) {
+export async function verifyBiometryMeasurements(id, measurements, surgicalEye, remarks) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
@@ -155,18 +155,29 @@ export async function verifyBiometryMeasurements(id, measurements, surgicalEye, 
   const eyeKey = surgicalEye === 'RE' ? 're' : surgicalEye === 'LE' ? 'le' : null;
   if (!eyeKey) return { error: 'Surgical eye must be RE or LE to verify (OU not supported for a single IOL calculation).' };
 
-  const eyeData = measurements[eyeKey] || {};
-  const missing = REQUIRED_FIELDS.filter((f) => !eyeData[f] || !String(eyeData[f]).trim());
-  if (missing.length > 0) {
-    return { error: `Mandatory fields for the surgical eye (AXL, K1, K2, ACD) must be completed before verification. Missing: ${missing.join(', ').toUpperCase()}.` };
+  // Each eye can now hold multiple tagged readings (e.g. Manual A-Scan
+  // AND an optical biometer, when both were used) -- verification just
+  // needs at least ONE complete reading for the surgical eye, not every
+  // reading filled in.
+  const eyeSets = Array.isArray(measurements[eyeKey]) ? measurements[eyeKey] : [];
+  const completeSet = eyeSets.find((set) => REQUIRED_FIELDS.every((f) => set[f] && String(set[f]).trim()));
+  if (!completeSet) {
+    return { error: `At least one complete reading (AXL, K1, K2, ACD) is required for the surgical eye (${surgicalEye}) before verification.` };
   }
+
+  // Summarize which device(s) actually produced complete readings for
+  // the surgical eye, for a readable record -- e.g. "Manual A-Scan,
+  // ZEISS IOLMaster 700" if both were used.
+  const devicesUsed = [...new Set(
+    eyeSets.filter((set) => REQUIRED_FIELDS.every((f) => set[f] && String(set[f]).trim())).map((set) => set.device)
+  )];
 
   const { error } = await supabase
     .from('biometry_records')
     .update({
       status: 'Calculated',
       measurements,
-      verify_device: device,
+      verify_device: devicesUsed.join(', '),
       verify_remarks: remarks,
       verified_by: userData?.user?.id || null,
       verified_at: new Date().toISOString(),

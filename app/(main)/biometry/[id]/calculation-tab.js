@@ -36,7 +36,7 @@ export default function CalculationTab({ record, recordId, onSaved }) {
   }, [record]);
 
   const eyeKey = record.surgical_eye === 'RE' ? 're' : record.surgical_eye === 'LE' ? 'le' : null;
-  const surgicalMeasurements = eyeKey ? (record.measurements?.[eyeKey] || {}) : {};
+  const surgicalEyeSets = eyeKey && Array.isArray(record.measurements?.[eyeKey]) ? record.measurements[eyeKey] : [];
 
   const notVerified = record.status !== 'Calculated' && record.status !== 'Approved';
   const readOnlyRows = record.status === 'Approved';
@@ -82,10 +82,18 @@ export default function CalculationTab({ record, recordId, onSaved }) {
         <div>
           <div className="card" style={{ marginBottom: 12 }}>
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-ruler-measure" style={{ color: 'var(--indigo)' }}></i> Biometry Summary ({record.surgical_eye || '--'})</div>
-            {MEAS_FIELDS.map((f) => (
-              <div key={f.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                <span style={{ color: 'var(--g500)' }}>{f.label}</span>
-                <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{surgicalMeasurements[f.key] || '--'} {f.unit}</span>
+            {surgicalEyeSets.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No readings recorded.</div>}
+            {surgicalEyeSets.map((set, idx) => (
+              <div key={idx} style={{ marginBottom: idx < surgicalEyeSets.length - 1 ? 10 : 0, paddingBottom: idx < surgicalEyeSets.length - 1 ? 10 : 0, borderBottom: idx < surgicalEyeSets.length - 1 ? '1px dashed var(--g200)' : 'none' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--indigo)', marginBottom: 4 }}>
+                  <i className="ti ti-device-tablet" style={{ fontSize: 10 }}></i> {set.device}
+                </div>
+                {MEAS_FIELDS.map((f) => (
+                  <div key={f.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12 }}>
+                    <span style={{ color: 'var(--g500)' }}>{f.label}</span>
+                    <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{set[f.key] || '--'} {f.unit}</span>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
