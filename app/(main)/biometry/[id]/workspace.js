@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   getBiometryDetail, setBiometrySurgicalDetails, saveBiometryDraft, verifyBiometryMeasurements,
 } from '../actions';
+import AttachmentUploader from '@/app/components/AttachmentUploader';
 
 const MEAS_FIELDS = [
   { key: 'axl', label: 'Axial Length', unit: 'mm' },
@@ -166,6 +167,10 @@ export default function BiometryWorkspace({ recordId }) {
         <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 11, marginTop: 10 }}>
           <i className="ti ti-info-circle"></i> Confirm correct eye before verifying. Verification triggers IOL calculation eligibility.
         </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <AttachmentUploader entityType="biometry_record" entityId={recordId} title="Device Reports (IOLMaster/Lenstar printout, scanned reports)" />
       </div>
 
       {canEdit && (
