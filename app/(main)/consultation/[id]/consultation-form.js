@@ -58,6 +58,9 @@ function TabButton({ active, onClick, icon, label }) {
   );
 }
 
+// Section group divider for Diagnosis & Plan -- numbered circle badge,
+// same visual language as the numbered sections in Optometry Assessment,
+// so the two clinical screens feel consistent.
 function GroupHeader({ num, color, title }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 12px' }}>
@@ -80,20 +83,24 @@ export default function ConsultationForm({ queueEntryId }) {
   const [activeTab, setActiveTab] = useState('history');
   const router = useRouter();
 
+  // Diagnosis form
   const [dxName, setDxName] = useState('');
   const [dxCategory, setDxCategory] = useState('primary');
   const [dxEye, setDxEye] = useState('OU');
 
+  // Prescription form
   const [rxDrug, setRxDrug] = useState('');
   const [rxDosage, setRxDosage] = useState('1 drop');
   const [rxFrequency, setRxFrequency] = useState('BD');
   const [rxDuration, setRxDuration] = useState('1 week');
   const [rxEye, setRxEye] = useState('BE');
 
+  // Investigation form
   const [invName, setInvName] = useState('');
   const [invEye, setInvEye] = useState('OU');
   const [invPriority, setInvPriority] = useState('Routine');
 
+  // Management Plan expansion forms
   const [optText, setOptText] = useState('');
   const [procName, setProcName] = useState('');
   const [procEye, setProcEye] = useState('OD');
@@ -108,6 +115,8 @@ export default function ConsultationForm({ queueEntryId }) {
   const [patientInstructions, setPatientInstructions] = useState('');
   const [instructionsSaved, setInstructionsSaved] = useState(false);
 
+  // Master Data options for the Diagnosis/Prescription/Investigation
+  // dropdowns -- fetched once on mount, not re-fetched on every add/remove.
   const [diagnosisOptions, setDiagnosisOptions] = useState([]);
   const [drugOptions, setDrugOptions] = useState([]);
   const [investigationOptions, setInvestigationOptions] = useState([]);
@@ -299,6 +308,9 @@ export default function ConsultationForm({ queueEntryId }) {
   const openInvestigations = data.investigations.filter((i) => i.status !== 'Completed' && i.status !== 'Verified');
   const pendingRx = data.prescriptions.filter((r) => r.status !== 'Dispensed');
 
+  // ── ACTION TRACKER: every downstream action generated this
+  // encounter, in one checklist -- prescriptions, investigations,
+  // workflow requests.
   const trackerRows = [
     ...data.prescriptions.map((r) => ({ label: `${r.drug_name} (${r.eye})`, dept: 'Pharmacy', status: r.status, icon: 'ti-pill', color: 'var(--purple)' })),
     ...data.investigations.map((i) => ({ label: `${i.name} (${i.eye})`, dept: 'Investigation', status: i.status, icon: 'ti-flask', color: 'var(--teal)' })),
@@ -323,7 +335,9 @@ export default function ConsultationForm({ queueEntryId }) {
       {error && <div className="msg-err">{error}</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20, alignItems: 'start' }}>
+        {/* MAIN COLUMN */}
         <div>
+          {/* TABS */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-message" label="History" />
             <TabButton active={activeTab === 'optometry'} onClick={() => setActiveTab('optometry')} icon="ti-eye-check" label="Optometry" />
@@ -356,7 +370,36 @@ export default function ConsultationForm({ queueEntryId }) {
 
           {activeTab === 'plan' && (
             <>
-              <GroupHeader num={1} color="var(--teal)" title="Diagnosis" />
+              <GroupHeader num={1} color="var(--purple)" title="Investigations" />
+
+              <div className="card" style={{ marginBottom: 20 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
+                {data.investigations.map((i) => (
+                  <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                    <span>
+                      <strong>{i.name}</strong> -- {i.eye} -- {i.priority}
+                    </span>
+                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
+                  </div>
+                ))}
+                {data.investigations.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No investigations ordered yet.</div>}
+                <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setInvName(e.target.value); }}>
+                  <option value="">-- Pick from Investigations master (or type below) --</option>
+                  {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name} -- Rs.{s.rate}</option>)}
+                </select>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input className="fi" placeholder="Investigation name" value={invName} onChange={(e) => setInvName(e.target.value)} style={{ flex: 2 }} />
+                  <select className="fi" value={invEye} onChange={(e) => setInvEye(e.target.value)} style={{ width: 70 }}>
+                    <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+                  </select>
+                  <select className="fi" value={invPriority} onChange={(e) => setInvPriority(e.target.value)} style={{ flex: 1 }}>
+                    <option>Routine</option><option>Urgent</option>
+                  </select>
+                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddInvestigation}>Add</button>
+                </div>
+              </div>
+
+              <GroupHeader num={2} color="var(--teal)" title="Diagnosis" />
 
               {data.diagnosisHistory.length > 0 && (
                 <div className="card" style={{ marginBottom: 12, background: 'var(--g50)' }}>
@@ -405,7 +448,7 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               </div>
 
-              <GroupHeader num={2} color="var(--blue)" title="Treatment" />
+              <GroupHeader num={3} color="var(--blue)" title="Treatment" />
 
               <div className="card" style={{ marginBottom: 12 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i> Prescription</div>
@@ -440,34 +483,26 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               </div>
 
-              <div className="card" style={{ marginBottom: 12 }}>
-                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
-                {data.investigations.map((i) => (
-                  <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <span>
-                      <strong>{i.name}</strong> -- {i.eye} -- {i.priority}
-                    </span>
-                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-glasses" style={{ color: 'var(--indigo)' }}></i> Optical Advice</div>
+                  {data.opticalAdvice.map((o) => (
+                    <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                      <span>{o.advice}</span>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeOpticalAdvice(o.id, data.encounter.id); refresh(); }}>Remove</button>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '8px 0' }}>
+                    {['Distance spectacles', 'Near spectacles', 'Progressive lenses', 'Contact lenses', 'Low vision aid'].map((q) => (
+                      <span key={q} className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => setOptText(q)}>{q}</span>
+                    ))}
                   </div>
-                ))}
-                {data.investigations.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No investigations ordered yet.</div>}
-                <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setInvName(e.target.value); }}>
-                  <option value="">-- Pick from Investigations master (or type below) --</option>
-                  {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name} -- Rs.{s.rate}</option>)}
-                </select>
-                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                  <input className="fi" placeholder="Investigation name" value={invName} onChange={(e) => setInvName(e.target.value)} style={{ flex: 2 }} />
-                  <select className="fi" value={invEye} onChange={(e) => setInvEye(e.target.value)} style={{ width: 70 }}>
-                    <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
-                  </select>
-                  <select className="fi" value={invPriority} onChange={(e) => setInvPriority(e.target.value)} style={{ flex: 1 }}>
-                    <option>Routine</option><option>Urgent</option>
-                  </select>
-                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddInvestigation}>Add</button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input className="fi fi-sm" placeholder="Optical recommendation..." value={optText} onChange={(e) => setOptText(e.target.value)} style={{ flex: 1 }} />
+                    <button className="btn btn-sm" style={{ background: 'var(--indigo)', color: '#fff', border: 'none' }} onClick={handleAddOptical}>Add</button>
+                  </div>
                 </div>
-              </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
                 <div className="card">
                   <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> Procedures</div>
                   {data.procedures.map((p) => (
@@ -489,71 +524,41 @@ export default function ConsultationForm({ queueEntryId }) {
                     <button className="btn btn-sm btn-primary" onClick={handleAddProcedure}>Add</button>
                   </div>
                 </div>
-
-                <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery</div>
-                  {!showSurgery ? (
-                    <button className="btn" onClick={() => setShowSurgery(true)}>
-                      <i className="ti ti-scalpel"></i> Mark for Surgery
-                    </button>
-                  ) : (
-                    <div>
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                        <input className="fi" placeholder="Procedure (e.g. Phacoemulsification + IOL)" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }} />
-                        <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
-                          <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
-                        </select>
-                      </div>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
-                          {surgeryLoading ? 'Saving...' : 'Save'}
-                        </button>
-                        <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
 
-              <GroupHeader num={3} color="var(--amber)" title="Patient Management" />
+              <div className="card" style={{ marginBottom: 20 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery</div>
+                {!showSurgery ? (
+                  <button className="btn" onClick={() => setShowSurgery(true)}>
+                    <i className="ti ti-scalpel"></i> Mark for Surgery
+                  </button>
+                ) : (
+                  <div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                      <input className="fi" placeholder="Procedure (e.g. Phacoemulsification + IOL)" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }} />
+                      <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
+                        <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
+                        {surgeryLoading ? 'Saving...' : 'Save'}
+                      </button>
+                      <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <GroupHeader num={4} color="var(--amber)" title="Patient Management" />
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
                   <div className="card" style={{ marginBottom: 16 }}>
-                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-glasses" style={{ color: 'var(--indigo)' }}></i> Optical Advice</div>
-                    {data.opticalAdvice.map((o) => (
-                      <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                        <span>{o.advice}</span>
-                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeOpticalAdvice(o.id, data.encounter.id); refresh(); }}>Remove</button>
-                      </div>
-                    ))}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '8px 0' }}>
-                      {['Distance spectacles', 'Near spectacles', 'Progressive lenses', 'Contact lenses', 'Low vision aid'].map((q) => (
-                        <span key={q} className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => setOptText(q)}>{q}</span>
-                      ))}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input className="fi fi-sm" placeholder="Optical recommendation..." value={optText} onChange={(e) => setOptText(e.target.value)} style={{ flex: 1 }} />
-                      <button className="btn btn-sm" style={{ background: 'var(--indigo)', color: '#fff', border: 'none' }} onClick={handleAddOptical}>Add</button>
-                    </div>
-                  </div>
-
-                  <div className="card" style={{ marginBottom: 16 }}>
-                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-arrow-right-circle" style={{ color: 'var(--amber)' }}></i> Referral</div>
-                    {data.referrals.map((r) => (
-                      <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                        <span>{r.destination}{r.reason ? ` -- ${r.reason}` : ''}</span>
-                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeReferral(r.id, data.encounter.id); refresh(); }}>Remove</button>
-                      </div>
-                    ))}
-                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                      <select className="fi fi-sm" value={refDest} onChange={(e) => setRefDest(e.target.value)} style={{ flex: 1 }}>
-                        <option value="">-- Destination --</option>
-                        <option>Retina Specialist</option><option>Glaucoma Specialist</option><option>Cornea Specialist</option><option>Physician</option><option>Anaesthetist</option><option>Other Hospital</option>
-                      </select>
-                      <input className="fi fi-sm" placeholder="Reason" value={refReason} onChange={(e) => setRefReason(e.target.value)} style={{ flex: 1 }} />
-                      <button className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', border: 'none' }} onClick={handleAddReferral}>Add</button>
-                    </div>
+                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-notes" style={{ color: 'var(--g400)' }}></i> Patient Instructions</div>
+                    <textarea className="fi fi-sm" rows={2} value={patientInstructions} onChange={(e) => setPatientInstructions(e.target.value)} placeholder="Instructions, precautions, diet, activity restrictions..." style={{ marginBottom: 8 }} />
+                    <button className="btn btn-sm" onClick={handleSaveInstructions}>Save</button>
+                    {instructionsSaved && <span style={{ fontSize: 11, color: 'var(--green)', marginLeft: 8 }}><i className="ti ti-check"></i> Saved</span>}
                   </div>
 
                   <div className="card">
@@ -578,6 +583,24 @@ export default function ConsultationForm({ queueEntryId }) {
 
                 <div>
                   <div className="card" style={{ marginBottom: 16 }}>
+                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-arrow-right-circle" style={{ color: 'var(--amber)' }}></i> Referral</div>
+                    {data.referrals.map((r) => (
+                      <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                        <span>{r.destination}{r.reason ? ` -- ${r.reason}` : ''}</span>
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeReferral(r.id, data.encounter.id); refresh(); }}>Remove</button>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                      <select className="fi fi-sm" value={refDest} onChange={(e) => setRefDest(e.target.value)} style={{ flex: 1 }}>
+                        <option value="">-- Destination --</option>
+                        <option>Retina Specialist</option><option>Glaucoma Specialist</option><option>Cornea Specialist</option><option>Physician</option><option>Anaesthetist</option><option>Other Hospital</option>
+                      </select>
+                      <input className="fi fi-sm" placeholder="Reason" value={refReason} onChange={(e) => setRefReason(e.target.value)} style={{ flex: 1 }} />
+                      <button className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', border: 'none' }} onClick={handleAddReferral}>Add</button>
+                    </div>
+                  </div>
+
+                  <div className="card">
                     <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-calendar-plus" style={{ color: 'var(--green)' }}></i> Follow-up</div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
                       <select className="fi fi-sm" value={fuAfter} onChange={(e) => setFuAfter(e.target.value)}>
@@ -597,13 +620,6 @@ export default function ConsultationForm({ queueEntryId }) {
                         Follow-up: {fuAfter} -- {fuType} -- {fuClinic}
                       </div>
                     )}
-                  </div>
-
-                  <div className="card">
-                    <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-notes" style={{ color: 'var(--g400)' }}></i> Patient Instructions</div>
-                    <textarea className="fi fi-sm" rows={2} value={patientInstructions} onChange={(e) => setPatientInstructions(e.target.value)} placeholder="Instructions, precautions, diet, activity restrictions..." style={{ marginBottom: 8 }} />
-                    <button className="btn btn-sm" onClick={handleSaveInstructions}>Save</button>
-                    {instructionsSaved && <span style={{ fontSize: 11, color: 'var(--green)', marginLeft: 8 }}><i className="ti ti-check"></i> Saved</span>}
                   </div>
                 </div>
               </div>
@@ -635,6 +651,7 @@ export default function ConsultationForm({ queueEntryId }) {
             </div>
           )}
 
+          {/* ACTIONS */}
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             <button className="btn" onClick={handleSaveDraft} disabled={loading}>
               <i className="ti ti-device-floppy"></i> Save Draft
@@ -657,7 +674,9 @@ export default function ConsultationForm({ queueEntryId }) {
           </div>
         </div>
 
+        {/* RIGHT PANEL */}
         <div>
+          {/* ENCOUNTER STATUS */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-activity" style={{ color: 'var(--blue)' }}></i> Encounter Status</div>
             <div style={{ fontSize: 12, color: 'var(--g600)', lineHeight: 1.9 }}>
@@ -667,6 +686,7 @@ export default function ConsultationForm({ queueEntryId }) {
             </div>
           </div>
 
+          {/* OUTSTANDING TASKS */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-list-checks" style={{ color: 'var(--amber)' }}></i> Outstanding Tasks</div>
             {openInvestigations.length === 0 && activeWorkflows.length === 0 && pendingRx.length === 0 && (
@@ -689,6 +709,7 @@ export default function ConsultationForm({ queueEntryId }) {
             ))}
           </div>
 
+          {/* AUDIT LOG */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
@@ -706,3 +727,4 @@ export default function ConsultationForm({ queueEntryId }) {
     </div>
   );
 }
+
