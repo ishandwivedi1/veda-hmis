@@ -19,6 +19,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
   const [error, setError] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [saving, setSaving] = useState(false);
+  const [revising, setRevising] = useState(false);
 
   async function loadVersions() {
     const v = await getIolVersionHistory(recordId);
@@ -41,7 +42,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
   }, [record]);
 
   const notCalculated = record.status !== 'Calculated' && record.status !== 'Approved';
-  const isApproved = record.status === 'Approved';
+  const isApproved = record.status === 'Approved' && !revising;
   const catalogForCategory = catalog.filter((c) => c.category === finalCategory);
 
   async function handleApprove() {
@@ -54,6 +55,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setOkMsg(`IOL Plan approved (version ${result.versionNo}).`);
+    setRevising(false);
     loadVersions();
     if (onSaved) onSaved();
   }
@@ -78,7 +80,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
         </div>
         <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
           <div style={{ fontSize: 10, opacity: .7 }}>Only surgeon/ophthalmologist should approve</div>
-          <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{isApproved ? 'Approved' : 'Approval required'}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{isApproved ? 'Approved' : revising ? 'Revising' : 'Approval required'}</div>
         </div>
       </div>
 
@@ -88,6 +90,11 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
 
       {error && <div className="msg-err">{error}</div>}
       {okMsg && <div className="msg-success"><i className="ti ti-circle-check"></i> {okMsg}</div>}
+      {revising && (
+        <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+          <i className="ti ti-edit"></i> Revising the approved plan. Approving again will add a new version -- the current approved version stays in history, marked Superseded.
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div>
@@ -145,18 +152,38 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
               <label className="flbl">Surgeon notes</label>
               <textarea className="fi fi-sm" rows={2} value={surgeonNotes} onChange={(e) => setSurgeonNotes(e.target.value)} disabled={isApproved} placeholder="e.g. Aim for slight myopia. Avoid multifocal due to macular finding. Toric axis to be confirmed intra-op..." />
             </div>
+
             {!isApproved && (
               <button className="btn" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={handleApprove} disabled={saving}>
-                <i className="ti ti-shield-check"></i> {saving ? 'Approving...' : 'Approve Final IOL Plan'}
+                <i className="ti ti-shield-check"></i> {saving ? 'Approving...' : revising ? 'Approve Revised Plan' : 'Approve Final IOL Plan'}
               </button>
             )}
-            {isApproved && (
+            {revising && (
+              <button
+                className="btn btn-sm"
+                style={{ marginLeft: 8 }}
+                onClick={() => {
+                  setRevising(false);
+                  const selected = (record.formula_results || []).find((r) => r.name === record.selected_formula);
+                  setFinalPower(record.final_iol_power || selected?.power || '');
+                  setFinalFormula(record.selected_formula || selected?.name || FORMULA_NAMES[0]);
+                  setFinalCategory(record.final_iol_category || IOL_CATEGORIES[0]);
+                  setFinalTarget(record.target_refraction || '');
+                  setIolCatalogId(record.final_iol_catalog_id || '');
+                  setSurgeonNotes(record.surgeon_notes || '');
+                  setError(''); setOkMsg('');
+                }}
+              >
+                Cancel revision
+              </button>
+            )}
+            {record.status === 'Approved' && !revising && (
               <div style={{ fontSize: 11, color: 'var(--g500)' }}>
-                Approved{record.approved_at ? ` on ${new Date(record.approved_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. To change the plan, edit the fields above and approve again -- this creates a new version without deleting the old one.
+                Approved{record.approved_at ? ` on ${new Date(record.approved_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. To change the plan (e.g. patient requests a different IOL), click Revise -- this creates a new version without deleting the old one.
               </div>
             )}
-            {isApproved && (
-              <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => { setFinalPower(record.final_iol_power || ''); }}>
+            {record.status === 'Approved' && !revising && (
+              <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setRevising(true)}>
                 <i className="ti ti-edit"></i> Revise plan (creates new version)
               </button>
             )}
@@ -164,7 +191,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
         </div>
 
         <div>
-          {isApproved && (
+          {record.status === 'Approved' && (
             <div className="card" style={{ marginBottom: 12, background: 'var(--green-lt)', borderColor: '#86efac' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', marginBottom: 8 }}>
                 <i className="ti ti-clipboard-check"></i> IOL Planning Summary
