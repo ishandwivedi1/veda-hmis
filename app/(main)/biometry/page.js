@@ -64,7 +64,12 @@ export default function BiometryQueuePage() {
       </div>
 
       <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-list-numbers" style={{ color: 'var(--indigo)' }}></i> Biometry Queue</div>
+        <div className="card-head" style={{ marginBottom: 10 }}>
+          <div className="card-title"><i className="ti ti-list-numbers" style={{ color: 'var(--indigo)' }}></i> Biometry Queue</div>
+          <button className="btn btn-sm" onClick={() => router.push('/biometry/history')}>
+            <i className="ti ti-history"></i> History
+          </button>
+        </div>
         {rows.map((row) => (
           <div key={row.queueEntryId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
             <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--indigo)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>

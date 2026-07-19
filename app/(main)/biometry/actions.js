@@ -96,7 +96,7 @@ export async function getBiometryDetail(id) {
 
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid, age, gender))')
+    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid, age, gender)), master_iol_catalog(brand, model, manufacturer)')
     .eq('id', id)
     .single();
 
@@ -170,4 +170,122 @@ export async function verifyBiometryMeasurements(id, measurements, surgicalEye, 
 
   if (error) return { error: error.message };
   return { success: true };
+}
+
+// ── IOL CALCULATION ──
+// Formula results are NOT computed by this system -- real IOL power
+// formulas (Barrett Universal II, SRK/T, Haigis, etc.) are complex and
+// in some cases proprietary. These numbers come from the biometry
+// device's own built-in formula software (the same printout captured
+// in Device Reports); staff transcribes each formula's result here so
+// the surgeon has a structured side-by-side comparison to choose from.
+export async function saveFormulaResults(id, targetRefraction, formulaResults, selectedFormula) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('biometry_records')
+    .update({
+      target_refraction: targetRefraction,
+      formula_results: formulaResults,
+      selected_formula: selectedFormula,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── SURGEON APPROVAL ──
+// BR-BIO-003: only surgeon sign-off finalizes a plan (soft UX check
+// only -- see note in the Approval tab; not DB-enforced by role).
+// BR-BIO-005: approval supersedes but never deletes a prior version --
+// every approve call adds a new biometry_iol_versions row and marks
+// any previous Approved version for this record as Superseded.
+export async function approveIolPlan(id, plan) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (!plan.finalPower || !plan.finalCategory) return { error: 'Final IOL power and category are required.' };
+
+  const { data: priorVersions } = await supabase
+    .from('biometry_iol_versions')
+    .select('id, version_no')
+    .eq('biometry_record_id', id)
+    .order('version_no', { ascending: false });
+
+  const nextVersionNo = (priorVersions?.[0]?.version_no || 0) + 1;
+
+  if (priorVersions && priorVersions.length > 0) {
+    await supabase.from('biometry_iol_versions').update({ status: 'Superseded' }).eq('biometry_record_id', id).eq('status', 'Approved');
+  }
+
+  const { error: versionError } = await supabase.from('biometry_iol_versions').insert({
+    biometry_record_id: id,
+    version_no: nextVersionNo,
+    power: plan.finalPower,
+    formula: plan.finalFormula,
+    status: 'Approved',
+    created_by: userData?.user?.id || null,
+  });
+  if (versionError) return { error: versionError.message };
+
+  const { error } = await supabase
+    .from('biometry_records')
+    .update({
+      status: 'Approved',
+      final_iol_power: plan.finalPower,
+      final_iol_category: plan.finalCategory,
+      final_iol_catalog_id: plan.iolCatalogId || null,
+      target_refraction: plan.finalTarget,
+      surgeon_notes: plan.surgeonNotes,
+      approved_by: userData?.user?.id || null,
+      approved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (error) return { error: error.message };
+  return { success: true, versionNo: nextVersionNo };
+}
+
+export async function getIolVersionHistory(id) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('biometry_iol_versions')
+    .select('*, profiles(full_name)')
+    .eq('biometry_record_id', id)
+    .order('version_no', { ascending: false });
+  if (error) return [];
+  return data || [];
+}
+
+// ── HISTORY (Section 17.15) -- cross-patient, all statuses past
+// Awaiting Biometry. BR-BIO-005: nothing here is ever overwritten;
+// re-approvals just add rows to biometry_iol_versions. ──
+export async function getBiometryHistory(patientFilter) {
+  const supabase = await createClient();
+
+  let query = supabase
+    .from('biometry_records')
+    .select('*, visits(visit_number, patients(id, first_name, last_name, uhid))')
+    .in('status', ['Calculated', 'Approved'])
+    .order('updated_at', { ascending: false });
+
+  const { data, error } = await query;
+  if (error) return { rows: [], patients: [] };
+
+  let rows = data || [];
+  const patientsMap = {};
+  rows.forEach((r) => {
+    const p = r.visits?.patients;
+    if (p) patientsMap[p.id] = `${p.first_name} ${p.last_name}`;
+  });
+
+  if (patientFilter) {
+    rows = rows.filter((r) => r.visits?.patients?.id === patientFilter);
+  }
+
+  return {
+    rows,
+    patients: Object.entries(patientsMap).map(([id, name]) => ({ id, name })),
+  };
 }
