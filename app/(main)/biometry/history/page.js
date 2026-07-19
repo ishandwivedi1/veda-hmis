@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getBiometryHistory } from './actions';
+import { getBiometryHistory } from '../actions';
 
 export default function BiometryHistoryPage() {
   const [rows, setRows] = useState([]);
