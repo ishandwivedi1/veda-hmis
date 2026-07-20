@@ -11,63 +11,31 @@ import { createClient } from '@/lib/supabase-server';
 //     -- imported by app/(main)/consultation/[id]/consultation-form.js
 // Everything else below is new/rebuilt for the Counselling workflow.
 
-// ── Sending a patient to an ancillary service (Dilation, Biometry, ...)
-//    from Counselling. Unlike Consultation -- where the doctor is acting
-//    on the queue entry already in front of them -- a counselling case may
-//    be worked same-day right after the doctor's exam, OR on a return
-//    visit days later. Either way, this only UPDATES a queue entry that
-//    already exists for TODAY; it deliberately does not create one --
-//    creating a visit/token is Front Office's job, and if the patient
-//    hasn't checked in today, that's what needs to happen first, not a
-//    workaround here.
-async function findTodaysQueueEntry(supabase, patientId) {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-
-  // Kept as two plain single-table queries (no embedded-relation filter)
-  // since that dot-notation filter syntax isn't used anywhere else in
-  // this codebase and isn't worth risking unverified.
-  const { data: visits } = await supabase
-    .from('visits')
-    .select('id')
-    .eq('patient_id', patientId)
-    .gte('created_at', todayStart.toISOString());
-
-  const visitIds = (visits || []).map((v) => v.id);
-  if (visitIds.length === 0) return null;
-
-  const { data: entries } = await supabase
-    .from('queue_entries')
-    .select('id, status, visit_id')
-    .in('visit_id', visitIds)
-    .neq('status', 'Done')
-    .order('issued_at', { ascending: false })
-    .limit(1);
-
-  return (entries && entries[0]) || null;
-}
-
+// ── Sending a patient to an ancillary service (Biometry, Dilation, ...)
+//    from Counselling. Once a doctor completes a consultation, ALL of
+//    that visit's queue_entries get marked 'Done' -- so by the time a
+//    case reaches Counselling (even same-day), there's nothing left to
+//    "update". send_case_to_department_queue() (see migration 027)
+//    issues a FRESH queue token against the patient's still-open visit
+//    (found via ist_date(), so it's IST-correct rather than doing UTC
+//    date math here) and flips it straight to the target status.
 async function sendCaseToQueueStatus(caseId, queueStatus, auditMessage) {
   const supabase = await createClient();
-
-  const { data: sc } = await supabase.from('surgical_cases').select('id, patient_id, encounter_id').eq('id', caseId).single();
-  if (!sc) return { error: 'Case not found.' };
-
-  const queueEntry = await findTodaysQueueEntry(supabase, sc.patient_id);
-  if (!queueEntry) {
-    return { error: 'No active queue entry found for this patient today -- they need to check in at Front Office first.' };
-  }
-
-  const { error } = await supabase
-    .from('queue_entries')
-    .update({ status: queueStatus, sent_out_at: new Date().toISOString() })
-    .eq('id', queueEntry.id);
-  if (error) return { error: error.message };
-
   const { data: userData } = await supabase.auth.getUser();
-  await supabase.from('encounter_audit_log').insert({ encounter_id: sc.encounter_id, message: auditMessage, created_by: userData?.user?.id || null });
 
+  const { error } = await supabase.rpc('send_case_to_department_queue', {
+    p_case_id: caseId,
+    p_queue_status: queueStatus,
+    p_audit_message: auditMessage,
+    p_user_id: userData?.user?.id || null,
+  });
+
+  if (error) return { error: error.message };
   return { success: true };
+}
+
+export async function sendForBiometry(caseId) {
+  return sendCaseToQueueStatus(caseId, 'Awaiting Biometry', 'Sent for Biometry (from Counselling)');
 }
 
 export async function sendForDilation(caseId) {
