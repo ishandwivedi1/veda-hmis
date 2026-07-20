@@ -310,7 +310,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600 }}>{surgicalPendingWorkup} surgical cases pending workup</div>
                   <div style={{ fontSize: 11, color: 'var(--g500)' }}>
-                    <Link href="/surgical" style={{ color: 'var(--blue)' }}>Go to Surgical Coordination</Link>
+                    <Link href="/counselling" style={{ color: 'var(--blue)' }}>Go to Counselling</Link>
                   </div>
                 </div>
               </div>

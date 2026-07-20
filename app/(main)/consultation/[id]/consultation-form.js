@@ -28,7 +28,7 @@ import {
   savePatientInstructions,
   saveDraft,
 } from '@/app/(main)/consultation/actions';
-import { markForSurgery } from '@/app/(main)/surgical/actions';
+import { markForSurgery } from '@/app/(main)/counselling/actions';
 import { getDiagnosesMaster, getDrugs, getServices } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import HistoryTab from './history-tab';
