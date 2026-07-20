@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase-server";
 
 // NOTE: adjust this import if your Supabase server helper lives elsewhere --
 // this repo doesn't have GitHub access wired up, so this path is an
