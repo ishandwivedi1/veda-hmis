@@ -35,7 +35,42 @@ async function sendCaseToQueueStatus(caseId, queueStatus, auditMessage) {
 }
 
 export async function sendForBiometry(caseId) {
-  return sendCaseToQueueStatus(caseId, 'Awaiting Biometry', 'Sent for Biometry (from Counselling)');
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { data: sc } = await supabase.from('surgical_cases').select('id, encounter_id').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  const { data: queueEntry, error } = await supabase.rpc('send_case_to_department_queue', {
+    p_case_id: caseId,
+    p_queue_status: 'Awaiting Biometry',
+    p_audit_message: 'Sent for Biometry (from Counselling)',
+    p_user_id: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+
+  // Also create the biometry_records stub right away (mirrors
+  // getOrCreateBiometryRecord in the Biometry module) so the Counselling
+  // dashboard reflects "Awaiting Biometry" immediately instead of only
+  // after the technician opens the queue entry -- and so the technician
+  // finds it already there rather than creating a fresh one.
+  const visitId = queueEntry?.visit_id;
+  if (visitId) {
+    const { data: existing } = await supabase
+      .from('biometry_records')
+      .select('id')
+      .eq('visit_id', visitId)
+      .neq('status', 'Cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!existing || existing.length === 0) {
+      const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
+      await supabase.from('biometry_records').insert({ visit_id: visitId, encounter_id: sc.encounter_id || null, surgeon_id: visit?.doctor_id || null });
+    }
+  }
+
+  return { success: true };
 }
 
 export async function sendForDilation(caseId) {
@@ -102,7 +137,25 @@ export async function getCounsellingCases() {
     .in('status', ['Pending Workup', 'Ready for Scheduling'])
     .order('created_at', { ascending: false });
   if (error) return [];
-  return data;
+
+  // surgical_cases and biometry_records are siblings linked only by
+  // encounter_id (no direct FK Supabase can auto-embed), so this is a
+  // separate batch query rather than a nested select. Used to tell
+  // "Surgery Advised" (nobody has sent for biometry yet) apart from
+  // "Awaiting Biometry" (sent, technician hasn't finished it) on the
+  // dashboard -- both are biometry_done = false, but they're different
+  // stages for the counsellor.
+  const encounterIds = [...new Set((data || []).map((c) => c.encounter_id).filter(Boolean))];
+  let biometryByEncounter = {};
+  if (encounterIds.length > 0) {
+    const { data: records } = await supabase
+      .from('biometry_records')
+      .select('id, encounter_id, status')
+      .in('encounter_id', encounterIds);
+    (records || []).forEach((r) => { biometryByEncounter[r.encounter_id] = r; });
+  }
+
+  return (data || []).map((c) => ({ ...c, biometry_record: biometryByEncounter[c.encounter_id] || null }));
 }
 
 // ── Packages, filtered by the IOL type advised at Biometry ──
