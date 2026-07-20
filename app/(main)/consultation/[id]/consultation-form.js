@@ -13,7 +13,6 @@ import {
   completeConsultation,
   sendForDilationFromConsultation,
   sendForInvestigationFromConsultation,
-  sendForBiometryFromConsultation,
   completeWorkflowRequest,
   addOpticalAdvice,
   removeOpticalAdvice,
@@ -128,7 +127,7 @@ export default function ConsultationForm({ queueEntryId }) {
       setDrugOptions(dr.filter((d) => d.status === 'Active'));
       // Biometry stays in Financial Masters for billing purposes only --
       // excluded here since clinical biometry has its own dedicated
-      // workflow (Send for Biometry button), not a generic investigation.
+      // workflow, now triggered from Counselling (M22) rather than here.
       setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation' && s.name.toLowerCase() !== 'biometry'));
     })();
   }, []);
@@ -274,8 +273,6 @@ export default function ConsultationForm({ queueEntryId }) {
     setLoading(true);
     const result = kind === 'dilate'
       ? await sendForDilationFromConsultation(queueEntryId, data.encounter.id)
-      : kind === 'biometry'
-      ? await sendForBiometryFromConsultation(queueEntryId, data.encounter.id)
       : await sendForInvestigationFromConsultation(queueEntryId, data.encounter.id);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
@@ -664,9 +661,6 @@ export default function ConsultationForm({ queueEntryId }) {
             </button>
             <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
               Send for Investigation
-            </button>
-            <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
-              Send for Biometry
             </button>
             <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>
               <i className="ti ti-printer"></i> Print Visit Summary
