@@ -1,3 +1,20 @@
+#!/usr/bin/env bash
+# Adds a Dashboard tab to the Counselling (M22) module -- same page, two
+# tabs (Dashboard / Workspace), matching the tab pattern already used in
+# app/(main)/biometry/[id]/workspace.js. Only page.js changes; actions.js
+# and the DB are untouched (all fields the dashboard needs were already
+# being fetched). Safe to run even if you haven't run the previous
+# fix_counselling_module.sh in this exact session -- it just overwrites
+# app/(main)/counselling/page.js.
+set -euo pipefail
+
+if [ ! -d "app/(main)/counselling" ]; then
+  echo "ERROR: app/(main)/counselling not found -- run fix_counselling_module.sh first."
+  exit 1
+fi
+
+echo "==> Writing updated page.js (Dashboard + Workspace tabs)..."
+cat > "app/(main)/counselling/page.js" << 'VEDA_EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -483,3 +500,10 @@ export default function CounsellingPage() {
     </div>
   );
 }
+VEDA_EOF
+echo "  wrote app/(main)/counselling/page.js"
+
+echo ""
+echo "==> Done. Next steps:"
+echo "  1. npm run build"
+echo "  2. git add -A && git commit -m \"Counselling: add Dashboard tab with pre-op stage tracking\" && git push"
