@@ -1,3 +1,17 @@
+#!/usr/bin/env bash
+# Converts the Procedures field in Doctor's Diagnosis & Plan from a free
+# text input (with 4 hardcoded quick-pick chips) to a real dropdown
+# sourced from Master Data > Clinical Masters > Procedures (all 7 active
+# ones: Chalazion I&C, FB Removal, Intravitreal Injection, Subconjunctival
+# Injection, Suture Removal, Syringing, YAG Capsulotomy). Multi-add already
+# worked structurally (the Add button appends to a list, each with its own
+# Remove) -- this just makes each pick come from Masters instead of free
+# text, and the dropdown resets after each Add so you can immediately pick
+# the next one.
+set -euo pipefail
+
+echo "==> Writing updated consultation-form.js..."
+cat > "app/(main)/consultation/[id]/consultation-form.js" << 'VEDA_EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -754,3 +768,10 @@ export default function ConsultationForm({ queueEntryId }) {
     </div>
   );
 }
+VEDA_EOF
+echo "  wrote app/(main)/consultation/[id]/consultation-form.js"
+
+echo ""
+echo "==> Done. Next steps:"
+echo "  1. npm run build"
+echo "  2. git add -A && git commit -m \"Doctor Diagnosis: Procedures field now a Master Data dropdown\" && git push"
