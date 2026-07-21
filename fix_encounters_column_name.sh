@@ -1,3 +1,20 @@
+#!/usr/bin/env bash
+# Fixes 'column encounters.created_at does not exist'. The encounters
+# table has no created_at column at all -- it uses started_at instead
+# (confirmed against your live schema). Two spots referenced the wrong
+# name:
+#   1. The completed-encounter lookup added in the last fix -- this is
+#      what you just hit, since that code explicitly surfaces query
+#      errors instead of swallowing them.
+#   2. The cross-visit Diagnosis History query -- this one is PRE-EXISTING
+#      (not something introduced recently) and has the same wrong column
+#      name, but never surfaced as a visible error because its failure
+#      was silently discarded -- it just made the 'Diagnosis History'
+#      panel always show empty. Fixed while in the area.
+set -euo pipefail
+
+echo "==> Writing updated actions.js..."
+cat > "app/(main)/consultation/actions.js" << 'VEDA_EOF'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -562,3 +579,12 @@ export async function saveDraft(encounterId) {
   await addAudit(supabase, encounterId, 'Consultation saved as draft', userData?.user?.id);
   return { success: true };
 }
+VEDA_EOF
+echo "  wrote app/(main)/consultation/actions.js"
+
+echo ""
+echo "==> Done. Next steps:"
+echo "  1. npm run build"
+echo "  2. git add -A && git commit -m \"Fix wrong column name: encounters uses started_at, not created_at\" && git push"
+echo "  3. Re-test: open Shriram Singla from Completed Today, and check Diagnosis"
+echo "     History now populates for return patients with prior visits."
