@@ -168,12 +168,19 @@ export default function DoctorDashboardPage() {
               <div className="card-title"><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Completed Today<span className="badge b-green">{completed.length}</span></div>
             </div>
             {completed.slice(0, 8).map((e) => (
-              <div key={e.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}
+              <Link
+                key={e.id}
+                href={`/consultation/${e.id}`}
+                style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, textDecoration: 'none', color: 'inherit' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}</span>
+                  <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+                </div>
                 <div style={{ fontSize: 11, color: 'var(--g500)' }}>
                   {e.completed_at ? new Date(e.completed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
                 </div>
-              </div>
+              </Link>
             ))}
             {completed.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing completed yet today.</div>}
           </div>
@@ -182,4 +189,3 @@ export default function DoctorDashboardPage() {
     </div>
   );
 }
-

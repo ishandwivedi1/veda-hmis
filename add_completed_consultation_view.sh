@@ -1,3 +1,573 @@
+#!/usr/bin/env bash
+# Lets a doctor open a COMPLETED patient's clinical record from the
+# 'Completed Today' widget for reference, and edit it with an explicit
+# unlock step.
+#
+# This also fixes a real bug: getConsultationData() only ever looked for
+# an encounter with status = 'In Consultation'. For a completed queue
+# entry that never matches, so opening a completed patient's record would
+# have silently created a brand new BLANK encounter instead of showing
+# their actual data -- there was previously no way to view a completed
+# consultation at all. Fixed to look up the encounter by most recent
+# (any status) when the queue entry is Done, and to error clearly instead
+# of auto-creating if genuinely none exists.
+#
+# Locking: the whole tab-content + actions area is wrapped in a native
+# <fieldset disabled>, which cascades to every input/select/button
+# inside HistoryTab/OptometryTab/ExaminationTab automatically -- those
+# files are NOT touched. A banner + 'Unlock to Edit' toggle sits above
+# it, outside the fieldset, so it stays clickable.
+set -euo pipefail
+
+echo "==> Writing updated files..."
+cat > "app/(main)/consultation/actions.js" << 'VEDA_EOF'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+import { doctorComplete, doctorSendOut } from '@/app/(main)/queue/actions';
+
+async function addAudit(supabase, encounterId, message, userId) {
+  await supabase.from('encounter_audit_log').insert({ encounter_id: encounterId, message, created_by: userId || null });
+}
+
+export async function getConsultationData(queueEntryId) {
+  const supabase = await createClient();
+
+  const { data: entry, error: entryError } = await supabase
+    .from('queue_entries')
+    .select('*, visits(id, doctor_id, patients(id, first_name, last_name, uhid, age, gender))')
+    .eq('id', queueEntryId)
+    .single();
+
+  if (entryError) return { error: entryError.message };
+
+  const visitId = entry.visits.id;
+
+  const { data: findings } = await supabase
+    .from('optometry_assessments')
+    .select('*')
+    .eq('visit_id', visitId)
+    .eq('status', 'Completed')
+    .maybeSingle();
+
+  let iopReadings = [];
+  if (findings) {
+    const { data: readings } = await supabase
+      .from('optometry_iop_readings')
+      .select('*')
+      .eq('assessment_id', findings.id)
+      .order('recorded_at', { ascending: true });
+    iopReadings = readings || [];
+  }
+
+  let { data: encounter } = entry.status === 'Done'
+    ? await supabase.from('encounters').select('*').eq('visit_id', visitId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    : await supabase.from('encounters').select('*').eq('visit_id', visitId).eq('status', 'In Consultation').maybeSingle();
+
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (!encounter) {
+    // For a completed (Done) queue entry there's nothing to auto-create --
+    // if no encounter exists, the visit genuinely has no clinical record.
+    // Auto-creating only makes sense for an active/new consultation.
+    if (entry.status === 'Done') {
+      return { error: 'No clinical record found for this completed visit.' };
+    }
+    const { data: newEncounter, error: encError } = await supabase
+      .from('encounters')
+      .insert({ visit_id: visitId, doctor_id: entry.visits.doctor_id })
+      .select()
+      .single();
+    if (encError) return { error: encError.message };
+    encounter = newEncounter;
+    await addAudit(supabase, encounter.id, 'Encounter started', userData?.user?.id);
+  }
+
+  // Section 12: exam is 1:1 with the encounter, auto-created on first
+  // open -- same pattern as the encounter itself and the optometry
+  // assessment.
+  let { data: examination } = await supabase
+    .from('clinical_examinations')
+    .select('*')
+    .eq('encounter_id', encounter.id)
+    .maybeSingle();
+
+  if (!examination) {
+    const { data: newExam, error: examError } = await supabase
+      .from('clinical_examinations')
+      .insert({ encounter_id: encounter.id })
+      .select()
+      .single();
+    if (examError) return { error: examError.message };
+    examination = newExam;
+  }
+
+  const patientId = entry.visits.patients.id;
+
+  const [
+    { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
+    { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
+    { data: diagnosisHistoryRaw },
+  ] = await Promise.all([
+    supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('investigation_orders').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('workflow_requests').select('*').eq('visit_id', visitId).order('requested_at', { ascending: false }),
+    supabase.from('encounter_audit_log').select('*').eq('encounter_id', encounter.id).order('created_at', { ascending: false }),
+    supabase.from('plan_optical_advice').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_procedures').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_referrals').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_counselling_items').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_followups').select('*').eq('encounter_id', encounter.id).maybeSingle(),
+    // Longitudinal (cross-visit) diagnosis history: every diagnosis this
+    // patient has, across all their encounters, via visits -> encounters.
+    supabase
+      .from('visits')
+      .select('id, encounters(id, created_at, diagnoses(id, name, category, eye, status, created_at))')
+      .eq('patient_id', patientId),
+  ]);
+
+  const diagnosisHistory = (diagnosisHistoryRaw || [])
+    .flatMap((v) => v.encounters || [])
+    .filter((e) => e.id !== encounter.id)
+    .flatMap((e) => (e.diagnoses || []).map((d) => ({ ...d, encounterDate: e.created_at })))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  return {
+    entry, findings, iopReadings, encounter, examination,
+    diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [],
+    workflowRequests: workflowRequests || [], auditLog: auditLog || [],
+    opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
+    counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
+    isLocked: encounter.status === 'Completed',
+  };
+}
+
+// ── EXAMINATION (Section 12, M19 Examination tab) ──
+export async function saveExamination(examinationId, encounterId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('clinical_examinations')
+    .update({ ...fields, recorded_by: userData?.user?.id || null, updated_at: new Date().toISOString() })
+    .eq('id', examinationId);
+
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Examination saved', userData?.user?.id);
+  return { success: true };
+}
+
+// ── STRUCTURED HISTORY (Section 11.9) ──
+// Batched save, same pattern as Examination -- not per-keystroke.
+export async function saveHistory(encounterId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('encounters')
+    .update({
+      chief_complaint: fields.chiefComplaint,
+      chief_complaint_chips: fields.chiefComplaintChips,
+      hx_duration: fields.hxDuration,
+      hx_laterality: fields.hxLaterality,
+      hx_hopi: fields.hxHopi,
+      ocular_history: fields.ocularHistory,
+      medical_history: fields.medicalHistory,
+      family_history: fields.familyHistory,
+      hx_drug_allergy: fields.hxDrugAllergy,
+    })
+    .eq('id', encounterId);
+
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'History saved', userData?.user?.id);
+  return { success: true };
+}
+
+// ── DOCTOR EDITS OPTOMETRY FINDINGS DIRECTLY (in-place override) ──
+// The doctor edits the optometrist's own assessment record. Every
+// changed field is written to that assessment's audit log (the same
+// log the optometrist sees in Optometry History) as a before/after
+// entry, so the optometrist can see exactly what was changed and by
+// whom -- without a separate shadow record.
+const OPTOM_FIELD_LABELS = {
+  va_scale: 'VA Scale',
+  re_dist_unaided: 'RE Dist Unaided', re_dist_glasses: 'RE Dist Glasses', re_dist_ph: 'RE Dist Pinhole', re_near_unaided: 'RE Near Unaided',
+  le_dist_unaided: 'LE Dist Unaided', le_dist_glasses: 'LE Dist Glasses', le_dist_ph: 'LE Dist Pinhole', le_near_unaided: 'LE Near Unaided',
+  ref_pd: 'PD', ref_vd: 'VD',
+  ref_obj_re_sph: 'RE Obj Sph', ref_obj_re_cyl: 'RE Obj Cyl', ref_obj_re_axis: 'RE Obj Axis',
+  ref_obj_le_sph: 'LE Obj Sph', ref_obj_le_cyl: 'LE Obj Cyl', ref_obj_le_axis: 'LE Obj Axis',
+  ref_subj_re_sph: 'RE Subj Sph', ref_subj_re_cyl: 'RE Subj Cyl', ref_subj_re_axis: 'RE Subj Axis',
+  ref_subj_le_sph: 'LE Subj Sph', ref_subj_le_cyl: 'LE Subj Cyl', ref_subj_le_axis: 'LE Subj Axis',
+  ref_final_re_sph: 'RE Final Sph', ref_final_re_cyl: 'RE Final Cyl', ref_final_re_axis: 'RE Final Axis', ref_final_re_add: 'RE Final Add',
+  ref_final_le_sph: 'LE Final Sph', ref_final_le_cyl: 'LE Final Cyl', ref_final_le_axis: 'LE Final Axis', ref_final_le_add: 'LE Final Add',
+  iop_method: 'IOP Method', iop_time: 'IOP Time',
+  add_k1: 'Keratometry K1', add_k2: 'Keratometry K2', add_axial_length: 'Axial Length', add_pachymetry: 'Pachymetry',
+  add_white_to_white: 'White-to-White', add_schirmer: 'Schirmer', add_color_vision: 'Color Vision',
+  add_ocular_motility: 'Ocular Motility', add_syringing: 'Syringing',
+  observation_chips: 'Observation Tags', observations_text: 'Observations',
+};
+
+export async function updateOptometryFindings(assessmentId, encounterId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const doctorId = userData?.user?.id || null;
+
+  const { data: current, error: fetchError } = await supabase
+    .from('optometry_assessments')
+    .select('*')
+    .eq('id', assessmentId)
+    .single();
+  if (fetchError) return { error: fetchError.message };
+
+  const changes = [];
+  const updatePayload = {};
+  Object.keys(OPTOM_FIELD_LABELS).forEach((key) => {
+    if (fields[key] === undefined) return;
+    const oldVal = current[key];
+    const newVal = fields[key];
+    const oldStr = Array.isArray(oldVal) ? oldVal.join(', ') : (oldVal ?? '');
+    const newStr = Array.isArray(newVal) ? newVal.join(', ') : (newVal ?? '');
+    if (oldStr === newStr) return;
+    updatePayload[key] = newVal;
+    changes.push({ label: OPTOM_FIELD_LABELS[key], oldStr: oldStr || '--', newStr: newStr || '--' });
+  });
+
+  if (changes.length === 0) return { success: true, changedCount: 0 };
+
+  const { error: updateError } = await supabase
+    .from('optometry_assessments')
+    .update({ ...updatePayload, updated_at: new Date().toISOString() })
+    .eq('id', assessmentId);
+  if (updateError) return { error: updateError.message };
+
+  for (const c of changes) {
+    await supabase.from('optometry_audit_log').insert({
+      assessment_id: assessmentId,
+      message: `Doctor override -- ${c.label}: "${c.oldStr}" -> "${c.newStr}"`,
+      created_by: doctorId,
+    });
+  }
+
+  if (encounterId) {
+    await addAudit(supabase, encounterId, `Optometry findings overridden -- ${changes.length} field(s) changed`, doctorId);
+  }
+
+  return { success: true, changedCount: changes.length };
+}
+
+// Lets the doctor start an optometry assessment directly when the
+// patient never went through Optometry -- same table, just created and
+// initially owned from the consultation side instead of the queue.
+export async function createOptometryAssessmentForVisit(visitId, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const doctorId = userData?.user?.id || null;
+
+  const { data: assessment, error } = await supabase
+    .from('optometry_assessments')
+    .insert({ visit_id: visitId, recorded_by: doctorId, completed_by: doctorId, status: 'Completed', completed_at: new Date().toISOString() })
+    .select()
+    .single();
+  if (error) return { error: error.message };
+
+  await supabase.from('optometry_audit_log').insert({ assessment_id: assessment.id, message: 'Assessment started by Doctor -- no prior Optometry visit', created_by: doctorId });
+  if (encounterId) await addAudit(supabase, encounterId, 'Optometry assessment created directly by doctor', doctorId);
+
+  return { assessment };
+}
+
+
+// ── DIAGNOSES ──
+export async function addDiagnosis(encounterId, values) {
+  const supabase = await createClient();
+
+  if (values.category === 'primary') {
+    const { data: existing } = await supabase
+      .from('diagnoses')
+      .select('id, name')
+      .eq('encounter_id', encounterId)
+      .eq('category', 'primary')
+      .eq('status', 'Active');
+
+    if (existing && existing.length > 0) {
+      return { error: `"${existing[0].name}" is already the primary diagnosis. Change it to secondary first, or remove it, before adding a new primary.` };
+    }
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from('diagnoses').insert({
+    encounter_id: encounterId,
+    name: values.name,
+    category: values.category,
+    eye: values.eye,
+  });
+
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Diagnosis added: ${values.name} (${values.eye}, ${values.category})`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeDiagnosis(id, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('diagnoses').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Diagnosis removed', userData?.user?.id);
+  return { success: true };
+}
+
+// ── PRESCRIPTIONS ──
+export async function addPrescription(encounterId, values) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('prescriptions').insert({
+    encounter_id: encounterId,
+    drug_name: values.drugName,
+    dosage: values.dosage,
+    frequency: values.frequency,
+    duration: values.duration,
+    eye: values.eye,
+  });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Prescription added: ${values.drugName} (${values.eye})`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removePrescription(id, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('prescriptions').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Prescription removed', userData?.user?.id);
+  return { success: true };
+}
+
+// ── INVESTIGATIONS ──
+export async function addInvestigation(encounterId, values) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('investigation_orders').insert({
+    encounter_id: encounterId,
+    name: values.name,
+    eye: values.eye,
+    priority: values.priority,
+  });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Investigation ordered: ${values.name} (${values.eye}, ${values.priority})`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeInvestigation(id, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('investigation_orders').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Investigation removed', userData?.user?.id);
+  return { success: true };
+}
+
+// ── WORKFLOW REQUESTS (Biometry / Medical Fitness / Counselling) ──
+// Independent, non-exclusive toggles -- a visit can have more than one
+// open at a time, unlike Dilation/Investigation which move the queue
+// entry itself. Toggling an already-open request cancels it.
+export async function toggleWorkflowRequest(visitId, encounterId, kind) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { data: existing } = await supabase
+    .from('workflow_requests')
+    .select('*')
+    .eq('visit_id', visitId)
+    .eq('kind', kind)
+    .eq('status', 'Requested')
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from('workflow_requests')
+      .update({ status: 'Cancelled', resolved_at: new Date().toISOString(), resolved_by: userData?.user?.id || null })
+      .eq('id', existing.id);
+    if (error) return { error: error.message };
+    await addAudit(supabase, encounterId, `Workflow request cancelled: ${kind}`, userData?.user?.id);
+    return { success: true, active: false };
+  }
+
+  const { error } = await supabase.from('workflow_requests').insert({
+    visit_id: visitId, encounter_id: encounterId, kind, requested_by: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Workflow requested: ${kind}`, userData?.user?.id);
+  return { success: true, active: true };
+}
+
+// Mark a workflow request (Biometry/Fitness/Counselling) as done --
+// used by whichever staff member actually completes it (e.g. the
+// counsellor marking a Counselling request resolved).
+export async function completeWorkflowRequest(id, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('workflow_requests')
+    .update({ status: 'Completed', resolved_at: new Date().toISOString(), resolved_by: userData?.user?.id || null })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Workflow request marked complete', userData?.user?.id);
+  return { success: true };
+}
+
+// ── MANAGEMENT PLAN EXPANSION (Ch.14) ──
+export async function addOpticalAdvice(encounterId, advice) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('plan_optical_advice').insert({ encounter_id: encounterId, advice, created_by: userData?.user?.id || null });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Optical advice added: ${advice}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeOpticalAdvice(id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_optical_advice').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Optical advice removed', null);
+  return { success: true };
+}
+
+export async function addProcedure(encounterId, name, eye) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('plan_procedures').insert({ encounter_id: encounterId, name, eye, created_by: userData?.user?.id || null });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Procedure planned: ${name} (${eye})`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeProcedure(id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_procedures').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Procedure removed', null);
+  return { success: true };
+}
+
+export async function addReferral(encounterId, destination, reason) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('plan_referrals').insert({ encounter_id: encounterId, destination, reason, created_by: userData?.user?.id || null });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Referral added: ${destination}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeReferral(id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_referrals').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Referral removed', null);
+  return { success: true };
+}
+
+export async function addCounsellingItem(encounterId, topic) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('plan_counselling_items').insert({ encounter_id: encounterId, topic, created_by: userData?.user?.id || null });
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Counselling topic added: ${topic}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeCounsellingItem(id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_counselling_items').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Counselling topic removed', null);
+  return { success: true };
+}
+
+// Any plan item (optical/procedure/referral/counselling) marked done --
+// used from the Action Tracker tab.
+export async function completePlanItem(table, id, encounterId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from(table).update({ status: 'Done' }).eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Plan item marked done', null);
+  return { success: true };
+}
+
+// Follow-up is one record per encounter -- upsert by encounter_id.
+export async function saveFollowup(encounterId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('plan_followups')
+    .upsert(
+      { encounter_id: encounterId, after_period: fields.after, visit_type: fields.type, clinic: fields.clinic, instructions: fields.instructions, created_by: userData?.user?.id || null },
+      { onConflict: 'encounter_id' }
+    );
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, `Follow-up scheduled: ${fields.after} -- ${fields.type}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function savePatientInstructions(encounterId, instructions) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('encounters').update({ patient_instructions: instructions }).eq('id', encounterId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── ENCOUNTER ACTIONS ──
+export async function completeConsultation(encounterId, queueEntryId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('encounters')
+    .update({ status: 'Completed', completed_at: new Date().toISOString() })
+    .eq('id', encounterId);
+
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Encounter completed', userData?.user?.id);
+
+  return doctorComplete(queueEntryId);
+}
+
+export async function sendForDilationFromConsultation(queueEntryId, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const result = await doctorSendOut(queueEntryId, 'dilate');
+  if (!result.error) await addAudit(supabase, encounterId, 'Sent for Dilation', userData?.user?.id);
+  return result;
+}
+
+export async function sendForInvestigationFromConsultation(queueEntryId, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const result = await doctorSendOut(queueEntryId, 'investigate');
+  if (!result.error) await addAudit(supabase, encounterId, 'Sent for Investigation', userData?.user?.id);
+  return result;
+}
+
+export async function sendForBiometryFromConsultation(queueEntryId, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const result = await doctorSendOut(queueEntryId, 'biometry');
+  if (!result.error) await addAudit(supabase, encounterId, 'Sent for Biometry', userData?.user?.id);
+  return result;
+}
+
+export async function saveDraft(encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  await addAudit(supabase, encounterId, 'Consultation saved as draft', userData?.user?.id);
+  return { success: true };
+}
+VEDA_EOF
+echo "  wrote app/(main)/consultation/actions.js"
+
+cat > "app/(main)/consultation/[id]/consultation-form.js" << 'VEDA_EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -754,3 +1324,205 @@ export default function ConsultationForm({ queueEntryId }) {
     </div>
   );
 }
+VEDA_EOF
+echo "  wrote app/(main)/consultation/[id]/consultation-form.js"
+
+cat > "app/(main)/doctor-dashboard/page.js" << 'VEDA_EOF'
+'use client';
+
+import Link from 'next/link';
+import { useState, useEffect, useCallback } from 'react';
+import { getDoctorDashboardData } from './actions';
+import { doctorCallNext, doctorCallSpecific, doctorMarkReady } from '@/app/(main)/queue/actions';
+
+function elapsedMin(isoString) {
+  if (!isoString) return 0;
+  return Math.floor((Date.now() - new Date(isoString).getTime()) / 60000);
+}
+
+function waitBadgeClass(mins) {
+  if (mins >= 20) return 'b-red';
+  if (mins >= 10) return 'b-amber';
+  return 'b-green';
+}
+
+function patientName(entry) {
+  const p = entry.visits?.patients;
+  return p ? `${p.first_name} ${p.last_name}` : 'Unknown';
+}
+
+function TokenBadge({ token, color }) {
+  return (
+    <span style={{
+      fontFamily: 'monospace', fontWeight: 800, fontSize: 13, background: color || 'var(--g900)', color: '#fff',
+      padding: '3px 9px', borderRadius: 6, marginRight: 8,
+    }}>
+      {token}
+    </span>
+  );
+}
+
+export default function DoctorDashboardPage() {
+  const [active, setActive] = useState([]);
+  const [intermediate, setIntermediate] = useState([]);
+  const [completed, setCompleted] = useState([]);
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    const result = await getDoctorDashboardData();
+    setActive(result.active);
+    setIntermediate(result.intermediate);
+    setCompleted(result.completed);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 15000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  async function runAction(fn, ...args) {
+    setError('');
+    const result = await fn(...args);
+    if (result?.error) setError(result.error);
+    refresh();
+  }
+
+  const inConsultation = active.find((e) => e.status === 'In Consultation');
+  const waitingCount = active.filter((e) => e.status === 'Waiting' || e.status === 'Ready for Review').length;
+
+  return (
+    <div>
+      {error && <div className="msg-err">{error}</div>}
+
+      {/* STAT CARDS */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+        <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>In Consultation</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{inConsultation ? 1 : 0}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>With doctor now</div>
+        </div>
+        <div className="card" style={{ borderTop: '3px solid var(--amber)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Waiting for Doctor</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{waitingCount}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>In doctor queue</div>
+        </div>
+        <div className="card" style={{ borderTop: '3px solid var(--purple)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Intermediate</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{intermediate.length}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Dilation / Investigation</div>
+        </div>
+        <div className="card" style={{ borderTop: '3px solid var(--green)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Completed Today</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{completed.length}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Encounters closed</div>
+        </div>
+      </div>
+
+      <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 16 }}>
+        <i className="ti ti-info-circle"></i> Live token order and wait times are managed in Queue Management -- this dashboard shows clinical context for patients already in that queue. <Link href="/queue" style={{ color: 'var(--blue)', fontWeight: 600 }}>Open Queue Management &rarr;</Link>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* DOCTOR QUEUE */}
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title"><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Doctor Queue<span className="badge b-gray">{active.length}</span></div>
+          </div>
+          <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => runAction(doctorCallNext)} disabled={!!inConsultation}>
+            <i className="ti ti-bell-ringing"></i> Call Next
+          </button>
+
+          {inConsultation && (
+            <div style={{ background: 'var(--blue-lt)', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                <TokenBadge token={inConsultation.token} color="var(--blue)" />
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{patientName(inConsultation)}</span>
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <span className={`badge ${waitBadgeClass(elapsedMin(inConsultation.called_at || inConsultation.issued_at))}`}>
+                  <i className="ti ti-clock"></i> In consultation {elapsedMin(inConsultation.called_at || inConsultation.issued_at)}m
+                </span>
+              </div>
+              <Link href={`/consultation/${inConsultation.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                <i className="ti ti-clipboard-text"></i> Open Consultation
+              </Link>
+            </div>
+          )}
+
+          {active.filter((e) => e.id !== inConsultation?.id).map((e) => (
+            <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: '1px solid var(--g100)', borderRadius: 6 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 3 }}>
+                  <TokenBadge token={e.token} color={e.status === 'Ready for Review' ? 'var(--green)' : 'var(--amber)'} />
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{patientName(e)}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className={`badge ${e.status === 'Ready for Review' ? 'b-green' : 'b-amber'}`}>{e.status}</span>
+                  <span className={`badge ${waitBadgeClass(elapsedMin(e.issued_at))}`}><i className="ti ti-clock"></i> {elapsedMin(e.issued_at)}m</span>
+                </div>
+              </div>
+              <button className="btn btn-sm" onClick={() => runAction(doctorCallSpecific, e.id)} disabled={!!inConsultation}>Call</button>
+            </div>
+          ))}
+          {active.length === 0 && (
+            <div style={{ textAlign: 'center', color: 'var(--g400)', fontSize: 13, padding: 24 }}>
+              <i className="ti ti-circle-check" style={{ fontSize: 22, display: 'block', marginBottom: 6 }}></i>
+              Queue is empty
+            </div>
+          )}
+        </div>
+
+        <div>
+          {/* INTERMEDIATE QUEUES */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head">
+              <div className="card-title"><i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)' }}></i> Intermediate Queues<span className="badge b-gray">{intermediate.length}</span></div>
+            </div>
+            {intermediate.map((e) => (
+              <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                <div>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
+                  {patientName(e)}
+                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{e.status} -- {elapsedMin(e.sent_out_at)}m</div>
+                </div>
+                <button className="btn btn-sm" onClick={() => runAction(doctorMarkReady, e.id)}>Mark Ready</button>
+              </div>
+            ))}
+            {intermediate.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No one in Dilation or Investigation.</div>}
+          </div>
+
+          {/* COMPLETED TODAY */}
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title"><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Completed Today<span className="badge b-green">{completed.length}</span></div>
+            </div>
+            {completed.slice(0, 8).map((e) => (
+              <Link
+                key={e.id}
+                href={`/consultation/${e.id}`}
+                style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, textDecoration: 'none', color: 'inherit' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}</span>
+                  <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--g500)' }}>
+                  {e.completed_at ? new Date(e.completed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                </div>
+              </Link>
+            ))}
+            {completed.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing completed yet today.</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+VEDA_EOF
+echo "  wrote app/(main)/doctor-dashboard/page.js"
+
+echo ""
+echo "==> Done. Next steps:"
+echo "  1. npm run build"
+echo "  2. git add -A && git commit -m \"Doctor: view/edit completed consultations from Completed Today, with locking\" && git push"

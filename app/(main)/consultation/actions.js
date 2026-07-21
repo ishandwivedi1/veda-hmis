@@ -37,16 +37,19 @@ export async function getConsultationData(queueEntryId) {
     iopReadings = readings || [];
   }
 
-  let { data: encounter } = await supabase
-    .from('encounters')
-    .select('*')
-    .eq('visit_id', visitId)
-    .eq('status', 'In Consultation')
-    .maybeSingle();
+  let { data: encounter } = entry.status === 'Done'
+    ? await supabase.from('encounters').select('*').eq('visit_id', visitId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    : await supabase.from('encounters').select('*').eq('visit_id', visitId).eq('status', 'In Consultation').maybeSingle();
 
   const { data: userData } = await supabase.auth.getUser();
 
   if (!encounter) {
+    // For a completed (Done) queue entry there's nothing to auto-create --
+    // if no encounter exists, the visit genuinely has no clinical record.
+    // Auto-creating only makes sense for an active/new consultation.
+    if (entry.status === 'Done') {
+      return { error: 'No clinical record found for this completed visit.' };
+    }
     const { data: newEncounter, error: encError } = await supabase
       .from('encounters')
       .insert({ visit_id: visitId, doctor_id: entry.visits.doctor_id })
@@ -113,6 +116,7 @@ export async function getConsultationData(queueEntryId) {
     workflowRequests: workflowRequests || [], auditLog: auditLog || [],
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
+    isLocked: encounter.status === 'Completed',
   };
 }
 
@@ -537,5 +541,3 @@ export async function saveDraft(encounterId) {
   await addAudit(supabase, encounterId, 'Consultation saved as draft', userData?.user?.id);
   return { success: true };
 }
-
-
