@@ -391,7 +391,7 @@ export async function addSurgery(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
   const category = normalizeName(values.category);
-  const code = await generateCategoryCode(supabase, 'master_surgeries', category);
+  const code = await generateCategoryCode(supabase, 'master_surgeries', 'SUR');
   const { error } = await supabase.from('master_surgeries').insert({ code, name, category, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_surgeries', code, 'Create', `${name} created`);
