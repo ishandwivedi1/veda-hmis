@@ -161,12 +161,41 @@ function NotesPanel({ caseId }) {
   );
 }
 
+// Numbered, collapsible section -- same visual pattern as AsmtSection in
+// Optometry History ([assessmentId]/assessment-viewer.js): numbered
+// colored circle, title, chevron toggle.
+function CounsellingSection({ num, color, title, badge, open, onToggle, children }) {
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
+      <div
+        style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+        onClick={onToggle}
+      >
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 22, height: 22, borderRadius: '50%', background: color, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{num}</span>
+          {title}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {badge}
+          <i className={`ti ti-chevron-${open ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+        </div>
+      </div>
+      {open && <div style={{ padding: 16 }}>{children}</div>}
+    </div>
+  );
+}
+
 function CaseWorkspace({ sc, onUpdate }) {
   const [error, setError] = useState('');
   const [ancillaryMsg, setAncillaryMsg] = useState(null); // { type: 'error'|'success', text }
   const [sendingBiometry, setSendingBiometry] = useState(false);
+  const [openSections, setOpenSections] = useState({ surgery: true, biometry: true, decision: true, investigations: true, fitness: true });
   const { items, pct } = readiness(sc);
   const stage2Unlocked = !!sc.package_id && sc.decision === 'Accepted';
+
+  function toggleSection(key) {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   async function handleDecision(d) {
     setError('');
@@ -192,107 +221,156 @@ function CaseWorkspace({ sc, onUpdate }) {
     onUpdate();
   }
 
+  const advancePaid = !!sc.advance_payment_id;
+  const investigationsItem = items.find((i) => i.key === 'investigations');
+  const fitnessItem = items.find((i) => i.key === 'fitness');
+
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <div className="card-head">
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>
-            {sc.patients?.first_name} {sc.patients?.last_name} -- {sc.patients?.uhid}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--g500)' }}>
-            {sc.procedure_name} -- {sc.eye} -- {sc.priority} -- {sc.profiles?.full_name || 'Unassigned surgeon'}
+    <div style={{ marginBottom: 16 }}>
+      {/* PATIENT STRIP -- fixed at top of the workspace, same visual language as Optometry History */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 5,
+        background: 'linear-gradient(135deg,#4c1d95,#7c3aed)', borderRadius: 12, padding: '12px 16px', color: '#fff',
+        marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14,
+      }}>
+        <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, flexShrink: 0, border: '2px solid rgba(255,255,255,.3)' }}>
+          {sc.patients?.first_name?.charAt(0) || '?'}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{sc.patients?.first_name} {sc.patients?.last_name}</div>
+          <div style={{ fontSize: 11, opacity: .8, marginTop: 2 }}>{sc.patients?.age} -- {sc.patients?.gender} -- {sc.patients?.uhid}</div>
+          <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
+            <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)' }}>
+              {sc.procedure_name} -- {sc.eye}
+            </span>
+            <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)' }}>
+              {sc.priority}
+            </span>
+            <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)' }}>
+              {sc.profiles?.full_name || 'Unassigned surgeon'}
+            </span>
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 10, color: 'var(--g400)' }}>IOL Type Advised</div>
+          <div style={{ fontSize: 10, opacity: .7 }}>IOL Type Advised</div>
           <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.iol_category || 'Pending biometry'}</div>
           <span className={`badge ${sc.status === 'Ready for Scheduling' ? 'b-green' : 'b-amber'}`} style={{ marginTop: 4 }}>{sc.status}</span>
+          <div style={{ fontSize: 10, opacity: .7, marginTop: 4 }}>{pct}% ready</div>
         </div>
       </div>
 
       {error && <div className="msg-err">{error}</div>}
 
-      {/* Ancillary services -- same-day queue routing, independent of the checklist below */}
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        {sc.biometry_done ? (
-          <span className="badge b-green"><i className="ti ti-check"></i> Biometry Complete -- {sc.iol_category}</span>
-        ) : sc.biometry_record ? (
-          <>
-            <span className="badge b-blue"><i className="ti ti-clock"></i> Biometry Requested -- Awaiting Technician</span>
-            <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry} style={{ fontSize: 11 }}>
-              {sendingBiometry ? 'Sending...' : 'Send again'}
+      {/* 1. SURGERY ADVISED */}
+      <CounsellingSection num={1} color="var(--g500)" title="Surgery Advised" open={openSections.surgery} onToggle={() => toggleSection('surgery')}
+        badge={<span className="badge b-green"><i className="ti ti-check"></i> Done</span>}>
+        <div style={{ fontSize: 12.5, color: 'var(--g600)' }}>
+          <div><strong>{sc.procedure_name}</strong> -- {sc.eye} -- {sc.priority}</div>
+          <div style={{ color: 'var(--g500)', marginTop: 4 }}>Surgeon: {sc.profiles?.full_name || 'Unassigned'}</div>
+        </div>
+      </CounsellingSection>
+
+      {/* 2. BIOMETRY */}
+      <CounsellingSection num={2} color="var(--blue)" title="Biometry" open={openSections.biometry} onToggle={() => toggleSection('biometry')}
+        badge={
+          sc.biometry_done
+            ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span>
+            : sc.biometry_record
+            ? <span className="badge b-blue">Awaiting Technician</span>
+            : <span className="badge b-amber">Not sent</span>
+        }>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {sc.biometry_done ? (
+            <span className="badge b-green"><i className="ti ti-check"></i> Biometry Complete -- {sc.iol_category}</span>
+          ) : sc.biometry_record ? (
+            <>
+              <span className="badge b-blue"><i className="ti ti-clock"></i> Biometry Requested -- Awaiting Technician</span>
+              <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry} style={{ fontSize: 11 }}>
+                {sendingBiometry ? 'Sending...' : 'Send again'}
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry}>
+              <i className="ti ti-ruler-measure"></i> {sendingBiometry ? 'Sending...' : 'Send for Biometry'}
             </button>
-          </>
+          )}
+          {ancillaryMsg && (
+            <span style={{ fontSize: 11.5, color: ancillaryMsg.type === 'error' ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>
+              {ancillaryMsg.text}
+            </span>
+          )}
+        </div>
+      </CounsellingSection>
+
+      {/* 3. PATIENT DECISION -- package + decision, with Advance Payment as a sub-point */}
+      <CounsellingSection num={3} color="var(--purple)" title="Patient Decision" open={openSections.decision} onToggle={() => toggleSection('decision')}
+        badge={
+          sc.decision === 'Accepted'
+            ? <span className="badge b-green"><i className="ti ti-check"></i> Accepted</span>
+            : sc.decision
+            ? <span className="badge b-amber">{sc.decision}</span>
+            : <span className="badge b-gray">Pending</span>
+        }>
+        <div style={{ marginBottom: 16 }}>
+          <label className="flbl">Package</label>
+          <PackagePicker sc={sc} onUpdate={onUpdate} />
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label className="flbl">Decision</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {DECISIONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => handleDecision(d)}
+                className="btn btn-sm"
+                style={sc.decision === d ? {
+                  background: d === 'Accepted' ? 'var(--green)' : d === 'Declined' ? 'var(--red)' : 'var(--purple)',
+                  color: '#fff', borderColor: 'transparent',
+                } : {}}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Sub-point: Advance Payment */}
+        <div style={{ borderLeft: '3px solid var(--g200)', paddingLeft: 12, marginTop: 4 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>
+            3a. Advance Payment
+          </div>
+          {advancePaid ? (
+            <span className="badge b-green"><i className="ti ti-check"></i> Advance Paid</span>
+          ) : (
+            <span className="badge b-amber">Not yet collected -- via Billing (M11)</span>
+          )}
+        </div>
+      </CounsellingSection>
+
+      {/* 4. INVESTIGATIONS */}
+      <CounsellingSection num={4} color="var(--teal)" title="Investigations" open={openSections.investigations} onToggle={() => toggleSection('investigations')}
+        badge={investigationsItem?.done ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span> : <span className="badge b-amber">Pending</span>}>
+        {!stage2Unlocked ? (
+          <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Locked until package confirmed and decision is Accepted.</div>
+        ) : investigationsItem?.done ? (
+          <span className="badge b-green"><i className="ti ti-check"></i> Investigations complete</span>
         ) : (
-          <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry}>
-            <i className="ti ti-ruler-measure"></i> {sendingBiometry ? 'Sending...' : 'Send for Biometry'}
-          </button>
+          <button className="btn btn-sm" onClick={async () => { setError(''); const r = await markInvestigationsComplete(sc.id); if (r.error) setError(r.error); else onUpdate(); }}>Mark done</button>
         )}
-        {ancillaryMsg && (
-          <span style={{ fontSize: 11.5, color: ancillaryMsg.type === 'error' ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>
-            {ancillaryMsg.text}
-          </span>
+      </CounsellingSection>
+
+      {/* 5. MEDICAL FITNESS */}
+      <CounsellingSection num={5} color="var(--amber)" title="Medical Fitness" open={openSections.fitness} onToggle={() => toggleSection('fitness')}
+        badge={fitnessItem?.done ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span> : <span className="badge b-amber">Pending</span>}>
+        {!stage2Unlocked ? (
+          <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Locked until package confirmed and decision is Accepted.</div>
+        ) : fitnessItem?.done ? (
+          <span className="badge b-green"><i className="ti ti-check"></i> Medical fitness cleared</span>
+        ) : (
+          <button className="btn btn-sm" onClick={async () => { setError(''); const r = await markFitnessCleared(sc.id); if (r.error) setError(r.error); else onUpdate(); }}>Mark done</button>
         )}
-      </div>
-
-      {/* Package selection */}
-      <div style={{ marginBottom: 16 }}>
-        <label className="flbl">Package (Step 2 -- Counselling decision)</label>
-        <PackagePicker sc={sc} onUpdate={onUpdate} />
-      </div>
-
-      {/* Checklist */}
-      <div style={{ marginBottom: 16 }}>
-        <div className="card-head" style={{ marginBottom: 8 }}>
-          <label className="flbl" style={{ marginBottom: 0 }}>Surgical Readiness Checklist</label>
-          <span className="badge b-purple">{pct}%</span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {items.map((item) => {
-            const locked = (item.key === 'investigations' || item.key === 'fitness') && !stage2Unlocked;
-            return (
-              <div key={item.key} style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 'var(--r)', fontSize: 12,
-                background: item.done ? 'var(--green-lt)' : locked ? 'var(--g50)' : 'var(--amber-lt)',
-                opacity: locked ? 0.65 : 1,
-              }}>
-                <span style={{
-                  width: 18, height: 18, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 10, color: '#fff', background: item.done ? 'var(--green)' : 'var(--amber)', flexShrink: 0,
-                }}>{item.done ? '✓' : '…'}</span>
-                <span style={{ flex: 1, fontWeight: 600 }}>{item.label}</span>
-                {item.key === 'investigations' && !item.done && !locked && (
-                  <button className="btn btn-sm" onClick={async () => { setError(''); const r = await markInvestigationsComplete(sc.id); if (r.error) setError(r.error); else onUpdate(); }}>Mark done</button>
-                )}
-                {item.key === 'fitness' && !item.done && !locked && (
-                  <button className="btn btn-sm" onClick={async () => { setError(''); const r = await markFitnessCleared(sc.id); if (r.error) setError(r.error); else onUpdate(); }}>Mark done</button>
-                )}
-                {locked && <span style={{ fontSize: 10, color: 'var(--g400)' }}>Locked</span>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Decision */}
-      <div style={{ marginBottom: 16 }}>
-        <label className="flbl">Patient decision</label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {DECISIONS.map((d) => (
-            <button
-              key={d}
-              onClick={() => handleDecision(d)}
-              className="btn btn-sm"
-              style={sc.decision === d ? {
-                background: d === 'Accepted' ? 'var(--green)' : d === 'Declined' ? 'var(--red)' : 'var(--purple)',
-                color: '#fff', borderColor: 'transparent',
-              } : {}}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-      </div>
+      </CounsellingSection>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
         <EducationPanel encounterId={sc.encounter_id} />
