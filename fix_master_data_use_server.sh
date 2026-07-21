@@ -1,3 +1,32 @@
+#!/usr/bin/env bash
+# Fixes the real Vercel/build error: 'You're importing a module that
+# depends on next/headers... Pages Router' pointing at lib/supabase-server.js.
+#
+# Confirmed via the actual import trace (from --webpack build, which also
+# failed -- ruling out a Turbopack-specific bug):
+#   lib/supabase-server.js <- app/(main)/master-data/actions.js
+#   <- app/(main)/master-data/clinical/page.js
+#
+# Root cause: app/(main)/master-data/actions.js was missing the 'use
+# server' directive at the top of the file -- every other actions.js in
+# this repo has it (checked all 21), this was the sole outlier, likely
+# one of the earliest files written before the pattern was applied
+# consistently. Without it, when a client component (clinical/page.js,
+# financial/page.js) imports functions from this file, the bundler tries
+# to include the actual server-only implementation -- including
+# next/headers -- directly in the client bundle, which is invalid. With
+# 'use server', every exported function instead becomes a proper Server
+# Action RPC stub on the client side. Verified all 47 exports in this
+# file are 'export async function' (the only thing 'use server' files
+# are allowed to export), so this is a safe, valid fix.
+#
+# This is your CURRENT file (from the zip you just sent) with only that
+# one line added -- your surgery_id/master_surgeries fix from earlier is
+# preserved as-is.
+set -euo pipefail
+
+echo "==> Writing corrected master-data/actions.js..."
+cat > "app/(main)/master-data/actions.js" << 'VEDA_EOF'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -516,3 +545,12 @@ export async function getActiveIolCatalog() {
 // lives in master_services where dept = 'Investigation'. Consolidated
 // into Financial Masters (Migration 48) to avoid the same item ever
 // having two different prices in two different places.
+VEDA_EOF
+echo "  wrote app/(main)/master-data/actions.js"
+
+echo ""
+echo "==> Done. Next steps:"
+echo "  1. npm run build   (should now succeed -- test with plain npm run"
+echo "     build, Turbopack, since the webpack fallback is no longer needed)"
+echo "  2. git add -A && git commit -m \"Fix: add missing 'use server' to"
+echo "     master-data/actions.js\" && git push"
