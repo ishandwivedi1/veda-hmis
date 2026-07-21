@@ -1,3 +1,27 @@
+#!/usr/bin/env bash
+# Replaces Clinical Masters' code generation: was long name-derived slugs
+# (e.g. 'Chalazion I&C' -> CHALAZION_I_C), now short alphanumeric codes
+# linked to category and auto-generated as PREFIX+NN:
+#   Surgery category 'Cataract'        -> CAT01, CAT02...
+#   Procedure category 'Minor Procedure' -> MP01, MP02...
+#   History Option category 'chief_complaint' -> CC01, CC02...
+#   IOL Catalog category 'Monofocal'   -> MON01, MON02...
+# Tables with no category (IOP Methods, Clinical Observations) get a
+# fixed short prefix instead (IOP01, OBS01...) so every Clinical Masters
+# code follows the same short pattern.
+#
+# Financial Masters (Services, Drugs) are UNCHANGED -- they have no
+# category concept and weren't part of this request; still use the
+# original name-derived scheme.
+#
+# Existing records keep their current codes (e.g. CHALAZION_I_C stays as
+# is) -- codes are immutable once assigned, this only changes what NEW
+# codes look like going forward.
+set -euo pipefail
+
+mkdir -p "app/(main)/master-data"
+echo "==> Writing updated actions.js..."
+cat > "app/(main)/master-data/actions.js" << 'VEDA_EOF'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -546,3 +570,12 @@ export async function getActiveIolCatalog() {
 // lives in master_services where dept = 'Investigation'. Consolidated
 // into Financial Masters (Migration 48) to avoid the same item ever
 // having two different prices in two different places.
+VEDA_EOF
+echo "  wrote app/(main)/master-data/actions.js"
+
+echo ""
+echo "==> Done. Next steps:"
+echo "  1. npm run build"
+echo "  2. git add -A && git commit -m \"Clinical Masters: short category-linked alphanumeric codes\" && git push"
+echo "  3. Try adding a new item in each Clinical Masters tab to confirm the"
+echo "     new code format (e.g. add a Cataract surgery -- should get CAT01)."
