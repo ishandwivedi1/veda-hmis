@@ -7,7 +7,7 @@ import {
   getPackages, addPackage, updatePackage, deletePackage,
   getPackageLineItems, addPackageLineItem, removePackageLineItem,
   getDrugs, addDrug, updateDrug, deleteDrug,
-  getProcedures,
+  getSurgeries,
   getMasterAuditLog,
 } from '../actions';
 
@@ -36,7 +36,7 @@ export default function FinancialMastersPage() {
   const [services, setServices] = useState([]);
   const [packages, setPackages] = useState([]);
   const [drugs, setDrugs] = useState([]);
-  const [procedures, setProcedures] = useState([]);
+  const [surgeries, setSurgeries] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
@@ -57,7 +57,7 @@ export default function FinancialMastersPage() {
     setServices(await getServices());
     setPackages(await getPackages());
     setDrugs(await getDrugs());
-    setProcedures(await getProcedures());
+    setSurgeries(await getSurgeries());
     setAuditLog(await getMasterAuditLog(auditTable));
   }, [auditTable]);
 
@@ -84,7 +84,7 @@ export default function FinancialMastersPage() {
 
     let result;
     if (tabDef.type === 'package') {
-      const isCataract = procedures.find((p) => p.id === form.procedureId)?.category === 'Cataract';
+      const isCataract = surgeries.find((s) => s.id === form.surgeryId)?.category === 'Cataract';
       result = await addPackage(isCataract ? form : { ...form, iolCategory: '', origin: '' });
     }
     else if (tabDef.type === 'drug') result = await addDrug(form);
@@ -101,7 +101,7 @@ export default function FinancialMastersPage() {
   function startEdit(record) {
     setError(''); setSuccess('');
     setEditingId(record.id);
-    if (tabDef.type === 'package') setEditForm({ name: record.name || '', includes: record.includes || '', procedureId: record.procedure_id || '', iolCategory: record.iol_category || '', origin: record.origin || '' });
+    if (tabDef.type === 'package') setEditForm({ name: record.name || '', includes: record.includes || '', surgeryId: record.surgery_id || '', iolCategory: record.iol_category || '', origin: record.origin || '' });
     else if (tabDef.type === 'drug') setEditForm({ brand: record.brand || '', generic: record.generic || '', strength: record.strength || '', form: record.form || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
     else setEditForm({ name: record.name || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
   }
@@ -115,7 +115,7 @@ export default function FinancialMastersPage() {
     setError(''); setSuccess('');
     let result;
     if (tabDef.type === 'package') {
-      const isCataract = procedures.find((p) => p.id === editForm.procedureId)?.category === 'Cataract';
+      const isCataract = surgeries.find((s) => s.id === editForm.surgeryId)?.category === 'Cataract';
       result = await updatePackage(record.id, record, isCataract ? editForm : { ...editForm, iolCategory: '', origin: '' });
     }
     else if (tabDef.type === 'drug') result = await updateDrug(record.id, record, editForm);
@@ -221,11 +221,11 @@ export default function FinancialMastersPage() {
               {tabDef.type === 'package' && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Name (e.g. Cataract Surgery -- Standard IOL)" onChange={update('name')} />
-                  <select className="fi" onChange={update('procedureId')} defaultValue="">
-                    <option value="">-- Link to procedure (optional) --</option>
-                    {procedures.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <select className="fi" onChange={update('surgeryId')} defaultValue="">
+                    <option value="">-- Link to surgery (optional) --</option>
+                    {surgeries.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
-                  {(procedures.find((p) => p.id === form.procedureId)?.category === 'Cataract') && (
+                  {(surgeries.find((s) => s.id === form.surgeryId)?.category === 'Cataract') && (
                     <>
                       <select className="fi" onChange={update('iolCategory')} defaultValue="">
                         <option value="">-- IOL type (optional) --</option>
@@ -240,7 +240,7 @@ export default function FinancialMastersPage() {
                   <input className="fi" placeholder="Includes (description)" style={{ gridColumn: 'span 2' }} onChange={update('includes')} />
                   <div style={{ gridColumn: 'span 2', fontSize: 11, color: 'var(--g500)' }}>
                     Code auto-generates (PKG001, PKG002...). Price is set by adding constituents after saving.
-                    {(procedures.find((p) => p.id === form.procedureId)?.category === 'Cataract') && (
+                    {(surgeries.find((s) => s.id === form.surgeryId)?.category === 'Cataract') && (
                       <> IOL type + Origin determine which packages the Counselling module shows for a given Biometry result.</>
                     )}
                   </div>
@@ -323,7 +323,7 @@ export default function FinancialMastersPage() {
 
           {tabDef.type === 'package' && (
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Procedure</th><th>IOL Type / Origin</th><th>Price</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Surgery</th><th>IOL Type / Origin</th><th>Price</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {packages.map((p) => (
                   editingId === p.id ? (
@@ -331,13 +331,13 @@ export default function FinancialMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{p.code}</td>
                       <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
                       <td>
-                        <select className="fi fi-sm" value={editForm.procedureId} onChange={updateEdit('procedureId')}>
+                        <select className="fi fi-sm" value={editForm.surgeryId} onChange={updateEdit('surgeryId')}>
                           <option value="">--</option>
-                          {procedures.map((pr) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+                          {surgeries.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                       </td>
                       <td>
-                        {(procedures.find((pr) => pr.id === editForm.procedureId)?.category === 'Cataract') ? (
+                        {(surgeries.find((s) => s.id === editForm.surgeryId)?.category === 'Cataract') ? (
                           <div style={{ display: 'flex', gap: 4 }}>
                             <select className="fi fi-sm" value={editForm.iolCategory} onChange={updateEdit('iolCategory')}>
                               <option value="">IOL type --</option>
@@ -360,7 +360,7 @@ export default function FinancialMastersPage() {
                   ) : (
                     <tr key={p.id}>
                       <td style={{ fontFamily: 'monospace' }}>{p.code}</td><td>{p.name}</td>
-                      <td style={{ fontSize: 12, color: 'var(--g500)' }}>{p.master_procedures?.name || '--'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--g500)' }}>{p.master_surgeries?.name || '--'}</td>
                       <td>
                         {p.iol_category ? (
                           <span style={{ display: 'flex', gap: 4 }}>

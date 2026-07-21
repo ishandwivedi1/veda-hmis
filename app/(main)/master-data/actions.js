@@ -1,4 +1,3 @@
-'use server';
 
 import { createClient } from '@/lib/supabase-server';
 
@@ -243,7 +242,7 @@ export async function deleteService(id, code) {
 // ── PACKAGES ──
 export async function getPackages() {
   const supabase = await createClient();
-  const { data } = await supabase.from('master_packages').select('*, master_procedures(name)').order('name');
+  const { data } = await supabase.from('master_packages').select('*, master_surgeries(name)').order('name');
   return data || [];
 }
 export async function addPackage(values) {
@@ -253,7 +252,7 @@ export async function addPackage(values) {
   if (codeError) return { error: codeError.message };
   const { data: newPackage, error } = await supabase.from('master_packages').insert({
     code, name, price: 0, includes: values.includes ? normalizeName(values.includes) : null,
-    procedure_id: values.procedureId || null, status: 'Active',
+    surgery_id: values.surgeryId || null, status: 'Active',
     iol_category: values.iolCategory || null, origin: values.origin || null,
   }).select().single();
   if (error) return { error: error.message };
@@ -265,7 +264,7 @@ export async function updatePackage(id, oldValues, values) {
   const name = normalizeName(values.name);
   const includes = values.includes ? normalizeName(values.includes) : values.includes;
   const { error } = await supabase.from('master_packages').update({
-    name, includes, procedure_id: values.procedureId || null,
+    name, includes, surgery_id: values.surgeryId || null,
     iol_category: values.iolCategory || null, origin: values.origin || null,
   }).eq('id', id);
   if (error) return { error: error.message };
@@ -313,9 +312,9 @@ export async function removePackageLineItem(id, packageId) {
   return { success: true };
 }
 
-// ── PROCEDURES (Clinical Master -- the surgery TYPE a doctor advises,
-// e.g. "Cataract Surgery". No price -- pure clinical classification.
-// Multiple billing Packages can point at one procedure.) ──
+// ── PROCEDURES (Clinical Master -- minor, in-clinic procedures a doctor
+// performs directly, e.g. "Syringing", "FB Removal". Distinct from
+// SURGERIES below, which are OT-based and back billing Packages.) ──
 export async function getProcedures() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_procedures').select('*').order('name');
@@ -346,6 +345,42 @@ export async function updateProcedure(id, oldValues, values) {
 export async function deleteProcedure(id, code) {
   const supabase = await createClient();
   return deleteMasterRecord(supabase, 'master_procedures', id, code);
+}
+
+// ── SURGERIES (Clinical Master -- the OT-based surgery a doctor advises,
+// e.g. "Phaco Cataract Surgery". No price -- pure clinical classification.
+// Multiple billing Packages can point at one surgery, sub-classified by
+// IOL type/origin for Cataract.) ──
+export async function getSurgeries() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_surgeries').select('*').order('name');
+  return data || [];
+}
+export async function addSurgery(values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const category = normalizeName(values.category);
+  const code = await generateUniqueCode(supabase, 'master_surgeries', name);
+  const { error } = await supabase.from('master_surgeries').insert({ code, name, category, status: 'Active' });
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_surgeries', code, 'Create', `${name} created`);
+  return { success: true };
+}
+export async function updateSurgery(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const category = normalizeName(values.category);
+  const { error } = await supabase.from('master_surgeries').update({ name, category }).eq('id', id);
+  if (error) return { error: error.message };
+  const changes = [];
+  if (oldValues.name !== name) changes.push(`Name ${oldValues.name} -> ${name}`);
+  if (oldValues.category !== category) changes.push(`Category ${oldValues.category} -> ${category}`);
+  await logMasterAudit(supabase, 'master_surgeries', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+export async function deleteSurgery(id, code) {
+  const supabase = await createClient();
+  return deleteMasterRecord(supabase, 'master_surgeries', id, code);
 }
 
 // ── DRUGS ──
