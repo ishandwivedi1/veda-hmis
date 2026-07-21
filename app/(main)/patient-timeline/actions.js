@@ -35,10 +35,31 @@ export async function getPatientTimeline(patientId) {
 
   let encounters = [];
   if (visitIds.length > 0) {
-    const { data } = await supabase.from('encounters').select('id, visit_id, created_at').in('visit_id', visitIds);
+    const { data } = await supabase.from('encounters').select('id, visit_id, started_at').in('visit_id', visitIds);
     encounters = data || [];
   }
   const encounterIds = encounters.map((e) => e.id);
+
+  // One queue_entries row per visit, to link a "Visit" timeline event
+  // through to its actual clinical record (same /consultation/[id] route
+  // used by Doctor Dashboard's Completed Today -- getConsultationData()
+  // looks up everything by visit_id internally, so it doesn't matter
+  // which department's queue entry we use as the "door in", but Doctor
+  // is preferred since that's the consultation itself.
+  let queueEntryByVisit = {};
+  if (visitIds.length > 0) {
+    const { data: qEntries } = await supabase
+      .from('queue_entries')
+      .select('id, visit_id, department, issued_at')
+      .in('visit_id', visitIds)
+      .order('issued_at', { ascending: false });
+    (qEntries || []).forEach((q) => {
+      const existing = queueEntryByVisit[q.visit_id];
+      if (!existing || (q.department === 'Doctor' && existing.department !== 'Doctor')) {
+        queueEntryByVisit[q.visit_id] = q;
+      }
+    });
+  }
 
   let diagnoses = [], investigations = [], prescriptions = [];
   if (encounterIds.length > 0) {
@@ -62,6 +83,7 @@ export async function getPatientTimeline(patientId) {
       type: 'Visit', date: v.created_at, title: v.visit_type,
       detail: `${v.visit_number || '--'} -- ${v.profiles?.full_name || 'Doctor not assigned'} -- ${v.status}`,
       visit: v.visit_number || '--',
+      queueEntryId: queueEntryByVisit[v.id]?.id || null,
     });
   });
 
@@ -104,4 +126,3 @@ export async function getPatientTimeline(patientId) {
 
   return { patient, events };
 }
-
