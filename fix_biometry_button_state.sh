@@ -1,3 +1,21 @@
+#!/usr/bin/env bash
+# Fixes 'Send for Biometry' still showing after it's already been sent.
+# The workspace now checks sc.biometry_record (already fetched for the
+# dashboard's Surgery Advised / Awaiting Biometry stages) and shows the
+# real state instead of always offering the same button:
+#   - not sent yet          -> 'Send for Biometry' button
+#   - sent, not done yet    -> 'Biometry Requested -- Awaiting Technician'
+#                              badge, with a smaller 'Send again' option
+#   - done                  -> 'Biometry Complete -- <IOL type>' badge
+set -euo pipefail
+
+if [ ! -d "app/(main)/counselling" ]; then
+  echo "ERROR: app/(main)/counselling not found -- run fix_counselling_module.sh first."
+  exit 1
+fi
+
+echo "==> Writing updated page.js..."
+cat > "app/(main)/counselling/page.js" << 'VEDA_EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -520,3 +538,11 @@ export default function CounsellingPage() {
     </div>
   );
 }
+VEDA_EOF
+echo "  wrote app/(main)/counselling/page.js"
+
+echo ""
+echo "==> Done. Next steps:"
+echo "  1. npm run build"
+echo "  2. git add -A && git commit -m \"Counselling: reflect real biometry-request state instead of always"
+echo "     showing Send for Biometry\" && git push"
