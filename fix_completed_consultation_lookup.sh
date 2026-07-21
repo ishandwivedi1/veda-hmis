@@ -1,3 +1,18 @@
+#!/usr/bin/env bash
+# Fixes 'No clinical record found for this completed visit.' The prior
+# fix combined .limit(1) with .maybeSingle() when looking up a completed
+# encounter -- that combination isn't used anywhere else in this codebase
+# (getOrCreateBiometryRecord does the equivalent lookup with .limit(1)
+# alone + an array-length check instead) and was silently returning no
+# data even though the encounter row genuinely exists (confirmed directly
+# against your live DB for Shriram Singla's visit -- the encounter is
+# there, status Completed, correct visit_id). Switched to the same
+# array-based pattern, and any real query error now gets surfaced
+# instead of being treated the same as a legitimate not-found.
+set -euo pipefail
+
+echo "==> Writing updated actions.js..."
+cat > "app/(main)/consultation/actions.js" << 'VEDA_EOF'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -562,3 +577,11 @@ export async function saveDraft(encounterId) {
   await addAudit(supabase, encounterId, 'Consultation saved as draft', userData?.user?.id);
   return { success: true };
 }
+VEDA_EOF
+echo "  wrote app/(main)/consultation/actions.js"
+
+echo ""
+echo "==> Done. Next steps:"
+echo "  1. npm run build"
+echo "  2. git add -A && git commit -m \"Fix completed-consultation lookup (avoid limit+maybeSingle combo)\" && git push"
+echo "  3. Re-test: open Shriram Singla from Completed Today -- should show his real record now."
