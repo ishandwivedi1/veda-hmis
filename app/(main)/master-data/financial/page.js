@@ -13,6 +13,8 @@ import {
 
 const SERVICE_DEPTS = ['Consultation', 'Investigation'];
 const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key: 'Pharmacy', type: 'drug' }, { key: 'Packages', type: 'package' }];
+const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
+const ORIGINS = ['Indian', 'Imported'];
 
 function StatusToggle({ record, table, onUpdate }) {
   const [loading, setLoading] = useState(false);
@@ -81,7 +83,10 @@ export default function FinancialMastersPage() {
     }
 
     let result;
-    if (tabDef.type === 'package') result = await addPackage(form);
+    if (tabDef.type === 'package') {
+      const isCataract = procedures.find((p) => p.id === form.procedureId)?.category === 'Cataract';
+      result = await addPackage(isCataract ? form : { ...form, iolCategory: '', origin: '' });
+    }
     else if (tabDef.type === 'drug') result = await addDrug(form);
     else result = await addService({ ...form, dept: activeTab });
 
@@ -96,7 +101,7 @@ export default function FinancialMastersPage() {
   function startEdit(record) {
     setError(''); setSuccess('');
     setEditingId(record.id);
-    if (tabDef.type === 'package') setEditForm({ name: record.name || '', includes: record.includes || '', procedureId: record.procedure_id || '' });
+    if (tabDef.type === 'package') setEditForm({ name: record.name || '', includes: record.includes || '', procedureId: record.procedure_id || '', iolCategory: record.iol_category || '', origin: record.origin || '' });
     else if (tabDef.type === 'drug') setEditForm({ brand: record.brand || '', generic: record.generic || '', strength: record.strength || '', form: record.form || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
     else setEditForm({ name: record.name || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
   }
@@ -109,7 +114,10 @@ export default function FinancialMastersPage() {
   async function saveEdit(record) {
     setError(''); setSuccess('');
     let result;
-    if (tabDef.type === 'package') result = await updatePackage(record.id, record, editForm);
+    if (tabDef.type === 'package') {
+      const isCataract = procedures.find((p) => p.id === editForm.procedureId)?.category === 'Cataract';
+      result = await updatePackage(record.id, record, isCataract ? editForm : { ...editForm, iolCategory: '', origin: '' });
+    }
     else if (tabDef.type === 'drug') result = await updateDrug(record.id, record, editForm);
     else result = await updateService(record.id, record, { ...editForm, dept: record.dept });
     if (result?.error) { setError(result.error); return; }
@@ -217,9 +225,24 @@ export default function FinancialMastersPage() {
                     <option value="">-- Link to procedure (optional) --</option>
                     {procedures.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
+                  {(procedures.find((p) => p.id === form.procedureId)?.category === 'Cataract') && (
+                    <>
+                      <select className="fi" onChange={update('iolCategory')} defaultValue="">
+                        <option value="">-- IOL type (optional) --</option>
+                        {IOL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <select className="fi" onChange={update('origin')} defaultValue="">
+                        <option value="">-- Origin (optional) --</option>
+                        {ORIGINS.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </>
+                  )}
                   <input className="fi" placeholder="Includes (description)" style={{ gridColumn: 'span 2' }} onChange={update('includes')} />
                   <div style={{ gridColumn: 'span 2', fontSize: 11, color: 'var(--g500)' }}>
                     Code auto-generates (PKG001, PKG002...). Price is set by adding constituents after saving.
+                    {(procedures.find((p) => p.id === form.procedureId)?.category === 'Cataract') && (
+                      <> IOL type + Origin determine which packages the Counselling module shows for a given Biometry result.</>
+                    )}
                   </div>
                 </div>
               )}
@@ -300,7 +323,7 @@ export default function FinancialMastersPage() {
 
           {tabDef.type === 'package' && (
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Procedure</th><th>Price</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Procedure</th><th>IOL Type / Origin</th><th>Price</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {packages.map((p) => (
                   editingId === p.id ? (
@@ -313,6 +336,20 @@ export default function FinancialMastersPage() {
                           {procedures.map((pr) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
                         </select>
                       </td>
+                      <td>
+                        {(procedures.find((pr) => pr.id === editForm.procedureId)?.category === 'Cataract') ? (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <select className="fi fi-sm" value={editForm.iolCategory} onChange={updateEdit('iolCategory')}>
+                              <option value="">IOL type --</option>
+                              {IOL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <select className="fi fi-sm" value={editForm.origin} onChange={updateEdit('origin')}>
+                              <option value="">Origin --</option>
+                              {ORIGINS.map((o) => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          </div>
+                        ) : <span style={{ fontSize: 11, color: 'var(--g400)' }}>N/A</span>}
+                      </td>
                       <td>Rs.{p.price}</td>
                       <td><span className={`badge ${p.status === 'Active' ? 'b-green' : 'b-gray'}`}>{p.status}</span></td>
                       <td style={{ display: 'flex', gap: 4 }}>
@@ -324,6 +361,14 @@ export default function FinancialMastersPage() {
                     <tr key={p.id}>
                       <td style={{ fontFamily: 'monospace' }}>{p.code}</td><td>{p.name}</td>
                       <td style={{ fontSize: 12, color: 'var(--g500)' }}>{p.master_procedures?.name || '--'}</td>
+                      <td>
+                        {p.iol_category ? (
+                          <span style={{ display: 'flex', gap: 4 }}>
+                            <span className="badge b-purple" style={{ fontSize: 10 }}>{p.iol_category}</span>
+                            {p.origin && <span className={`badge ${p.origin === 'Imported' ? 'b-blue' : 'b-green'}`} style={{ fontSize: 10 }}>{p.origin}</span>}
+                          </span>
+                        ) : <span style={{ fontSize: 11, color: 'var(--g400)' }}>--</span>}
+                      </td>
                       <td style={{ fontWeight: 600 }}>Rs.{p.price}</td>
                       <td><StatusToggle record={p} table="master_packages" onUpdate={refresh} /></td>
                       <td style={{ display: 'flex', gap: 4 }}>
@@ -335,7 +380,7 @@ export default function FinancialMastersPage() {
                   )
                 ))}
                 {packages.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No packages yet.</td></tr>
+                  <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No packages yet.</td></tr>
                 )}
               </tbody>
             </table>

@@ -254,6 +254,7 @@ export async function addPackage(values) {
   const { data: newPackage, error } = await supabase.from('master_packages').insert({
     code, name, price: 0, includes: values.includes ? normalizeName(values.includes) : null,
     procedure_id: values.procedureId || null, status: 'Active',
+    iol_category: values.iolCategory || null, origin: values.origin || null,
   }).select().single();
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_packages', code, 'Create', `${name} created`);
@@ -265,11 +266,14 @@ export async function updatePackage(id, oldValues, values) {
   const includes = values.includes ? normalizeName(values.includes) : values.includes;
   const { error } = await supabase.from('master_packages').update({
     name, includes, procedure_id: values.procedureId || null,
+    iol_category: values.iolCategory || null, origin: values.origin || null,
   }).eq('id', id);
   if (error) return { error: error.message };
   const changes = [];
   if (oldValues.name !== name) changes.push(`Name ${oldValues.name} -> ${name}`);
   if (oldValues.includes !== includes) changes.push('Includes updated');
+  if ((oldValues.iol_category || '') !== (values.iolCategory || '')) changes.push(`IOL type ${oldValues.iol_category || '--'} -> ${values.iolCategory || '--'}`);
+  if ((oldValues.origin || '') !== (values.origin || '')) changes.push(`Origin ${oldValues.origin || '--'} -> ${values.origin || '--'}`);
   await logMasterAudit(supabase, 'master_packages', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
   return { success: true };
 }
