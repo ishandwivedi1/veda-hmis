@@ -222,16 +222,17 @@ export default function ClinicalMastersPage() {
               <i className="ti ti-info-circle"></i> Reference list only -- the same record used everywhere a doctor is selected (Appointments, Visits, Surgery). To onboard a new doctor or change their name, use User Management (it's tied to their login); status set here (Active/Inactive) is the same status shown there.
             </div>
             <table className="tbl">
-              <thead><tr><th>Name</th><th>Designation</th><th>Status</th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Designation</th><th>Status</th></tr></thead>
               <tbody>
                 {doctors.map((d) => (
                   <tr key={d.id}>
+                    <td>{d.code}</td>
                     <td style={{ fontWeight: 600 }}>{d.full_name}</td><td>{d.designation}</td>
                     <td><StatusToggle record={d} table="profiles" onUpdate={refresh} codeField="full_name" /></td>
                   </tr>
                 ))}
                 {doctors.length === 0 && (
-                  <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No doctor profiles found. Create one in User Management.</td></tr>
+                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No doctor profiles found. Create one in User Management.</td></tr>
                 )}
               </tbody>
             </table>
@@ -483,3 +484,4 @@ export default function ClinicalMastersPage() {
     </div>
   );
 }
+

@@ -227,10 +227,25 @@ export async function getDoctorsMaster() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('profiles')
-    .select('id, full_name, designation, status')
+    .select('id, code, full_name, designation, status')
     .or('designation.ilike.%ophthalmologist%,designation.ilike.%doctor%')
     .order('full_name');
-  return data || [];
+  const doctors = data || [];
+
+  // Self-heal: any doctor profile created via User Management since this
+  // was added (or missed by the one-time backfill) won't have a code yet.
+  // Assign the next one in the same uniform DOC01, DOC02... sequence used
+  // everywhere else in Clinical Masters, rather than anything category- or
+  // designation-specific.
+  const missing = doctors.filter((d) => !d.code);
+  for (const d of missing) {
+    // Re-queried fresh each time so each new code accounts for the one
+    // just assigned above it.
+    const code = await generateCategoryCode(supabase, 'profiles', 'DOC');
+    const { error } = await supabase.from('profiles').update({ code }).eq('id', d.id);
+    if (!error) d.code = code;
+  }
+  return doctors;
 }
 
 // ── SERVICES ──
@@ -465,7 +480,7 @@ export async function addDiagnosisMaster(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
   const category = normalizeName(values.category);
-  const code = await generateCategoryCode(supabase, 'master_diagnoses', category);
+  const code = await generateCategoryCode(supabase, 'master_diagnoses', 'DIAG');
   const { error } = await supabase.from('master_diagnoses').insert({ code, name, category, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_diagnoses', code, 'Create', `${name} created`);
@@ -501,7 +516,7 @@ export async function addIolCatalogItem(values) {
   const brand = normalizeName(values.brand);
   const model = normalizeName(values.model);
   const manufacturer = normalizeName(values.manufacturer);
-  const code = await generateCategoryCode(supabase, 'master_iol_catalog', values.category);
+  const code = await generateCategoryCode(supabase, 'master_iol_catalog', 'IOL');
   const { error } = await supabase.from('master_iol_catalog').insert({
     code, brand, model, manufacturer, category: values.category, status: 'Active',
   });
@@ -546,3 +561,4 @@ export async function getActiveIolCatalog() {
 // lives in master_services where dept = 'Investigation'. Consolidated
 // into Financial Masters (Migration 48) to avoid the same item ever
 // having two different prices in two different places.
+
