@@ -95,6 +95,7 @@ export default function InvestigationPage() {
                 </div>
                 <span className={`badge ${PRIORITY_BADGE[item.priority] || 'b-gray'}`}>{item.priority}</span>
                 <span className={`badge ${item.status === 'In Progress' ? 'b-blue' : 'b-amber'}`}>{item.status}</span>
+                <span className={`badge ${item.payment?.badge || 'b-gray'}`}>{item.payment?.label || 'Unbilled'}</span>
                 <button className="btn btn-sm btn-primary"><i className="ti ti-flask"></i> Open</button>
               </div>
             );

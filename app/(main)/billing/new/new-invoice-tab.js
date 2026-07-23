@@ -252,7 +252,7 @@ export default function NewInvoiceTab() {
     const details = await getInvoiceById(created.invoice.id);
 
     const billedInvOrderIds = draftLines.map((l) => l.sourceInvOrderId).filter(Boolean);
-    if (billedInvOrderIds.length > 0) await markInvestigationOrdersBilled(billedInvOrderIds);
+    if (billedInvOrderIds.length > 0) await markInvestigationOrdersBilled(billedInvOrderIds, created.invoice.id);
 
     const billedRxIds = draftLines.map((l) => l.sourceRxId).filter(Boolean);
     if (billedRxIds.length > 0) await markPrescriptionsBilled(billedRxIds);

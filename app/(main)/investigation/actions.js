@@ -16,6 +16,23 @@ export async function getInvestigationQueue() {
 
   if (error) return { groups: [], stats: { ordered: 0, inProgress: 0, availableToday: 0, totalToday: 0 } };
 
+  // Payment status is about the invoice, not just whether Front Office
+  // ticked "billed" -- an invoice can be raised and still unpaid, so
+  // this looks at the actual invoice net/paid amounts.
+  const invoiceIds = [...new Set((pending || []).map((io) => io.invoice_id).filter(Boolean))];
+  let invoiceMap = {};
+  if (invoiceIds.length > 0) {
+    const { data: invoices } = await supabase.from('invoices').select('id, net, paid, status').in('id', invoiceIds);
+    (invoices || []).forEach((inv) => { invoiceMap[inv.id] = inv; });
+  }
+  function paymentInfo(io) {
+    if (io.billing_status !== 'Billed' || !io.invoice_id) return { label: 'Unbilled', badge: 'b-gray' };
+    const inv = invoiceMap[io.invoice_id];
+    if (!inv || inv.status === 'Cancelled') return { label: 'Unbilled', badge: 'b-gray' };
+    if (inv.status === 'Paid' || Number(inv.paid) >= Number(inv.net)) return { label: 'Paid', badge: 'b-green' };
+    return { label: 'Billed -- Payment Due', badge: 'b-amber' };
+  }
+
   const groups = {};
   (pending || []).forEach((io) => {
     const visitId = io.encounters?.visit_id;
@@ -23,7 +40,7 @@ export async function getInvestigationQueue() {
     if (!groups[visitId]) {
       groups[visitId] = { visitId, patient: io.encounters.visits.patients, items: [] };
     }
-    groups[visitId].items.push(io);
+    groups[visitId].items.push({ ...io, payment: paymentInfo(io) });
   });
 
   const ordered = (pending || []).filter((i) => i.status === 'Ordered').length;
@@ -41,6 +58,7 @@ export async function getInvestigationQueue() {
 
   return { groups: Object.values(groups), stats: { ordered, inProgress, availableToday, totalToday } };
 }
+
 
 // ── WORKSPACE: single order detail, with patient/doctor context ──
 export async function getInvestigationDetail(id) {

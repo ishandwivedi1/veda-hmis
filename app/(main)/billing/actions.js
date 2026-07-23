@@ -150,9 +150,9 @@ export async function getInvestigationOrdersForBilling(ids) {
 
 // Called once the invoice carrying these investigations is actually
 // saved (finalized or draft) -- flips them out of the Front Office
-// queue. Line items the front desk removed before saving are never
-// passed in here, so they correctly stay Pending.
-export async function markInvestigationOrdersBilled(ids) {
+// queue and remembers which invoice they landed on, so the Queue can
+// show real payment status rather than just "billed".
+export async function markInvestigationOrdersBilled(ids, invoiceId) {
   const supabase = await createClient();
   if (!ids || ids.length === 0) return { success: true };
   const { data: userData } = await supabase.auth.getUser();
@@ -161,6 +161,7 @@ export async function markInvestigationOrdersBilled(ids) {
     .update({
       billing_status: 'Billed',
       billed: true,
+      invoice_id: invoiceId || null,
       billing_updated_by: userData?.user?.id || null,
       billing_updated_at: new Date().toISOString(),
     })
