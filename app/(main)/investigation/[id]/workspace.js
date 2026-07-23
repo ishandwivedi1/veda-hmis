@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   getInvestigationDetail, startInvestigation, saveInvestigationDraft,
   completeInvestigation, verifyInvestigation, markUnableToPerform,
@@ -110,6 +110,8 @@ export default function InvestigationWorkspace({ orderId }) {
   const [okMsg, setOkMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const viewOnly = searchParams.get('mode') === 'view';
 
   useEffect(() => {
     getInvestigationDetail(orderId).then((result) => {
@@ -195,7 +197,7 @@ export default function InvestigationWorkspace({ orderId }) {
 
   const isCancelled = order.status === 'Cancelled';
   const isAvailable = order.status === 'Available';
-  const canEdit = !isCancelled && !isAvailable;
+  const canEdit = !viewOnly && !isCancelled && !isAvailable;
 
   return (
     <div>
@@ -213,6 +215,7 @@ export default function InvestigationWorkspace({ orderId }) {
           <span className={`badge ${order.status === 'Available' ? 'b-green' : order.status === 'Cancelled' ? 'b-red' : order.status === 'Completed' ? 'b-teal' : order.status === 'In Progress' ? 'b-blue' : 'b-amber'}`} style={{ fontSize: 10, marginTop: 3 }}>
             {order.status}
           </span>
+          {viewOnly && <span className="badge b-purple" style={{ fontSize: 10, marginTop: 3, marginLeft: 4 }}><i className="ti ti-eye"></i> Read-only</span>}
         </div>
       </div>
 
@@ -260,7 +263,7 @@ export default function InvestigationWorkspace({ orderId }) {
               <textarea className="fi fi-sm" rows={3} value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={!canEdit} placeholder="e.g. Poor fixation due to dense cataract. Scan quality: Good. Signal strength 7/10..." />
             </div>
 
-            {(order.status === 'Completed') && (
+            {!viewOnly && (order.status === 'Completed') && (
               <div className="card" style={{ marginBottom: 12 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-shield-check" style={{ color: 'var(--green)' }}></i> Verification</div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Verification confirms technical completeness -- not clinical interpretation.</div>
@@ -273,42 +276,50 @@ export default function InvestigationWorkspace({ orderId }) {
               </div>
             )}
 
-            <div className="card" style={{ marginBottom: 0 }}>
-              <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-arrows-right" style={{ color: 'var(--teal)' }}></i> Workflow Controls</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {order.status === 'Ordered' && (
-                  <button className="btn btn-sm" style={{ background: 'var(--teal)', color: '#fff', border: 'none' }} onClick={handleStart} disabled={saving}>
-                    <i className="ti ti-play"></i> Start Investigation
-                  </button>
-                )}
-                {order.status === 'In Progress' && (
-                  <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={handleComplete} disabled={saving}>
-                    <i className="ti ti-check"></i> Mark Complete
-                  </button>
-                )}
-                {order.status === 'Completed' && (
-                  <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={handleVerify} disabled={saving}>
-                    <i className="ti ti-shield-check"></i> Verify &amp; Release
-                  </button>
-                )}
-                {canEdit && (
-                  <button className="btn btn-sm" onClick={handleSaveDraft} disabled={saving}>
-                    <i className="ti ti-device-floppy"></i> Save Draft
-                  </button>
-                )}
-                {canEdit && (
-                  <button className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', border: 'none' }} onClick={handleUnable} disabled={saving}>
-                    <i className="ti ti-x-circle"></i> Unable to Perform
-                  </button>
-                )}
-                <button className="btn btn-sm" onClick={() => router.push('/investigation')}>
-                  <i className="ti ti-arrow-left"></i> Back to Queue
-                </button>
+            {viewOnly ? (
+              <div className="card" style={{ marginBottom: 0, textAlign: 'center', color: 'var(--g400)', fontSize: 12 }}>
+                <i className="ti ti-lock" style={{ display: 'block', fontSize: 18, marginBottom: 4 }}></i>
+                Read-only view -- close this tab to return to Consultation.
               </div>
-            </div>
+            ) : (
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-arrows-right" style={{ color: 'var(--teal)' }}></i> Workflow Controls</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {order.status === 'Ordered' && (
+                    <button className="btn btn-sm" style={{ background: 'var(--teal)', color: '#fff', border: 'none' }} onClick={handleStart} disabled={saving}>
+                      <i className="ti ti-play"></i> Start Investigation
+                    </button>
+                  )}
+                  {order.status === 'In Progress' && (
+                    <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={handleComplete} disabled={saving}>
+                      <i className="ti ti-check"></i> Mark Complete
+                    </button>
+                  )}
+                  {order.status === 'Completed' && (
+                    <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={handleVerify} disabled={saving}>
+                      <i className="ti ti-shield-check"></i> Verify &amp; Release
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button className="btn btn-sm" onClick={handleSaveDraft} disabled={saving}>
+                      <i className="ti ti-device-floppy"></i> Save Draft
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', border: 'none' }} onClick={handleUnable} disabled={saving}>
+                      <i className="ti ti-x-circle"></i> Unable to Perform
+                    </button>
+                  )}
+                  <button className="btn btn-sm" onClick={() => router.push('/investigation')}>
+                    <i className="ti ti-arrow-left"></i> Back to Queue
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 }
+
