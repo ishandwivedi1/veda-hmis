@@ -5,47 +5,37 @@ import { createClient } from '@/lib/supabase-server';
 const MEAS_FIELDS = ['axl', 'k1', 'k2', 'acd', 'lt', 'wtw'];
 const REQUIRED_FIELDS = ['axl', 'k1', 'k2', 'acd'];
 
-// ── QUEUE: real queue_entries with status = 'Awaiting Biometry' (set by
-// Consultation's "Send for Biometry"), matched against any existing
-// biometry_records for that visit so a patient shows the right stage
-// even after a record's been started but not yet approved. ──
+// ── QUEUE ──
+// Reads biometry_records directly (not queue_entries.status), same
+// architecture as the Investigation Queue. This is deliberate: if it
+// depended on queue_entries.status, sending a patient for both an
+// investigation and Biometry in the same consultation would risk one
+// overwriting the other and the patient silently vanishing from this
+// screen. Reading the record itself means it always shows up here
+// regardless of whatever else the patient's front-desk status says.
 export async function getBiometryQueue() {
   const supabase = await createClient();
 
-  const { data: entries, error } = await supabase
-    .from('queue_entries')
+  const { data: records, error } = await supabase
+    .from('biometry_records')
     .select('*, visits(id, doctor_id, patients(first_name, last_name, uhid))')
-    .eq('status', 'Awaiting Biometry')
-    .order('issued_at', { ascending: true });
+    .in('status', ['Awaiting Biometry', 'Measured', 'Calculated'])
+    .order('created_at', { ascending: true });
 
   if (error) return { rows: [], stats: { awaiting: 0, measured: 0, calculated: 0, approvedToday: 0 } };
 
-  const visitIds = (entries || []).map((e) => e.visits?.id).filter(Boolean);
-
-  let recordsByVisit = {};
-  if (visitIds.length > 0) {
-    const { data: records } = await supabase
-      .from('biometry_records')
-      .select('*')
-      .in('visit_id', visitIds)
-      .in('status', ['Awaiting Biometry', 'Measured', 'Calculated', 'Approved']);
-    (records || []).forEach((r) => { recordsByVisit[r.visit_id] = r; });
-  }
-
-  const rows = (entries || []).map((e) => {
-    const record = recordsByVisit[e.visits?.id];
-    return {
-      queueEntryId: e.id,
-      visitId: e.visits?.id,
-      encounterId: null,
-      doctorId: e.visits?.doctor_id,
-      patient: e.visits?.patients,
-      recordId: record?.id || null,
-      status: record?.status || 'Awaiting Biometry',
-      procedureName: record?.procedure_name || null,
-      surgicalEye: record?.surgical_eye || null,
-    };
-  });
+  const rows = (records || [])
+    .filter((r) => r.visits)
+    .map((r) => ({
+      recordId: r.id,
+      visitId: r.visit_id,
+      encounterId: r.encounter_id,
+      doctorId: r.visits?.doctor_id,
+      patient: r.visits?.patients,
+      status: r.status,
+      procedureName: r.procedure_name,
+      surgicalEye: r.surgical_eye,
+    }));
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);

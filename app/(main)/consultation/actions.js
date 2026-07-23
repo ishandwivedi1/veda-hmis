@@ -126,7 +126,7 @@ export async function getConsultationData(queueEntryId) {
     // Biometry gets its own dedicated section in Diagnosis & Plan (not
     // folded into Investigations) -- same reasoning as its own
     // Financial Masters department: it's structurally its own thing.
-    supabase.from('biometry_records').select('id, status, surgical_eye').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('biometry_records').select('id, status, surgical_eye, doctor_instructions').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -560,6 +560,49 @@ export async function sendForInvestigationFromConsultation(queueEntryId, encount
   return result;
 }
 
+// Shared by both the "Add" button (advises Biometry without moving the
+// patient anywhere yet) and "Send for Biometry" (which also routes the
+// queue) -- creates the record if none exists yet, or updates the
+// eye/instructions on the existing one rather than duplicating it.
+async function ensureBiometryRecord(supabase, visitId, encounterId, eye, instructions) {
+  const { data: existing } = await supabase
+    .from('biometry_records')
+    .select('id')
+    .eq('visit_id', visitId)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (!existing || existing.length === 0) {
+    const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
+    const { data: created } = await supabase.from('biometry_records').insert({
+      visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null,
+      surgical_eye: eye || null, doctor_instructions: instructions?.trim() || null,
+    }).select('id').single();
+    return created?.id;
+  }
+
+  await supabase.from('biometry_records').update({
+    surgical_eye: eye || null, doctor_instructions: instructions?.trim() || null,
+  }).eq('id', existing[0].id);
+  return existing[0].id;
+}
+
+// The "Add" step -- advises Biometry is needed (records eye + optional
+// instructions) without moving the patient's queue position at all.
+// Mirrors exactly how Investigations work: "Add" saves the order,
+// "Send for Investigation" is a separate, later action that routes the
+// patient. Shows up immediately in the Investigation Queue's merged
+// Biometry view either way, since that doesn't depend on queue status.
+export async function adviseBiometry(visitId, encounterId, eye, instructions) {
+  const supabase = await createClient();
+  if (!eye) return { error: 'Select which eye Biometry is required for.' };
+  const { data: userData } = await supabase.auth.getUser();
+  await ensureBiometryRecord(supabase, visitId, encounterId, eye, instructions);
+  await addAudit(supabase, encounterId, `Biometry advised (${eye})`, userData?.user?.id);
+  return { success: true };
+}
+
 export async function sendForBiometryFromConsultation(queueEntryId, encounterId, eye, instructions) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
@@ -567,35 +610,8 @@ export async function sendForBiometryFromConsultation(queueEntryId, encounterId,
   if (result.error) return result;
   await addAudit(supabase, encounterId, `Sent for Biometry (${eye})`, userData?.user?.id);
 
-  // Same stub-creation as Counselling's sendForBiometry, so it shows up
-  // immediately in the Investigation Queue / Biometry Queue rather than
-  // only after a technician opens it.
   const { data: entry } = await supabase.from('queue_entries').select('visit_id').eq('id', queueEntryId).single();
-  const visitId = entry?.visit_id;
-  if (visitId) {
-    const { data: existing } = await supabase
-      .from('biometry_records')
-      .select('id')
-      .eq('visit_id', visitId)
-      .neq('status', 'Cancelled')
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (!existing || existing.length === 0) {
-      const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
-      await supabase.from('biometry_records').insert({
-        visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null,
-        surgical_eye: eye || null, doctor_instructions: instructions?.trim() || null,
-      });
-    } else {
-      // Record already existed (e.g. re-confirming the eye/instructions
-      // before the technician has picked it up) -- update it in place
-      // rather than creating a duplicate.
-      await supabase.from('biometry_records').update({
-        surgical_eye: eye || null, doctor_instructions: instructions?.trim() || null,
-      }).eq('id', existing[0].id);
-    }
-  }
+  if (entry?.visit_id) await ensureBiometryRecord(supabase, entry.visit_id, encounterId, eye, instructions);
 
   return result;
 }

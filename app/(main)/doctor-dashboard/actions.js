@@ -18,7 +18,12 @@ export async function getDoctorDashboardData() {
       .from('queue_entries')
       .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
       .eq('department', 'Doctor')
-      .in('status', ['Awaiting Dilation', 'Awaiting Investigation', 'Awaiting Biometry'])
+      // .in() only matches exact values -- a patient sent out for more
+      // than one thing at once gets a compound status like "Awaiting
+      // Investigation & Biometry" (see doctorSendOut), so this needs to
+      // catch any status containing one of these rather than an exact
+      // match.
+      .or('status.ilike.%Dilation%,status.ilike.%Investigation%,status.ilike.%Biometry%')
       .gte('issued_at', today)
       .order('sent_out_at', { ascending: true }),
     supabase

@@ -155,7 +155,11 @@ export default function QueuePage() {
           {doctor
             .filter((e) => e.id !== doctorInConsultation?.id)
             .map((e) => {
-              const notAvailable = e.status === 'Awaiting Dilation' || e.status === 'Awaiting Investigation';
+              // startsWith('Awaiting') catches every sent-out destination,
+              // including compound statuses like "Awaiting Investigation &
+              // Biometry" when a patient's been sent for more than one
+              // thing at once -- an exact-match list would miss those.
+              const notAvailable = e.status?.startsWith('Awaiting');
               const since = notAvailable ? e.sent_out_at : e.issued_at;
               return (
                 <div
@@ -200,4 +204,5 @@ export default function QueuePage() {
     </div>
   );
 }
+
 

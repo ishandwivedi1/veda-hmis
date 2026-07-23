@@ -102,9 +102,33 @@ export async function doctorComplete(id) {
   return { success: true };
 }
 
+// Order matters for a stable, predictable compound string regardless
+// of which button the doctor clicked first/second.
+const SENDOUT_ORDER = ['Dilation', 'Investigation', 'Biometry'];
+
 export async function doctorSendOut(id, kind) {
   const supabase = await createClient();
-  const status = kind === 'dilate' ? 'Awaiting Dilation' : kind === 'biometry' ? 'Awaiting Biometry' : 'Awaiting Investigation';
+  const newLabel = kind === 'dilate' ? 'Dilation' : kind === 'biometry' ? 'Biometry' : 'Investigation';
+
+  // A patient can genuinely need to go two places at once (e.g. sent
+  // for an OCT and for Biometry in the same consultation) -- a single
+  // status field can't hold two independent statuses, so rather than
+  // the second "Send" silently overwriting the first and making the
+  // patient vanish from that queue's tracking, combine them into one
+  // compound status ("Awaiting Investigation & Biometry"). Each
+  // destination's own queue (Investigation, Biometry) doesn't actually
+  // depend on this field at all -- it's only used for the doctor's
+  // "who's out and where" tracker and Front Office's availability flag,
+  // so a compound label there is enough; nothing needs to parse it back
+  // into a single value.
+  const { data: current } = await supabase.from('queue_entries').select('status').eq('id', id).single();
+  const existingLabels = (current?.status || '').startsWith('Awaiting')
+    ? current.status.replace('Awaiting ', '').split(' & ')
+    : [];
+  const combined = new Set(existingLabels.filter((l) => SENDOUT_ORDER.includes(l)));
+  combined.add(newLabel);
+  const status = 'Awaiting ' + SENDOUT_ORDER.filter((l) => combined.has(l)).join(' & ');
+
   const { error } = await supabase
     .from('queue_entries')
     .update({ status, sent_out_at: new Date().toISOString() })
@@ -124,4 +148,5 @@ export async function doctorMarkReady(id) {
   if (error) return { error: error.message };
   return { success: true };
 }
+
 

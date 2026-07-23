@@ -15,6 +15,7 @@ import {
   sendForDilationFromConsultation,
   sendForInvestigationFromConsultation,
   sendForBiometryFromConsultation,
+  adviseBiometry,
   completeWorkflowRequest,
   addOpticalAdvice,
   removeOpticalAdvice,
@@ -201,7 +202,19 @@ export default function ConsultationForm({ queueEntryId }) {
       setFuInstructions(data.followup.instructions || '');
       setFuSaved(true);
     }
+    if (data.biometryRecord) {
+      setBioEye(data.biometryRecord.surgical_eye || '');
+      setBioInstructions(data.biometryRecord.doctor_instructions || '');
+    }
   }, [data]);
+
+  async function handleAdviseBiometry() {
+    setError('');
+    if (!bioEye) { setError('Select which eye Biometry is required for.'); return; }
+    const result = await adviseBiometry(data.entry.visits.id, data.encounter.id, bioEye, bioInstructions);
+    if (result.error) { setError(result.error); return; }
+    refresh();
+  }
 
   async function handleAddDiagnosis() {
     setError('');
@@ -370,6 +383,10 @@ export default function ConsultationForm({ queueEntryId }) {
   ];
 
   const isReadOnly = data.isLocked && !unlocked;
+  // Already routed to the technician if the current queue status
+  // mentions Biometry (including compound statuses like "Awaiting
+  // Investigation & Biometry" -- see doctorSendOut).
+  const bioSent = data.entry?.status?.includes('Biometry') || false;
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
@@ -504,8 +521,10 @@ export default function ConsultationForm({ queueEntryId }) {
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
                   Device measurements, IOL power calculation, and surgeon approval -- its own dedicated workflow, separate from lab investigations.
                 </div>
-                {data.biometryRecord ? (
+
+                {bioSent ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span className="badge b-green"><i className="ti ti-check"></i> Sent</span>
                     <span className={`badge ${data.biometryRecord.status === 'Approved' ? 'b-green' : data.biometryRecord.status === 'Calculated' ? 'b-purple' : data.biometryRecord.status === 'Measured' ? 'b-blue' : 'b-amber'}`}>
                       {data.biometryRecord.status}
                     </span>
@@ -515,24 +534,35 @@ export default function ConsultationForm({ queueEntryId }) {
                     </a>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                    <div>
-                      <label className="flbl">Eye required</label>
-                      <select className="fi" style={{ width: 90 }} value={bioEye} onChange={(e) => setBioEye(e.target.value)}>
-                        <option value="">Select</option>
-                        <option value="RE">RE</option>
-                        <option value="LE">LE</option>
-                      </select>
+                  <>
+                    {data.biometryRecord && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                        <span className="badge b-indigo"><i className="ti ti-check"></i> Advised -- {data.biometryRecord.surgical_eye}</span>
+                        <span style={{ fontSize: 11, color: 'var(--g500)' }}>Adjust below if needed, then use &quot;Send for Biometry&quot; at the bottom.</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                      <div>
+                        <label className="flbl">Eye required</label>
+                        <select className="fi" style={{ width: 90 }} value={bioEye} onChange={(e) => setBioEye(e.target.value)}>
+                          <option value="">Select</option>
+                          <option value="RE">RE</option>
+                          <option value="LE">LE</option>
+                        </select>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <label className="flbl">Instructions for technician (optional)</label>
+                        <input className="fi" placeholder="e.g. prior RK surgery, use formula X" value={bioInstructions} onChange={(e) => setBioInstructions(e.target.value)} />
+                      </div>
+                      <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAdviseBiometry}>
+                        {data.biometryRecord ? 'Update' : 'Add'}
+                      </button>
                     </div>
-                    <div style={{ flex: 1, minWidth: 200 }}>
-                      <label className="flbl">Instructions for technician (optional)</label>
-                      <input className="fi" placeholder="e.g. prior RK surgery, use formula X" value={bioInstructions} onChange={(e) => setBioInstructions(e.target.value)} />
+                    <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 8 }}>
+                      Adding here records the advice -- use &quot;Send for Biometry&quot; below when you&apos;re ready to actually route the patient.
                     </div>
-                  </div>
+                  </>
                 )}
-                <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 8 }}>
-                  {!data.biometryRecord && 'Use the "Send for Biometry" button below to send this patient once the eye is confirmed.'}
-                </div>
               </div>
 
               <GroupHeader num={3} color="var(--teal)" title="Diagnosis" />
@@ -797,7 +827,7 @@ export default function ConsultationForm({ queueEntryId }) {
             <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
               Send for Investigation
             </button>
-            {!data.biometryRecord && (
+            {!bioSent && (
               <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
                 <i className="ti ti-ruler-measure"></i> Send for Biometry
               </button>

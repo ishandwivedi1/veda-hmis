@@ -42,7 +42,7 @@ export default function BiometryQueuePage() {
       router.push(`/biometry/${row.recordId}`);
       return;
     }
-    setOpeningId(row.queueEntryId);
+    setOpeningId(row.recordId);
     const result = await getOrCreateBiometryRecord(row.visitId, row.encounterId);
     setOpeningId(null);
     if (result.error) { setError(result.error); return; }
@@ -72,7 +72,7 @@ export default function BiometryQueuePage() {
           </button>
         </div>
         {rows.map((row) => (
-          <div key={row.queueEntryId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
+          <div key={row.recordId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
             <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--indigo)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
               {row.patient?.first_name?.charAt(0) || '?'}
             </div>
@@ -83,8 +83,8 @@ export default function BiometryQueuePage() {
                 {row.patient?.uhid}{row.procedureName ? ` -- ${row.procedureName}` : ''}{row.surgicalEye ? ` ${row.surgicalEye}` : ''}
               </div>
             </div>
-            <button className="btn btn-sm btn-primary" onClick={() => handleOpen(row)} disabled={openingId === row.queueEntryId}>
-              <i className={`ti ${row.status === 'Approved' ? 'ti-eye' : 'ti-ruler-measure'}`}></i> {openingId === row.queueEntryId ? 'Opening...' : row.status === 'Approved' ? 'View' : 'Measure'}
+            <button className="btn btn-sm btn-primary" onClick={() => handleOpen(row)} disabled={openingId === row.recordId}>
+              <i className={`ti ${row.status === 'Approved' ? 'ti-eye' : 'ti-ruler-measure'}`}></i> {openingId === row.recordId ? 'Opening...' : row.status === 'Approved' ? 'View' : 'Measure'}
             </button>
           </div>
         ))}
@@ -98,3 +98,4 @@ export default function BiometryQueuePage() {
     </div>
   );
 }
+
