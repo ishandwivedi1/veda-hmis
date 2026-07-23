@@ -198,13 +198,20 @@ export async function resetInvestigationBilling(id) {
 // happens client-side (patient/type dropdowns) since a single-hospital
 // dataset is small enough that a broad fetch is simpler and fast enough,
 // same approach the rest of this module already takes.
-export async function getInvestigationHistory() {
+export async function getInvestigationHistory(fromDate, toDate) {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from('investigation_orders')
     .select('*, encounters(id, visit_id, doctor_id, visits(id, visit_number, patients(id, first_name, last_name, uhid)))')
     .order('created_at', { ascending: false })
     .limit(500);
+
+  // Applied before the row cap so a date range reaches further back
+  // than the default "most recent 500" would otherwise allow.
+  if (fromDate) query = query.gte('created_at', `${fromDate}T00:00:00`);
+  if (toDate) query = query.lte('created_at', `${toDate}T23:59:59`);
+
+  const { data, error } = await query;
   if (error) return { error: error.message };
 
   const doctorIds = (data || []).map((o) => o.encounters?.doctor_id).filter(Boolean);
