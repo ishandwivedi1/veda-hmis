@@ -16,6 +16,8 @@ import {
   markInvestigationOrdersBilled,
   getPrescriptionsForBilling,
   markPrescriptionsBilled,
+  getBiometryForBilling,
+  markBiometryBilled,
 } from '../actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Surgery', 'Pharmacy'];
@@ -64,14 +66,17 @@ export default function NewInvoiceTab() {
   const [todaysVisits, setTodaysVisits] = useState([]);
   const [unmatchedInvestigations, setUnmatchedInvestigations] = useState([]);
   const [unmatchedPrescriptions, setUnmatchedPrescriptions] = useState([]);
+  const [unmatchedBiometry, setUnmatchedBiometry] = useState([]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlVisitId = searchParams.get('visitId');
   const urlInvOrderIds = searchParams.get('invOrderIds');
   const urlRxIds = searchParams.get('rxIds');
+  const urlBioIds = searchParams.get('bioIds');
   const contextLoadedFor = useRef(null);
   const invOrdersLoadedFor = useRef(null);
   const rxLoadedFor = useRef(null);
+  const bioLoadedFor = useRef(null);
 
   useEffect(() => {
     getServiceCatalog().then(setCatalog);
@@ -157,6 +162,38 @@ export default function NewInvoiceTab() {
       ]);
     })();
   }, [urlRxIds, contextPatient]);
+
+  // Prefill from Front Office's "Biometry" widget -- always exactly one
+  // fixed-price line, no name-matching needed.
+  useEffect(() => {
+    if (!urlBioIds || !contextPatient) return;
+    if (bioLoadedFor.current === urlBioIds) return;
+    bioLoadedFor.current = urlBioIds;
+    (async () => {
+      const ids = urlBioIds.split(',').filter(Boolean);
+      const result = await getBiometryForBilling(ids);
+      if (result.error) { setError(result.error); return; }
+
+      const matched = (result.items || []).filter((i) => i.matched);
+      const unmatched = (result.items || []).filter((i) => !i.matched);
+      setUnmatchedBiometry(unmatched);
+
+      setDraftLines((prev) => [
+        ...prev,
+        ...matched.map((i) => {
+          const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
+          return {
+            tempId: nextTempId.current++,
+            sourceBioId: i.bioId,
+            serviceCode: i.serviceCode, serviceName: i.name, dept: 'Investigation',
+            qty: 1, rate: i.rate, gstPct: i.gstPct,
+            discType: 'none', discValue: 0, discReason: '',
+            ...computed,
+          };
+        }),
+      ]);
+    })();
+  }, [urlBioIds, contextPatient]);
 
   const servicesForDept = catalog.filter((s) => s.dept === dept);
 
@@ -257,6 +294,9 @@ export default function NewInvoiceTab() {
     const billedRxIds = draftLines.map((l) => l.sourceRxId).filter(Boolean);
     if (billedRxIds.length > 0) await markPrescriptionsBilled(billedRxIds);
 
+    const billedBioIds = draftLines.map((l) => l.sourceBioId).filter(Boolean);
+    if (billedBioIds.length > 0) await markBiometryBilled(billedBioIds, created.invoice.id);
+
     setSubmitting(false);
     return details.invoice;
   }
@@ -286,9 +326,11 @@ export default function NewInvoiceTab() {
     setDraftLines([]);
     setUnmatchedInvestigations([]);
     setUnmatchedPrescriptions([]);
+    setUnmatchedBiometry([]);
     contextLoadedFor.current = null;
     invOrdersLoadedFor.current = null;
     rxLoadedFor.current = null;
+    bioLoadedFor.current = null;
     router.push('/billing/new');
   }
 
@@ -338,6 +380,11 @@ export default function NewInvoiceTab() {
             {unmatchedPrescriptions.length > 0 && (
               <div className="msg-err" style={{ fontSize: 12, marginBottom: 12 }}>
                 <i className="ti ti-alert-triangle"></i> {unmatchedPrescriptions.length} prescribed medicine{unmatchedPrescriptions.length > 1 ? 's' : ''} couldn&apos;t be matched to a priced drug and weren&apos;t added automatically -- add manually below: {unmatchedPrescriptions.map((i) => i.name).join(', ')}
+              </div>
+            )}
+            {unmatchedBiometry.length > 0 && (
+              <div className="msg-err" style={{ fontSize: 12, marginBottom: 12 }}>
+                <i className="ti ti-alert-triangle"></i> No active "Biometry" service found in Financial Masters -- add the charge manually below.
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16 }}>
@@ -399,7 +446,7 @@ export default function NewInvoiceTab() {
               <tbody>
                 {draftLines.map((li) => (
                   <tr key={li.tempId}>
-                    <td>{li.serviceName}{(li.sourceInvOrderId || li.sourceRxId) && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
+                    <td>{li.serviceName}{(li.sourceInvOrderId || li.sourceRxId || li.sourceBioId) && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
                     <td>{li.qty}</td>
                     <td>Rs.{li.rate}</td>
                     <td>{li.disc > 0 ? `Rs.${li.disc}` : '--'}</td>

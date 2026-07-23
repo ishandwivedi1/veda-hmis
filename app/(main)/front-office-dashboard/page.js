@@ -4,6 +4,7 @@ import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
 import InvestigationsBillingWidget from './investigations-billing-widget';
 import PharmacyBillingWidget from './pharmacy-billing-widget';
+import BiometryBillingWidget from './biometry-billing-widget';
 
 function elapsedMin(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -242,6 +243,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
         <div>
           <InvestigationsBillingWidget />
           <PharmacyBillingWidget />
+          <BiometryBillingWidget />
 
           {/* VISIT TYPE BREAKDOWN */}
           <div className="card" style={{ marginBottom: 16 }}>

@@ -226,6 +226,54 @@ export async function markPrescriptionsBilled(ids) {
   return { success: true };
 }
 
+// ── PREFILL FROM FRONT OFFICE'S "BIOMETRY" WIDGET ──
+// Unlike investigations/prescriptions, there's exactly one fixed
+// billing line for any biometry -- the "Biometry (Procedure Charge)"
+// catalog entry -- so this just confirms it's still active/priced
+// rather than doing any name-matching.
+export async function getBiometryForBilling(ids) {
+  const supabase = await createClient();
+  if (!ids || ids.length === 0) return { items: [] };
+
+  const { data: service } = await supabase
+    .from('master_services')
+    .select('code, name, rate, gst_pct')
+    .eq('status', 'Active')
+    .ilike('name', '%biometry%')
+    .limit(1)
+    .maybeSingle();
+
+  if (!service) {
+    return { items: ids.map((id) => ({ bioId: id, name: 'Biometry', matched: false })) };
+  }
+
+  return {
+    items: ids.map((id) => ({
+      bioId: id, name: service.name, matched: true,
+      serviceCode: service.code, rate: service.rate, gstPct: service.gst_pct,
+    })),
+  };
+}
+
+// Called once the invoice carrying this biometry is actually saved --
+// flips it out of the Front Office queue.
+export async function markBiometryBilled(ids, invoiceId) {
+  const supabase = await createClient();
+  if (!ids || ids.length === 0) return { success: true };
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('biometry_records')
+    .update({
+      billing_status: 'Billed',
+      invoice_id: invoiceId || null,
+      billing_updated_by: userData?.user?.id || null,
+      billing_updated_at: new Date().toISOString(),
+    })
+    .in('id', ids);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function getInvoiceById(invoiceId) {
   const supabase = await createClient();
   const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, last_name, uhid, mobile)').eq('id', invoiceId).single();

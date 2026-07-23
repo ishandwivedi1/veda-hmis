@@ -306,3 +306,53 @@ export async function getBiometryHistory(patientFilter) {
     patients: Object.entries(patientsMap).map(([id, name]) => ({ id, name })),
   };
 }
+
+// ── FRONT OFFICE BILLING QUEUE ──
+// Every biometry lands here the moment Counselling sends the patient
+// for it (the stub row is created right then), regardless of how far
+// the actual measurement/calculation/approval workflow has gotten --
+// same "bill upfront, don't wait for completion" principle used for
+// investigations and prescriptions.
+export async function getPendingBiometryBilling() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('biometry_records')
+    .select('*, visits(id, visit_number, patients(id, first_name, last_name, uhid))')
+    .in('billing_status', ['Pending', 'Deferred'])
+    .order('created_at', { ascending: true });
+
+  if (error) return [];
+
+  return (data || [])
+    .filter((r) => r.visit_id && r.visits)
+    .map((r) => ({ visitId: r.visit_id, visitNumber: r.visits.visit_number, patient: r.visits.patients, items: [r] }));
+}
+
+async function setBiometryBillingStatus(id, billingStatus, note) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('biometry_records')
+    .update({
+      billing_status: billingStatus,
+      billing_note: note || null,
+      billing_updated_by: userData?.user?.id || null,
+      billing_updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function markBiometryDenied(id, note) {
+  return setBiometryBillingStatus(id, 'Denied', note);
+}
+
+export async function markBiometryDeferred(id, note) {
+  return setBiometryBillingStatus(id, 'Deferred', note);
+}
+
+export async function resetBiometryBilling(id) {
+  return setBiometryBillingStatus(id, 'Pending', null);
+}
+

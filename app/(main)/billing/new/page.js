@@ -12,7 +12,7 @@ export default async function NewInvoicePage({ searchParams }) {
   // being billed last. Without this, React reuses the same instance
   // across visits to this route and a previous patient/line items can
   // silently carry over into what looks like an independent invoice.
-  const remountKey = `${params?.visitId || 'none'}-${params?.invOrderIds || 'none'}-${params?.rxIds || 'none'}-${Date.now()}`;
+  const remountKey = `${params?.visitId || 'none'}-${params?.invOrderIds || 'none'}-${params?.rxIds || 'none'}-${params?.bioIds || 'none'}-${Date.now()}`;
 
   return (
     <div>
