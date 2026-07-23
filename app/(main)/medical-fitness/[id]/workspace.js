@@ -7,21 +7,45 @@ import {
   orderFitnessInvestigation, removeFitnessInvestigation,
   clearFitness, markNotFit,
 } from '../actions';
+import { getPatientTimeline } from '@/app/(main)/patient-timeline/actions';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
 
 const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
+const TIMELINE_TYPE_COLOR = { Visit: 'var(--blue)', Diagnosis: 'var(--red)', Investigation: 'var(--teal)', Prescription: 'var(--purple)', Surgery: 'var(--amber)' };
+const TIMELINE_TYPE_ICON = { Visit: 'ti-door-enter', Diagnosis: 'ti-clipboard-list', Investigation: 'ti-flask', Prescription: 'ti-pill', Surgery: 'ti-scalpel' };
+
+function TabButton({ active, onClick, icon, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none',
+        background: active ? '#fff' : 'transparent', color: active ? 'var(--amber)' : 'var(--g500)',
+        cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(0,0,0,.08)' : 'none',
+      }}
+    >
+      <i className={`ti ${icon}`}></i> {label}
+    </button>
+  );
+}
 
 export default function MedicalFitnessWorkspace({ referralId }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('summary');
+
   const [invOptions, setInvOptions] = useState([]);
   const [invName, setInvName] = useState('');
   const [invEye, setInvEye] = useState('N/A');
   const [invPriority, setInvPriority] = useState('Routine');
   const [ordering, setOrdering] = useState(false);
+
+  const [timeline, setTimeline] = useState(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+
   const [decisionNotes, setDecisionNotes] = useState('');
-  const [showNotFitForm, setShowNotFitForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const router = useRouter();
 
@@ -35,6 +59,13 @@ export default function MedicalFitnessWorkspace({ referralId }) {
     refresh();
     getInvestigationMasterOptions().then(setInvOptions);
   }, [refresh]);
+
+  useEffect(() => {
+    if (activeTab === 'timeline' && !timeline && data) {
+      setTimelineLoading(true);
+      getPatientTimeline(data.referral.visits.patients.id).then((t) => { setTimeline(t); setTimelineLoading(false); });
+    }
+  }, [activeTab, timeline, data]);
 
   async function handleOrderInvestigation() {
     setError('');
@@ -105,83 +136,133 @@ export default function MedicalFitnessWorkspace({ referralId }) {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14 }}>
         <div>
-          <div className="card">
-            <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-report-medical" style={{ color: 'var(--blue)' }}></i> Current Diagnoses</div>
-            {currentDiagnoses.map((d) => (
-              <div key={d.id} style={{ padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12.5 }}>
-                <strong>{d.name}</strong> -- {d.eye} -- <span style={{ color: d.category === 'primary' ? 'var(--blue)' : 'var(--g500)' }}>{d.category}</span>
-                {d.notes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{d.notes}</div>}
-              </div>
-            ))}
-            {currentDiagnoses.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>None recorded.</div>}
+          <div style={{ display: 'flex', gap: 2, marginBottom: 12, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
+            <TabButton active={activeTab === 'summary'} onClick={() => setActiveTab('summary')} icon="ti-report-medical" label="Clinical Summary" />
+            <TabButton active={activeTab === 'timeline'} onClick={() => setActiveTab('timeline')} icon="ti-timeline" label="Visit Timeline" />
+            <TabButton active={activeTab === 'investigations'} onClick={() => setActiveTab('investigations')} icon="ti-flask" label={`Investigations${investigations.length > 0 ? ` (${investigations.length})` : ''}`} />
           </div>
 
-          <div className="card">
-            <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-history" style={{ color: 'var(--g400)' }}></i> Diagnosis History <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--g400)' }}>(prior visits)</span></div>
-            <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-              {diagnosisHistory.map((d) => (
-                <div key={d.id} style={{ padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                  <span style={{ color: 'var(--g400)', fontSize: 10.5 }}>{new Date(d.encounterDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                  {' -- '}<strong>{d.name}</strong> -- {d.eye}
+          {activeTab === 'summary' && (
+            <>
+              <div className="card">
+                <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-report-medical" style={{ color: 'var(--blue)' }}></i> Current Diagnoses</div>
+                {currentDiagnoses.map((d) => (
+                  <div key={d.id} style={{ padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12.5 }}>
+                    <strong>{d.name}</strong> -- {d.eye} -- <span style={{ color: d.category === 'primary' ? 'var(--blue)' : 'var(--g500)' }}>{d.category}</span>
+                    {d.notes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{d.notes}</div>}
+                  </div>
+                ))}
+                {currentDiagnoses.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>None recorded.</div>}
+              </div>
+
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-history" style={{ color: 'var(--g400)' }}></i> Diagnosis History <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--g400)' }}>(prior visits)</span></div>
+                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                  {diagnosisHistory.map((d) => (
+                    <div key={d.id} style={{ padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                      <span style={{ color: 'var(--g400)', fontSize: 10.5 }}>{new Date(d.encounterDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                      {' -- '}<strong>{d.name}</strong> -- {d.eye}
+                    </div>
+                  ))}
+                  {diagnosisHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No prior diagnoses on record.</div>}
                 </div>
-              ))}
-              {diagnosisHistory.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No prior diagnoses on record.</div>}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'timeline' && (
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-timeline" style={{ color: 'var(--blue)' }}></i> Visit Timeline</div>
+              <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Every visit this patient has had. Click a Visit to open the doctor&apos;s full clinical record for it, read-only.</div>
+
+              {timelineLoading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 16, textAlign: 'center' }}>Loading timeline...</div>}
+
+              {!timelineLoading && timeline && (
+                <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+                  {timeline.events.map((ev, i) => {
+                    const isVisit = ev.type === 'Visit';
+                    const clickable = isVisit && ev.queueEntryId;
+                    return (
+                      <div
+                        key={i}
+                        onClick={clickable ? () => window.open(`/consultation/${ev.queueEntryId}`, '_blank', 'noopener,noreferrer') : undefined}
+                        style={{
+                          border: clickable ? '1.5px solid var(--blue)' : '1px solid var(--g200)', borderRadius: 8, padding: '8px 10px', marginBottom: 6,
+                          display: 'flex', alignItems: 'center', gap: 8, cursor: clickable ? 'pointer' : 'default',
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: 'var(--g400)', marginBottom: 2 }}>{new Date(ev.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <i className={`ti ${TIMELINE_TYPE_ICON[ev.type]}`} style={{ color: TIMELINE_TYPE_COLOR[ev.type] }}></i> {ev.type} -- {ev.title}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>{ev.detail}</div>
+                        </div>
+                        {clickable && <i className="ti ti-external-link" style={{ color: 'var(--blue)' }}></i>}
+                      </div>
+                    );
+                  })}
+                  {timeline.events.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', textAlign: 'center', padding: 16 }}>No prior events.</div>}
+                </div>
+              )}
             </div>
-          </div>
+          )}
+
+          {activeTab === 'investigations' && (
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
+
+              {investigations.map((i) => {
+                const type = matchInvestigationType(i.name);
+                const hasResults = i.status === 'Available';
+                return (
+                  <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--g100)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5 }}>
+                      <span><strong>{i.name}</strong> -- {i.eye}</span>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span className={`badge ${INV_STATUS_BADGE[i.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{i.status}</span>
+                        {hasResults && (
+                          <a href={`/investigation/${i.id}?mode=view`} target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '2px 6px', fontSize: 10, textDecoration: 'none' }}>
+                            <i className="ti ti-eye"></i> View
+                          </a>
+                        )}
+                        {i.status === 'Ordered' && isPending && (
+                          <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => handleRemoveInvestigation(i.id)}>Remove</button>
+                        )}
+                      </div>
+                    </div>
+                    {hasResults && (
+                      <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{summarizeResultData(type, i.result_data)}</div>
+                    )}
+                  </div>
+                );
+              })}
+              {investigations.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>None ordered yet.</div>}
+
+              {isPending && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <select className="fi" style={{ flex: 2, minWidth: 140 }} value={invOptions.some((o) => o.name === invName) ? invName : ''} onChange={(e) => setInvName(e.target.value)}>
+                    <option value="">-- Pick investigation --</option>
+                    {invOptions.map((o) => <option key={o.code} value={o.name}>{o.name}</option>)}
+                  </select>
+                  <select className="fi" style={{ width: 80 }} value={invEye} onChange={(e) => setInvEye(e.target.value)}>
+                    <option value="N/A">N/A</option><option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+                  </select>
+                  <select className="fi" style={{ width: 100 }} value={invPriority} onChange={(e) => setInvPriority(e.target.value)}>
+                    <option value="Routine">Routine</option><option value="Urgent">Urgent</option>
+                  </select>
+                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleOrderInvestigation} disabled={ordering}>
+                    {ordering ? 'Ordering...' : 'Order'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div>
-          <div className="card">
-            <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
-
-            {investigations.map((i) => {
-              const type = matchInvestigationType(i.name);
-              const hasResults = i.status === 'Available';
-              return (
-                <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--g100)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5 }}>
-                    <span><strong>{i.name}</strong> -- {i.eye}</span>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <span className={`badge ${INV_STATUS_BADGE[i.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{i.status}</span>
-                      {hasResults && (
-                        <a href={`/investigation/${i.id}?mode=view`} target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '2px 6px', fontSize: 10, textDecoration: 'none' }}>
-                          <i className="ti ti-eye"></i>
-                        </a>
-                      )}
-                      {i.status === 'Ordered' && isPending && (
-                        <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => handleRemoveInvestigation(i.id)}>Remove</button>
-                      )}
-                    </div>
-                  </div>
-                  {hasResults && (
-                    <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{summarizeResultData(type, i.result_data)}</div>
-                  )}
-                </div>
-              );
-            })}
-            {investigations.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>None ordered yet.</div>}
-
-            {isPending && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <select className="fi" style={{ flex: 2, minWidth: 140 }} value={invOptions.some((o) => o.name === invName) ? invName : ''} onChange={(e) => setInvName(e.target.value)}>
-                  <option value="">-- Pick investigation --</option>
-                  {invOptions.map((o) => <option key={o.code} value={o.name}>{o.name}</option>)}
-                </select>
-                <select className="fi" style={{ width: 80 }} value={invEye} onChange={(e) => setInvEye(e.target.value)}>
-                  <option value="N/A">N/A</option><option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
-                </select>
-                <select className="fi" style={{ width: 100 }} value={invPriority} onChange={(e) => setInvPriority(e.target.value)}>
-                  <option value="Routine">Routine</option><option value="Urgent">Urgent</option>
-                </select>
-                <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleOrderInvestigation} disabled={ordering}>
-                  {ordering ? 'Ordering...' : 'Order'}
-                </button>
-              </div>
-            )}
-          </div>
-
           {isPending && (
             <div className="card" style={{ marginBottom: 0 }}>
               <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-clipboard-check" style={{ color: 'var(--amber)' }}></i> Fitness Decision</div>

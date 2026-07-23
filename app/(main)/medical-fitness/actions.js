@@ -2,17 +2,14 @@
 
 import { createClient } from '@/lib/supabase-server';
 
-// ── DASHBOARD: patients referred by Counselling, awaiting doctor review ──
-// Reads medical_fitness_referrals directly (same architecture as the
-// Biometry Queue) rather than the front-desk queue_entries system, so
-// it's not entangled with wherever else the patient's visit status
-// happens to be.
+// ── DASHBOARD: every referral (all statuses), so the dashboard can show
+// stats across Pending/Cleared/Not Fit -- filtering to a specific stage
+// happens client-side, same pattern as Counselling's own dashboard. ──
 export async function getMedicalFitnessQueue() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('medical_fitness_referrals')
     .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
-    .eq('status', 'Pending Review')
     .order('referred_at', { ascending: true });
 
   if (error) return [];
