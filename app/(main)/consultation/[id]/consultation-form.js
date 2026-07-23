@@ -6,6 +6,7 @@ import {
   getConsultationData,
   addDiagnosis,
   removeDiagnosis,
+  updateDiagnosisNotes,
   addPrescription,
   removePrescription,
   addInvestigation,
@@ -42,6 +43,38 @@ const WF_ITEMS = {
 };
 
 const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
+
+function DiagnosisRow({ d, index, encounterId, onRemove }) {
+  const [notes, setNotes] = useState(d.notes || '');
+  const [saved, setSaved] = useState(true);
+
+  async function handleBlur() {
+    if (notes === (d.notes || '')) return;
+    await updateDiagnosisNotes(d.id, notes);
+    setSaved(true);
+  }
+
+  return (
+    <div style={{ padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+        <span>
+          <span style={{ color: 'var(--g400)', fontWeight: 700, marginRight: 4 }}>{index + 1}.</span>
+          <strong>{d.name}</strong> -- {d.eye} -- <span style={{ color: d.category === 'primary' ? 'var(--blue)' : 'var(--g500)' }}>{d.category}</span>
+        </span>
+        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={onRemove}>Remove</button>
+      </div>
+      <input
+        className="fi fi-sm"
+        style={{ marginTop: 5, marginLeft: 18, width: 'calc(100% - 18px)' }}
+        placeholder="Doctor notes for this diagnosis (optional)"
+        value={notes}
+        onChange={(e) => { setNotes(e.target.value); setSaved(false); }}
+        onBlur={handleBlur}
+      />
+      {!saved && <div style={{ fontSize: 10, color: 'var(--g400)', marginLeft: 18, marginTop: 2 }}>Unsaved -- click away to save</div>}
+    </div>
+  );
+}
 
 function elapsedMin(iso) {
   if (!iso) return 0;
@@ -103,6 +136,8 @@ export default function ConsultationForm({ queueEntryId }) {
   const [invName, setInvName] = useState('');
   const [invEye, setInvEye] = useState('OU');
   const [invPriority, setInvPriority] = useState('Routine');
+  const [bioEye, setBioEye] = useState('');
+  const [bioInstructions, setBioInstructions] = useState('');
 
   // Management Plan expansion forms
   const [optText, setOptText] = useState('');
@@ -281,11 +316,12 @@ export default function ConsultationForm({ queueEntryId }) {
 
   async function handleSendOut(kind) {
     setError('');
+    if (kind === 'biometry' && !bioEye) { setError('Select which eye Biometry is required for before sending.'); return; }
     setLoading(true);
     const result = kind === 'dilate'
       ? await sendForDilationFromConsultation(queueEntryId, data.encounter.id)
       : kind === 'biometry'
-      ? await sendForBiometryFromConsultation(queueEntryId, data.encounter.id)
+      ? await sendForBiometryFromConsultation(queueEntryId, data.encounter.id, bioEye, bioInstructions)
       : await sendForInvestigationFromConsultation(queueEntryId, data.encounter.id);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
@@ -473,15 +509,30 @@ export default function ConsultationForm({ queueEntryId }) {
                     <span className={`badge ${data.biometryRecord.status === 'Approved' ? 'b-green' : data.biometryRecord.status === 'Calculated' ? 'b-purple' : data.biometryRecord.status === 'Measured' ? 'b-blue' : 'b-amber'}`}>
                       {data.biometryRecord.status}
                     </span>
+                    {data.biometryRecord.surgical_eye && <span className="badge b-indigo">{data.biometryRecord.surgical_eye}</span>}
                     <a href={`/biometry/${data.biometryRecord.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 12, textDecoration: 'none' }}>
                       <i className="ti ti-external-link"></i> Open Biometry
                     </a>
                   </div>
                 ) : (
-                  <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
-                    <i className="ti ti-ruler-measure"></i> Send for Biometry
-                  </button>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <label className="flbl">Eye required</label>
+                      <select className="fi" style={{ width: 90 }} value={bioEye} onChange={(e) => setBioEye(e.target.value)}>
+                        <option value="">Select</option>
+                        <option value="RE">RE</option>
+                        <option value="LE">LE</option>
+                      </select>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <label className="flbl">Instructions for technician (optional)</label>
+                      <input className="fi" placeholder="e.g. prior RK surgery, use formula X" value={bioInstructions} onChange={(e) => setBioInstructions(e.target.value)} />
+                    </div>
+                  </div>
                 )}
+                <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 8 }}>
+                  {!data.biometryRecord && 'Use the "Send for Biometry" button below to send this patient once the eye is confirmed.'}
+                </div>
               </div>
 
               <GroupHeader num={3} color="var(--teal)" title="Diagnosis" />
@@ -503,13 +554,8 @@ export default function ConsultationForm({ queueEntryId }) {
 
               <div className="card" style={{ marginBottom: 20 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Diagnosis</div>
-                {data.diagnoses.map((d) => (
-                  <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <span>
-                      <strong>{d.name}</strong> -- {d.eye} -- <span style={{ color: d.category === 'primary' ? 'var(--blue)' : 'var(--g500)' }}>{d.category}</span>
-                    </span>
-                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeDiagnosis(d.id, data.encounter.id); refresh(); }}>Remove</button>
-                  </div>
+                {data.diagnoses.map((d, idx) => (
+                  <DiagnosisRow key={d.id} d={d} index={idx} encounterId={data.encounter.id} onRemove={async () => { await removeDiagnosis(d.id, data.encounter.id); refresh(); }} />
                 ))}
                 {data.diagnoses.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No diagnosis added yet.</div>}
                 <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setDxName(e.target.value); }}>
@@ -751,6 +797,11 @@ export default function ConsultationForm({ queueEntryId }) {
             <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
               Send for Investigation
             </button>
+            {!data.biometryRecord && (
+              <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
+                <i className="ti ti-ruler-measure"></i> Send for Biometry
+              </button>
+            )}
             <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>
               <i className="ti ti-printer"></i> Print Visit Summary
             </a>

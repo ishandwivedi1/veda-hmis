@@ -126,7 +126,7 @@ export async function getConsultationData(queueEntryId) {
     // Biometry gets its own dedicated section in Diagnosis & Plan (not
     // folded into Investigations) -- same reasoning as its own
     // Financial Masters department: it's structurally its own thing.
-    supabase.from('biometry_records').select('id, status').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('biometry_records').select('id, status, surgical_eye').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -318,6 +318,13 @@ export async function removeDiagnosis(id, encounterId) {
   const { error } = await supabase.from('diagnoses').delete().eq('id', id);
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, 'Diagnosis removed', userData?.user?.id);
+  return { success: true };
+}
+
+export async function updateDiagnosisNotes(id, notes) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('diagnoses').update({ notes: notes?.trim() || null }).eq('id', id);
+  if (error) return { error: error.message };
   return { success: true };
 }
 
@@ -553,12 +560,12 @@ export async function sendForInvestigationFromConsultation(queueEntryId, encount
   return result;
 }
 
-export async function sendForBiometryFromConsultation(queueEntryId, encounterId) {
+export async function sendForBiometryFromConsultation(queueEntryId, encounterId, eye, instructions) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
   const result = await doctorSendOut(queueEntryId, 'biometry');
   if (result.error) return result;
-  await addAudit(supabase, encounterId, 'Sent for Biometry', userData?.user?.id);
+  await addAudit(supabase, encounterId, `Sent for Biometry (${eye})`, userData?.user?.id);
 
   // Same stub-creation as Counselling's sendForBiometry, so it shows up
   // immediately in the Investigation Queue / Biometry Queue rather than
@@ -576,7 +583,17 @@ export async function sendForBiometryFromConsultation(queueEntryId, encounterId)
 
     if (!existing || existing.length === 0) {
       const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
-      await supabase.from('biometry_records').insert({ visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null });
+      await supabase.from('biometry_records').insert({
+        visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null,
+        surgical_eye: eye || null, doctor_instructions: instructions?.trim() || null,
+      });
+    } else {
+      // Record already existed (e.g. re-confirming the eye/instructions
+      // before the technician has picked it up) -- update it in place
+      // rather than creating a duplicate.
+      await supabase.from('biometry_records').update({
+        surgical_eye: eye || null, doctor_instructions: instructions?.trim() || null,
+      }).eq('id', existing[0].id);
     }
   }
 

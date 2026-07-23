@@ -60,6 +60,12 @@ export default function BiometryWorkspace({ recordId }) {
         </span>
       </div>
 
+      {record.doctor_instructions && (
+        <div className="msg-info" style={{ background: 'var(--indigo-lt, var(--blue-lt))', color: 'var(--indigo, var(--blue))', padding: '9px 13px', borderRadius: 8, fontSize: 12.5, marginBottom: 12 }}>
+          <i className="ti ti-notes"></i> <strong>Doctor's instructions:</strong> {record.doctor_instructions}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
         <TabButton active={activeTab === 'measurements'} onClick={() => setActiveTab('measurements')} icon="ti-ruler-measure" label="Measurements" />
         <TabButton active={activeTab === 'calculation'} onClick={() => setActiveTab('calculation')} icon="ti-calculator" label="IOL Calculation" disabled={!isVerified} />
@@ -78,3 +84,4 @@ export default function BiometryWorkspace({ recordId }) {
     </div>
   );
 }
+
