@@ -458,7 +458,6 @@ export async function markReadyForScheduling(caseId) {
   if (!sc.biometry_done && sc.biometry_required !== false) return { error: 'VAL-SCC-002: Biometry & IOL type advice must be complete.' };
   if (!sc.package_id) return { error: 'VAL-SCC-002: Select a package first.' };
   if (sc.decision !== 'Accepted') return { error: 'VAL-SCC-002: Patient decision must be Accepted.' };
-  if (!sc.investigations_complete) return { error: 'VAL-SCC-002: Investigations must be complete.' };
   if (!sc.fitness_cleared) return { error: 'VAL-SCC-002: Medical fitness must be cleared.' };
 
   const { error } = await supabase.from('surgical_cases').update({ status: 'Ready for Scheduling' }).eq('id', caseId);

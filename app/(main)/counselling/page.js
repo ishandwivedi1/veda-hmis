@@ -4,13 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getCounsellingCases, getPackagesForCase, selectPackage, changePackage,
   setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
-  markInvestigationsComplete, markReadyForScheduling, referBackToDoctor,
+  markReadyForScheduling, referBackToDoctor,
   referForMedicalFitness,
   sendForBiometry, skipBiometry, unskipBiometry,
-  getInvestigationMasterOptions, getCounsellingInvestigationOrders, orderCounsellingInvestigation, removeCounsellingInvestigation,
-  getInvestigationPackages, orderInvestigationPackage,
 } from './actions';
-import { matchInvestigationType, summarizeResultData } from '../investigation/investigation-types';
 
 // Biometry is satisfied either by actually being done, or by having
 // been explicitly marked not required for this case (retina, glaucoma,
@@ -21,13 +18,11 @@ function biometrySatisfied(sc) {
 }
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
-const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 
 function readiness(sc) {
   const items = [
     { key: 'surgeryRec', label: 'Surgery Recommended', done: true },
     { key: 'biometry', label: sc.biometry_required === false ? 'Biometry & IOL Type Advised (M23) -- Skipped' : 'Biometry & IOL Type Advised (M23)', done: biometrySatisfied(sc) },
-    { key: 'investigations', label: 'Investigations complete', done: sc.investigations_complete },
     { key: 'fitness', label: 'Medical Fitness', done: sc.fitness_cleared },
     { key: 'advance', label: 'Advance Payment', done: !!sc.advance_payment_id },
   ];
@@ -202,58 +197,10 @@ function CaseWorkspace({ sc, onUpdate }) {
   const [error, setError] = useState('');
   const [ancillaryMsg, setAncillaryMsg] = useState(null); // { type: 'error'|'success', text }
   const [sendingBiometry, setSendingBiometry] = useState(false);
-  const [openSections, setOpenSections] = useState({ surgery: true, biometry: true, decision: true, investigations: true, fitness: true });
+  const [openSections, setOpenSections] = useState({ surgery: true, biometry: true, decision: true, fitness: true });
   const { items, pct } = readiness(sc);
   const stage2Unlocked = !!sc.package_id && sc.decision === 'Accepted';
-
-  const [invOrders, setInvOrders] = useState([]);
-  const [invMasterOptions, setInvMasterOptions] = useState([]);
-  const [invPackages, setInvPackages] = useState([]);
-  const [selectedPackage, setSelectedPackage] = useState('');
-  const [orderingPackage, setOrderingPackage] = useState(false);
-  const [invName, setInvName] = useState('');
-  const [invEye, setInvEye] = useState('OU');
-  const [invPriority, setInvPriority] = useState('Routine');
-  const [invError, setInvError] = useState('');
-  const [ordering, setOrdering] = useState(false);
   const [referringFitness, setReferringFitness] = useState(false);
-
-  const refreshInvOrders = useCallback(() => {
-    getCounsellingInvestigationOrders(sc.encounter_id).then(setInvOrders);
-  }, [sc.encounter_id]);
-
-  useEffect(() => {
-    refreshInvOrders();
-    getInvestigationMasterOptions().then(setInvMasterOptions);
-    getInvestigationPackages().then(setInvPackages);
-  }, [refreshInvOrders]);
-
-  async function handleOrderPackage() {
-    setInvError('');
-    if (!selectedPackage) { setInvError('Select a package.'); return; }
-    setOrderingPackage(true);
-    const result = await orderInvestigationPackage(sc.id, sc.encounter_id, selectedPackage);
-    setOrderingPackage(false);
-    if (result.error) { setInvError(result.error); return; }
-    setSelectedPackage('');
-    refreshInvOrders();
-  }
-
-  async function handleOrderInvestigation() {
-    setInvError('');
-    if (!invName.trim()) { setInvError('Select or enter an investigation.'); return; }
-    setOrdering(true);
-    const result = await orderCounsellingInvestigation(sc.id, sc.encounter_id, { name: invName, eye: invEye, priority: invPriority });
-    setOrdering(false);
-    if (result.error) { setInvError(result.error); return; }
-    setInvName(''); setInvEye('OU'); setInvPriority('Routine');
-    refreshInvOrders();
-  }
-
-  async function handleRemoveInvestigation(id) {
-    await removeCounsellingInvestigation(id);
-    refreshInvOrders();
-  }
 
   async function handleReferFitness() {
     setError('');
@@ -309,7 +256,6 @@ function CaseWorkspace({ sc, onUpdate }) {
   }
 
   const advancePaid = !!sc.advance_payment_id;
-  const investigationsItem = items.find((i) => i.key === 'investigations');
   const fitnessItem = items.find((i) => i.key === 'fitness');
 
   return (
@@ -448,111 +394,17 @@ function CaseWorkspace({ sc, onUpdate }) {
       </CounsellingSection>
 
       {/* 4. INVESTIGATIONS */}
-      <CounsellingSection num={4} color="var(--teal)" title="Investigations" open={openSections.investigations} onToggle={() => toggleSection('investigations')}
-        badge={investigationsItem?.done ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span> : <span className="badge b-amber">Pending</span>}>
-        {!stage2Unlocked ? (
-          <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Locked until package confirmed and decision is Accepted.</div>
-        ) : (
-          <>
-            <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Order pre-op investigations (usually blood work) -- linked to the Investigation master, and processed through the same Investigation queue the lab uses.</div>
-
-            {invError && <div className="msg-err" style={{ fontSize: 12 }}>{invError}</div>}
-
-            {invPackages.length > 0 && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'flex-end', background: 'var(--purple-lt)', padding: 10, borderRadius: 'var(--r)' }}>
-                <div style={{ flex: 1 }}>
-                  <label className="flbl">Order a standard package</label>
-                  <select className="fi" value={selectedPackage} onChange={(e) => setSelectedPackage(e.target.value)}>
-                    <option value="">-- Select package --</option>
-                    {invPackages.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </div>
-                <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', borderColor: 'transparent' }} onClick={handleOrderPackage} disabled={orderingPackage}>
-                  <i className="ti ti-stack-2"></i> {orderingPackage ? 'Ordering...' : 'Order Package'}
-                </button>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div style={{ flex: 2, minWidth: 160 }}>
-                <label className="flbl">Investigation</label>
-                <select className="fi" value={invMasterOptions.some((o) => o.name === invName) ? invName : ''} onChange={(e) => setInvName(e.target.value)}>
-                  <option value="">-- Pick from Investigations master (or type below) --</option>
-                  {invMasterOptions.map((o) => <option key={o.code} value={o.name}>{o.name}</option>)}
-                </select>
-                <input className="fi" style={{ marginTop: 6 }} placeholder="Or type investigation name" value={invMasterOptions.some((o) => o.name === invName) ? '' : invName} onChange={(e) => setInvName(e.target.value)} />
-              </div>
-              <div style={{ width: 80 }}>
-                <label className="flbl">Eye</label>
-                <select className="fi" value={invEye} onChange={(e) => setInvEye(e.target.value)}>
-                  <option value="OU">OU</option><option value="OD">OD</option><option value="OS">OS</option><option value="N/A">N/A</option>
-                </select>
-              </div>
-              <div style={{ width: 110 }}>
-                <label className="flbl">Priority</label>
-                <select className="fi" value={invPriority} onChange={(e) => setInvPriority(e.target.value)}>
-                  <option value="Routine">Routine</option><option value="Urgent">Urgent</option>
-                </select>
-              </div>
-              <button className="btn btn-sm btn-primary" onClick={handleOrderInvestigation} disabled={ordering}>
-                <i className="ti ti-plus"></i> {ordering ? 'Ordering...' : 'Order'}
-              </button>
-            </div>
-
-            {invOrders.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                {invOrders.map((io) => (
-                  <div key={io.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                    <span style={{ flex: 1, fontWeight: 600 }}>{io.name} <span style={{ color: 'var(--g400)', fontWeight: 400 }}>({io.eye})</span></span>
-                    <span className={`badge ${INV_STATUS_BADGE[io.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{io.status}</span>
-                    {(io.status === 'Ordered') && (
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 10 }} onClick={() => handleRemoveInvestigation(io.id)}>Remove</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {investigationsItem?.done ? (
-              <span className="badge b-green"><i className="ti ti-check"></i> Investigations complete</span>
-            ) : (
-              <button className="btn btn-sm" onClick={async () => { setError(''); const r = await markInvestigationsComplete(sc.id); if (r.error) setError(r.error); else onUpdate(); }}>Mark done</button>
-            )}
-          </>
-        )}
-      </CounsellingSection>
-
-      {/* 5. MEDICAL FITNESS */}
-      <CounsellingSection num={5} color="var(--amber)" title="Medical Fitness" open={openSections.fitness} onToggle={() => toggleSection('fitness')}
+      {/* 4. MEDICAL FITNESS */}
+      <CounsellingSection num={4} color="var(--amber)" title="Medical Fitness" open={openSections.fitness} onToggle={() => toggleSection('fitness')}
         badge={fitnessItem?.done ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span> : <span className="badge b-amber">Pending</span>}>
         {!stage2Unlocked ? (
           <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Locked until package confirmed and decision is Accepted.</div>
         ) : (
           <>
-            {invOrders.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 6 }}>Investigation results</div>
-                {invOrders.map((io) => {
-                  const type = matchInvestigationType(io.name);
-                  const isReady = io.status === 'Available' || io.status === 'Completed';
-                  return (
-                    <div key={io.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                      <span style={{ flex: 1, fontWeight: 600 }}>{io.name} <span style={{ color: 'var(--g400)', fontWeight: 400 }}>({io.eye})</span></span>
-                      {isReady ? (
-                        <span style={{ color: 'var(--g600)', fontSize: 11 }}>{summarizeResultData(type, io.result_data)}</span>
-                      ) : (
-                        <span className={`badge ${INV_STATUS_BADGE[io.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{io.status}</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
             {!sc.fitness_referral && (
               <div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-                  Refer this patient to a doctor to review clinical data, order any further investigations needed, and clear for surgery.
+                  Refer this patient to a doctor to review clinical data, order any investigations needed, and clear for surgery.
                 </div>
                 <button className="btn btn-sm" onClick={handleReferFitness} disabled={referringFitness}>
                   <i className="ti ti-heart-rate-monitor"></i> {referringFitness ? 'Referring...' : 'Refer to Doctor'}
