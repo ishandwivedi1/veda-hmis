@@ -193,3 +193,138 @@ export async function resetInvestigationBilling(id) {
   return setInvestigationBillingStatus(id, 'Pending', null);
 }
 
+// ── HISTORY ──
+// Every investigation ever ordered, regardless of status -- filtering
+// happens client-side (patient/type dropdowns) since a single-hospital
+// dataset is small enough that a broad fetch is simpler and fast enough,
+// same approach the rest of this module already takes.
+export async function getInvestigationHistory() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters(id, visit_id, doctor_id, visits(id, visit_number, patients(id, first_name, last_name, uhid)))')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) return { error: error.message };
+
+  const doctorIds = (data || []).map((o) => o.encounters?.doctor_id).filter(Boolean);
+  const staffIds = (data || []).flatMap((o) => [o.completed_by, o.verified_by]).filter(Boolean);
+  const allIds = [...new Set([...doctorIds, ...staffIds])];
+
+  let profileMap = {};
+  if (allIds.length > 0) {
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', allIds);
+    (profiles || []).forEach((p) => { profileMap[p.id] = p.full_name; });
+  }
+
+  const rows = (data || []).map((o) => ({
+    ...o,
+    doctorName: profileMap[o.encounters?.doctor_id] || '--',
+    performedByName: profileMap[o.verified_by] || profileMap[o.completed_by] || '--',
+  }));
+
+  return { rows };
+}
+
+// ── LONGITUDINAL COMPARISON ──
+export async function searchPatientsForInvestigation(q) {
+  if (!q) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('patients')
+    .select('id, uhid, first_name, last_name')
+    .or(`uhid.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+    .limit(10);
+  return data || [];
+}
+
+export async function getInvestigationComparisonData(patientId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters!inner(id, visit_id, visits!inner(id, patient_id))')
+    .eq('encounters.visits.patient_id', patientId)
+    .in('status', ['Completed', 'Available'])
+    .order('created_at', { ascending: true });
+  if (error) return { error: error.message };
+  return { rows: data || [] };
+}
+
+// ── REPORTS ──
+export async function getInvestigationReport(reportId, fromDate, toDate) {
+  const supabase = await createClient();
+  const fromIso = `${fromDate}T00:00:00`;
+  const toIso = `${toDate}T23:59:59`;
+
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters(id, doctor_id, visits(id, patients(first_name, last_name, uhid)))')
+    .gte('created_at', fromIso)
+    .lte('created_at', toIso)
+    .order('created_at', { ascending: false });
+  if (error) return { title: 'Error', headers: [], rows: [] };
+
+  const doctorIds = [...new Set((data || []).map((o) => o.encounters?.doctor_id).filter(Boolean))];
+  let profileMap = {};
+  if (doctorIds.length > 0) {
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', doctorIds);
+    (profiles || []).forEach((p) => { profileMap[p.id] = p.full_name; });
+  }
+  const doctorName = (o) => profileMap[o.encounters?.doctor_id] || '--';
+  const patientName = (o) => {
+    const p = o.encounters?.visits?.patients;
+    return p ? `${p.first_name} ${p.last_name} (${p.uhid})` : '--';
+  };
+
+  if (reportId === 'register') {
+    return {
+      title: 'Daily Investigation Register',
+      headers: ['Date', 'Patient', 'Investigation', 'Eye', 'Status', 'Doctor'],
+      rows: (data || []).map((o) => ({
+        cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.eye, o.status, doctorName(o)],
+      })),
+    };
+  }
+
+  if (reportId === 'type_summary') {
+    const counts = {};
+    (data || []).forEach((o) => {
+      const n = (o.name || '').toLowerCase();
+      const type = n.includes('oct') ? 'OCT' : (n.includes('visual field') || n.includes(' vf')) ? 'Visual Field' : n.includes('fundus') ? 'Fundus Photography' : 'External Report';
+      counts[type] = (counts[type] || 0) + 1;
+    });
+    return {
+      title: 'Investigation Type Summary',
+      headers: ['Type', 'Count'],
+      rows: Object.entries(counts).map(([type, count]) => ({ cols: [type, count] })),
+    };
+  }
+
+  if (reportId === 'pending') {
+    const pending = (data || []).filter((o) => o.status === 'Ordered' || o.status === 'In Progress');
+    return {
+      title: 'Pending Investigations',
+      headers: ['Date', 'Patient', 'Investigation', 'Eye', 'Status', 'Doctor'],
+      rows: pending.map((o) => ({
+        cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.eye, o.status, doctorName(o)],
+      })),
+    };
+  }
+
+  if (reportId === 'quality') {
+    const cancelled = (data || []).filter((o) => o.status === 'Cancelled');
+    const total = (data || []).length;
+    const rows = cancelled.map((o) => ({
+      cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.unable_reason || '--'],
+    }));
+    rows.push({ cols: [`Total ordered in period: ${total}`, `Unable to perform: ${cancelled.length}`, '', ''] });
+    return {
+      title: 'Quality Report -- Unable to Perform',
+      headers: ['Date', 'Patient', 'Investigation', 'Reason'],
+      rows,
+    };
+  }
+
+  return { title: 'Unknown report', headers: [], rows: [] };
+}
+

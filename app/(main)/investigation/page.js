@@ -60,14 +60,25 @@ export default function InvestigationPage() {
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-head" style={{ marginBottom: 0 }}>
           <div className="card-title"><i className="ti ti-list-numbers" style={{ color: 'var(--teal)' }}></i> Investigation Queue</div>
-          <select className="fi" style={{ width: 'auto', padding: '5px 8px', fontSize: 11 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-            <option value="">All types</option>
-            <option value="OCT">OCT</option>
-            <option value="Visual Field">Visual Field</option>
-            <option value="Fundus Photography">Fundus Photography</option>
-            <option value="Pachymetry">Pachymetry</option>
-            <option value="External Report">External Report</option>
-          </select>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select className="fi" style={{ width: 'auto', padding: '5px 8px', fontSize: 11 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <option value="">All types</option>
+              <option value="OCT">OCT</option>
+              <option value="Visual Field">Visual Field</option>
+              <option value="Fundus Photography">Fundus Photography</option>
+              <option value="Pachymetry">Pachymetry</option>
+              <option value="External Report">External Report</option>
+            </select>
+            <button className="btn btn-sm" onClick={() => router.push('/investigation/history')}>
+              <i className="ti ti-history"></i> History
+            </button>
+            <button className="btn btn-sm" onClick={() => router.push('/investigation/comparison')}>
+              <i className="ti ti-chart-bar-off"></i> Comparison
+            </button>
+            <button className="btn btn-sm" onClick={() => router.push('/investigation/reports')}>
+              <i className="ti ti-chart-bar"></i> Reports
+            </button>
+          </div>
         </div>
       </div>
 
@@ -108,3 +119,4 @@ export default function InvestigationPage() {
     </div>
   );
 }
+
