@@ -59,6 +59,7 @@ export default function PharmacyPage() {
             >
               <span>
                 <strong>{rx.drug_name}</strong> -- {rx.dosage} {rx.frequency} x {rx.duration} -- {rx.eye}
+                {rx.billing_status === 'Billed' && <span className="badge b-green" style={{ marginLeft: 6, fontSize: 9 }}>Billed at counter</span>}
               </span>
               <button className="btn" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleDispenseOne(rx.id)}>
                 Dispense
@@ -76,4 +77,5 @@ export default function PharmacyPage() {
     </div>
   );
 }
+
 

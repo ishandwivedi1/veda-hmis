@@ -169,6 +169,62 @@ export async function markInvestigationOrdersBilled(ids) {
   return { success: true };
 }
 
+// ── PREFILL FROM FRONT OFFICE'S "PRESCRIBED MEDICINES" WIDGET ──
+// Same idea as investigation prefill, but matched against master_drugs
+// the same fuzzy way the pharmacy's own auto-bill RPC does (drug_name
+// containing the generic or brand name), since prescriptions are
+// free-text ("Timolol 0.5% eye drops") rather than a catalog code.
+export async function getPrescriptionsForBilling(ids) {
+  const supabase = await createClient();
+  if (!ids || ids.length === 0) return { items: [] };
+
+  const { data: prescriptions, error } = await supabase
+    .from('prescriptions')
+    .select('id, drug_name, eye, billing_status')
+    .in('id', ids);
+  if (error) return { error: error.message };
+
+  const { data: drugs } = await supabase.from('master_drugs').select('*').eq('status', 'Active');
+
+  const items = (prescriptions || []).map((rx) => {
+    const nameLower = rx.drug_name.toLowerCase();
+    const match = (drugs || []).find(
+      (d) => (d.generic && nameLower.includes(d.generic.toLowerCase())) || (d.brand && nameLower.includes(d.brand.toLowerCase()))
+    );
+    return {
+      rxId: rx.id,
+      name: rx.drug_name,
+      eye: rx.eye,
+      matched: !!match,
+      serviceCode: match?.code || null,
+      rate: match?.rate ?? null,
+      gstPct: match?.gst_pct ?? null,
+    };
+  });
+
+  return { items };
+}
+
+// Called once the invoice carrying these prescriptions is actually
+// saved -- flips them out of the Front Office queue. When the patient
+// later reaches Pharmacy, dispense_prescription_and_bill sees
+// billing_status = 'Billed' and skips adding a second line item.
+export async function markPrescriptionsBilled(ids) {
+  const supabase = await createClient();
+  if (!ids || ids.length === 0) return { success: true };
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('prescriptions')
+    .update({
+      billing_status: 'Billed',
+      billing_updated_by: userData?.user?.id || null,
+      billing_updated_at: new Date().toISOString(),
+    })
+    .in('id', ids);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function getInvoiceById(invoiceId) {
   const supabase = await createClient();
   const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, last_name, uhid, mobile)').eq('id', invoiceId).single();
