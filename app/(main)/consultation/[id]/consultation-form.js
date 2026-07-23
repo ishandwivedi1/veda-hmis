@@ -32,12 +32,15 @@ import { getDiagnosesMaster, getDrugs, getServices, getProcedures, getSurgeries 
 import ExaminationTab from './examination-tab';
 import HistoryTab from './history-tab';
 import OptometryTab from './optometry-tab';
+import { matchInvestigationType, summarizeResultData, getFullFieldValues } from '@/app/(main)/investigation/investigation-types';
 
 const WF_ITEMS = {
   Biometry: { icon: 'ti-ruler-measure', color: '#818cf8' },
   'Medical Fitness': { icon: 'ti-heart-rate-monitor', color: '#c4b5fd' },
   Counselling: { icon: 'ti-messages', color: '#fcd34d' },
 };
+
+const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 
 function elapsedMin(iso) {
   if (!iso) return 0;
@@ -81,6 +84,7 @@ export default function ConsultationForm({ queueEntryId }) {
   const [surgeryLoading, setSurgeryLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('history');
   const [unlocked, setUnlocked] = useState(false);
+  const [expandedInvId, setExpandedInvId] = useState(null);
   const router = useRouter();
 
   // Diagnosis form
@@ -307,7 +311,7 @@ export default function ConsultationForm({ queueEntryId }) {
 
   const patient = data.entry.visits.patients;
   const activeWorkflows = data.workflowRequests.filter((w) => w.status === 'Requested');
-  const openInvestigations = data.investigations.filter((i) => i.status !== 'Completed' && i.status !== 'Verified');
+  const openInvestigations = data.investigations.filter((i) => i.status !== 'Available' && i.status !== 'Cancelled');
   const pendingRx = data.prescriptions.filter((r) => r.status !== 'Dispensed');
 
   // ── ACTION TRACKER: every downstream action generated this
@@ -407,14 +411,54 @@ export default function ConsultationForm({ queueEntryId }) {
 
               <div className="card" style={{ marginBottom: 20 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
-                {data.investigations.map((i) => (
-                  <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <span>
-                      <strong>{i.name}</strong> -- {i.eye} -- {i.priority}
-                    </span>
-                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
-                  </div>
-                ))}
+                {data.investigations.map((i) => {
+                  const type = matchInvestigationType(i.name);
+                  const hasResults = i.status === 'Available';
+                  const expanded = expandedInvId === i.id;
+                  const fullFields = hasResults ? getFullFieldValues(type, i.result_data) : [];
+                  return (
+                    <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--g100)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                        <span>
+                          <strong>{i.name}</strong> -- {i.eye} -- {i.priority}
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span className={`badge ${INV_STATUS_BADGE[i.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{i.status}</span>
+                          {hasResults && (
+                            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => setExpandedInvId(expanded ? null : i.id)}>
+                              {expanded ? 'Hide findings' : 'View findings'}
+                            </button>
+                          )}
+                          {i.status === 'Ordered' && (
+                            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
+                          )}
+                        </div>
+                      </div>
+                      {hasResults && !expanded && (
+                        <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3 }}>{summarizeResultData(type, i.result_data)}</div>
+                      )}
+                      {i.status === 'Cancelled' && i.unable_reason && (
+                        <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 3 }}><i className="ti ti-alert-triangle"></i> Unable to perform -- {i.unable_reason}</div>
+                      )}
+                      {expanded && (
+                        <div style={{ background: 'var(--g50)', borderRadius: 'var(--r)', padding: 10, marginTop: 6 }}>
+                          {fullFields.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No values recorded.</div>}
+                          {fullFields.map((f) => (
+                            <div key={f.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12 }}>
+                              <span style={{ color: 'var(--g500)' }}>{f.label}</span>
+                              <span style={{ fontWeight: 600 }}>{f.value}</span>
+                            </div>
+                          ))}
+                          {i.result_notes && (
+                            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--g200)', fontSize: 12 }}>
+                              <span style={{ color: 'var(--g500)' }}>Technician remarks: </span>{i.result_notes}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 {data.investigations.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No investigations ordered yet.</div>}
                 <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setInvName(e.target.value); }}>
                   <option value="">-- Pick from Investigations master (or type below) --</option>
@@ -759,3 +803,4 @@ export default function ConsultationForm({ queueEntryId }) {
     </div>
   );
 }
+

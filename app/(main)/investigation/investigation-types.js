@@ -54,3 +54,45 @@ export function parseNumeric(value) {
   return match ? parseFloat(match[0]) : null;
 }
 
+// Full labeled field set per type -- exactly mirrors what the
+// Investigation Workspace ([id]/workspace.js) actually saves into
+// result_data, so a doctor reviewing results in Consultation sees
+// every value the technician entered, not just the short summary line.
+const FULL_FIELDS = {
+  OCT: [
+    { key: 'cmt-re', label: 'Central Macular Thickness (OD)' },
+    { key: 'rnfl', label: 'RNFL Thickness' },
+    { key: 'signal', label: 'Signal Strength' },
+    { key: 'gcc', label: 'GCC' },
+  ],
+  'Visual Field': [
+    { key: 'vf-strategy', label: 'Test strategy' },
+    { key: 'md-re', label: 'MD (RE)' },
+    { key: 'psd-re', label: 'PSD (RE)' },
+    { key: 'md-le', label: 'MD (LE)' },
+    { key: 'psd-le', label: 'PSD (LE)' },
+    { key: 'vfi', label: 'VFI (%)' },
+    { key: 'vf-rel', label: 'Reliability indices' },
+  ],
+  'Fundus Photography': [
+    { key: 'img-qual', label: 'Image quality' },
+    { key: 'img-field', label: 'Field coverage' },
+    { key: 'photo-notes', label: 'Photography notes' },
+  ],
+  'External Report': [
+    { key: 'doc-type', label: 'Document type' },
+    { key: 'doc-source', label: 'Issuing lab/hospital' },
+    { key: 'doc-date', label: 'Report date' },
+    { key: 'doc-summary', label: 'Summary findings' },
+  ],
+};
+
+// Every entered field as {label, value} pairs, skipping ones left
+// blank -- for a full results view rather than the one-line summary.
+export function getFullFieldValues(type, resultData) {
+  const fields = FULL_FIELDS[type] || [];
+  return fields
+    .map((f) => ({ label: f.label, value: resultData?.[f.key] }))
+    .filter((f) => f.value);
+}
+
