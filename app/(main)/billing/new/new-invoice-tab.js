@@ -20,7 +20,7 @@ import {
   markBiometryBilled,
 } from '../actions';
 
-const DEPARTMENTS = ['Consultation', 'Investigation', 'Surgery', 'Pharmacy'];
+const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Surgery', 'Pharmacy'];
 const DEFAULT_PURPOSE = 'Consultation';
 
 // Mirrors add_invoice_line_item's math exactly, so the running totals
@@ -185,7 +185,7 @@ export default function NewInvoiceTab() {
           return {
             tempId: nextTempId.current++,
             sourceBioId: i.bioId,
-            serviceCode: i.serviceCode, serviceName: i.name, dept: 'Investigation',
+            serviceCode: i.serviceCode, serviceName: i.name, dept: 'Biometry',
             qty: 1, rate: i.rate, gstPct: i.gstPct,
             discType: 'none', discValue: 0, discReason: '',
             ...computed,

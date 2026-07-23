@@ -105,7 +105,7 @@ export async function getConsultationData(queueEntryId) {
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
     { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
-    { data: diagnosisHistoryRaw },
+    { data: diagnosisHistoryRaw }, { data: biometryRecord },
   ] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
@@ -123,6 +123,10 @@ export async function getConsultationData(queueEntryId) {
       .from('visits')
       .select('id, encounters(id, started_at, diagnoses(id, name, category, eye, status, created_at))')
       .eq('patient_id', patientId),
+    // Biometry gets its own dedicated section in Diagnosis & Plan (not
+    // folded into Investigations) -- same reasoning as its own
+    // Financial Masters department: it's structurally its own thing.
+    supabase.from('biometry_records').select('id, status').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -137,6 +141,7 @@ export async function getConsultationData(queueEntryId) {
     workflowRequests: workflowRequests || [], auditLog: auditLog || [],
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
+    biometryRecord: biometryRecord || null,
     isLocked: encounter.status === 'Completed',
   };
 }

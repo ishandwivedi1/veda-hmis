@@ -462,7 +462,29 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               </div>
 
-              <GroupHeader num={2} color="var(--teal)" title="Diagnosis" />
+              <GroupHeader num={2} color="var(--indigo)" title="Biometry" />
+              <div className="card" style={{ marginBottom: 20 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-ruler-measure" style={{ color: 'var(--indigo)' }}></i> Biometry</div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
+                  Device measurements, IOL power calculation, and surgeon approval -- its own dedicated workflow, separate from lab investigations.
+                </div>
+                {data.biometryRecord ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span className={`badge ${data.biometryRecord.status === 'Approved' ? 'b-green' : data.biometryRecord.status === 'Calculated' ? 'b-purple' : data.biometryRecord.status === 'Measured' ? 'b-blue' : 'b-amber'}`}>
+                      {data.biometryRecord.status}
+                    </span>
+                    <a href={`/biometry/${data.biometryRecord.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 12, textDecoration: 'none' }}>
+                      <i className="ti ti-external-link"></i> Open Biometry
+                    </a>
+                  </div>
+                ) : (
+                  <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
+                    <i className="ti ti-ruler-measure"></i> Send for Biometry
+                  </button>
+                )}
+              </div>
+
+              <GroupHeader num={3} color="var(--teal)" title="Diagnosis" />
 
               {data.diagnosisHistory.length > 0 && (
                 <div className="card" style={{ marginBottom: 12, background: 'var(--g50)' }}>
@@ -511,7 +533,7 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               </div>
 
-              <GroupHeader num={3} color="var(--blue)" title="Treatment" />
+              <GroupHeader num={4} color="var(--blue)" title="Treatment" />
 
               <div className="card" style={{ marginBottom: 12 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i> Prescription</div>
@@ -614,7 +636,7 @@ export default function ConsultationForm({ queueEntryId }) {
                 )}
               </div>
 
-              <GroupHeader num={4} color="var(--amber)" title="Patient Management" />
+              <GroupHeader num={5} color="var(--amber)" title="Patient Management" />
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
@@ -728,9 +750,6 @@ export default function ConsultationForm({ queueEntryId }) {
             </button>
             <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
               Send for Investigation
-            </button>
-            <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
-              <i className="ti ti-ruler-measure"></i> Send for Biometry
             </button>
             <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>
               <i className="ti ti-printer"></i> Print Visit Summary

@@ -228,9 +228,8 @@ export async function markPrescriptionsBilled(ids) {
 
 // ── PREFILL FROM FRONT OFFICE'S "BIOMETRY" WIDGET ──
 // Unlike investigations/prescriptions, there's exactly one fixed
-// billing line for any biometry -- the "Biometry (Procedure Charge)"
-// catalog entry -- so this just confirms it's still active/priced
-// rather than doing any name-matching.
+// billing line for any biometry -- Biometry's own dedicated Financial
+// Masters department (separate from Investigation for clarity).
 export async function getBiometryForBilling(ids) {
   const supabase = await createClient();
   if (!ids || ids.length === 0) return { items: [] };
@@ -239,7 +238,7 @@ export async function getBiometryForBilling(ids) {
     .from('master_services')
     .select('code, name, rate, gst_pct')
     .eq('status', 'Active')
-    .ilike('name', '%biometry%')
+    .eq('dept', 'Biometry')
     .limit(1)
     .maybeSingle();
 
