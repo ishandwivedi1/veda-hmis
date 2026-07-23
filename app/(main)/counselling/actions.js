@@ -181,7 +181,24 @@ export async function getCounsellingCases() {
     (records || []).forEach((r) => { biometryByEncounter[r.encounter_id] = r; });
   }
 
-  return (data || []).map((c) => ({ ...c, biometry_record: biometryByEncounter[c.encounter_id] || null }));
+  // Same batching pattern for the medical fitness referral -- one per
+  // case at most (re-referring resets the same row rather than piling
+  // up history), so a simple map by surgical_case_id is enough.
+  const caseIds = (data || []).map((c) => c.id);
+  let fitnessByCase = {};
+  if (caseIds.length > 0) {
+    const { data: referrals } = await supabase
+      .from('medical_fitness_referrals')
+      .select('id, surgical_case_id, status, referred_at, fitness_notes')
+      .in('surgical_case_id', caseIds);
+    (referrals || []).forEach((r) => { fitnessByCase[r.surgical_case_id] = r; });
+  }
+
+  return (data || []).map((c) => ({
+    ...c,
+    biometry_record: biometryByEncounter[c.encounter_id] || null,
+    fitness_referral: fitnessByCase[c.id] || null,
+  }));
 }
 
 // ── Packages, filtered by the IOL type advised at Biometry ──
@@ -381,6 +398,48 @@ export async function markFitnessCleared(caseId) {
   const gateError = await requirePostDecision(supabase, caseId);
   if (gateError) return { error: gateError };
   const { error } = await supabase.from('surgical_cases').update({ fitness_cleared: true }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Medical fitness is no longer self-certified by the counsellor --
+// it's referred to a doctor, who reviews clinical data, orders any
+// investigations needed, and clears (or doesn't) via the Medical
+// Fitness Dashboard/Workspace. This creates that referral, or -- if
+// the case was previously marked Not Fit -- resets the same row back
+// to Pending Review rather than creating a duplicate.
+export async function referForMedicalFitness(caseId) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+
+  const { data: sc } = await supabase.from('surgical_cases').select('visit_id, encounter_id').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  const { data: userData } = await supabase.auth.getUser();
+  const { data: existing } = await supabase
+    .from('medical_fitness_referrals')
+    .select('id, status')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (existing && existing.length > 0 && existing[0].status === 'Pending Review') {
+    return { error: 'Already referred and awaiting doctor review.' };
+  }
+
+  if (existing && existing.length > 0 && existing[0].status === 'Not Fit') {
+    const { error } = await supabase.from('medical_fitness_referrals').update({
+      status: 'Pending Review', referred_by: userData?.user?.id || null, referred_at: new Date().toISOString(),
+      reviewing_doctor_id: null, fitness_notes: null, cleared_by: null, cleared_at: null,
+    }).eq('id', existing[0].id);
+    if (error) return { error: error.message };
+    return { success: true };
+  }
+
+  const { error } = await supabase.from('medical_fitness_referrals').insert({
+    surgical_case_id: caseId, visit_id: sc.visit_id, encounter_id: sc.encounter_id, referred_by: userData?.user?.id || null,
+  });
   if (error) return { error: error.message };
   return { success: true };
 }

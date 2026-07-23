@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
   { href: '/doctor-dashboard', label: 'Doctor Dashboard', icon: 'ti-stethoscope', section: 'Ophthalmologist' },
+  { href: '/medical-fitness', label: 'Medical Fitness', icon: 'ti-heart-rate-monitor', section: 'Ophthalmologist' },
   { href: '/patient-timeline', label: 'Patient Timeline', icon: 'ti-timeline', section: 'Ophthalmologist' },
   { href: '/workflow-monitor', label: 'Workflow Monitor', icon: 'ti-activity', section: 'Ophthalmologist' },
   { href: '/optometry-dashboard', label: 'Optometry Queue', icon: 'ti-eye-check', section: 'Optometrist' },
@@ -48,6 +49,7 @@ const PAGE_TITLES = [
   { match: /^\/visits/, title: 'Visits' },
   { match: /^\/queue/, title: 'Queue Management' },
   { match: /^\/doctor-dashboard/, title: 'Doctor Dashboard' },
+  { match: /^\/medical-fitness/, title: 'Medical Fitness' },
   { match: /^\/patient-timeline/, title: 'Patient Timeline' },
   { match: /^\/workflow-monitor/, title: 'Workflow Monitor' },
   { match: /^\/optometry-dashboard/, title: 'Optometry Queue' },
@@ -154,5 +156,6 @@ export default function AppShell({ children }) {
     </div>
   );
 }
+
 
 

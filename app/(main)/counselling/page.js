@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getCounsellingCases, getPackagesForCase, selectPackage, changePackage,
   setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
-  markInvestigationsComplete, markFitnessCleared, markReadyForScheduling, referBackToDoctor,
+  markInvestigationsComplete, markReadyForScheduling, referBackToDoctor,
+  referForMedicalFitness,
   sendForBiometry, skipBiometry, unskipBiometry,
   getInvestigationMasterOptions, getCounsellingInvestigationOrders, orderCounsellingInvestigation, removeCounsellingInvestigation,
   getInvestigationPackages, orderInvestigationPackage,
@@ -215,6 +216,7 @@ function CaseWorkspace({ sc, onUpdate }) {
   const [invPriority, setInvPriority] = useState('Routine');
   const [invError, setInvError] = useState('');
   const [ordering, setOrdering] = useState(false);
+  const [referringFitness, setReferringFitness] = useState(false);
 
   const refreshInvOrders = useCallback(() => {
     getCounsellingInvestigationOrders(sc.encounter_id).then(setInvOrders);
@@ -251,6 +253,15 @@ function CaseWorkspace({ sc, onUpdate }) {
   async function handleRemoveInvestigation(id) {
     await removeCounsellingInvestigation(id);
     refreshInvOrders();
+  }
+
+  async function handleReferFitness() {
+    setError('');
+    setReferringFitness(true);
+    const result = await referForMedicalFitness(sc.id);
+    setReferringFitness(false);
+    if (result.error) { setError(result.error); return; }
+    onUpdate();
   }
 
   function toggleSection(key) {
@@ -537,10 +548,36 @@ function CaseWorkspace({ sc, onUpdate }) {
                 })}
               </div>
             )}
-            {fitnessItem?.done ? (
-              <span className="badge b-green"><i className="ti ti-check"></i> Medical fitness cleared</span>
-            ) : (
-              <button className="btn btn-sm" onClick={async () => { setError(''); const r = await markFitnessCleared(sc.id); if (r.error) setError(r.error); else onUpdate(); }}>Mark done</button>
+
+            {!sc.fitness_referral && (
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+                  Refer this patient to a doctor to review clinical data, order any further investigations needed, and clear for surgery.
+                </div>
+                <button className="btn btn-sm" onClick={handleReferFitness} disabled={referringFitness}>
+                  <i className="ti ti-heart-rate-monitor"></i> {referringFitness ? 'Referring...' : 'Refer to Doctor'}
+                </button>
+              </div>
+            )}
+            {sc.fitness_referral?.status === 'Pending Review' && (
+              <span className="badge b-amber"><i className="ti ti-clock"></i> Referred to doctor -- awaiting review ({new Date(sc.fitness_referral.referred_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})</span>
+            )}
+            {sc.fitness_referral?.status === 'Cleared' && (
+              <div>
+                <span className="badge b-green"><i className="ti ti-check"></i> Cleared by doctor</span>
+                {sc.fitness_referral.fitness_notes && <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 6 }}>{sc.fitness_referral.fitness_notes}</div>}
+              </div>
+            )}
+            {sc.fitness_referral?.status === 'Not Fit' && (
+              <div>
+                <span className="badge b-red"><i className="ti ti-x"></i> Not Fit</span>
+                {sc.fitness_referral.fitness_notes && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 6 }}>{sc.fitness_referral.fitness_notes}</div>}
+                <div style={{ marginTop: 8 }}>
+                  <button className="btn btn-sm" onClick={handleReferFitness} disabled={referringFitness}>
+                    <i className="ti ti-refresh"></i> {referringFitness ? 'Referring...' : 'Refer Again'}
+                  </button>
+                </div>
+              </div>
             )}
           </>
         )}
