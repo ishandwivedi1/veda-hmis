@@ -296,7 +296,9 @@ async function requirePostDecision(supabase, caseId) {
 export async function getInvestigationMasterOptions() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_services').select('code, name').eq('status', 'Active').eq('dept', 'Investigation');
-  return (data || []).filter((s) => s.name.toLowerCase() !== 'biometry');
+  // Substring match, not exact -- the catalog entry is named
+  // "Biometry (Procedure Charge)", not literally "Biometry".
+  return (data || []).filter((s) => !s.name.toLowerCase().includes('biometry'));
 }
 
 // Distinct standard panels (e.g. "Cataract" -> Blood, Sugar, HIV...)

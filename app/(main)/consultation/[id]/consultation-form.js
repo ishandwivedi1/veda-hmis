@@ -134,7 +134,9 @@ export default function ConsultationForm({ queueEntryId }) {
       // Biometry stays in Financial Masters for billing purposes only --
       // excluded here since clinical biometry has its own dedicated
       // workflow, now triggered from Counselling (M22) rather than here.
-      setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation' && s.name.toLowerCase() !== 'biometry'));
+      // Substring match, not exact -- the catalog entry is named
+      // "Biometry (Procedure Charge)", not literally "Biometry".
+      setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation' && !s.name.toLowerCase().includes('biometry')));
       setProcedureOptions(pr.filter((p) => p.status === 'Active'));
       setSurgeryOptions(sg.filter((s) => s.status === 'Active'));
     })();
