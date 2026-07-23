@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getInvestigationHistory } from '../actions';
 import { matchInvestigationType, summarizeResultData } from '../investigation-types';
+import InvestigationTabs from '../investigation-tabs';
 
 const STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 
@@ -40,6 +41,8 @@ export default function InvestigationHistoryPage() {
 
   return (
     <div>
+      <InvestigationTabs />
+
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-head" style={{ marginBottom: 0 }}>
           <div className="card-title"><i className="ti ti-history" style={{ color: 'var(--teal)' }}></i> Investigation History</div>

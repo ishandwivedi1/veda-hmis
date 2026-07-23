@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { getInvestigationReport } from '../actions';
+import InvestigationTabs from '../investigation-tabs';
 
 const RPT_DEFS = [
   { id: 'register', icon: 'ti-calendar', color: '--teal', title: 'Daily Investigation Register', desc: 'All investigations in period' },
@@ -43,6 +44,8 @@ export default function InvestigationReportsPage() {
 
   return (
     <div>
+      <InvestigationTabs />
+
       <div className="card" style={{ marginBottom: 16, padding: '14px 16px' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 8 }}>Period</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>

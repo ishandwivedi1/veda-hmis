@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { searchPatientsForInvestigation, getInvestigationComparisonData } from '../actions';
 import { matchInvestigationType, parseNumeric } from '../investigation-types';
+import InvestigationTabs from '../investigation-tabs';
 
 const COMPARE_TYPES = ['OCT', 'Visual Field'];
 
@@ -52,6 +53,8 @@ export default function InvestigationComparisonPage() {
 
   return (
     <div>
+      <InvestigationTabs />
+
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-head" style={{ marginBottom: 0 }}>
           <div className="card-title"><i className="ti ti-chart-bar-off" style={{ color: 'var(--teal)' }}></i> Longitudinal Comparison</div>
