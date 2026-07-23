@@ -159,7 +159,7 @@ export default function DoctorDashboardPage() {
                 <button className="btn btn-sm" onClick={() => runAction(doctorMarkReady, e.id)}>Mark Ready</button>
               </div>
             ))}
-            {intermediate.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No one in Dilation or Investigation.</div>}
+            {intermediate.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No one in Dilation, Investigation, or Biometry.</div>}
           </div>
 
           {/* COMPLETED TODAY */}
@@ -189,3 +189,4 @@ export default function DoctorDashboardPage() {
     </div>
   );
 }
+

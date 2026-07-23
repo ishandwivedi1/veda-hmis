@@ -18,7 +18,7 @@ export async function getDoctorDashboardData() {
       .from('queue_entries')
       .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
       .eq('department', 'Doctor')
-      .in('status', ['Awaiting Dilation', 'Awaiting Investigation'])
+      .in('status', ['Awaiting Dilation', 'Awaiting Investigation', 'Awaiting Biometry'])
       .gte('issued_at', today)
       .order('sent_out_at', { ascending: true }),
     supabase
@@ -32,4 +32,5 @@ export async function getDoctorDashboardData() {
 
   return { active: active || [], intermediate: intermediate || [], completed: completed || [] };
 }
+
 
