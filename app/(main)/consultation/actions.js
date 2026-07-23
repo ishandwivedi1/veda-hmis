@@ -126,7 +126,7 @@ export async function getConsultationData(queueEntryId) {
     // Biometry gets its own dedicated section in Diagnosis & Plan (not
     // folded into Investigations) -- same reasoning as its own
     // Financial Masters department: it's structurally its own thing.
-    supabase.from('biometry_records').select('id, status, surgical_eye, doctor_instructions').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
+    supabase.from('biometry_records').select('id, status, surgical_eye, doctor_instructions, billing_status').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -634,6 +634,25 @@ export async function sendForBiometryFromConsultation(queueEntryId, encounterId,
 // different physical record, not editing this one), but instructions
 // can still be corrected/added at any point before the technician
 // finishes.
+// Doctor can remove a mistakenly-added/sent biometry request (wrong
+// eye, duplicate, etc.) -- but only while it's still unbilled. Once
+// Front Office has billed it, removing the record here would leave an
+// invoice line with nothing behind it, so that has to go through
+// billing's own modification flow instead.
+export async function removeBiometryRecord(id, encounterId) {
+  const supabase = await createClient();
+  const { data: record } = await supabase.from('biometry_records').select('billing_status').eq('id', id).maybeSingle();
+  if (!record) return { error: 'Record not found.' };
+  if (record.billing_status === 'Billed') {
+    return { error: 'This has already been billed and cannot be removed here -- use Billing to modify the invoice first.' };
+  }
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('biometry_records').delete().eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, encounterId, 'Biometry request removed', userData?.user?.id);
+  return { success: true };
+}
+
 export async function updateBiometryInstructions(id, instructions) {
   const supabase = await createClient();
   const { error } = await supabase.from('biometry_records').update({ doctor_instructions: instructions?.trim() || null }).eq('id', id);

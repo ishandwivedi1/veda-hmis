@@ -17,6 +17,7 @@ import {
   sendForBiometryFromConsultation,
   adviseBiometry,
   updateBiometryInstructions,
+  removeBiometryRecord,
   completeWorkflowRequest,
   addOpticalAdvice,
   removeOpticalAdvice,
@@ -228,6 +229,13 @@ export default function ConsultationForm({ queueEntryId }) {
   async function saveBioInstructions(id) {
     await updateBiometryInstructions(id, editBioInstructions);
     setEditingBioId(null);
+    refresh();
+  }
+
+  async function handleRemoveBiometry(id) {
+    setError('');
+    const result = await removeBiometryRecord(id, data.encounter.id);
+    if (result.error) { setError(result.error); return; }
     refresh();
   }
 
@@ -562,6 +570,13 @@ export default function ConsultationForm({ queueEntryId }) {
                               <i className="ti ti-edit"></i> {r.doctor_instructions ? 'Edit instructions' : 'Add instructions'}
                             </button>
                           )}
+                          {r.billing_status !== 'Billed' ? (
+                            <button className="btn" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => handleRemoveBiometry(r.id)}>
+                              <i className="ti ti-trash"></i> Remove
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 10, color: 'var(--g400)' }}>Billed -- cannot remove here</span>
+                          )}
                         </div>
                         {editingBioId === r.id ? (
                           <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
@@ -578,8 +593,19 @@ export default function ConsultationForm({ queueEntryId }) {
                 ) : (
                   <>
                     {data.biometryRecords.length > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                        <span className="badge b-indigo"><i className="ti ti-check"></i> Advised -- {data.biometryRecords.map((r) => r.surgical_eye).join(' & ')}</span>
+                      <div style={{ marginBottom: 10 }}>
+                        {data.biometryRecords.map((r) => (
+                          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                            <span className="badge b-indigo"><i className="ti ti-check"></i> Advised -- {r.surgical_eye}</span>
+                            {r.billing_status !== 'Billed' ? (
+                              <button className="btn" style={{ fontSize: 10 }} onClick={() => handleRemoveBiometry(r.id)}>
+                                <i className="ti ti-trash" style={{ color: 'var(--red)' }}></i> Remove
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: 10, color: 'var(--g400)' }}>Billed -- cannot remove here</span>
+                            )}
+                          </div>
+                        ))}
                         <span style={{ fontSize: 11, color: 'var(--g500)' }}>Adjust below if needed, then use &quot;Send for Biometry&quot; at the bottom.</span>
                       </div>
                     )}
