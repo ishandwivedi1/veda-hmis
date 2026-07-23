@@ -40,7 +40,47 @@ export async function getInvestigationQueue() {
     if (!groups[visitId]) {
       groups[visitId] = { visitId, patient: io.encounters.visits.patients, items: [] };
     }
-    groups[visitId].items.push({ ...io, payment: paymentInfo(io) });
+    groups[visitId].items.push({ ...io, kind: 'investigation', payment: paymentInfo(io) });
+  });
+
+  // Biometry is structurally its own thing (device measurements, IOL
+  // formulas, surgeon approval -- not a text-field investigation), so it
+  // stays in its own table and dedicated workspace. But per the doctor's
+  // actual usage, it belongs in the same "what's outstanding for this
+  // patient" queue as any other investigation, not off in a separate
+  // module people forget to check. Approved/Cancelled are done, so left
+  // out here the same way Available/Cancelled investigations are.
+  const { data: bio } = await supabase
+    .from('biometry_records')
+    .select('*, visits(id, patients(first_name, last_name, uhid))')
+    .in('status', ['Awaiting Biometry', 'Measured', 'Calculated'])
+    .order('created_at', { ascending: true });
+
+  const bioInvoiceIds = [...new Set((bio || []).map((r) => r.invoice_id).filter(Boolean))];
+  let bioInvoiceMap = invoiceMap;
+  if (bioInvoiceIds.length > 0) {
+    const { data: moreInvoices } = await supabase.from('invoices').select('id, net, paid, status').in('id', bioInvoiceIds);
+    (moreInvoices || []).forEach((inv) => { bioInvoiceMap[inv.id] = inv; });
+  }
+  function bioPaymentInfo(r) {
+    if (r.billing_status !== 'Billed' || !r.invoice_id) return { label: 'Unbilled', badge: 'b-gray' };
+    const inv = bioInvoiceMap[r.invoice_id];
+    if (!inv || inv.status === 'Cancelled') return { label: 'Unbilled', badge: 'b-gray' };
+    if (inv.status === 'Paid' || Number(inv.paid) >= Number(inv.net)) return { label: 'Paid', badge: 'b-green' };
+    return { label: 'Billed -- Payment Due', badge: 'b-amber' };
+  }
+
+  (bio || []).forEach((r) => {
+    const visitId = r.visit_id;
+    const patient = r.visits?.patients;
+    if (!visitId || !patient) return;
+    if (!groups[visitId]) {
+      groups[visitId] = { visitId, patient, items: [] };
+    }
+    groups[visitId].items.push({
+      id: r.id, kind: 'biometry', name: 'Biometry', eye: r.surgical_eye || 'OU', priority: 'Routine',
+      status: r.status, created_at: r.created_at, payment: bioPaymentInfo(r),
+    });
   });
 
   const ordered = (pending || []).filter((i) => i.status === 'Ordered').length;

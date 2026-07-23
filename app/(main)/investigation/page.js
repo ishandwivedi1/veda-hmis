@@ -19,7 +19,18 @@ function matchType(name) {
   return 'External Report';
 }
 
-const TYPE_ICON = { OCT: 'ti-eye', 'Visual Field': 'ti-activity', 'Fundus Photography': 'ti-camera', Pachymetry: 'ti-ruler', 'External Report': 'ti-file-import' };
+const TYPE_ICON = { OCT: 'ti-eye', 'Visual Field': 'ti-activity', 'Fundus Photography': 'ti-camera', Pachymetry: 'ti-ruler', 'External Report': 'ti-file-import', Biometry: 'ti-ruler-measure' };
+
+// Investigation and Biometry use different status vocabularies
+// (Ordered/In Progress/... vs Awaiting Biometry/Measured/Calculated),
+// so the Queue badge needs to know which one it's looking at.
+const STATUS_BADGE = {
+  investigation: { 'In Progress': 'b-blue' },
+  biometry: { 'Awaiting Biometry': 'b-amber', Measured: 'b-blue', Calculated: 'b-purple' },
+};
+function statusBadgeClass(item) {
+  return STATUS_BADGE[item.kind]?.[item.status] || 'b-amber';
+}
 
 function KpiCard({ label, value, sub, color }) {
   return (
@@ -46,7 +57,7 @@ export default function InvestigationPage() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const filteredGroups = typeFilter
-    ? groups.map((g) => ({ ...g, items: g.items.filter((i) => matchType(i.name) === typeFilter) })).filter((g) => g.items.length > 0)
+    ? groups.map((g) => ({ ...g, items: g.items.filter((i) => (i.kind === 'biometry' ? 'Biometry' : matchType(i.name)) === typeFilter) })).filter((g) => g.items.length > 0)
     : groups;
 
   return (
@@ -70,6 +81,7 @@ export default function InvestigationPage() {
             <option value="Fundus Photography">Fundus Photography</option>
             <option value="Pachymetry">Pachymetry</option>
             <option value="External Report">External Report</option>
+            <option value="Biometry">Biometry</option>
           </select>
         </div>
       </div>
@@ -81,22 +93,23 @@ export default function InvestigationPage() {
             {g.patient?.first_name} {g.patient?.last_name} -- {g.patient?.uhid}
           </div>
           {g.items.map((item) => {
-            const type = matchType(item.name);
+            const type = item.kind === 'biometry' ? 'Biometry' : matchType(item.name);
+            const href = item.kind === 'biometry' ? `/biometry/${item.id}` : `/investigation/${item.id}`;
             return (
               <div
                 key={item.id}
-                onClick={() => router.push(`/investigation/${item.id}`)}
+                onClick={() => router.push(href)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
               >
-                <i className={`ti ${TYPE_ICON[type] || 'ti-flask'}`} style={{ color: 'var(--teal)', fontSize: 16 }}></i>
+                <i className={`ti ${TYPE_ICON[type] || 'ti-flask'}`} style={{ color: item.kind === 'biometry' ? 'var(--indigo)' : 'var(--teal)', fontSize: 16 }}></i>
                 <div style={{ flex: 1 }}>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{item.name}</span>
                   <span style={{ fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>{item.eye}</span>
                 </div>
                 <span className={`badge ${PRIORITY_BADGE[item.priority] || 'b-gray'}`}>{item.priority}</span>
-                <span className={`badge ${item.status === 'In Progress' ? 'b-blue' : 'b-amber'}`}>{item.status}</span>
+                <span className={`badge ${statusBadgeClass(item)}`}>{item.status}</span>
                 <span className={`badge ${item.payment?.badge || 'b-gray'}`}>{item.payment?.label || 'Unbilled'}</span>
-                <button className="btn btn-sm btn-primary"><i className="ti ti-flask"></i> Open</button>
+                <button className="btn btn-sm btn-primary"><i className={`ti ${item.kind === 'biometry' ? 'ti-ruler-measure' : 'ti-flask'}`}></i> Open</button>
               </div>
             );
           })}

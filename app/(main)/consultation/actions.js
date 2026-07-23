@@ -552,7 +552,29 @@ export async function sendForBiometryFromConsultation(queueEntryId, encounterId)
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
   const result = await doctorSendOut(queueEntryId, 'biometry');
-  if (!result.error) await addAudit(supabase, encounterId, 'Sent for Biometry', userData?.user?.id);
+  if (result.error) return result;
+  await addAudit(supabase, encounterId, 'Sent for Biometry', userData?.user?.id);
+
+  // Same stub-creation as Counselling's sendForBiometry, so it shows up
+  // immediately in the Investigation Queue / Biometry Queue rather than
+  // only after a technician opens it.
+  const { data: entry } = await supabase.from('queue_entries').select('visit_id').eq('id', queueEntryId).single();
+  const visitId = entry?.visit_id;
+  if (visitId) {
+    const { data: existing } = await supabase
+      .from('biometry_records')
+      .select('id')
+      .eq('visit_id', visitId)
+      .neq('status', 'Cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!existing || existing.length === 0) {
+      const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
+      await supabase.from('biometry_records').insert({ visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null });
+    }
+  }
+
   return result;
 }
 
@@ -562,3 +584,4 @@ export async function saveDraft(encounterId) {
   await addAudit(supabase, encounterId, 'Consultation saved as draft', userData?.user?.id);
   return { success: true };
 }
+

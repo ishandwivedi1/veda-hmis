@@ -13,6 +13,7 @@ import {
   completeConsultation,
   sendForDilationFromConsultation,
   sendForInvestigationFromConsultation,
+  sendForBiometryFromConsultation,
   completeWorkflowRequest,
   addOpticalAdvice,
   removeOpticalAdvice,
@@ -283,6 +284,8 @@ export default function ConsultationForm({ queueEntryId }) {
     setLoading(true);
     const result = kind === 'dilate'
       ? await sendForDilationFromConsultation(queueEntryId, data.encounter.id)
+      : kind === 'biometry'
+      ? await sendForBiometryFromConsultation(queueEntryId, data.encounter.id)
       : await sendForInvestigationFromConsultation(queueEntryId, data.encounter.id);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
@@ -725,6 +728,9 @@ export default function ConsultationForm({ queueEntryId }) {
             </button>
             <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
               Send for Investigation
+            </button>
+            <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
+              <i className="ti ti-ruler-measure"></i> Send for Biometry
             </button>
             <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>
               <i className="ti ti-printer"></i> Print Visit Summary
