@@ -249,6 +249,21 @@ export async function getDoctorsMaster() {
 }
 
 // ── SERVICES ──
+// Services (Consultation, Investigation, Surgery, Pharmacy departments
+// in master_services) follow their own long-established CON001, INV001...
+// pattern -- 3-digit, scoped per department -- rather than the 2-digit
+// generateCategoryCode scheme above. Kept separate so it stays exactly
+// consistent with the codes already seeded in the database.
+async function generateServiceCode(supabase, dept) {
+  const prefix = (dept || 'SVC').slice(0, 3).toUpperCase();
+  const { data } = await supabase.from('master_services').select('code').ilike('code', `${prefix}%`);
+  const maxSeq = (data || []).reduce((max, row) => {
+    const m = row.code && row.code.match(new RegExp(`^${prefix}(\\d+)$`));
+    return m ? Math.max(max, parseInt(m[1], 10)) : max;
+  }, 0);
+  return `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
+}
+
 export async function getServices() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_services').select('*').order('name');
@@ -257,9 +272,10 @@ export async function getServices() {
 export async function addService(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
-  const code = await generateUniqueCode(supabase, 'master_services', name);
+  const code = await generateServiceCode(supabase, values.dept);
   const { error } = await supabase.from('master_services').insert({
     code, name, dept: values.dept, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
+    investigation_package: values.investigationPackage?.trim() || null,
   });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_services', code, 'Create', `${name} created -- Rs.${values.rate}, ${values.gstPct || 0}% GST`);
@@ -270,6 +286,7 @@ export async function updateService(id, oldValues, values) {
   const name = normalizeName(values.name);
   const { error } = await supabase.from('master_services').update({
     name, dept: values.dept, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
+    investigation_package: values.investigationPackage?.trim() || null,
   }).eq('id', id);
   if (error) return { error: error.message };
   const changes = [];
@@ -277,6 +294,7 @@ export async function updateService(id, oldValues, values) {
   if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
   if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
   if (oldValues.dept !== values.dept) changes.push(`Dept ${oldValues.dept} -> ${values.dept}`);
+  if ((oldValues.investigation_package || '') !== (values.investigationPackage || '')) changes.push(`Package ${oldValues.investigation_package || '--'} -> ${values.investigationPackage || '--'}`);
   await logMasterAudit(supabase, 'master_services', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
   return { success: true };
 }

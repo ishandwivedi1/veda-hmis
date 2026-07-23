@@ -103,7 +103,7 @@ export default function FinancialMastersPage() {
     setEditingId(record.id);
     if (tabDef.type === 'package') setEditForm({ name: record.name || '', includes: record.includes || '', surgeryId: record.surgery_id || '', iolCategory: record.iol_category || '', origin: record.origin || '' });
     else if (tabDef.type === 'drug') setEditForm({ brand: record.brand || '', generic: record.generic || '', strength: record.strength || '', form: record.form || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
-    else setEditForm({ name: record.name || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
+    else setEditForm({ name: record.name || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '', investigationPackage: record.investigation_package || '' });
   }
 
   function cancelEdit() {
@@ -195,7 +195,7 @@ export default function FinancialMastersPage() {
 
           {(tabDef.type === 'service' || tabDef.type === 'drug') && (
             <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-              <i className="ti ti-info-circle"></i> Code is generated automatically from the name.
+              <i className="ti ti-info-circle"></i> {tabDef.type === 'service' ? 'Code is generated automatically, linked to department (e.g. INV001, INV002...).' : 'Code is generated automatically from the name.'}
             </div>
           )}
 
@@ -206,6 +206,11 @@ export default function FinancialMastersPage() {
                   <input className="fi" placeholder="Name" onChange={update('name')} />
                   <input type="number" className="fi" placeholder="Rate" onChange={update('rate')} />
                   <input type="number" className="fi" placeholder="GST %" onChange={update('gstPct')} />
+                  {activeTab === 'Investigation' && (
+                    <div style={{ gridColumn: 'span 3' }}>
+                      <input className="fi" placeholder="Package (optional, e.g. Cataract) -- lets Counselling order this as part of a standard panel" onChange={update('investigationPackage')} />
+                    </div>
+                  )}
                 </div>
               )}
               {tabDef.type === 'drug' && (
@@ -252,7 +257,7 @@ export default function FinancialMastersPage() {
 
           {tabDef.type === 'service' && (
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Rate</th><th>GST%</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Rate</th><th>GST%</th>{activeTab === 'Investigation' && <th>Package</th>}<th>Status</th><th></th></tr></thead>
               <tbody>
                 {deptServices.map((s) => (
                   editingId === s.id ? (
@@ -261,6 +266,9 @@ export default function FinancialMastersPage() {
                       <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
                       <td><input type="number" className="fi fi-sm" style={{ width: 80 }} value={editForm.rate} onChange={updateEdit('rate')} /></td>
                       <td><input type="number" className="fi fi-sm" style={{ width: 60 }} value={editForm.gstPct} onChange={updateEdit('gstPct')} /></td>
+                      {activeTab === 'Investigation' && (
+                        <td><input className="fi fi-sm" style={{ width: 110 }} placeholder="optional" value={editForm.investigationPackage} onChange={updateEdit('investigationPackage')} /></td>
+                      )}
                       <td><span className={`badge ${s.status === 'Active' ? 'b-green' : 'b-gray'}`}>{s.status}</span></td>
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm btn-primary" onClick={() => saveEdit(s)}>Save</button>
@@ -271,6 +279,7 @@ export default function FinancialMastersPage() {
                     <tr key={s.id}>
                       <td style={{ fontFamily: 'monospace' }}>{s.code}</td><td>{s.name}</td>
                       <td>Rs.{s.rate}</td><td>{s.gst_pct}%</td>
+                      {activeTab === 'Investigation' && <td>{s.investigation_package ? <span className="badge b-purple" style={{ fontSize: 10 }}>{s.investigation_package}</span> : <span style={{ color: 'var(--g400)' }}>--</span>}</td>}
                       <td><StatusToggle record={s} table="master_services" onUpdate={refresh} /></td>
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => startEdit(s)}><i className="ti ti-edit"></i></button>
@@ -280,7 +289,7 @@ export default function FinancialMastersPage() {
                   )
                 ))}
                 {deptServices.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No {activeTab.toLowerCase()} services yet.</td></tr>
+                  <tr><td colSpan={activeTab === 'Investigation' ? 7 : 6} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No {activeTab.toLowerCase()} services yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -449,3 +458,4 @@ export default function FinancialMastersPage() {
     </div>
   );
 }
+

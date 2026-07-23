@@ -287,6 +287,84 @@ async function requirePostDecision(supabase, caseId) {
   return null;
 }
 
+// ── PRE-OP INVESTIGATIONS (usually blood work) ──
+// Same master list Consultation's investigation picker uses (dept =
+// Investigation in Financial Masters, Biometry excluded since that's
+// its own dedicated step above) -- so an order placed here is the same
+// kind of thing a doctor orders during a regular consultation, and
+// lands in the same Investigation module queue for the lab to process.
+export async function getInvestigationMasterOptions() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_services').select('code, name').eq('status', 'Active').eq('dept', 'Investigation');
+  return (data || []).filter((s) => s.name.toLowerCase() !== 'biometry');
+}
+
+// Distinct standard panels (e.g. "Cataract" -> Blood, Sugar, HIV...)
+// set up in Financial Masters against Investigation services, so
+// Counselling can order a whole panel in one action instead of one
+// investigation at a time.
+export async function getInvestigationPackages() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_services').select('investigation_package').eq('status', 'Active').eq('dept', 'Investigation').not('investigation_package', 'is', null);
+  return [...new Set((data || []).map((s) => s.investigation_package).filter(Boolean))].sort();
+}
+
+export async function orderInvestigationPackage(caseId, encounterId, packageName) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+  if (!packageName) return { error: 'Select a package.' };
+
+  const { data: services, error: svcError } = await supabase
+    .from('master_services')
+    .select('name')
+    .eq('status', 'Active')
+    .eq('dept', 'Investigation')
+    .eq('investigation_package', packageName);
+  if (svcError) return { error: svcError.message };
+  if (!services || services.length === 0) return { error: 'No investigations found for this package.' };
+
+  const { error } = await supabase.from('investigation_orders').insert(
+    services.map((s) => ({ encounter_id: encounterId, name: s.name, eye: 'N/A', priority: 'Routine' }))
+  );
+  if (error) return { error: error.message };
+  return { success: true, count: services.length };
+}
+
+export async function getCounsellingInvestigationOrders(encounterId) {
+  const supabase = await createClient();
+  if (!encounterId) return [];
+  const { data } = await supabase
+    .from('investigation_orders')
+    .select('*')
+    .eq('encounter_id', encounterId)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+export async function orderCounsellingInvestigation(caseId, encounterId, values) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+  if (!values.name?.trim()) return { error: 'Select or enter an investigation.' };
+
+  const { error } = await supabase.from('investigation_orders').insert({
+    encounter_id: encounterId,
+    name: values.name,
+    eye: values.eye || 'OU',
+    priority: values.priority || 'Routine',
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function removeCounsellingInvestigation(id) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('investigation_orders').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function markInvestigationsComplete(caseId) {
   const supabase = await createClient();
   const gateError = await requirePostDecision(supabase, caseId);
