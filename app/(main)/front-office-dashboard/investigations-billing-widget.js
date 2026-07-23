@@ -50,12 +50,12 @@ export default function InvestigationsBillingWidget() {
 
   return (
     <div className="card" style={{ marginBottom: 16 }}>
-      <div className="card-title" style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Prescribed Investigations -- Pending Billing</span>
+      <div className="card-title" style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+        <span><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Prescribed Investigations</span>
         {totalItems > 0 && <span className="badge b-red">{totalItems}</span>}
       </div>
       <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-        Investigations ordered by doctors, not yet billed. Click a patient to open a pre-filled invoice.
+        Ordered, not yet billed. Click a patient to open a pre-filled invoice.
       </div>
 
       {loading && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div>}
@@ -66,18 +66,18 @@ export default function InvestigationsBillingWidget() {
 
       {!loading && groups.map((g) => (
         <div key={g.visitId} style={{ padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: 13 }}>{g.patient?.first_name} {g.patient?.last_name}</div>
               <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{g.patient?.uhid} -- {g.visitNumber}</div>
             </div>
-            <button className="btn btn-primary btn-sm" onClick={() => billNow(g)}>
+            <button className="btn btn-primary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => billNow(g)}>
               <i className="ti ti-receipt"></i> Bill Now
             </button>
           </div>
 
           {g.items.map((io) => (
-            <div key={io.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 12 }}>
+            <div key={io.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 12, flexWrap: 'wrap', gap: 4 }}>
               <div>
                 {io.name} <span style={{ color: 'var(--g400)' }}>({io.eye})</span>
                 <span className={`badge ${BILLING_BADGE[io.billing_status] || 'b-amber'}`} style={{ marginLeft: 6, fontSize: 9 }}>{io.billing_status}</span>
@@ -85,16 +85,16 @@ export default function InvestigationsBillingWidget() {
               <div style={{ display: 'flex', gap: 4 }}>
                 {io.billing_status === 'Pending' && (
                   <>
-                    <button className="btn" style={{ padding: '2px 8px', fontSize: 10 }} disabled={busyId === io.id} onClick={() => handleDefer(io.id)}>
-                      <i className="ti ti-clock"></i> Later
+                    <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} disabled={busyId === io.id} onClick={() => handleDefer(io.id)}>
+                      <i className="ti ti-clock"></i>
                     </button>
-                    <button className="btn" style={{ padding: '2px 8px', fontSize: 10, color: 'var(--red)' }} disabled={busyId === io.id} onClick={() => handleDeny(io.id)}>
-                      <i className="ti ti-x"></i> Denied
+                    <button className="btn" style={{ padding: '2px 6px', fontSize: 10, color: 'var(--red)' }} disabled={busyId === io.id} onClick={() => handleDeny(io.id)}>
+                      <i className="ti ti-x"></i>
                     </button>
                   </>
                 )}
                 {io.billing_status === 'Deferred' && (
-                  <button className="btn" style={{ padding: '2px 8px', fontSize: 10 }} disabled={busyId === io.id} onClick={() => handleReset(io.id)}>
+                  <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} disabled={busyId === io.id} onClick={() => handleReset(io.id)}>
                     Reset
                   </button>
                 )}
