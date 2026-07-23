@@ -105,7 +105,7 @@ export async function getConsultationData(queueEntryId) {
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
     { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
-    { data: diagnosisHistoryRaw }, { data: biometryRecord },
+    { data: diagnosisHistoryRaw }, { data: biometryRecords },
   ] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
@@ -126,7 +126,7 @@ export async function getConsultationData(queueEntryId) {
     // Biometry gets its own dedicated section in Diagnosis & Plan (not
     // folded into Investigations) -- same reasoning as its own
     // Financial Masters department: it's structurally its own thing.
-    supabase.from('biometry_records').select('id, status, surgical_eye, doctor_instructions').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('biometry_records').select('id, status, surgical_eye, doctor_instructions').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -141,7 +141,7 @@ export async function getConsultationData(queueEntryId) {
     workflowRequests: workflowRequests || [], auditLog: auditLog || [],
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
-    biometryRecord: biometryRecord || null,
+    biometryRecords: biometryRecords || [],
     isLocked: encounter.status === 'Completed',
   };
 }
@@ -562,13 +562,18 @@ export async function sendForInvestigationFromConsultation(queueEntryId, encount
 
 // Shared by both the "Add" button (advises Biometry without moving the
 // patient anywhere yet) and "Send for Biometry" (which also routes the
-// queue) -- creates the record if none exists yet, or updates the
-// eye/instructions on the existing one rather than duplicating it.
-async function ensureBiometryRecord(supabase, visitId, encounterId, eye, instructions) {
+// queue) -- creates the record if none exists yet for that eye, or
+// updates instructions on the existing one rather than duplicating it.
+// Matched per-eye (not just per-visit) since "Both Eyes" needs two
+// independent records -- the Biometry workspace itself is built around
+// one eye per record (separate measurements/IOL calc/approval each),
+// so bilateral cases genuinely need two rows, not one row meaning both.
+async function ensureBiometryRecordForEye(supabase, visitId, encounterId, eye, instructions) {
   const { data: existing } = await supabase
     .from('biometry_records')
     .select('id')
     .eq('visit_id', visitId)
+    .eq('surgical_eye', eye)
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: false })
     .limit(1);
@@ -577,15 +582,23 @@ async function ensureBiometryRecord(supabase, visitId, encounterId, eye, instruc
     const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
     const { data: created } = await supabase.from('biometry_records').insert({
       visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null,
-      surgical_eye: eye || null, doctor_instructions: instructions?.trim() || null,
+      surgical_eye: eye, doctor_instructions: instructions?.trim() || null,
     }).select('id').single();
     return created?.id;
   }
 
   await supabase.from('biometry_records').update({
-    surgical_eye: eye || null, doctor_instructions: instructions?.trim() || null,
+    doctor_instructions: instructions?.trim() || null,
   }).eq('id', existing[0].id);
   return existing[0].id;
+}
+
+// "Both" fans out into one record per eye; RE/LE is just the one.
+async function ensureBiometryRecords(supabase, visitId, encounterId, eye, instructions) {
+  const eyes = eye === 'Both' ? ['RE', 'LE'] : [eye];
+  const ids = [];
+  for (const e of eyes) ids.push(await ensureBiometryRecordForEye(supabase, visitId, encounterId, e, instructions));
+  return ids;
 }
 
 // The "Add" step -- advises Biometry is needed (records eye + optional
@@ -598,7 +611,7 @@ export async function adviseBiometry(visitId, encounterId, eye, instructions) {
   const supabase = await createClient();
   if (!eye) return { error: 'Select which eye Biometry is required for.' };
   const { data: userData } = await supabase.auth.getUser();
-  await ensureBiometryRecord(supabase, visitId, encounterId, eye, instructions);
+  await ensureBiometryRecords(supabase, visitId, encounterId, eye, instructions);
   await addAudit(supabase, encounterId, `Biometry advised (${eye})`, userData?.user?.id);
   return { success: true };
 }
@@ -611,9 +624,21 @@ export async function sendForBiometryFromConsultation(queueEntryId, encounterId,
   await addAudit(supabase, encounterId, `Sent for Biometry (${eye})`, userData?.user?.id);
 
   const { data: entry } = await supabase.from('queue_entries').select('visit_id').eq('id', queueEntryId).single();
-  if (entry?.visit_id) await ensureBiometryRecord(supabase, entry.visit_id, encounterId, eye, instructions);
+  if (entry?.visit_id) await ensureBiometryRecords(supabase, entry.visit_id, encounterId, eye, instructions);
 
   return result;
+}
+
+// For updating instructions on a biometry record that's already been
+// sent -- eye is fixed once a record exists (changing it would mean a
+// different physical record, not editing this one), but instructions
+// can still be corrected/added at any point before the technician
+// finishes.
+export async function updateBiometryInstructions(id, instructions) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('biometry_records').update({ doctor_instructions: instructions?.trim() || null }).eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
 }
 
 export async function saveDraft(encounterId) {
