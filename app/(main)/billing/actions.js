@@ -112,6 +112,63 @@ export async function getVisitWithPatient(visitId) {
   return { visit: data };
 }
 
+// ── PREFILL FROM FRONT OFFICE'S "PRESCRIBED INVESTIGATIONS" WIDGET ──
+// Takes the investigation_orders selected on the dashboard and turns
+// each into a draft line item by matching its free-text name against
+// the Investigation department of the service catalog. A name that
+// doesn't match anything (e.g. it was typed instead of picked from
+// master data back in Consultation) is returned as unmatched so the
+// front desk can still see it and add it manually rather than it
+// silently vanishing from the invoice.
+export async function getInvestigationOrdersForBilling(ids) {
+  const supabase = await createClient();
+  if (!ids || ids.length === 0) return { items: [] };
+
+  const { data: orders, error } = await supabase
+    .from('investigation_orders')
+    .select('id, name, eye, priority, billing_status')
+    .in('id', ids);
+  if (error) return { error: error.message };
+
+  const { data: catalog } = await supabase.from('master_services').select('*').eq('dept', 'Investigation').eq('status', 'Active');
+
+  const items = (orders || []).map((io) => {
+    const match = (catalog || []).find((s) => s.name.toLowerCase() === io.name.toLowerCase());
+    return {
+      invOrderId: io.id,
+      name: io.name,
+      eye: io.eye,
+      matched: !!match,
+      serviceCode: match?.code || null,
+      rate: match?.rate ?? null,
+      gstPct: match?.gst_pct ?? null,
+    };
+  });
+
+  return { items };
+}
+
+// Called once the invoice carrying these investigations is actually
+// saved (finalized or draft) -- flips them out of the Front Office
+// queue. Line items the front desk removed before saving are never
+// passed in here, so they correctly stay Pending.
+export async function markInvestigationOrdersBilled(ids) {
+  const supabase = await createClient();
+  if (!ids || ids.length === 0) return { success: true };
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('investigation_orders')
+    .update({
+      billing_status: 'Billed',
+      billed: true,
+      billing_updated_by: userData?.user?.id || null,
+      billing_updated_at: new Date().toISOString(),
+    })
+    .in('id', ids);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function getInvoiceById(invoiceId) {
   const supabase = await createClient();
   const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, last_name, uhid, mobile)').eq('id', invoiceId).single();
@@ -236,5 +293,6 @@ export async function searchInvoices(query, deptFilter) {
 // payment_allocations), leaving invoices.paid inconsistent with
 // actual receipts. Use Collect Payment (payments/collect) instead,
 // which properly creates a full payment record.
+
 
 

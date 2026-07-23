@@ -133,3 +133,63 @@ export async function markUnableToPerform(id, reason) {
   if (error) return { error: error.message };
   return { success: true };
 }
+
+// ── FRONT OFFICE BILLING QUEUE ──
+// Every investigation lands here the moment it's ordered from
+// Consultation, regardless of lab status -- Front Office bills as soon
+// as the doctor orders it, it doesn't wait on the lab. Grouped by visit
+// the same way the lab's own Queue screen is, so it reads the same way.
+export async function getPendingInvestigationBilling() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, last_name, uhid, mobile)))')
+    .in('billing_status', ['Pending', 'Deferred'])
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: true });
+
+  if (error) return [];
+
+  const groups = {};
+  (data || []).forEach((io) => {
+    const visitId = io.encounters?.visit_id;
+    const visit = io.encounters?.visits;
+    if (!visitId || !visit) return;
+    if (!groups[visitId]) {
+      groups[visitId] = { visitId, visitNumber: visit.visit_number, patient: visit.patients, items: [] };
+    }
+    groups[visitId].items.push(io);
+  });
+
+  return Object.values(groups);
+}
+
+async function setInvestigationBillingStatus(id, billingStatus, note) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('investigation_orders')
+    .update({
+      billing_status: billingStatus,
+      billing_note: note || null,
+      billing_updated_by: userData?.user?.id || null,
+      billing_updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function markInvestigationDenied(id, note) {
+  return setInvestigationBillingStatus(id, 'Denied', note);
+}
+
+export async function markInvestigationDeferred(id, note) {
+  return setInvestigationBillingStatus(id, 'Deferred', note);
+}
+
+// Undo a Denied/Deferred mark -- puts it back in the Front Office queue.
+export async function resetInvestigationBilling(id) {
+  return setInvestigationBillingStatus(id, 'Pending', null);
+}
+

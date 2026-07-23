@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
+import InvestigationsBillingWidget from './investigations-billing-widget';
 
 function elapsedMin(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -183,6 +184,8 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
         </table>
       </div>
 
+      <InvestigationsBillingWidget />
+
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
         {/* TODAY'S VISITS */}
         <div className="card">
@@ -324,5 +327,6 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     </div>
   );
 }
+
 
 

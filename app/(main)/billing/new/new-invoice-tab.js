@@ -12,6 +12,8 @@ import {
   getServiceCatalog,
   addLineItem,
   getTodaysVisitsForBilling,
+  getInvestigationOrdersForBilling,
+  markInvestigationOrdersBilled,
 } from '../actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Surgery', 'Pharmacy'];
@@ -58,10 +60,13 @@ export default function NewInvoiceTab() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [todaysVisits, setTodaysVisits] = useState([]);
+  const [unmatchedInvestigations, setUnmatchedInvestigations] = useState([]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlVisitId = searchParams.get('visitId');
+  const urlInvOrderIds = searchParams.get('invOrderIds');
   const contextLoadedFor = useRef(null);
+  const invOrdersLoadedFor = useRef(null);
 
   useEffect(() => {
     getServiceCatalog().then(setCatalog);
@@ -81,6 +86,40 @@ export default function NewInvoiceTab() {
       setExistingInvoices(invResult.invoices || []);
     })();
   }, [urlVisitId]);
+
+  // Prefill from Front Office's "Prescribed Investigations" widget --
+  // waits for the visit/patient context above to land first (it needs
+  // patient to exist before there's anywhere to add lines to), then
+  // turns each selected investigation order into a draft line item.
+  useEffect(() => {
+    if (!urlInvOrderIds || !contextPatient) return;
+    if (invOrdersLoadedFor.current === urlInvOrderIds) return;
+    invOrdersLoadedFor.current = urlInvOrderIds;
+    (async () => {
+      const ids = urlInvOrderIds.split(',').filter(Boolean);
+      const result = await getInvestigationOrdersForBilling(ids);
+      if (result.error) { setError(result.error); return; }
+
+      const matched = (result.items || []).filter((i) => i.matched);
+      const unmatched = (result.items || []).filter((i) => !i.matched);
+      setUnmatchedInvestigations(unmatched);
+
+      setDraftLines((prev) => [
+        ...prev,
+        ...matched.map((i) => {
+          const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
+          return {
+            tempId: nextTempId.current++,
+            sourceInvOrderId: i.invOrderId,
+            serviceCode: i.serviceCode, serviceName: `${i.name} (${i.eye})`, dept: 'Investigation',
+            qty: 1, rate: i.rate, gstPct: i.gstPct,
+            discType: 'none', discValue: 0, discReason: '',
+            ...computed,
+          };
+        }),
+      ]);
+    })();
+  }, [urlInvOrderIds, contextPatient]);
 
   const servicesForDept = catalog.filter((s) => s.dept === dept);
 
@@ -174,6 +213,10 @@ export default function NewInvoiceTab() {
     }
 
     const details = await getInvoiceById(created.invoice.id);
+
+    const billedInvOrderIds = draftLines.map((l) => l.sourceInvOrderId).filter(Boolean);
+    if (billedInvOrderIds.length > 0) await markInvestigationOrdersBilled(billedInvOrderIds);
+
     setSubmitting(false);
     return details.invoice;
   }
@@ -201,7 +244,9 @@ export default function NewInvoiceTab() {
     setContextVisit(null);
     setExistingInvoices([]);
     setDraftLines([]);
+    setUnmatchedInvestigations([]);
     contextLoadedFor.current = null;
+    invOrdersLoadedFor.current = null;
     router.push('/billing/new');
   }
 
@@ -241,6 +286,11 @@ export default function NewInvoiceTab() {
               <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
                 <i className="ti ti-info-circle"></i> This visit also has {existingInvoices.length} other invoice{existingInvoices.length > 1 ? 's' : ''}
                 {contextVisit && <> -- <a href={`/billing/cancel?visitId=${contextVisit.id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>view / modify them</a></>}
+              </div>
+            )}
+            {unmatchedInvestigations.length > 0 && (
+              <div className="msg-err" style={{ fontSize: 12, marginBottom: 12 }}>
+                <i className="ti ti-alert-triangle"></i> {unmatchedInvestigations.length} prescribed investigation{unmatchedInvestigations.length > 1 ? 's' : ''} couldn&apos;t be matched to a priced service and weren&apos;t added automatically -- add manually below: {unmatchedInvestigations.map((i) => i.name).join(', ')}
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16 }}>
@@ -302,7 +352,7 @@ export default function NewInvoiceTab() {
               <tbody>
                 {draftLines.map((li) => (
                   <tr key={li.tempId}>
-                    <td>{li.serviceName}</td>
+                    <td>{li.serviceName}{li.sourceInvOrderId && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
                     <td>{li.qty}</td>
                     <td>Rs.{li.rate}</td>
                     <td>{li.disc > 0 ? `Rs.${li.disc}` : '--'}</td>
@@ -367,4 +417,5 @@ export default function NewInvoiceTab() {
     </div>
   );
 }
+
 
