@@ -5,15 +5,23 @@ import {
   getCounsellingCases, getPackagesForCase, selectPackage, changePackage,
   setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
   markInvestigationsComplete, markFitnessCleared, markReadyForScheduling, referBackToDoctor,
-  sendForBiometry,
+  sendForBiometry, skipBiometry, unskipBiometry,
 } from './actions';
+
+// Biometry is satisfied either by actually being done, or by having
+// been explicitly marked not required for this case (retina, glaucoma,
+// oculoplasty...). Every gate that used to check biometry_done alone
+// now goes through this.
+function biometrySatisfied(sc) {
+  return sc.biometry_done || sc.biometry_required === false;
+}
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 
 function readiness(sc) {
   const items = [
     { key: 'surgeryRec', label: 'Surgery Recommended', done: true },
-    { key: 'biometry', label: 'Biometry & IOL Type Advised (M23)', done: sc.biometry_done },
+    { key: 'biometry', label: sc.biometry_required === false ? 'Biometry & IOL Type Advised (M23) -- Skipped' : 'Biometry & IOL Type Advised (M23)', done: biometrySatisfied(sc) },
     { key: 'investigations', label: 'Investigations complete', done: sc.investigations_complete },
     { key: 'fitness', label: 'Medical Fitness', done: sc.fitness_cleared },
     { key: 'advance', label: 'Advance Payment', done: !!sc.advance_payment_id },
@@ -28,11 +36,11 @@ function PackagePicker({ sc, onUpdate }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!sc.biometry_done) { setLoading(false); return; }
+    if (!biometrySatisfied(sc)) { setLoading(false); return; }
     getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoading(false); });
-  }, [sc.biometry_done, sc.iol_category]);
+  }, [sc.biometry_done, sc.biometry_required, sc.iol_category]);
 
-  if (!sc.biometry_done) {
+  if (!biometrySatisfied(sc)) {
     return (
       <div style={{ textAlign: 'center', padding: 20, color: 'var(--g400)', fontSize: 12.5, background: 'var(--g50)', borderRadius: 'var(--r)' }}>
         <i className="ti ti-lock" style={{ fontSize: 20, display: 'block', marginBottom: 6 }}></i>
@@ -221,6 +229,22 @@ function CaseWorkspace({ sc, onUpdate }) {
     onUpdate();
   }
 
+  async function handleSkipBiometry() {
+    const reason = window.prompt('Why is Biometry not required for this case? (e.g. Retina surgery -- no IOL power needed)');
+    if (reason === null) return;
+    setAncillaryMsg(null);
+    const result = await skipBiometry(sc.id, reason);
+    if (result.error) { setAncillaryMsg({ type: 'error', text: result.error }); return; }
+    onUpdate();
+  }
+
+  async function handleUnskipBiometry() {
+    setAncillaryMsg(null);
+    const result = await unskipBiometry(sc.id);
+    if (result.error) { setAncillaryMsg({ type: 'error', text: result.error }); return; }
+    onUpdate();
+  }
+
   const advancePaid = !!sc.advance_payment_id;
   const investigationsItem = items.find((i) => i.key === 'investigations');
   const fitnessItem = items.find((i) => i.key === 'fitness');
@@ -253,7 +277,7 @@ function CaseWorkspace({ sc, onUpdate }) {
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 10, opacity: .7 }}>IOL Type Advised</div>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.iol_category || 'Pending biometry'}</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.iol_category || (sc.biometry_required === false ? 'Not applicable' : 'Pending biometry')}</div>
           <span className={`badge ${sc.status === 'Ready for Scheduling' ? 'b-green' : 'b-amber'}`} style={{ marginTop: 4 }}>{sc.status}</span>
           <div style={{ fontSize: 10, opacity: .7, marginTop: 4 }}>{pct}% ready</div>
         </div>
@@ -275,6 +299,8 @@ function CaseWorkspace({ sc, onUpdate }) {
         badge={
           sc.biometry_done
             ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span>
+            : sc.biometry_required === false
+            ? <span className="badge b-purple">Not Required</span>
             : sc.biometry_record
             ? <span className="badge b-blue">Awaiting Technician</span>
             : <span className="badge b-amber">Not sent</span>
@@ -282,6 +308,11 @@ function CaseWorkspace({ sc, onUpdate }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {sc.biometry_done ? (
             <span className="badge b-green"><i className="ti ti-check"></i> Biometry Complete -- {sc.iol_category}</span>
+          ) : sc.biometry_required === false ? (
+            <>
+              <span className="badge b-purple"><i className="ti ti-player-skip-forward"></i> Not required -- {sc.biometry_skip_reason}</span>
+              <button className="btn btn-sm" onClick={handleUnskipBiometry} style={{ fontSize: 11 }}>Undo -- make required again</button>
+            </>
           ) : sc.biometry_record ? (
             <>
               <span className="badge b-blue"><i className="ti ti-clock"></i> Biometry Requested -- Awaiting Technician</span>
@@ -290,9 +321,14 @@ function CaseWorkspace({ sc, onUpdate }) {
               </button>
             </>
           ) : (
-            <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry}>
-              <i className="ti ti-ruler-measure"></i> {sendingBiometry ? 'Sending...' : 'Send for Biometry'}
-            </button>
+            <>
+              <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry}>
+                <i className="ti ti-ruler-measure"></i> {sendingBiometry ? 'Sending...' : 'Send for Biometry'}
+              </button>
+              <button className="btn btn-sm" onClick={handleSkipBiometry} style={{ fontSize: 11 }}>
+                <i className="ti ti-player-skip-forward"></i> Not required for this surgery
+              </button>
+            </>
           )}
           {ancillaryMsg && (
             <span style={{ fontSize: 11.5, color: ancillaryMsg.type === 'error' ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>
@@ -416,7 +452,7 @@ const STAGE_MAP = Object.fromEntries(STAGES.map((s) => [s.key, s]));
 
 function getStage(sc) {
   if (sc.status === 'Ready for Scheduling') return 'ready';
-  if (!sc.biometry_done) return sc.biometry_record ? 'awaiting_biometry' : 'surgery_advised';
+  if (!sc.biometry_done && sc.biometry_required !== false) return sc.biometry_record ? 'awaiting_biometry' : 'surgery_advised';
   if (!sc.package_id) return 'awaiting_package';
   if (sc.decision === 'Declined') return 'declined';
   if (sc.decision === 'Financial Constraint') return 'financial_constraint';
@@ -598,3 +634,4 @@ export default function CounsellingPage() {
     </div>
   );
 }
+

@@ -73,6 +73,31 @@ export async function sendForBiometry(caseId) {
   return { success: true };
 }
 
+// For surgeries where biometry genuinely doesn't apply (retina,
+// glaucoma, oculoplasty...) -- a reason is required so there's an
+// audit trail for why this case skipped a normally-required step.
+export async function skipBiometry(caseId, reason) {
+  const supabase = await createClient();
+  if (!reason || !reason.trim()) return { error: 'A reason is required to skip Biometry.' };
+  const { error } = await supabase
+    .from('surgical_cases')
+    .update({ biometry_required: false, biometry_skip_reason: reason.trim() })
+    .eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Undo a skip -- puts Biometry back as a required step for this case.
+export async function unskipBiometry(caseId) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('surgical_cases')
+    .update({ biometry_required: true, biometry_skip_reason: null })
+    .eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function sendForDilation(caseId) {
   return sendCaseToQueueStatus(caseId, 'Awaiting Dilation', 'Sent for Dilation (from Counselling)');
 }
@@ -128,7 +153,8 @@ export async function getCounsellingCases() {
     .select(`
       id, patient_id, encounter_id, procedure_name, eye, priority, status,
       iol_category, decision, decision_reason,
-      biometry_done, fitness_cleared, investigations_complete,
+      biometry_done, biometry_required, biometry_skip_reason,
+      fitness_cleared, investigations_complete,
       package_id, surgeon_id, advance_payment_id, created_at,
       patients:patient_id ( id, first_name, last_name, uhid, age, gender ),
       profiles:surgeon_id ( id, full_name ),
@@ -179,8 +205,8 @@ export async function getPackagesForCase(iolCategory) {
 export async function selectPackage(caseId, packageId) {
   const supabase = await createClient();
 
-  const { data: sc } = await supabase.from('surgical_cases').select('biometry_done').eq('id', caseId).single();
-  if (!sc?.biometry_done) {
+  const { data: sc } = await supabase.from('surgical_cases').select('biometry_done, biometry_required').eq('id', caseId).single();
+  if (!sc?.biometry_done && sc?.biometry_required !== false) {
     return { error: 'BR-SCC-002: Biometry & IOL type advice must be complete before selecting a package.' };
   }
 
@@ -290,7 +316,7 @@ export async function markReadyForScheduling(caseId) {
   const { data: sc } = await supabase.from('surgical_cases').select('*').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
 
-  if (!sc.biometry_done) return { error: 'VAL-SCC-002: Biometry & IOL type advice must be complete.' };
+  if (!sc.biometry_done && sc.biometry_required !== false) return { error: 'VAL-SCC-002: Biometry & IOL type advice must be complete.' };
   if (!sc.package_id) return { error: 'VAL-SCC-002: Select a package first.' };
   if (sc.decision !== 'Accepted') return { error: 'VAL-SCC-002: Patient decision must be Accepted.' };
   if (!sc.investigations_complete) return { error: 'VAL-SCC-002: Investigations must be complete.' };
@@ -352,3 +378,4 @@ export async function completeOT(otScheduleId, surgicalCaseId) {
 
   return { success: true };
 }
+
