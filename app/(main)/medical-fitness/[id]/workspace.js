@@ -9,6 +9,7 @@ import {
 } from '../actions';
 import { getPatientTimeline } from '@/app/(main)/patient-timeline/actions';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
+import MedicalFitnessTabs from '../medical-fitness-tabs';
 
 const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 const TIMELINE_TYPE_COLOR = { Visit: 'var(--blue)', Diagnosis: 'var(--red)', Investigation: 'var(--teal)', Prescription: 'var(--purple)', Surgery: 'var(--amber)' };
@@ -105,13 +106,15 @@ export default function MedicalFitnessWorkspace({ referralId }) {
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
-  const { referral, currentDiagnoses, investigations, diagnosisHistory, referredByName } = data;
+  const { referral, currentDiagnoses, investigations, diagnosisHistory, referredByName, clearedByName } = data;
   const patient = referral.visits.patients;
   const sc = referral.surgical_cases;
   const isPending = referral.status === 'Pending Review';
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <MedicalFitnessTabs workspaceId={referralId} />
+
       <div style={{ background: 'linear-gradient(135deg,#b45309,#d97706)', borderRadius: 12, padding: '10px 16px', color: '#fff', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>
           {patient.first_name?.charAt(0)}
@@ -132,7 +135,12 @@ export default function MedicalFitnessWorkspace({ referralId }) {
       {referral.status !== 'Pending Review' && (
         <div className={`msg-${referral.status === 'Cleared' ? 'ok' : 'err'}`} style={{ marginBottom: 12 }}>
           <i className={`ti ${referral.status === 'Cleared' ? 'ti-circle-check' : 'ti-alert-triangle'}`}></i>
-          <span><strong>{referral.status}</strong>{referral.fitness_notes ? ` -- ${referral.fitness_notes}` : ''}</span>
+          <span>
+            <strong>{referral.status}</strong>{referral.fitness_notes ? ` -- ${referral.fitness_notes}` : ''}
+            <span style={{ display: 'block', fontSize: 11, opacity: 0.85, marginTop: 2 }}>
+              By Dr. {clearedByName || '--'} -- {referral.cleared_at ? new Date(referral.cleared_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}
+            </span>
+          </span>
         </div>
       )}
 

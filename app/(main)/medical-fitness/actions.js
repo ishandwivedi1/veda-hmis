@@ -5,11 +5,39 @@ import { createClient } from '@/lib/supabase-server';
 // ── DASHBOARD: every referral (all statuses), so the dashboard can show
 // stats across Pending/Cleared/Not Fit -- filtering to a specific stage
 // happens client-side, same pattern as Counselling's own dashboard. ──
+// ── HISTORY: completed referrals (Cleared / Not Fit) ──
+export async function getMedicalFitnessHistory() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('medical_fitness_referrals')
+    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
+    .in('status', ['Cleared', 'Not Fit'])
+    .order('cleared_at', { ascending: false });
+
+  if (error) return [];
+
+  const doctorIds = [...new Set((data || []).map((r) => r.cleared_by).filter(Boolean))];
+  let doctorMap = {};
+  if (doctorIds.length > 0) {
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', doctorIds);
+    (profiles || []).forEach((p) => { doctorMap[p.id] = p.full_name; });
+  }
+
+  return (data || [])
+    .filter((r) => r.visits)
+    .map((r) => ({ ...r, clearedByName: doctorMap[r.cleared_by] || '--' }));
+}
+
+// ── QUEUE (TAB 1): patients referred by Counselling, awaiting doctor
+// review. Reads medical_fitness_referrals directly (same architecture
+// as the Biometry Queue) rather than the front-desk queue_entries
+// system. ──
 export async function getMedicalFitnessQueue() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('medical_fitness_referrals')
     .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
+    .eq('status', 'Pending Review')
     .order('referred_at', { ascending: true });
 
   if (error) return [];
@@ -29,7 +57,7 @@ export async function getMedicalFitnessDetail(referralId) {
 
   const patientId = referral.visits.patients.id;
 
-  const [{ data: currentDiagnoses }, { data: investigations }, { data: diagnosisHistoryRaw }, { data: referredByProfile }] = await Promise.all([
+  const [{ data: currentDiagnoses }, { data: investigations }, { data: diagnosisHistoryRaw }, { data: referredByProfile }, { data: clearedByProfile }] = await Promise.all([
     referral.encounter_id
       ? supabase.from('diagnoses').select('*').eq('encounter_id', referral.encounter_id).order('created_at')
       : Promise.resolve({ data: [] }),
@@ -43,6 +71,9 @@ export async function getMedicalFitnessDetail(referralId) {
       .eq('patient_id', patientId),
     referral.referred_by
       ? supabase.from('profiles').select('full_name').eq('id', referral.referred_by).maybeSingle()
+      : Promise.resolve({ data: null }),
+    referral.cleared_by
+      ? supabase.from('profiles').select('full_name').eq('id', referral.cleared_by).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 
@@ -58,6 +89,7 @@ export async function getMedicalFitnessDetail(referralId) {
     investigations: investigations || [],
     diagnosisHistory,
     referredByName: referredByProfile?.full_name || '--',
+    clearedByName: clearedByProfile?.full_name || null,
   };
 }
 
