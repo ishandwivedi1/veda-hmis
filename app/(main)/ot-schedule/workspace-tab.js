@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   getSchedulingWorkspaceData, getOTSessions, getSessionCapacity, getSurgeonOptions,
-  scheduleSurgery, rescheduleSurgery, cancelSurgery, completeSurgery,
+  scheduleSurgery, rescheduleSurgery, cancelSurgery,
 } from './actions';
 
 const PRIORITY_BADGE = { Emergency: 'b-red', Urgent: 'b-amber', Routine: 'b-gray' };
@@ -97,14 +97,6 @@ export default function WorkspaceTab({ caseId, onDone, onUpdate }) {
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setShowCancel(false);
-    onDone();
-  }
-
-  async function handleComplete() {
-    setSaving(true);
-    const result = await completeSurgery(data.existingBooking.id, caseId);
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
     onDone();
   }
 
@@ -222,9 +214,6 @@ export default function WorkspaceTab({ caseId, onDone, onUpdate }) {
               <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
                 {existingBooking.status === 'Scheduled' && (
                   <>
-                    <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={handleComplete} disabled={saving}>
-                      <i className="ti ti-check"></i> Mark Completed
-                    </button>
                     <button className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', border: 'none' }} onClick={() => { setReschDate(existingBooking.scheduled_date); setReschSessionId(existingBooking.session_id); setShowReschedule(true); }}>
                       <i className="ti ti-calendar-time"></i> Reschedule
                     </button>
