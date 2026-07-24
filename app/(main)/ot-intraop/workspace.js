@@ -265,7 +265,7 @@ export default function Workspace({ otScheduleId, onBack }) {
             </div>
           )}
           <button className="btn btn-sm" style={{ borderColor: 'rgba(255,255,255,.3)', background: 'rgba(255,255,255,.1)', color: '#fff' }} onClick={onBack}>
-            <i className="ti ti-arrow-left"></i> Cases
+            <i className="ti ti-arrow-left"></i> Dashboard
           </button>
         </div>
       </div>
@@ -456,7 +456,7 @@ export default function Workspace({ otScheduleId, onBack }) {
           </div>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={onBack}><i className="ti ti-arrow-left"></i> Back to Queue</button>
+            <button className="btn" onClick={onBack}><i className="ti ti-arrow-left"></i> Back to Dashboard</button>
             {intraop?.checkin_completed_at || isCompleted ? (
               <span className="btn" style={{ background: 'var(--green)', color: '#fff', border: 'none', cursor: 'default' }}><i className="ti ti-circle-check"></i> Checked In</span>
             ) : (

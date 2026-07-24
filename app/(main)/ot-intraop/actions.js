@@ -3,6 +3,32 @@
 import { createClient } from '@/lib/supabase-server';
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 
+// ── HISTORY: completed OT cases ──
+export async function getOTIntraopHistory() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('ot_schedule')
+    .select('*, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .eq('status', 'Completed')
+    .order('scheduled_date', { ascending: false });
+  if (error) return [];
+
+  const ids = (data || []).map((b) => b.id);
+  let intraopByBooking = {};
+  if (ids.length > 0) {
+    const { data: records } = await supabase.from('ot_intraop_records').select('ot_schedule_id, surgical_outcome, completed_at, completed_by').in('ot_schedule_id', ids);
+    const completedByIds = [...new Set((records || []).map((r) => r.completed_by).filter(Boolean))];
+    let doctorMap = {};
+    if (completedByIds.length > 0) {
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', completedByIds);
+      (profiles || []).forEach((p) => { doctorMap[p.id] = p.full_name; });
+    }
+    (records || []).forEach((r) => { intraopByBooking[r.ot_schedule_id] = { ...r, completedByName: doctorMap[r.completed_by] || '--' }; });
+  }
+
+  return (data || []).filter((b) => b.surgical_cases).map((b) => ({ ...b, intraopSummary: intraopByBooking[b.id] || null }));
+}
+
 // ── CASE SELECTOR ──
 // Today's (and any overdue) bookings that haven't been completed or
 // cancelled -- the natural set of cases someone would walk in and open.
