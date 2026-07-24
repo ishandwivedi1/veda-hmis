@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getRecoveryEpisodeDetail, DISCHARGE_ITEMS,
+  getRecoveryEpisodeDetail,
   saveRecoveryFields, addRecoveryMedication, removeRecoveryMedication, confirmDischarge,
 } from './actions';
+import { DISCHARGE_ITEMS } from './constants';
 
 const TEMPLATES = {
   cataract: 'Eye drops as prescribed -- Moxifloxacin QID x1wk, Prednisolone QID tapering over 4wks.\nUse eye shield while sleeping for 1 week.\nAvoid bending, lifting heavy objects, and swimming for 2 weeks.\nWarning signs: sudden pain, redness, decreased vision -- contact immediately.\nFollow-up: Day 1, Week 1, Month 1, Final refraction at 4-6 weeks.',

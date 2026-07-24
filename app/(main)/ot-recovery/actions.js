@@ -1,15 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
-
-export const DISCHARGE_ITEMS = [
-  { key: 'stable', label: 'Stable condition', mandatory: true },
-  { key: 'surgeonReview', label: 'Surgeon review completed', mandatory: true },
-  { key: 'dressing', label: 'Eye dressing applied', mandatory: true },
-  { key: 'medsExplained', label: 'Medicines explained', mandatory: true },
-  { key: 'followupExplained', label: 'Follow-up explained', mandatory: true },
-  { key: 'emergencyContact', label: 'Emergency contact shared', mandatory: false },
-];
+import { DISCHARGE_ITEMS } from './constants';
 
 // Called from OT Intraop's "Hand Over to Recovery" -- creates the
 // episode the moment a patient actually arrives here, same
