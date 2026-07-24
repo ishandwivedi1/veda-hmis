@@ -155,7 +155,7 @@ export async function getCounsellingCases() {
       iol_category, decision, decision_reason,
       biometry_done, biometry_required, biometry_skip_reason,
       fitness_cleared, investigations_complete,
-      package_id, surgeon_id, advance_payment_id, created_at,
+      package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
       patients:patient_id ( id, first_name, last_name, uhid, age, gender ),
       profiles:surgeon_id ( id, full_name ),
       master_packages:package_id ( id, name, price )
@@ -227,15 +227,32 @@ export async function selectPackage(caseId, packageId) {
     return { error: 'BR-SCC-002: Biometry & IOL type advice must be complete before selecting a package.' };
   }
 
-  const { error } = await supabase.from('surgical_cases').update({ package_id: packageId }).eq('id', caseId);
+  const { error } = await supabase.from('surgical_cases').update({ package_id: packageId, package_locked: true }).eq('id', caseId);
   if (error) return { error: error.message };
   return { success: true };
 }
 
-export async function changePackage(caseId) {
+// Changing a package once it's locked needs a reason -- logged as a
+// counselling note so there's an audit trail for why it changed.
+export async function changePackage(caseId, reason) {
   const supabase = await createClient();
-  const { error } = await supabase.from('surgical_cases').update({ package_id: null }).eq('id', caseId);
+
+  const { data: sc } = await supabase.from('surgical_cases').select('package_locked, master_packages:package_id(name)').eq('id', caseId).single();
+  if (sc?.package_locked && (!reason || !reason.trim())) {
+    return { error: 'A reason is required to change a locked package.' };
+  }
+
+  const { error } = await supabase.from('surgical_cases').update({ package_id: null, package_locked: false }).eq('id', caseId);
   if (error) return { error: error.message };
+
+  if (sc?.package_locked && reason) {
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from('surgical_case_notes').insert({
+      surgical_case_id: caseId,
+      note: `Package unlocked and changed${sc.master_packages?.name ? ` (was: ${sc.master_packages.name})` : ''} -- Reason: ${reason.trim()}`,
+      created_by: userData?.user?.id || null,
+    });
+  }
   return { success: true };
 }
 
@@ -245,7 +262,25 @@ const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'F
 export async function setDecision(caseId, decision, reason) {
   if (!DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
   const supabase = await createClient();
-  const { error } = await supabase.from('surgical_cases').update({ decision, decision_reason: reason || null }).eq('id', caseId);
+
+  const { data: sc } = await supabase.from('surgical_cases').select('decision, decision_locked').eq('id', caseId).single();
+
+  if (sc?.decision_locked && decision !== sc.decision) {
+    if (!reason || !reason.trim()) {
+      return { error: 'A reason is required to change a locked decision.' };
+    }
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from('surgical_case_notes').insert({
+      surgical_case_id: caseId,
+      note: `Decision unlocked and changed from "${sc.decision}" to "${decision}" -- Reason: ${reason.trim()}`,
+      created_by: userData?.user?.id || null,
+    });
+  }
+
+  const { error } = await supabase.from('surgical_cases').update({
+    decision, decision_reason: reason || null,
+    decision_locked: decision === 'Accepted',
+  }).eq('id', caseId);
   if (error) return { error: error.message };
   return { success: true };
 }

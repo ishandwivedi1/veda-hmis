@@ -56,10 +56,25 @@ function PackagePicker({ sc, onUpdate }) {
           <div style={{ fontWeight: 700, fontSize: 13 }}>{sc.master_packages.name}</div>
           <div style={{ fontWeight: 700, color: 'var(--green)', fontSize: 14 }}>Rs.{Number(sc.master_packages.price).toLocaleString('en-IN')}</div>
         </div>
+        {sc.package_locked && (
+          <div style={{ fontSize: 10.5, color: 'var(--amber)', marginTop: 6 }}><i className="ti ti-lock"></i> Locked -- changing requires a reason</div>
+        )}
+        {error && <div className="msg-err" style={{ marginTop: 8 }}>{error}</div>}
         <button
           className="btn btn-sm"
           style={{ marginTop: 8 }}
-          onClick={async () => { await changePackage(sc.id); onUpdate(); }}
+          onClick={async () => {
+            setError('');
+            let reason = null;
+            if (sc.package_locked) {
+              reason = window.prompt(`Package is locked (currently "${sc.master_packages.name}"). Enter a reason to change it:`);
+              if (reason === null) return;
+              if (!reason.trim()) { setError('A reason is required to change a locked package.'); return; }
+            }
+            const result = await changePackage(sc.id, reason);
+            if (result.error) { setError(result.error); return; }
+            onUpdate();
+          }}
         >
           Change package
         </button>
@@ -217,7 +232,13 @@ function CaseWorkspace({ sc, onUpdate }) {
 
   async function handleDecision(d) {
     setError('');
-    const result = await setDecision(sc.id, d, null);
+    let reason = null;
+    if (sc.decision_locked && d !== sc.decision) {
+      reason = window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it to "${d}":`);
+      if (reason === null) return; // cancelled
+      if (!reason.trim()) { setError('A reason is required to change a locked decision.'); return; }
+    }
+    const result = await setDecision(sc.id, d, reason);
     if (result.error) { setError(result.error); return; }
     onUpdate();
   }
@@ -362,7 +383,9 @@ function CaseWorkspace({ sc, onUpdate }) {
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <label className="flbl">Decision</label>
+          <label className="flbl">
+            Decision {sc.decision_locked && <span style={{ color: 'var(--amber)', fontWeight: 400, textTransform: 'none' }}><i className="ti ti-lock"></i> Locked -- changing requires a reason</span>}
+          </label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {DECISIONS.map((d) => (
               <button
@@ -393,7 +416,6 @@ function CaseWorkspace({ sc, onUpdate }) {
         </div>
       </CounsellingSection>
 
-      {/* 4. INVESTIGATIONS */}
       {/* 4. MEDICAL FITNESS */}
       <CounsellingSection num={4} color="var(--amber)" title="Medical Fitness" open={openSections.fitness} onToggle={() => toggleSection('fitness')}
         badge={fitnessItem?.done ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span> : <span className="badge b-amber">Pending</span>}>
