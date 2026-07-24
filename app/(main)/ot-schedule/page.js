@@ -114,6 +114,11 @@ function QueueTab({ rows, loading, onOpen }) {
             <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
               {sc.patients?.uhid} -- {sc.procedure_name} {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'}
             </div>
+            {sc.master_packages && (
+              <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 1 }}>
+                <i className="ti ti-package"></i> {sc.master_packages.name} -- Rs.{Number(sc.master_packages.price).toLocaleString('en-IN')}
+              </div>
+            )}
             <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>Waiting: {waitingDays(sc)} days</div>
           </div>
           <button className="btn btn-sm" style={{ background: 'var(--cyan)', color: '#fff', border: 'none' }} onClick={() => onOpen(sc.id)}>

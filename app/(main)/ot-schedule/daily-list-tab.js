@@ -45,6 +45,11 @@ export default function DailyListTab() {
             <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
               {r.surgical_cases?.procedure_name} -- {r.surgical_cases?.eye} -- {r.profiles?.full_name || 'No surgeon'}
             </div>
+            {r.surgical_cases?.master_packages && (
+              <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 1 }}>
+                <i className="ti ti-package"></i> {r.surgical_cases.master_packages.name}
+              </div>
+            )}
             {r.iolPlans.length > 0 && (
               <div style={{ fontSize: 11, color: 'var(--g600)', marginTop: 1, fontFamily: 'monospace' }}>
                 IOL: {r.iolPlans.map((p) => `${p.surgical_eye} ${p.final_iol_power}D`).join(', ')}

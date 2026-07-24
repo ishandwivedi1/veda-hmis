@@ -136,6 +136,12 @@ export default function WorkspaceTab({ caseId, onDone, onUpdate }) {
             <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-clipboard-list" style={{ color: 'var(--blue)' }}></i> Approved Surgical Plan (read-only)</div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}><span style={{ color: 'var(--g500)' }}>Procedure</span><strong>{sc.procedure_name}</strong></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}><span style={{ color: 'var(--g500)' }}>Eye</span><span className="badge b-blue" style={{ fontSize: 10 }}>{sc.eye}</span></div>
+            {sc.master_packages && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                <span style={{ color: 'var(--g500)' }}><i className="ti ti-package"></i> Package</span>
+                <strong style={{ color: 'var(--green)' }}>{sc.master_packages.name} -- Rs.{Number(sc.master_packages.price).toLocaleString('en-IN')}</strong>
+              </div>
+            )}
             {biometryPlans.length === 0 && (
               <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 8 }}>No approved IOL plan on record (non-IOL procedure, or Biometry not yet approved).</div>
             )}

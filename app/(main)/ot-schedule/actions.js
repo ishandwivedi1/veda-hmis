@@ -33,7 +33,7 @@ export async function getReadyQueue() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('surgical_cases')
-    .select('*, patients:patient_id(id, first_name, last_name, uhid, age, gender, mobile), profiles:surgeon_id(id, full_name)')
+    .select('*, patients:patient_id(id, first_name, last_name, uhid, age, gender, mobile), profiles:surgeon_id(id, full_name), master_packages:package_id(id, name, price)')
     .eq('status', 'Ready for Scheduling')
     .order('priority', { ascending: true })
     .order('created_at', { ascending: true });
@@ -87,7 +87,7 @@ export async function getSchedulingWorkspaceData(caseId) {
   const supabase = await createClient();
   const { data: sc, error } = await supabase
     .from('surgical_cases')
-    .select('*, patients:patient_id(id, first_name, last_name, uhid, age, gender, mobile), profiles:surgeon_id(id, full_name)')
+    .select('*, patients:patient_id(id, first_name, last_name, uhid, age, gender, mobile), profiles:surgeon_id(id, full_name), master_packages:package_id(id, name, price)')
     .eq('id', caseId)
     .single();
   if (error) return { error: error.message };
@@ -220,7 +220,7 @@ export async function getDailyOTList(date, sessionId) {
   const supabase = await createClient();
   let query = supabase
     .from('ot_schedule')
-    .select('*, master_ot_sessions(name), surgical_cases(procedure_name, eye, priority, visit_id, patients:patient_id(first_name, last_name, uhid)), profiles:surgeon_id(full_name)')
+    .select('*, master_ot_sessions(name), surgical_cases(procedure_name, eye, priority, visit_id, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(name)), profiles:surgeon_id(full_name)')
     .eq('scheduled_date', date)
     .neq('status', 'Cancelled')
     .order('sequence_number', { ascending: true, nullsFirst: false });
