@@ -1,109 +1,192 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getSurgicalCases, getSurgeons, scheduleOT, getOTSchedule, completeOT } from '@/app/(main)/counselling/actions';
+import { getOTDashboard, getReadyQueue } from './actions';
+import WorkspaceTab from './workspace-tab';
+import DailyListTab from './daily-list-tab';
+import AlertsTab from './alerts-tab';
+import ReportsTab from './reports-tab';
 
-function ScheduleForm({ sc, surgeons, onScheduled }) {
-  const [surgeonId, setSurgeonId] = useState('');
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
-  const [notes, setNotes] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+const PRIORITY_BADGE = { Emergency: 'b-red', Urgent: 'b-amber', Routine: 'b-gray' };
 
-  async function handleSchedule() {
-    setError('');
-    if (!date) { setError('Date is required.'); return; }
-    setLoading(true);
-    const result = await scheduleOT(sc.id, surgeonId, date, time, notes);
-    setLoading(false);
-    if (result.error) { setError(result.error); return; }
-    onScheduled();
-  }
+function getCapColor(pct) { return pct >= 90 ? 'var(--red)' : pct >= 70 ? 'var(--amber)' : 'var(--green)'; }
+
+function DashboardTab({ dash, loading, onGoQueue }) {
+  if (loading || !dash) return <div style={{ fontSize: 12, color: 'var(--g400)', padding: 20, textAlign: 'center' }}>Loading...</div>;
 
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-        {sc.patients.first_name} {sc.patients.last_name} -- {sc.patients.uhid}
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 }}>
+        <div className="sc cy" style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--cyan)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Ready for scheduling</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{dash.readyCount}</div>
+          <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>Checklist complete</div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--blue)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Scheduled today</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{dash.scheduledToday}</div>
+          <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>Across all sessions</div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--amber)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Capacity used</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{dash.capacityPct}%</div>
+          <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>Today&apos;s sessions</div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--red)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Readiness alerts</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{dash.alertsCount}</div>
+          <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>Need attention</div>
+        </div>
       </div>
-      <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>{sc.procedure_name} -- {sc.eye}</div>
-      {error && <div className="msg-err">{error}</div>}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-        <select className="fi" value={surgeonId} onChange={(e) => setSurgeonId(e.target.value)}>
-          <option value="">-- Surgeon --</option>
-          {surgeons.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-        </select>
-        <input type="date" className="fi" value={date} onChange={(e) => setDate(e.target.value)} />
-        <input type="time" className="fi" value={time} onChange={(e) => setTime(e.target.value)} />
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-calendar" style={{ color: 'var(--cyan)' }}></i> OT sessions today</div>
+        {dash.sessions.map((s) => {
+          const pct = s.capacity > 0 ? Math.round((s.planned / s.capacity) * 100) : 0;
+          return (
+            <div key={s.id} style={{ border: '1.5px solid var(--g200)', borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <i className="ti ti-clock" style={{ color: 'var(--cyan)' }}></i> {s.name} Session
+                  <span style={{ fontSize: 11, color: 'var(--g400)', fontWeight: 400 }}>{s.start_time?.slice(0, 5)} - {s.end_time?.slice(0, 5)}</span>
+                </div>
+                <span className="badge b-cyan">{s.default_room}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--g500)' }}>
+                <span>{s.planned} / {s.capacity} cases planned</span>
+                <span style={{ fontWeight: 700, color: getCapColor(pct) }}>{pct}%</span>
+              </div>
+              <div style={{ height: 10, borderRadius: 5, background: 'var(--g200)', overflow: 'hidden', marginTop: 6 }}>
+                <div style={{ height: '100%', borderRadius: 5, width: `${pct}%`, background: getCapColor(pct) }}></div>
+              </div>
+            </div>
+          );
+        })}
       </div>
-      <input className="fi" placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ marginBottom: 8 }} />
-      <button className="btn btn-primary btn-sm" onClick={handleSchedule} disabled={loading}>
-        {loading ? 'Scheduling...' : 'Schedule Surgery'}
-      </button>
+
+      {dash.readyCount > 0 && (
+        <div className="card" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 8 }}>{dash.readyCount} patient(s) ready for scheduling</div>
+          <button className="btn btn-primary" onClick={onGoQueue}><i className="ti ti-list-numbers"></i> Go to Scheduling Queue</button>
+        </div>
+      )}
     </div>
   );
 }
 
+function QueueTab({ rows, loading, onOpen }) {
+  const [sortBy, setSortBy] = useState('priority');
+
+  const sorted = [...rows].sort((a, b) => {
+    if (sortBy === 'priority') { const order = { Emergency: 0, Urgent: 1, Routine: 2 }; return (order[a.priority] ?? 9) - (order[b.priority] ?? 9); }
+    if (sortBy === 'waiting') return new Date(a.created_at) - new Date(b.created_at);
+    if (sortBy === 'surgeon') return (a.profiles?.full_name || '').localeCompare(b.profiles?.full_name || '');
+    return 0;
+  });
+
+  function waitingDays(sc) {
+    return Math.floor((new Date() - new Date(sc.created_at)) / (1000 * 60 * 60 * 24));
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div className="card-title"><i className="ti ti-list-numbers" style={{ color: 'var(--cyan)' }}></i> Ready for Scheduling Queue <span className="badge b-cyan">{rows.length}</span></div>
+        <select className="fi fi-sm" value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ width: 150 }}>
+          <option value="priority">Sort: Priority</option>
+          <option value="waiting">Sort: Waiting time</option>
+          <option value="surgeon">Sort: Surgeon</option>
+        </select>
+      </div>
+
+      {loading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 20, textAlign: 'center' }}>Loading...</div>}
+
+      {!loading && sorted.map((sc) => (
+        <div key={sc.id} style={{ border: '1.5px solid var(--g200)', borderRadius: 12, padding: '11px 13px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--cyan)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+            {sc.patients?.first_name?.charAt(0)}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>
+              {sc.patients?.first_name} {sc.patients?.last_name}
+              <span className={`badge ${PRIORITY_BADGE[sc.priority] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{sc.priority}</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+              {sc.patients?.uhid} -- {sc.procedure_name} {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>Waiting: {waitingDays(sc)} days</div>
+          </div>
+          <button className="btn btn-sm" style={{ background: 'var(--cyan)', color: '#fff', border: 'none' }} onClick={() => onOpen(sc.id)}>
+            <i className="ti ti-calendar-event"></i> Schedule
+          </button>
+        </div>
+      ))}
+
+      {!loading && sorted.length === 0 && (
+        <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No patients ready for scheduling right now.</div>
+      )}
+    </div>
+  );
+}
+
+function TabButton({ active, onClick, icon, label, disabled }) {
+  return (
+    <button
+      type="button"
+      className={`snbtn ${active ? 'active' : ''}`}
+      style={{ flex: 1, minWidth: 90, padding: '8px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: 'none', background: active ? '#fff' : 'transparent', color: disabled ? 'var(--g300)' : active ? 'var(--cyan)' : 'var(--g500)', cursor: disabled ? 'not-allowed' : 'pointer', boxShadow: active ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+    >
+      <i className={`ti ${icon}`}></i> {label}
+    </button>
+  );
+}
+
 export default function OTSchedulePage() {
-  const [readyCases, setReadyCases] = useState([]);
-  const [surgeons, setSurgeons] = useState([]);
-  const [schedule, setSchedule] = useState([]);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedCaseId, setSelectedCaseId] = useState(null);
+  const [dash, setDash] = useState(null);
+  const [queueRows, setQueueRows] = useState([]);
+  const [loadingDash, setLoadingDash] = useState(true);
+  const [loadingQueue, setLoadingQueue] = useState(true);
 
-  const refresh = useCallback(async () => {
-    const all = await getSurgicalCases();
-    setReadyCases(all.filter((c) => c.status === 'Ready for Scheduling'));
-    setSurgeons(await getSurgeons());
-    setSchedule(await getOTSchedule());
-  }, []);
+  const refreshDash = useCallback(async () => { setDash(await getOTDashboard()); setLoadingDash(false); }, []);
+  const refreshQueue = useCallback(async () => { setQueueRows(await getReadyQueue()); setLoadingQueue(false); }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refreshDash(); refreshQueue(); }, [refreshDash, refreshQueue]);
 
-  async function handleComplete(otId, caseId) {
-    await completeOT(otId, caseId);
-    refresh();
+  function openCase(id) {
+    setSelectedCaseId(id);
+    setActiveTab('workspace');
+  }
+
+  function handleWorkspaceDone() {
+    refreshDash(); refreshQueue();
+    setSelectedCaseId(null);
+    setActiveTab('queue');
   }
 
   return (
     <div>
-      {readyCases.length > 0 && (
-        <>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ready to Schedule</div>
-          {readyCases.map((sc) => (
-            <ScheduleForm key={sc.id} sc={sc} surgeons={surgeons} onScheduled={refresh} />
-          ))}
-        </>
-      )}
-
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}>
-          <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> OT Schedule
-        </div>
-        <table className="tbl">
-          <thead>
-            <tr><th>Date</th><th>Time</th><th>Patient</th><th>Procedure</th><th>Surgeon</th><th>Status</th><th></th></tr>
-          </thead>
-          <tbody>
-            {schedule.map((s) => (
-              <tr key={s.id}>
-                <td>{new Date(s.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                <td>{s.scheduled_time?.slice(0, 5) || '--'}</td>
-                <td>{s.surgical_cases?.patients?.first_name} {s.surgical_cases?.patients?.last_name}</td>
-                <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
-                <td>{s.profiles?.full_name || '--'}</td>
-                <td><span className={`badge ${s.status === 'Completed' ? 'b-green' : 'b-blue'}`}>{s.status}</span></td>
-                <td>
-                  {s.status === 'Scheduled' && (
-                    <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id)}>Complete</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {schedule.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No surgeries scheduled.</td></tr>
-            )}
-          </tbody>
-        </table>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, flexWrap: 'wrap' }}>
+        <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
+        <TabButton active={activeTab === 'queue'} onClick={() => setActiveTab('queue')} icon="ti-list-numbers" label="Scheduling Queue" />
+        <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-calendar-event" label="Workspace" disabled={!selectedCaseId} />
+        <TabButton active={activeTab === 'daily'} onClick={() => setActiveTab('daily')} icon="ti-list-details" label="Daily OT List" />
+        <TabButton active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon="ti-alert-triangle" label="Alerts" />
+        <TabButton active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} icon="ti-chart-bar" label="Reports" />
       </div>
+
+      {activeTab === 'dashboard' && <DashboardTab dash={dash} loading={loadingDash} onGoQueue={() => setActiveTab('queue')} />}
+      {activeTab === 'queue' && <QueueTab rows={queueRows} loading={loadingQueue} onOpen={openCase} />}
+      {activeTab === 'workspace' && selectedCaseId && <WorkspaceTab caseId={selectedCaseId} onDone={handleWorkspaceDone} />}
+      {activeTab === 'workspace' && !selectedCaseId && (
+        <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Scheduling Queue.</div>
+      )}
+      {activeTab === 'daily' && <DailyListTab />}
+      {activeTab === 'alerts' && <AlertsTab />}
+      {activeTab === 'reports' && <ReportsTab />}
     </div>
   );
 }
