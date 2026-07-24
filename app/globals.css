@@ -11,6 +11,7 @@
   --amber: #b45309; --amber-lt: #fef3c7;
   --purple: #7c3aed; --purple-lt: #ede9fe;
   --indigo: #4338ca; --indigo-lt: #e0e7ff;
+  --cyan: #0e7490; --cyan-lt: #cffafe;
   --teal: #0f766e; --teal-lt: #ccfbf1;
   --g50: #f9fafb; --g100: #f3f4f6; --g200: #e5e7eb; --g300: #d1d5db;
   --g400: #9ca3af; --g500: #6b7280; --g600: #4b5563; --g700: #374151; --g800: #1f2937; --g900: #111827;
@@ -65,6 +66,7 @@ body {
 .b-gray { background: var(--g100); color: var(--g500); }
 .b-purple { background: var(--purple-lt); color: var(--purple); }
 .b-indigo { background: var(--indigo-lt); color: var(--indigo); }
+.b-cyan { background: var(--cyan-lt); color: var(--cyan); }
 .b-teal { background: var(--teal-lt); color: var(--teal); }
 
 /* ── FORMS ── */
