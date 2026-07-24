@@ -105,7 +105,7 @@ export async function getConsultationData(queueEntryId) {
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
     { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
-    { data: diagnosisHistoryRaw }, { data: biometryRecords },
+    { data: diagnosisHistoryRaw }, { data: biometryRecords }, { data: surgicalCases },
   ] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
@@ -127,6 +127,9 @@ export async function getConsultationData(queueEntryId) {
     // folded into Investigations) -- same reasoning as its own
     // Financial Masters department: it's structurally its own thing.
     supabase.from('biometry_records').select('id, status, surgical_eye, doctor_instructions, billing_status').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
+    // So "Mark for Surgery" can show what's already been marked instead
+    // of silently reverting to a blank button after saving.
+    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority').eq('encounter_id', encounter.id).order('created_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -142,6 +145,7 @@ export async function getConsultationData(queueEntryId) {
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
     biometryRecords: biometryRecords || [],
+    surgicalCases: surgicalCases || [],
     isLocked: encounter.status === 'Completed',
   };
 }

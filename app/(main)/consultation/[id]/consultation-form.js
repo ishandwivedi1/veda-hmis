@@ -348,6 +348,7 @@ export default function ConsultationForm({ queueEntryId }) {
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
     setSurgeryProcedure('');
+    refresh();
   }
 
   async function handleSendOut(kind) {
@@ -756,9 +757,22 @@ export default function ConsultationForm({ queueEntryId }) {
 
               <div className="card" style={{ marginBottom: 20 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery</div>
+
+                {data.surgicalCases.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    {data.surgicalCases.map((sc) => (
+                      <div key={sc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                        <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
+                        <span style={{ flex: 1 }}><strong>{sc.procedure_name}</strong> -- {sc.eye}</span>
+                        <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {!showSurgery ? (
                   <button className="btn" onClick={() => setShowSurgery(true)}>
-                    <i className="ti ti-scalpel"></i> Mark for Surgery
+                    <i className="ti ti-scalpel"></i> {data.surgicalCases.length > 0 ? 'Mark for Another Surgery' : 'Mark for Surgery'}
                   </button>
                 ) : (
                   <div>
