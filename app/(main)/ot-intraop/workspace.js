@@ -34,6 +34,7 @@ export default function Workspace({ otScheduleId, onBack }) {
   const [checkinChecked, setCheckinChecked] = useState({});
   const [uploadingKey, setUploadingKey] = useState(null);
   const [subTab, setSubTab] = useState('checkin');
+  const initializedTabRef = useRef(false);
 
   const [anaesType, setAnaesType] = useState('Topical');
   const [anaesDoctor, setAnaesDoctor] = useState('');
@@ -75,6 +76,10 @@ export default function Workspace({ otScheduleId, onBack }) {
     const result = await getOTCaseDetail(otScheduleId);
     if (result.error) { setLoadError(result.error); return; }
     setData(result);
+    if (!initializedTabRef.current) {
+      initializedTabRef.current = true;
+      if (result.intraop?.checkin_completed_at || result.booking.status === 'Completed') setSubTab('intraop');
+    }
     const io = result.intraop;
     if (io) {
       setCheckinChecked(io.checkin_items || {});
@@ -105,6 +110,8 @@ export default function Workspace({ otScheduleId, onBack }) {
 
   useEffect(() => {
     refresh();
+    initializedTabRef.current = false;
+    setSubTab('checkin');
     setSeconds(0);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
@@ -160,7 +167,8 @@ export default function Workspace({ otScheduleId, onBack }) {
     if (result.error) { setError(result.error); return; }
     addLog('OT Check-In completed');
     setOk('Check-in complete -- patient confirmed in OT.');
-    refresh();
+    await refresh();
+    setSubTab('intraop');
   }
 
   async function handleRecordAnaesthesia() {
@@ -319,10 +327,12 @@ export default function Workspace({ otScheduleId, onBack }) {
             </button>
             <button
               type="button"
-              onClick={() => setSubTab('intraop')}
-              style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: subTab === 'intraop' ? '#fff' : 'transparent', color: subTab === 'intraop' ? 'var(--red)' : 'var(--g500)', cursor: 'pointer', boxShadow: subTab === 'intraop' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+              onClick={() => (intraop?.checkin_completed_at || isCompleted) && setSubTab('intraop')}
+              disabled={!intraop?.checkin_completed_at && !isCompleted}
+              title={!intraop?.checkin_completed_at && !isCompleted ? 'Complete Patient Check-In first' : ''}
+              style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: subTab === 'intraop' ? '#fff' : 'transparent', color: !intraop?.checkin_completed_at && !isCompleted ? 'var(--g300)' : subTab === 'intraop' ? 'var(--red)' : 'var(--g500)', cursor: !intraop?.checkin_completed_at && !isCompleted ? 'not-allowed' : 'pointer', boxShadow: subTab === 'intraop' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
             >
-              <i className="ti ti-building-hospital"></i> Intraoperative Management
+              <i className="ti ti-building-hospital"></i> Intraoperative Management {!intraop?.checkin_completed_at && !isCompleted && <i className="ti ti-lock" style={{ fontSize: 10 }}></i>}
             </button>
           </div>
 
@@ -382,10 +392,10 @@ export default function Workspace({ otScheduleId, onBack }) {
                 </div>
               )
             ))}
-            {!intraop?.checkin_completed_at && !isCompleted && (
-              <button className="btn btn-sm" style={{ background: 'var(--blue)', color: '#fff', border: 'none', marginTop: 8 }} onClick={handleCompleteCheckin} disabled={!manualCheckinDone || !requiredConsentsOk}>
-                <i className="ti ti-check"></i> Confirm check-in complete
-              </button>
+            {!intraop?.checkin_completed_at && !isCompleted && (!manualCheckinDone || !requiredConsentsOk) && (
+              <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 8 }}>
+                <i className="ti ti-info-circle"></i> Complete all items above{!requiredConsentsOk ? ' and upload required consent forms' : ''} to check in.
+              </div>
             )}
           </div>
 
@@ -443,6 +453,17 @@ export default function Workspace({ otScheduleId, onBack }) {
               <button className="btn btn-sm" style={{ background: 'var(--blue)', color: '#fff', border: 'none', marginTop: 8 }} onClick={handleRecordAnaesthesia}><i className="ti ti-check"></i> Record anaesthesia</button>
             )}
             {intraop?.anaesthesia_recorded_at && <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6 }}><i className="ti ti-check"></i> Recorded</div>}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={onBack}><i className="ti ti-arrow-left"></i> Back to Queue</button>
+            {intraop?.checkin_completed_at || isCompleted ? (
+              <span className="btn" style={{ background: 'var(--green)', color: '#fff', border: 'none', cursor: 'default' }}><i className="ti ti-circle-check"></i> Checked In</span>
+            ) : (
+              <button className="btn btn-primary" onClick={handleCompleteCheckin} disabled={!manualCheckinDone || !requiredConsentsOk}>
+                <i className="ti ti-check"></i> Check In
+              </button>
+            )}
           </div>
           </>
           )}
