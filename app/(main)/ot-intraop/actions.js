@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
+import { ensureRecoveryEpisode } from '../ot-recovery/actions';
 
 // ── HISTORY: completed OT cases ──
 export async function getOTIntraopHistory() {
@@ -266,6 +267,10 @@ export async function transferToRecovery(otScheduleId, surgicalCaseId, values) {
     transferred_at: new Date().toISOString(),
   }).eq('id', recordId);
   if (error) return { error: error.message };
+
+  const { data: booking } = await supabase.from('ot_schedule').select('scheduled_date').eq('id', otScheduleId).single();
+  const { data: sc } = await supabase.from('surgical_cases').select('visit_id').eq('id', surgicalCaseId).single();
+  if (booking && sc) await ensureRecoveryEpisode(otScheduleId, surgicalCaseId, sc.visit_id, booking.scheduled_date);
 
   const { data: userData } = await supabase.auth.getUser();
   await supabase.from('ot_schedule_audit_log').insert({
