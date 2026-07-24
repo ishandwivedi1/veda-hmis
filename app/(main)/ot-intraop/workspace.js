@@ -569,9 +569,14 @@ export default function Workspace({ otScheduleId, onBack }) {
               <textarea className="fi fi-sm" rows={2} value={recoveryInstructions} onChange={(e) => setRecoveryInstructions(e.target.value)} disabled={isCompleted} placeholder="e.g. Eye shield overnight. Moxifloxacin QID..." />
             </div>
             <input className="fi fi-sm" value={recoveryConcerns} onChange={(e) => setRecoveryConcerns(e.target.value)} disabled={isCompleted} placeholder="Immediate concerns (if any)..." />
-            {!isCompleted && (
-              <button className="btn btn-sm" style={{ marginTop: 8, background: 'var(--teal)', color: '#fff', border: 'none' }} onClick={handleTransferToRecovery}>
-                <i className="ti ti-bed"></i> Transfer to Recovery
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            {intraop?.transferred_at ? (
+              <span className="btn" style={{ background: 'var(--teal)', color: '#fff', border: 'none', cursor: 'default' }}><i className="ti ti-circle-check"></i> Handed Over to Recovery</span>
+            ) : (
+              <button className="btn btn-primary" style={{ background: 'var(--teal)', borderColor: 'transparent' }} onClick={handleTransferToRecovery} disabled={isCompleted}>
+                <i className="ti ti-bed"></i> Hand Over to Recovery
               </button>
             )}
           </div>
