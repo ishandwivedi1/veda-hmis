@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getSchedulingWorkspaceData, getOTSessions, getSessionCapacity,
+  getSchedulingWorkspaceData, getOTSessions, getSessionCapacity, getSurgeonOptions,
   scheduleSurgery, rescheduleSurgery, cancelSurgery, completeSurgery,
 } from './actions';
 
@@ -11,12 +11,14 @@ const PRIORITY_BADGE = { Emergency: 'b-red', Urgent: 'b-amber', Routine: 'b-gray
 export default function WorkspaceTab({ caseId, onDone, onUpdate }) {
   const [data, setData] = useState(null);
   const [sessions, setSessions] = useState([]);
+  const [surgeons, setSurgeons] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
 
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [sessionId, setSessionId] = useState('');
+  const [surgeonId, setSurgeonId] = useState('');
   const [room, setRoom] = useState('');
   const [sequenceNumber, setSequenceNumber] = useState('');
   const [duration, setDuration] = useState(30);
@@ -36,12 +38,14 @@ export default function WorkspaceTab({ caseId, onDone, onUpdate }) {
     const result = await getSchedulingWorkspaceData(caseId);
     if (result.error) { setLoadError(result.error); return; }
     setData(result);
+    if (result.case?.surgeon_id) setSurgeonId(result.case.surgeon_id);
   }, [caseId]);
 
   useEffect(() => {
-    setData(null); setLoadError(''); setError(''); setOk('');
+    setData(null); setLoadError(''); setError(''); setOk(''); setSurgeonId('');
     refresh();
     getOTSessions().then(setSessions);
+    getSurgeonOptions().then(setSurgeons);
   }, [caseId, refresh]);
 
   useEffect(() => {
@@ -61,9 +65,10 @@ export default function WorkspaceTab({ caseId, onDone, onUpdate }) {
 
   async function handleSchedule() {
     setError(''); setOk('');
+    if (!surgeonId) { setError('Assign a surgeon before scheduling.'); return; }
     setSaving(true);
     const result = await scheduleSurgery(caseId, {
-      date, sessionId, room, sequenceNumber: sequenceNumber ? parseInt(sequenceNumber, 10) : null, duration,
+      date, sessionId, surgeonId, room, sequenceNumber: sequenceNumber ? parseInt(sequenceNumber, 10) : null, duration,
     });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
@@ -162,6 +167,13 @@ export default function WorkspaceTab({ caseId, onDone, onUpdate }) {
           {!existingBooking ? (
             <div className="card" style={{ marginBottom: 0 }}>
               <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-calendar-event" style={{ color: 'var(--cyan)' }}></i> Schedule Surgery</div>
+              <div style={{ marginBottom: 8 }}>
+                <label className="flbl">Assign Surgeon</label>
+                <select className="fi fi-sm" value={surgeonId} onChange={(e) => setSurgeonId(e.target.value)}>
+                  <option value="">-- Select surgeon --</option>
+                  {surgeons.map((s) => <option key={s.id} value={s.id}>{s.full_name}{s.code ? ` (${s.code})` : ''}</option>)}
+                </select>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                 <div><label className="flbl">Surgery Date</label><input type="date" className="fi fi-sm" value={date} onChange={(e) => setDate(e.target.value)} /></div>
                 <div>

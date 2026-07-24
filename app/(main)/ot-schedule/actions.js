@@ -9,6 +9,21 @@ export async function getOTSessions() {
   return data || [];
 }
 
+// ── SURGEON OPTIONS (Doctors Master) ──
+// Same source as Clinical Masters > Doctors, so the surgeon list here
+// stays consistent with the rest of the app rather than a separate ad
+// hoc query.
+export async function getSurgeonOptions() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, code, full_name')
+    .or('designation.ilike.%ophthalmologist%,designation.ilike.%doctor%')
+    .eq('status', 'Active')
+    .order('full_name');
+  return data || [];
+}
+
 // ── READY FOR SCHEDULING QUEUE ──
 // Reads directly off surgical_cases.status -- the exact same "Ready for
 // Scheduling" status Counselling's markReadyForScheduling already sets
@@ -119,16 +134,19 @@ export async function scheduleSurgery(caseId, values) {
   if (sc.status !== 'Ready for Scheduling') return { error: 'BR-OTS-001: This case is not marked Ready for Scheduling.' };
   if (!values.date) return { error: 'Surgery date is required.' };
   if (!values.sessionId) return { error: 'Session is required.' };
+  if (!values.surgeonId) return { error: 'Assign a surgeon before scheduling.' };
 
   const { data: booking, error: otError } = await supabase.from('ot_schedule').insert({
-    surgical_case_id: caseId, surgeon_id: sc.surgeon_id || null,
+    surgical_case_id: caseId, surgeon_id: values.surgeonId,
     scheduled_date: values.date, session_id: values.sessionId, room: values.room || null,
     sequence_number: values.sequenceNumber || null, expected_duration_minutes: values.duration || 30,
     notes: values.notes || null,
   }).select('id').single();
   if (otError) return { error: otError.message };
 
-  const { error: caseError } = await supabase.from('surgical_cases').update({ status: 'Scheduled' }).eq('id', caseId);
+  // Keep the case's own surgeon_id in sync too -- other screens
+  // (resource check, reports) read it from the case, not just the booking.
+  const { error: caseError } = await supabase.from('surgical_cases').update({ status: 'Scheduled', surgeon_id: values.surgeonId }).eq('id', caseId);
   if (caseError) return { error: caseError.message };
 
   await supabase.from('ot_schedule_audit_log').insert({
