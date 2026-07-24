@@ -8,7 +8,7 @@ import {
 
 const PRIORITY_BADGE = { Emergency: 'b-red', Urgent: 'b-amber', Routine: 'b-gray' };
 
-export default function WorkspaceTab({ caseId, onDone }) {
+export default function WorkspaceTab({ caseId, onDone, onUpdate }) {
   const [data, setData] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [loadError, setLoadError] = useState('');
@@ -69,6 +69,7 @@ export default function WorkspaceTab({ caseId, onDone }) {
     if (result.error) { setError(result.error); return; }
     setOk('Surgery scheduled. Case moved to the Daily OT List for this date.');
     refresh();
+    onUpdate();
   }
 
   async function handleReschedule() {
@@ -81,6 +82,7 @@ export default function WorkspaceTab({ caseId, onDone }) {
     setShowReschedule(false);
     setOk('Rescheduled -- same booking preserved, history logged.');
     refresh();
+    onUpdate();
   }
 
   async function handleCancel() {

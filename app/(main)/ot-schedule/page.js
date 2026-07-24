@@ -180,7 +180,7 @@ export default function OTSchedulePage() {
 
       {activeTab === 'dashboard' && <DashboardTab dash={dash} loading={loadingDash} onGoQueue={() => setActiveTab('queue')} />}
       {activeTab === 'queue' && <QueueTab rows={queueRows} loading={loadingQueue} onOpen={openCase} />}
-      {activeTab === 'workspace' && selectedCaseId && <WorkspaceTab caseId={selectedCaseId} onDone={handleWorkspaceDone} />}
+      {activeTab === 'workspace' && selectedCaseId && <WorkspaceTab caseId={selectedCaseId} onDone={handleWorkspaceDone} onUpdate={() => { refreshDash(); refreshQueue(); }} />}
       {activeTab === 'workspace' && !selectedCaseId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Scheduling Queue.</div>
       )}
