@@ -38,4 +38,18 @@ export async function getDoctorDashboardData() {
   return { active: active || [], intermediate: intermediate || [], completed: completed || [] };
 }
 
+// ── HISTORY: every completed consultation, not just today's ──
+export async function getDoctorHistory() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('queue_entries')
+    .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+    .eq('department', 'Doctor')
+    .eq('status', 'Done')
+    .order('completed_at', { ascending: false })
+    .limit(200);
+  if (error) return [];
+  return (data || []).filter((e) => e.visits?.patients);
+}
+
 

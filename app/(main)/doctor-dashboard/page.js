@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
-import { getDoctorDashboardData } from './actions';
+import { getDoctorDashboardData, getDoctorHistory } from './actions';
 import { doctorCallNext, doctorCallSpecific, doctorMarkReady } from '@/app/(main)/queue/actions';
+import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
 
 function elapsedMin(isoString) {
   if (!isoString) return 0;
@@ -32,32 +32,20 @@ function TokenBadge({ token, color }) {
   );
 }
 
-export default function DoctorDashboardPage() {
-  const [active, setActive] = useState([]);
-  const [intermediate, setIntermediate] = useState([]);
-  const [completed, setCompleted] = useState([]);
-  const [error, setError] = useState('');
+function TabButton({ active, onClick, icon, label, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: active ? '#fff' : 'transparent', color: disabled ? 'var(--g300)' : active ? 'var(--blue)' : 'var(--g500)', cursor: disabled ? 'not-allowed' : 'pointer', boxShadow: active ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+    >
+      <i className={`ti ${icon}`}></i> {label}
+    </button>
+  );
+}
 
-  const refresh = useCallback(async () => {
-    const result = await getDoctorDashboardData();
-    setActive(result.active);
-    setIntermediate(result.intermediate);
-    setCompleted(result.completed);
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 15000);
-    return () => clearInterval(interval);
-  }, [refresh]);
-
-  async function runAction(fn, ...args) {
-    setError('');
-    const result = await fn(...args);
-    if (result?.error) setError(result.error);
-    refresh();
-  }
-
+function DashboardTab({ active, intermediate, completed, error, onRunAction, onOpen }) {
   const inConsultation = active.find((e) => e.status === 'In Consultation');
   const waitingCount = active.filter((e) => e.status === 'Waiting' || e.status === 'Ready for Review').length;
 
@@ -65,7 +53,6 @@ export default function DoctorDashboardPage() {
     <div>
       {error && <div className="msg-err">{error}</div>}
 
-      {/* STAT CARDS */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
         <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
           <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>In Consultation</div>
@@ -89,17 +76,12 @@ export default function DoctorDashboardPage() {
         </div>
       </div>
 
-      <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 16 }}>
-        <i className="ti ti-info-circle"></i> Live token order and wait times are managed in Queue Management -- this dashboard shows clinical context for patients already in that queue. <Link href="/queue" style={{ color: 'var(--blue)', fontWeight: 600 }}>Open Queue Management &rarr;</Link>
-      </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        {/* DOCTOR QUEUE */}
         <div className="card">
           <div className="card-head">
             <div className="card-title"><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Doctor Queue<span className="badge b-gray">{active.length}</span></div>
           </div>
-          <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => runAction(doctorCallNext)} disabled={!!inConsultation}>
+          <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => onRunAction(doctorCallNext)} disabled={!!inConsultation}>
             <i className="ti ti-bell-ringing"></i> Call Next
           </button>
 
@@ -114,9 +96,9 @@ export default function DoctorDashboardPage() {
                   <i className="ti ti-clock"></i> In consultation {elapsedMin(inConsultation.called_at || inConsultation.issued_at)}m
                 </span>
               </div>
-              <Link href={`/consultation/${inConsultation.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+              <button className="btn btn-primary btn-sm" onClick={() => onOpen(inConsultation.id)}>
                 <i className="ti ti-clipboard-text"></i> Open Consultation
-              </Link>
+              </button>
             </div>
           )}
 
@@ -132,7 +114,7 @@ export default function DoctorDashboardPage() {
                   <span className={`badge ${waitBadgeClass(elapsedMin(e.issued_at))}`}><i className="ti ti-clock"></i> {elapsedMin(e.issued_at)}m</span>
                 </div>
               </div>
-              <button className="btn btn-sm" onClick={() => runAction(doctorCallSpecific, e.id)} disabled={!!inConsultation}>Call</button>
+              <button className="btn btn-sm" onClick={() => onRunAction(doctorCallSpecific, e.id)} disabled={!!inConsultation}>Call</button>
             </div>
           ))}
           {active.length === 0 && (
@@ -144,7 +126,6 @@ export default function DoctorDashboardPage() {
         </div>
 
         <div>
-          {/* INTERMEDIATE QUEUES */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head">
               <div className="card-title"><i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)' }}></i> Intermediate Queues<span className="badge b-gray">{intermediate.length}</span></div>
@@ -156,22 +137,21 @@ export default function DoctorDashboardPage() {
                   {patientName(e)}
                   <div style={{ fontSize: 11, color: 'var(--g500)' }}>{e.status} -- {elapsedMin(e.sent_out_at)}m</div>
                 </div>
-                <button className="btn btn-sm" onClick={() => runAction(doctorMarkReady, e.id)}>Mark Ready</button>
+                <button className="btn btn-sm" onClick={() => onRunAction(doctorMarkReady, e.id)}>Mark Ready</button>
               </div>
             ))}
             {intermediate.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No one in Dilation, Investigation, or Biometry.</div>}
           </div>
 
-          {/* COMPLETED TODAY */}
           <div className="card">
             <div className="card-head">
               <div className="card-title"><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Completed Today<span className="badge b-green">{completed.length}</span></div>
             </div>
             {completed.slice(0, 8).map((e) => (
-              <Link
+              <div
                 key={e.id}
-                href={`/consultation/${e.id}`}
-                style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, textDecoration: 'none', color: 'inherit' }}
+                onClick={() => onOpen(e.id)}
+                style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}</span>
@@ -180,12 +160,130 @@ export default function DoctorDashboardPage() {
                 <div style={{ fontSize: 11, color: 'var(--g500)' }}>
                   {e.completed_at ? new Date(e.completed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
                 </div>
-              </Link>
+              </div>
             ))}
             {completed.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing completed yet today.</div>}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function HistoryTab({ rows, loading, onOpen }) {
+  const [search, setSearch] = useState('');
+  const filtered = search.trim()
+    ? rows.filter((e) => {
+        const q = search.trim().toLowerCase();
+        const p = e.visits?.patients;
+        return `${p?.first_name} ${p?.last_name}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
+      })
+    : rows;
+
+  return (
+    <div className="card">
+      <div className="card-head" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div className="card-title"><i className="ti ti-history" style={{ color: 'var(--g500)' }}></i> Consultation History</div>
+        <input className="fi fi-sm" placeholder="Search patient / UHID" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} />
+      </div>
+
+      {loading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 20, textAlign: 'center' }}>Loading...</div>}
+
+      {!loading && (
+        <table className="tbl">
+          <thead><tr><th>Token</th><th>Patient</th><th>Completed</th><th></th></tr></thead>
+          <tbody>
+            {filtered.map((e) => (
+              <tr key={e.id} onClick={() => onOpen(e.id)} style={{ cursor: 'pointer' }}>
+                <td style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12 }}>{e.token}</td>
+                <td>
+                  <strong>{patientName(e)}</strong>
+                  <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.visits?.patients?.uhid}</span>
+                </td>
+                <td style={{ fontSize: 11 }}>{e.completed_at ? new Date(e.completed_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
+                <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
+              </tr>
+            ))}
+            {filtered.length === 0 && <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No completed consultations found.</td></tr>}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+export default function DoctorDashboardPage() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedId, setSelectedId] = useState(null);
+  const [active, setActive] = useState([]);
+  const [intermediate, setIntermediate] = useState([]);
+  const [completed, setCompleted] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    const result = await getDoctorDashboardData();
+    setActive(result.active);
+    setIntermediate(result.intermediate);
+    setCompleted(result.completed);
+  }, []);
+
+  const refreshHistory = useCallback(async () => {
+    setHistory(await getDoctorHistory());
+    setLoadingHistory(false);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    refreshHistory();
+    const interval = setInterval(refresh, 15000);
+    return () => clearInterval(interval);
+  }, [refresh, refreshHistory]);
+
+  async function runAction(fn, ...args) {
+    setError('');
+    const result = await fn(...args);
+    if (result?.error) setError(result.error);
+    refresh();
+  }
+
+  function openConsultation(queueEntryId) {
+    setSelectedId(queueEntryId);
+    setActiveTab('workspace');
+  }
+
+  function handleBack() {
+    refresh(); refreshHistory();
+    setSelectedId(null);
+    setActiveTab('dashboard');
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 520 }}>
+        <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
+        <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!selectedId} />
+        <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
+      </div>
+
+      {activeTab === 'dashboard' && (
+        <DashboardTab active={active} intermediate={intermediate} completed={completed} error={error} onRunAction={runAction} onOpen={openConsultation} />
+      )}
+
+      {activeTab === 'workspace' && selectedId && (
+        <div>
+          <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
+            <i className="ti ti-arrow-left"></i> Dashboard
+          </button>
+          <ConsultationForm queueEntryId={selectedId} />
+        </div>
+      )}
+      {activeTab === 'workspace' && !selectedId && (
+        <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Dashboard or History.</div>
+      )}
+
+      {activeTab === 'history' && <HistoryTab rows={history} loading={loadingHistory} onOpen={openConsultation} />}
     </div>
   );
 }
