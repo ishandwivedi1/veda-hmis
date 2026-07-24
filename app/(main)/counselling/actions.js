@@ -114,6 +114,22 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye)
     .eq('id', encounterId)
     .single();
 
+  // BR: one visit, one surgical case -- checked against visit_id (not
+  // just this encounter), since a visit can span more than one
+  // encounter (e.g. consultation reopened) and the case should still
+  // only be created once.
+  if (encounter?.visit_id) {
+    const { data: existing } = await supabase
+      .from('surgical_cases')
+      .select('id, procedure_name, eye')
+      .eq('visit_id', encounter.visit_id)
+      .neq('status', 'Cancelled')
+      .limit(1);
+    if (existing && existing.length > 0) {
+      return { error: `This visit already has a surgical case marked (${existing[0].procedure_name} -- ${existing[0].eye}). Only one is allowed per visit.` };
+    }
+  }
+
   let priority = 'Routine';
   if (encounter?.visit_id) {
     const { data: visit } = await supabase.from('visits').select('priority').eq('id', encounter.visit_id).single();

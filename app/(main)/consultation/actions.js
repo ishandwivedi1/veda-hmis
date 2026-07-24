@@ -128,8 +128,10 @@ export async function getConsultationData(queueEntryId) {
     // Financial Masters department: it's structurally its own thing.
     supabase.from('biometry_records').select('id, status, surgical_eye, doctor_instructions, billing_status').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
     // So "Mark for Surgery" can show what's already been marked instead
-    // of silently reverting to a blank button after saving.
-    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority').eq('encounter_id', encounter.id).order('created_at', { ascending: false }),
+    // of silently reverting to a blank button after saving. Scoped by
+    // visit_id (one visit, one surgical case), not just this encounter,
+    // since a visit can span more than one encounter.
+    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
