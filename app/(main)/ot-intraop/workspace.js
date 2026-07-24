@@ -34,15 +34,6 @@ export default function Workspace({ otScheduleId, onBack }) {
   const [checkinChecked, setCheckinChecked] = useState({});
   const [uploadingKey, setUploadingKey] = useState(null);
 
-  const [procName, setProcName] = useState('Phacoemulsification + IOL');
-  const [procEye, setProcEye] = useState('OD');
-  const [procAssist, setProcAssist] = useState('');
-  const [procNurse, setProcNurse] = useState('');
-  const [procStatus, setProcStatus] = useState('');
-  const [procStart, setProcStart] = useState('');
-  const [procEnd, setProcEnd] = useState('');
-  const [abandonReason, setAbandonReason] = useState('');
-
   const [anaesType, setAnaesType] = useState('Topical');
   const [anaesDoctor, setAnaesDoctor] = useState('');
   const [anaesStart, setAnaesStart] = useState('');
@@ -86,9 +77,6 @@ export default function Workspace({ otScheduleId, onBack }) {
     const io = result.intraop;
     if (io) {
       setCheckinChecked(io.checkin_items || {});
-      setProcName(io.procedure_status ? procName : procName);
-      setProcStatus(io.procedure_status || '');
-      setAssistFields(io);
       setAnaesType(io.anaesthesia_type || 'Topical');
       setAnaesDoctor(io.anaesthetist || '');
       setAnaesStart(io.anaesthesia_start || '');
@@ -112,7 +100,6 @@ export default function Workspace({ otScheduleId, onBack }) {
       setImPower(result.biometryPlans[0]?.final_iol_power || '');
       setImEye(result.booking.surgical_cases.eye || 'OD');
     }
-    function setAssistFields(io) { setProcAssist(io.assistant_surgeon || ''); setProcNurse(io.ot_nurse || ''); setProcEye(io.procedure_eye || result.booking.surgical_cases.eye || 'OD'); setProcStart(io.procedure_start_time || ''); setProcEnd(io.procedure_end_time || ''); setAbandonReason(io.abandon_reason || ''); }
   }, [otScheduleId]);
 
   useEffect(() => {
@@ -213,9 +200,7 @@ export default function Workspace({ otScheduleId, onBack }) {
   async function handleSaveDraft() {
     setSaving(true);
     await saveIntraopDraft(otScheduleId, sc.id, {
-      procedure_status: procStatus || null, procedure_eye: procEye, assistant_surgeon: procAssist || null,
-      ot_nurse: procNurse || null, procedure_start_time: procStart || null, procedure_end_time: procEnd || null,
-      abandon_reason: abandonReason || null, implant_manufacturer: imMfr || null, implant_model: imModel || null,
+      implant_manufacturer: imMfr || null, implant_model: imModel || null,
       implant_power: imPower || null, implant_serial: imSerial || null, implant_expiry: imExpiry || null,
       implant_eye: imEye, variance_reason: varianceReason || null, operative_notes: opNotes || null,
       surgical_outcome: surgicalOutcome || null, outcome_remarks: outcomeRemarks || null,
@@ -241,10 +226,10 @@ export default function Workspace({ otScheduleId, onBack }) {
   async function handleCompleteSurgery() {
     setError(''); setOk('');
     const result = await completeSurgery(otScheduleId, sc.id, {
-      procedureStatus: procStatus, implantPower: imPower, implantSerial: imSerial, implantManufacturer: imMfr, implantModel: imModel, implantExpiry: imExpiry, implantEye: imEye,
+      implantPower: imPower, implantSerial: imSerial, implantManufacturer: imMfr, implantModel: imModel, implantExpiry: imExpiry, implantEye: imEye,
       skipImplant: biometryPlans.length === 0,
       recoveryInstructions, recoveryDestination: recoveryDest, recoveryMonitoring: recoveryMonitor, recoveryConcerns,
-      abandonReason, variancePresent, varianceReason,
+      variancePresent, varianceReason,
       operativeNotes: opNotes, surgicalOutcome, outcomeRemarks,
     });
     if (result.error) { setError(result.error); return; }
@@ -303,33 +288,24 @@ export default function Workspace({ otScheduleId, onBack }) {
 
         {/* CENTER: sections */}
         <div>
-          {/* Procedure */}
-          <div className="card">
-            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Procedure Documentation</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <div><label className="flbl">Procedure performed</label><input className="fi fi-sm" value={procName} onChange={(e) => setProcName(e.target.value)} disabled={isCompleted} /></div>
-              <div><label className="flbl">Eye</label><select className="fi fi-sm" value={procEye} onChange={(e) => setProcEye(e.target.value)} disabled={isCompleted}><option>OD</option><option>OS</option><option>OU</option></select></div>
+          {/* Big-visibility case summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
+            <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid var(--red)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 4 }}><i className="ti ti-scalpel"></i> Procedure</div>
+              <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>{sc.procedure_name}</div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <div><label className="flbl">Assistant surgeon</label><input className="fi fi-sm" value={procAssist} onChange={(e) => setProcAssist(e.target.value)} disabled={isCompleted} /></div>
-              <div><label className="flbl">OT Nurse</label><input className="fi fi-sm" value={procNurse} onChange={(e) => setProcNurse(e.target.value)} disabled={isCompleted} /></div>
-              <div>
-                <label className="flbl">Procedure status</label>
-                <select className="fi fi-sm" value={procStatus} onChange={(e) => setProcStatus(e.target.value)} disabled={isCompleted}>
-                  <option value="">-- Select --</option><option>Completed</option><option>Partially Completed</option><option>Converted</option><option>Abandoned</option>
-                </select>
-              </div>
+            <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid var(--blue)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 4 }}><i className="ti ti-eye"></i> Eye</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--blue)' }}>{sc.eye}</div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div><label className="flbl">Surgery start time</label><input type="time" className="fi fi-sm" value={procStart} onChange={(e) => setProcStart(e.target.value)} disabled={isCompleted} /></div>
-              <div><label className="flbl">Surgery end time</label><input type="time" className="fi fi-sm" value={procEnd} onChange={(e) => setProcEnd(e.target.value)} disabled={isCompleted} /></div>
+            <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid var(--green)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 4 }}><i className="ti ti-package"></i> Package</div>
+              <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2, color: sc.master_packages ? 'inherit' : 'var(--g400)' }}>{sc.master_packages?.name || 'No package'}</div>
             </div>
-            {(procStatus === 'Abandoned' || procStatus === 'Converted') && (
-              <div style={{ marginTop: 8 }}>
-                <label className="flbl">Reason (mandatory)</label>
-                <input className="fi fi-sm" value={abandonReason} onChange={(e) => setAbandonReason(e.target.value)} disabled={isCompleted} placeholder="Document reason..." />
-              </div>
-            )}
+            <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid var(--indigo)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 4 }}><i className="ti ti-stethoscope"></i> Surgeon</div>
+              <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>{sc.profiles?.full_name || 'Not assigned'}</div>
+            </div>
           </div>
 
           {/* Consent Forms */}
@@ -574,7 +550,6 @@ export default function Workspace({ otScheduleId, onBack }) {
           <div className="card" style={{ marginBottom: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 8 }}>Completion Checklist</div>
             {[
-              { label: 'Procedure status recorded', done: !!procStatus },
               { label: 'Implant information complete', done: biometryPlans.length === 0 || !!(imPower && imSerial) },
               { label: 'Recovery handover documented', done: !!recoveryInstructions },
             ].map((it) => (
