@@ -33,6 +33,7 @@ export default function Workspace({ otScheduleId, onBack }) {
 
   const [checkinChecked, setCheckinChecked] = useState({});
   const [uploadingKey, setUploadingKey] = useState(null);
+  const [subTab, setSubTab] = useState('checkin');
 
   const [anaesType, setAnaesType] = useState('Topical');
   const [anaesDoctor, setAnaesDoctor] = useState('');
@@ -308,6 +309,25 @@ export default function Workspace({ otScheduleId, onBack }) {
             </div>
           </div>
 
+          <div style={{ display: 'flex', gap: 2, marginBottom: 12, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
+            <button
+              type="button"
+              onClick={() => setSubTab('checkin')}
+              style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: subTab === 'checkin' ? '#fff' : 'transparent', color: subTab === 'checkin' ? 'var(--red)' : 'var(--g500)', cursor: 'pointer', boxShadow: subTab === 'checkin' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+            >
+              <i className="ti ti-clipboard-check"></i> Patient Check-In
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubTab('intraop')}
+              style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: subTab === 'intraop' ? '#fff' : 'transparent', color: subTab === 'intraop' ? 'var(--red)' : 'var(--g500)', cursor: 'pointer', boxShadow: subTab === 'intraop' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+            >
+              <i className="ti ti-building-hospital"></i> Intraoperative Management
+            </button>
+          </div>
+
+          {subTab === 'checkin' && (
+          <>
           {/* Consent Forms */}
           <div className="card">
             <div className="card-head">
@@ -424,7 +444,11 @@ export default function Workspace({ otScheduleId, onBack }) {
             )}
             {intraop?.anaesthesia_recorded_at && <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6 }}><i className="ti ti-check"></i> Recorded</div>}
           </div>
+          </>
+          )}
 
+          {subTab === 'intraop' && (
+          <>
           {/* Consumables */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-box" style={{ color: 'var(--amber)' }}></i> Consumables</div>
@@ -530,6 +554,8 @@ export default function Workspace({ otScheduleId, onBack }) {
               </button>
             )}
           </div>
+          </>
+          )}
         </div>
 
         {/* RIGHT: status panel */}
