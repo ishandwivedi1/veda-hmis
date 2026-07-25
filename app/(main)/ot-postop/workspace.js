@@ -5,6 +5,7 @@ import {
   getPostOpEpisodeDetail, rescheduleFollowup, saveFollowupNotes, markFollowupStatus,
   addRecoveryComplication, closeEpisode,
 } from './actions';
+import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
 
 const MILESTONES_START = [
   { key: 'recovery', label: 'Recovery', icon: 'ti-bed' },
@@ -22,7 +23,10 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
   const [editingFollowupId, setEditingFollowupId] = useState(null);
   const [editDate, setEditDate] = useState('');
-  const [editNotes, setEditNotes] = useState('');
+  const [notesEditingId, setNotesEditingId] = useState(null);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [attachmentsByFollowup, setAttachmentsByFollowup] = useState({});
+  const [uploadingFollowupId, setUploadingFollowupId] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const [complName, setComplName] = useState('');
@@ -36,7 +40,12 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [closureRemarks, setClosureRemarks] = useState('');
 
   const refresh = useCallback(async () => {
-    setData(await getPostOpEpisodeDetail(episodeId));
+    const result = await getPostOpEpisodeDetail(episodeId);
+    setData(result);
+    if (!result.error && result.followups?.length > 0) {
+      const entries = await Promise.all(result.followups.map(async (f) => [f.id, await getAttachments('postop_followup', f.id)]));
+      setAttachmentsByFollowup(Object.fromEntries(entries));
+    }
   }, [episodeId]);
 
   useEffect(() => { refresh(); }, [episodeId, refresh]);
@@ -59,18 +68,47 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setError('');
     setEditingFollowupId(f.id);
     setEditDate(f.scheduled_date);
-    setEditNotes(f.notes || '');
+  }
+
+  function startNotesEdit(f) {
+    setError('');
+    setNotesEditingId(f.id);
+    setNotesDraft(f.notes || '');
+  }
+
+  async function handleSaveNotesOnly(f) {
+    setError('');
+    setSaving(true);
+    const result = await saveFollowupNotes(f.id, notesDraft);
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setNotesEditingId(null);
+    refresh();
+  }
+
+  async function handleUploadFollowupFile(followupId, file) {
+    if (!file) return;
+    setUploadingFollowupId(followupId);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('entityType', 'postop_followup');
+    formData.append('entityId', followupId);
+    const result = await uploadAttachment(formData);
+    setUploadingFollowupId(null);
+    if (result.error) { setError(result.error); return; }
+    refresh();
+  }
+
+  async function handleRemoveFollowupFile(file) {
+    await deleteAttachment(file.id, file.storage_path);
+    refresh();
   }
 
   async function handleSaveFollowup(f) {
     setError('');
+    if (!editDate || editDate === f.scheduled_date) { setEditingFollowupId(null); return; }
     setSaving(true);
-    let result = { success: true };
-    if (editDate !== f.scheduled_date) {
-      result = await rescheduleFollowup(f.id, editDate, editNotes);
-    } else if (editNotes !== (f.notes || '')) {
-      result = await saveFollowupNotes(f.id, editNotes);
-    }
+    const result = await rescheduleFollowup(f.id, editDate, f.notes || '');
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setEditingFollowupId(null);
@@ -158,13 +196,46 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                 </div>
               </div>
 
-              {f.notes && editingFollowupId !== f.id && (
-                <div style={{ fontSize: 11.5, color: 'var(--g600)', marginTop: 6, marginLeft: 42 }}><i className="ti ti-notes"></i> {f.notes}</div>
+              {f.notes && notesEditingId !== f.id && (
+                <div style={{ marginTop: 8, marginLeft: 42, padding: '8px 10px', background: '#fff', borderRadius: 8, border: '1px solid var(--g200)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 3 }}><i className="ti ti-notes"></i> Notes</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--g700)', whiteSpace: 'pre-wrap' }}>{f.notes}</div>
+                </div>
               )}
+
+              {notesEditingId === f.id && (
+                <div style={{ marginTop: 8, marginLeft: 42, padding: 8, background: '#fff', borderRadius: 8, border: '1px solid var(--g200)' }}>
+                  <textarea className="fi fi-sm" rows={3} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} placeholder="Notes for this visit..." style={{ marginBottom: 6 }} />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm btn-primary" onClick={() => handleSaveNotesOnly(f)} disabled={saving}>Save Notes</button>
+                    <button className="btn btn-sm" onClick={() => setNotesEditingId(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Optional attachment -- any file relevant to this visit */}
+              <div style={{ marginTop: 8, marginLeft: 42 }}>
+                {(attachmentsByFollowup[f.id] || []).map((file) => (
+                  <div key={file.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, padding: '4px 0' }}>
+                    <i className="ti ti-paperclip" style={{ color: 'var(--g500)' }}></i>
+                    {file.url ? <a href={file.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--blue)' }}>{file.file_name}</a> : <span>{file.file_name}</span>}
+                    {!isClosed && <button onClick={() => handleRemoveFollowupFile(file)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 11 }}>Remove</button>}
+                  </div>
+                ))}
+                {!isClosed && (
+                  <label className="btn btn-sm" style={{ cursor: 'pointer', marginTop: 4, display: 'inline-flex' }}>
+                    {uploadingFollowupId === f.id ? 'Uploading...' : <><i className="ti ti-upload"></i> Attach file (optional)</>}
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={(e) => handleUploadFollowupFile(f.id, e.target.files?.[0])} disabled={uploadingFollowupId === f.id} />
+                  </label>
+                )}
+              </div>
 
               {!isClosed && editingFollowupId !== f.id && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 8, marginLeft: 42 }}>
-                  <button className="btn btn-sm" onClick={() => startEdit(f)}><i className="ti ti-calendar-time"></i> Reschedule / Notes</button>
+                  <button className="btn btn-sm" onClick={() => startEdit(f)}><i className="ti ti-calendar-time"></i> Reschedule</button>
+                  {notesEditingId !== f.id && (
+                    <button className="btn btn-sm" onClick={() => startNotesEdit(f)}><i className="ti ti-edit"></i> {f.notes ? 'Edit Notes' : 'Add Notes'}</button>
+                  )}
                   {f.status !== 'Completed' && (
                     <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={() => handleMarkStatus(f, 'Completed')}>Mark Completed</button>
                   )}
@@ -173,9 +244,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
               {editingFollowupId === f.id && (
                 <div style={{ marginTop: 8, marginLeft: 42, padding: 8, background: '#fff', borderRadius: 8 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 6 }}>
+                  <div style={{ marginBottom: 6 }}>
+                    <label className="flbl">New date</label>
                     <input type="date" className="fi fi-sm" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
-                    <textarea className="fi fi-sm" rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Notes for this visit..." />
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button className="btn btn-sm btn-primary" onClick={() => handleSaveFollowup(f)} disabled={saving}>Save</button>
