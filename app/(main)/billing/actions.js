@@ -47,6 +47,7 @@ export async function getServiceCatalog() {
   const supabase = await createClient();
   const { data: services } = await supabase.from('master_services').select('*').eq('status', 'Active');
   const { data: drugs } = await supabase.from('master_drugs').select('*').eq('status', 'Active');
+  const { data: packages } = await supabase.from('master_packages').select('*').eq('status', 'Active');
 
   // Drugs live in their own master (managed under Master Data -> Drugs)
   // but bill under the Pharmacy department -- mapped here rather than
@@ -61,7 +62,20 @@ export async function getServiceCatalog() {
     status: d.status,
   }));
 
-  return [...(services || []), ...drugsAsServices].sort((a, b) => a.name.localeCompare(b.name));
+  // Same mapping for packages -- their own master (Financial Masters ->
+  // Surgery tab), billed under the Surgery department. Without this the
+  // Surgery dropdown in New Invoice has nothing to show, even though
+  // add_invoice_line_item already knows how to look packages up.
+  const packagesAsServices = (packages || []).map((p) => ({
+    code: p.code,
+    name: p.name,
+    dept: 'Surgery',
+    rate: p.price,
+    gst_pct: 0,
+    status: p.status,
+  }));
+
+  return [...(services || []), ...drugsAsServices, ...packagesAsServices].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function addLineItem(invoiceId, serviceCode, qty, discType, discValue, discReason) {
