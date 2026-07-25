@@ -45,10 +45,9 @@ function normalizeName(s) {
 }
 
 // Derives a code from the name (upper-snake-case), and appends _2,
-// _3... if that code is already taken. scopeColumn/scopeValue let a
-// table scope uniqueness to a subset (e.g. master_history_options
-// scopes by category, since "Glaucoma" is legitimately both an Ocular
-// History and a Family History option).
+// _3... if that code is already taken. Still used by Financial
+// Masters (Services, Drugs), which have no category concept to link
+// codes to -- Clinical Masters use generateCategoryCode below instead.
 async function generateUniqueCode(supabase, table, name, scopeColumn, scopeValue) {
   const base = (name || 'ITEM').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'ITEM';
   let code = base;
@@ -61,6 +60,37 @@ async function generateUniqueCode(supabase, table, name, scopeColumn, scopeValue
     n += 1;
     code = `${base}_${n}`;
   }
+}
+
+// Derives a short prefix from a category (or a fixed fallback for
+// tables with no category concept) -- multi-word categories become an
+// initialism ("Minor Procedure" -> MP, "chief_complaint" -> CC), single
+// words are used whole if short enough or trimmed to 3 letters
+// otherwise ("Cataract" -> CAT, "EDOF" -> EDOF).
+function codePrefix(categoryOrFallback) {
+  const words = (categoryOrFallback || '').trim().split(/[\s_]+/).filter(Boolean);
+  if (words.length === 0) return 'GEN';
+  if (words.length === 1) return words[0].length <= 4 ? words[0].toUpperCase() : words[0].slice(0, 3).toUpperCase();
+  return words.map((w) => w[0]).join('').toUpperCase().slice(0, 4);
+}
+
+// Short alphanumeric codes, auto-generated and linked to category where
+// one exists (e.g. Surgery category "Cataract" -> CAT01, CAT02...;
+// Procedure category "Minor Procedure" -> MP01, MP02...; History
+// Option category "chief_complaint" -> CC01, CC02...). For Clinical
+// Master tables with no category concept (IOP Methods, Clinical
+// Observations), pass a fixed short fallback prefix instead, so every
+// code in Clinical Masters follows the same short PREFIX+NN pattern
+// rather than some being long name-derived slugs like the old scheme
+// produced.
+async function generateCategoryCode(supabase, table, categoryOrFallback) {
+  const prefix = codePrefix(categoryOrFallback);
+  const { data } = await supabase.from(table).select('code').ilike('code', `${prefix}%`);
+  const maxSeq = (data || []).reduce((max, row) => {
+    const m = row.code && row.code.match(new RegExp(`^${prefix}(\\d+)$`));
+    return m ? Math.max(max, parseInt(m[1], 10)) : max;
+  }, 0);
+  return `${prefix}${String(maxSeq + 1).padStart(2, '0')}`;
 }
 
 // Delete with a friendly message instead of a raw Postgres error when
@@ -85,7 +115,7 @@ export async function getIopMethods() {
 export async function addIopMethod(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
-  const code = await generateUniqueCode(supabase, 'master_iop_methods', name);
+  const code = await generateCategoryCode(supabase, 'master_iop_methods', 'IOP');
   const { error } = await supabase.from('master_iop_methods').insert({ code, name, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_iop_methods', code, 'Create', `${name} created`);
@@ -114,7 +144,7 @@ export async function getSurgicalConsumablesMaster() {
 export async function addSurgicalConsumable(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
-  const code = await generateUniqueCode(supabase, 'master_surgical_consumables', name);
+  const code = await generateCategoryCode(supabase, 'master_surgical_consumables', 'CONS');
   const { error } = await supabase.from('master_surgical_consumables').insert({ code, name, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_surgical_consumables', code, 'Create', `${name} created`);
@@ -143,7 +173,7 @@ export async function getClinicalObservations() {
 export async function addClinicalObservation(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
-  const code = await generateUniqueCode(supabase, 'master_clinical_observations', name);
+  const code = await generateCategoryCode(supabase, 'master_clinical_observations', 'OBS');
   const { error } = await supabase.from('master_clinical_observations').insert({ code, name, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_clinical_observations', code, 'Create', `${name} created`);
@@ -175,7 +205,7 @@ export async function getHistoryOptions() {
 export async function addHistoryOption(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
-  const code = await generateUniqueCode(supabase, 'master_history_options', name, 'category', values.category);
+  const code = await generateCategoryCode(supabase, 'master_history_options', values.category);
   const { error } = await supabase.from('master_history_options').insert({ code, name, category: values.category, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_history_options', code, 'Create', `${name} (${values.category}) created`);
@@ -226,13 +256,43 @@ export async function getDoctorsMaster() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('profiles')
-    .select('id, full_name, designation, status')
+    .select('id, code, full_name, designation, status')
     .or('designation.ilike.%ophthalmologist%,designation.ilike.%doctor%')
     .order('full_name');
-  return data || [];
+  const doctors = data || [];
+
+  // Self-heal: any doctor profile created via User Management since this
+  // was added (or missed by the one-time backfill) won't have a code yet.
+  // Assign the next one in the same uniform DOC01, DOC02... sequence used
+  // everywhere else in Clinical Masters, rather than anything category- or
+  // designation-specific.
+  const missing = doctors.filter((d) => !d.code);
+  for (const d of missing) {
+    // Re-queried fresh each time so each new code accounts for the one
+    // just assigned above it.
+    const code = await generateCategoryCode(supabase, 'profiles', 'DOC');
+    const { error } = await supabase.from('profiles').update({ code }).eq('id', d.id);
+    if (!error) d.code = code;
+  }
+  return doctors;
 }
 
 // ── SERVICES ──
+// Services (Consultation, Investigation, Surgery, Pharmacy departments
+// in master_services) follow their own long-established CON001, INV001...
+// pattern -- 3-digit, scoped per department -- rather than the 2-digit
+// generateCategoryCode scheme above. Kept separate so it stays exactly
+// consistent with the codes already seeded in the database.
+async function generateServiceCode(supabase, dept) {
+  const prefix = (dept || 'SVC').slice(0, 3).toUpperCase();
+  const { data } = await supabase.from('master_services').select('code').ilike('code', `${prefix}%`);
+  const maxSeq = (data || []).reduce((max, row) => {
+    const m = row.code && row.code.match(new RegExp(`^${prefix}(\\d+)$`));
+    return m ? Math.max(max, parseInt(m[1], 10)) : max;
+  }, 0);
+  return `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
+}
+
 export async function getServices() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_services').select('*').order('name');
@@ -241,9 +301,10 @@ export async function getServices() {
 export async function addService(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
-  const code = await generateUniqueCode(supabase, 'master_services', name);
+  const code = await generateServiceCode(supabase, values.dept);
   const { error } = await supabase.from('master_services').insert({
     code, name, dept: values.dept, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
+    investigation_package: values.investigationPackage?.trim() || null,
   });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_services', code, 'Create', `${name} created -- Rs.${values.rate}, ${values.gstPct || 0}% GST`);
@@ -254,6 +315,7 @@ export async function updateService(id, oldValues, values) {
   const name = normalizeName(values.name);
   const { error } = await supabase.from('master_services').update({
     name, dept: values.dept, rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
+    investigation_package: values.investigationPackage?.trim() || null,
   }).eq('id', id);
   if (error) return { error: error.message };
   const changes = [];
@@ -261,6 +323,7 @@ export async function updateService(id, oldValues, values) {
   if (String(oldValues.rate) !== String(values.rate)) changes.push(`Rate Rs.${oldValues.rate} -> Rs.${values.rate}`);
   if (String(oldValues.gst_pct) !== String(values.gstPct)) changes.push(`GST ${oldValues.gst_pct}% -> ${values.gstPct}%`);
   if (oldValues.dept !== values.dept) changes.push(`Dept ${oldValues.dept} -> ${values.dept}`);
+  if ((oldValues.investigation_package || '') !== (values.investigationPackage || '')) changes.push(`Package ${oldValues.investigation_package || '--'} -> ${values.investigationPackage || '--'}`);
   await logMasterAudit(supabase, 'master_services', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
   return { success: true };
 }
@@ -354,7 +417,7 @@ export async function addProcedure(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
   const category = normalizeName(values.category);
-  const code = await generateUniqueCode(supabase, 'master_procedures', name);
+  const code = await generateCategoryCode(supabase, 'master_procedures', category);
   const { error } = await supabase.from('master_procedures').insert({ code, name, category, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_procedures', code, 'Create', `${name} created`);
@@ -390,7 +453,7 @@ export async function addSurgery(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
   const category = normalizeName(values.category);
-  const code = await generateUniqueCode(supabase, 'master_surgeries', name);
+  const code = await generateCategoryCode(supabase, 'master_surgeries', 'SUR');
   const { error } = await supabase.from('master_surgeries').insert({ code, name, category, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_surgeries', code, 'Create', `${name} created`);
@@ -464,7 +527,7 @@ export async function addDiagnosisMaster(values) {
   const supabase = await createClient();
   const name = normalizeName(values.name);
   const category = normalizeName(values.category);
-  const code = await generateUniqueCode(supabase, 'master_diagnoses', name);
+  const code = await generateCategoryCode(supabase, 'master_diagnoses', 'DIAG');
   const { error } = await supabase.from('master_diagnoses').insert({ code, name, category, status: 'Active' });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_diagnoses', code, 'Create', `${name} created`);
@@ -500,7 +563,7 @@ export async function addIolCatalogItem(values) {
   const brand = normalizeName(values.brand);
   const model = normalizeName(values.model);
   const manufacturer = normalizeName(values.manufacturer);
-  const code = await generateUniqueCode(supabase, 'master_iol_catalog', `${brand} ${model}`);
+  const code = await generateCategoryCode(supabase, 'master_iol_catalog', 'IOL');
   const { error } = await supabase.from('master_iol_catalog').insert({
     code, brand, model, manufacturer, category: values.category, status: 'Active',
   });
@@ -545,3 +608,4 @@ export async function getActiveIolCatalog() {
 // lives in master_services where dept = 'Investigation'. Consolidated
 // into Financial Masters (Migration 48) to avoid the same item ever
 // having two different prices in two different places.
+

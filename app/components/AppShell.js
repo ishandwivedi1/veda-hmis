@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
   { href: '/doctor-dashboard', label: 'Doctor Dashboard', icon: 'ti-stethoscope', section: 'Ophthalmologist' },
+  { href: '/medical-fitness', label: 'Medical Fitness', icon: 'ti-heart-rate-monitor', section: 'Ophthalmologist' },
   { href: '/patient-timeline', label: 'Patient Timeline', icon: 'ti-timeline', section: 'Ophthalmologist' },
   { href: '/workflow-monitor', label: 'Workflow Monitor', icon: 'ti-activity', section: 'Ophthalmologist' },
   { href: '/optometry-dashboard', label: 'Optometry Queue', icon: 'ti-eye-check', section: 'Optometrist' },
@@ -30,6 +31,9 @@ const NAV_ITEMS = [
   { href: '/optometry-reports', label: 'Optometry Reports', icon: 'ti-chart-bar', section: 'Optometrist' },
   { href: '/counselling', label: 'Counselling', icon: 'ti-scalpel', section: 'Surgical' },
   { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', section: 'Surgical' },
+  { href: '/ot-intraop', label: 'Operation Theatre', icon: 'ti-building-hospital', section: 'Surgical' },
+  { href: '/ot-recovery', label: 'Recovery', icon: 'ti-bed', section: 'Surgical' },
+  { href: '/ot-postop', label: 'Post Op', icon: 'ti-calendar-plus', section: 'Surgical' },
   { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', section: 'Administration' },
   { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', section: 'Administration' },
   { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration' },
@@ -47,6 +51,7 @@ const PAGE_TITLES = [
   { match: /^\/visits/, title: 'Visits' },
   { match: /^\/queue/, title: 'Queue Management' },
   { match: /^\/doctor-dashboard/, title: 'Doctor Dashboard' },
+  { match: /^\/medical-fitness/, title: 'Medical Fitness' },
   { match: /^\/patient-timeline/, title: 'Patient Timeline' },
   { match: /^\/workflow-monitor/, title: 'Workflow Monitor' },
   { match: /^\/optometry-dashboard/, title: 'Optometry Queue' },
@@ -61,6 +66,9 @@ const PAGE_TITLES = [
   { match: /^\/pharmacy/, title: 'Pharmacy' },
   { match: /^\/counselling/, title: 'Counselling' },
   { match: /^\/biometry/, title: 'Biometry & IOL Planning' },
+  { match: /^\/ot-intraop/, title: 'Operation Theatre' },
+  { match: /^\/ot-recovery/, title: 'Recovery' },
+  { match: /^\/ot-postop/, title: 'Post Op' },
   { match: /^\/master-data\/clinical/, title: 'Clinical Masters' },
   { match: /^\/master-data\/financial/, title: 'Financial Masters' },
   { match: /^\/master-data/, title: 'Master Data' },
@@ -152,5 +160,6 @@ export default function AppShell({ children }) {
     </div>
   );
 }
+
 
 

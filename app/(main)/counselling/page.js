@@ -4,17 +4,26 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getCounsellingCases, getPackagesForCase, selectPackage, changePackage,
   setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
-  markInvestigationsComplete, markFitnessCleared, markReadyForScheduling, referBackToDoctor,
-  sendForBiometry, getSurgeons, getOTAvailability, bookOTSlot, getOTSchedule, completeOT,
+  markReadyForScheduling, referBackToDoctor,
+  referForMedicalFitness,
+  sendForBiometry, skipBiometry, unskipBiometry,
+  getSurgeons, getOTAvailability, bookOTSlot, getOTSchedule, completeOT,
 } from './actions';
+
+// Biometry is satisfied either by actually being done, or by having
+// been explicitly marked not required for this case (retina, glaucoma,
+// oculoplasty...). Every gate that used to check biometry_done alone
+// now goes through this.
+function biometrySatisfied(sc) {
+  return sc.biometry_done || sc.biometry_required === false;
+}
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 
 function readiness(sc) {
   const items = [
     { key: 'surgeryRec', label: 'Surgery Recommended', done: true },
-    { key: 'biometry', label: 'Biometry & IOL Type Advised (M23)', done: sc.biometry_done },
-    { key: 'investigations', label: 'Investigations complete', done: sc.investigations_complete },
+    { key: 'biometry', label: sc.biometry_required === false ? 'Biometry & IOL Type Advised (M23) -- Skipped' : 'Biometry & IOL Type Advised (M23)', done: biometrySatisfied(sc) },
     { key: 'fitness', label: 'Medical Fitness', done: sc.fitness_cleared },
     { key: 'advance', label: 'Advance Payment', done: !!sc.advance_payment_id },
   ];
@@ -28,11 +37,11 @@ function PackagePicker({ sc, onUpdate }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!sc.biometry_done) { setLoading(false); return; }
+    if (!biometrySatisfied(sc)) { setLoading(false); return; }
     getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoading(false); });
-  }, [sc.biometry_done, sc.iol_category]);
+  }, [sc.biometry_done, sc.biometry_required, sc.iol_category]);
 
-  if (!sc.biometry_done) {
+  if (!biometrySatisfied(sc)) {
     return (
       <div style={{ textAlign: 'center', padding: 20, color: 'var(--g400)', fontSize: 12.5, background: 'var(--g50)', borderRadius: 'var(--r)' }}>
         <i className="ti ti-lock" style={{ fontSize: 20, display: 'block', marginBottom: 6 }}></i>
@@ -48,10 +57,25 @@ function PackagePicker({ sc, onUpdate }) {
           <div style={{ fontWeight: 700, fontSize: 13 }}>{sc.master_packages.name}</div>
           <div style={{ fontWeight: 700, color: 'var(--green)', fontSize: 14 }}>Rs.{Number(sc.master_packages.price).toLocaleString('en-IN')}</div>
         </div>
+        {sc.package_locked && (
+          <div style={{ fontSize: 10.5, color: 'var(--amber)', marginTop: 6 }}><i className="ti ti-lock"></i> Locked -- changing requires a reason</div>
+        )}
+        {error && <div className="msg-err" style={{ marginTop: 8 }}>{error}</div>}
         <button
           className="btn btn-sm"
           style={{ marginTop: 8 }}
-          onClick={async () => { await changePackage(sc.id); onUpdate(); }}
+          onClick={async () => {
+            setError('');
+            let reason = null;
+            if (sc.package_locked) {
+              reason = window.prompt(`Package is locked (currently "${sc.master_packages.name}"). Enter a reason to change it:`);
+              if (reason === null) return;
+              if (!reason.trim()) { setError('A reason is required to change a locked package.'); return; }
+            }
+            const result = await changePackage(sc.id, reason);
+            if (result.error) { setError(result.error); return; }
+            onUpdate();
+          }}
         >
           Change package
         </button>
@@ -185,7 +209,7 @@ function CounsellingSection({ num, color, title, badge, open, onToggle, children
   );
 }
 
-// ── 6. Book Surgery Slot -- last step of Counselling, replaces the old
+// ── Book Surgery Slot -- last step of Counselling, replaces the old
 //    standalone OT Scheduling module. Picking a date loads that date's OT
 //    sessions (Morning/Midday/Afternoon etc, from Financial Masters) with
 //    live booked/remaining counts so the counsellor books strictly within
@@ -294,9 +318,19 @@ function CaseWorkspace({ sc, onUpdate }) {
   const [error, setError] = useState('');
   const [ancillaryMsg, setAncillaryMsg] = useState(null); // { type: 'error'|'success', text }
   const [sendingBiometry, setSendingBiometry] = useState(false);
-  const [openSections, setOpenSections] = useState({ surgery: true, biometry: true, decision: true, investigations: true, fitness: true });
+  const [openSections, setOpenSections] = useState({ surgery: true, biometry: true, decision: true, fitness: true });
   const { items, pct } = readiness(sc);
   const stage2Unlocked = !!sc.package_id && sc.decision === 'Accepted';
+  const [referringFitness, setReferringFitness] = useState(false);
+
+  async function handleReferFitness() {
+    setError('');
+    setReferringFitness(true);
+    const result = await referForMedicalFitness(sc.id);
+    setReferringFitness(false);
+    if (result.error) { setError(result.error); return; }
+    onUpdate();
+  }
 
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -304,7 +338,13 @@ function CaseWorkspace({ sc, onUpdate }) {
 
   async function handleDecision(d) {
     setError('');
-    const result = await setDecision(sc.id, d, null);
+    let reason = null;
+    if (sc.decision_locked && d !== sc.decision) {
+      reason = window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it to "${d}":`);
+      if (reason === null) return; // cancelled
+      if (!reason.trim()) { setError('A reason is required to change a locked decision.'); return; }
+    }
+    const result = await setDecision(sc.id, d, reason);
     if (result.error) { setError(result.error); return; }
     onUpdate();
   }
@@ -326,8 +366,23 @@ function CaseWorkspace({ sc, onUpdate }) {
     onUpdate();
   }
 
+  async function handleSkipBiometry() {
+    const reason = window.prompt('Why is Biometry not required for this case? (e.g. Retina surgery -- no IOL power needed)');
+    if (reason === null) return;
+    setAncillaryMsg(null);
+    const result = await skipBiometry(sc.id, reason);
+    if (result.error) { setAncillaryMsg({ type: 'error', text: result.error }); return; }
+    onUpdate();
+  }
+
+  async function handleUnskipBiometry() {
+    setAncillaryMsg(null);
+    const result = await unskipBiometry(sc.id);
+    if (result.error) { setAncillaryMsg({ type: 'error', text: result.error }); return; }
+    onUpdate();
+  }
+
   const advancePaid = !!sc.advance_payment_id;
-  const investigationsItem = items.find((i) => i.key === 'investigations');
   const fitnessItem = items.find((i) => i.key === 'fitness');
 
   return (
@@ -358,7 +413,7 @@ function CaseWorkspace({ sc, onUpdate }) {
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 10, opacity: .7 }}>IOL Type Advised</div>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.iol_category || 'Pending biometry'}</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.iol_category || (sc.biometry_required === false ? 'Not applicable' : 'Pending biometry')}</div>
           <span className={`badge ${sc.status === 'Ready for Scheduling' ? 'b-green' : 'b-amber'}`} style={{ marginTop: 4 }}>{sc.status}</span>
           <div style={{ fontSize: 10, opacity: .7, marginTop: 4 }}>{pct}% ready</div>
         </div>
@@ -380,6 +435,8 @@ function CaseWorkspace({ sc, onUpdate }) {
         badge={
           sc.biometry_done
             ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span>
+            : sc.biometry_required === false
+            ? <span className="badge b-purple">Not Required</span>
             : sc.biometry_record
             ? <span className="badge b-blue">Awaiting Technician</span>
             : <span className="badge b-amber">Not sent</span>
@@ -387,6 +444,11 @@ function CaseWorkspace({ sc, onUpdate }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {sc.biometry_done ? (
             <span className="badge b-green"><i className="ti ti-check"></i> Biometry Complete -- {sc.iol_category}</span>
+          ) : sc.biometry_required === false ? (
+            <>
+              <span className="badge b-purple"><i className="ti ti-player-skip-forward"></i> Not required -- {sc.biometry_skip_reason}</span>
+              <button className="btn btn-sm" onClick={handleUnskipBiometry} style={{ fontSize: 11 }}>Undo -- make required again</button>
+            </>
           ) : sc.biometry_record ? (
             <>
               <span className="badge b-blue"><i className="ti ti-clock"></i> Biometry Requested -- Awaiting Technician</span>
@@ -395,9 +457,14 @@ function CaseWorkspace({ sc, onUpdate }) {
               </button>
             </>
           ) : (
-            <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry}>
-              <i className="ti ti-ruler-measure"></i> {sendingBiometry ? 'Sending...' : 'Send for Biometry'}
-            </button>
+            <>
+              <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry}>
+                <i className="ti ti-ruler-measure"></i> {sendingBiometry ? 'Sending...' : 'Send for Biometry'}
+              </button>
+              <button className="btn btn-sm" onClick={handleSkipBiometry} style={{ fontSize: 11 }}>
+                <i className="ti ti-player-skip-forward"></i> Not required for this surgery
+              </button>
+            </>
           )}
           {ancillaryMsg && (
             <span style={{ fontSize: 11.5, color: ancillaryMsg.type === 'error' ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>
@@ -422,7 +489,9 @@ function CaseWorkspace({ sc, onUpdate }) {
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <label className="flbl">Decision</label>
+          <label className="flbl">
+            Decision {sc.decision_locked && <span style={{ color: 'var(--amber)', fontWeight: 400, textTransform: 'none' }}><i className="ti ti-lock"></i> Locked -- changing requires a reason</span>}
+          </label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {DECISIONS.map((d) => (
               <button
@@ -453,27 +522,44 @@ function CaseWorkspace({ sc, onUpdate }) {
         </div>
       </CounsellingSection>
 
-      {/* 4. INVESTIGATIONS */}
-      <CounsellingSection num={4} color="var(--teal)" title="Investigations" open={openSections.investigations} onToggle={() => toggleSection('investigations')}
-        badge={investigationsItem?.done ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span> : <span className="badge b-amber">Pending</span>}>
-        {!stage2Unlocked ? (
-          <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Locked until package confirmed and decision is Accepted.</div>
-        ) : investigationsItem?.done ? (
-          <span className="badge b-green"><i className="ti ti-check"></i> Investigations complete</span>
-        ) : (
-          <button className="btn btn-sm" onClick={async () => { setError(''); const r = await markInvestigationsComplete(sc.id); if (r.error) setError(r.error); else onUpdate(); }}>Mark done</button>
-        )}
-      </CounsellingSection>
-
-      {/* 5. MEDICAL FITNESS */}
-      <CounsellingSection num={5} color="var(--amber)" title="Medical Fitness" open={openSections.fitness} onToggle={() => toggleSection('fitness')}
+      {/* 4. MEDICAL FITNESS */}
+      <CounsellingSection num={4} color="var(--amber)" title="Medical Fitness" open={openSections.fitness} onToggle={() => toggleSection('fitness')}
         badge={fitnessItem?.done ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span> : <span className="badge b-amber">Pending</span>}>
         {!stage2Unlocked ? (
           <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Locked until package confirmed and decision is Accepted.</div>
-        ) : fitnessItem?.done ? (
-          <span className="badge b-green"><i className="ti ti-check"></i> Medical fitness cleared</span>
         ) : (
-          <button className="btn btn-sm" onClick={async () => { setError(''); const r = await markFitnessCleared(sc.id); if (r.error) setError(r.error); else onUpdate(); }}>Mark done</button>
+          <>
+            {!sc.fitness_referral && (
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+                  Refer this patient to a doctor to review clinical data, order any investigations needed, and clear for surgery.
+                </div>
+                <button className="btn btn-sm" onClick={handleReferFitness} disabled={referringFitness}>
+                  <i className="ti ti-heart-rate-monitor"></i> {referringFitness ? 'Referring...' : 'Refer to Doctor'}
+                </button>
+              </div>
+            )}
+            {sc.fitness_referral?.status === 'Pending Review' && (
+              <span className="badge b-amber"><i className="ti ti-clock"></i> Referred to doctor -- awaiting review ({new Date(sc.fitness_referral.referred_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})</span>
+            )}
+            {sc.fitness_referral?.status === 'Cleared' && (
+              <div>
+                <span className="badge b-green"><i className="ti ti-check"></i> Cleared by doctor</span>
+                {sc.fitness_referral.fitness_notes && <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 6 }}>{sc.fitness_referral.fitness_notes}</div>}
+              </div>
+            )}
+            {sc.fitness_referral?.status === 'Not Fit' && (
+              <div>
+                <span className="badge b-red"><i className="ti ti-x"></i> Not Fit</span>
+                {sc.fitness_referral.fitness_notes && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 6 }}>{sc.fitness_referral.fitness_notes}</div>}
+                <div style={{ marginTop: 8 }}>
+                  <button className="btn btn-sm" onClick={handleReferFitness} disabled={referringFitness}>
+                    <i className="ti ti-refresh"></i> {referringFitness ? 'Referring...' : 'Refer Again'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </CounsellingSection>
 
@@ -482,9 +568,9 @@ function CaseWorkspace({ sc, onUpdate }) {
         <NotesPanel caseId={sc.id} />
       </div>
 
-      {/* 6. BOOK SURGERY SLOT -- only once Ready for Scheduling */}
+      {/* BOOK SURGERY SLOT -- only once Ready for Scheduling */}
       {sc.status === 'Ready for Scheduling' && (
-        <CounsellingSection num={6} color="var(--indigo)" title="Book Surgery Slot" open onToggle={() => {}}
+        <CounsellingSection num="OT" color="var(--indigo)" title="Book Surgery Slot" open onToggle={() => {}}
           badge={<span className="badge b-green"><i className="ti ti-check"></i> Ready</span>}>
           <BookSurgerySlot sc={sc} onUpdate={onUpdate} />
         </CounsellingSection>
@@ -530,7 +616,7 @@ const STAGE_MAP = Object.fromEntries(STAGES.map((s) => [s.key, s]));
 
 function getStage(sc) {
   if (sc.status === 'Ready for Scheduling') return 'ready';
-  if (!sc.biometry_done) return sc.biometry_record ? 'awaiting_biometry' : 'surgery_advised';
+  if (!sc.biometry_done && sc.biometry_required !== false) return sc.biometry_record ? 'awaiting_biometry' : 'surgery_advised';
   if (!sc.package_id) return 'awaiting_package';
   if (sc.decision === 'Declined') return 'declined';
   if (sc.decision === 'Financial Constraint') return 'financial_constraint';
@@ -771,3 +857,4 @@ export default function CounsellingPage() {
     </div>
   );
 }
+
