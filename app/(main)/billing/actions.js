@@ -230,6 +230,46 @@ export async function markPrescriptionsBilled(ids) {
 // Unlike investigations/prescriptions, there's exactly one fixed
 // billing line for any biometry -- Biometry's own dedicated Financial
 // Masters department (separate from Investigation for clarity).
+// ── PACKAGE BILLING (Front Office widget) ──
+// Package gets locked in Counselling; this is the real invoicing path
+// for it -- goes through New Invoice -> Finalize -> Collect Payment like
+// everything else, unlike the old generate_package_invoice RPC which
+// used to mark the invoice paid directly with no actual payment
+// collected (see package-billing-tab.js).
+export async function getPendingPackageBilling() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select('id, procedure_name, eye, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(id, code, name, price)')
+    .eq('package_locked', true)
+    .eq('package_billed', false)
+    .not('package_id', 'is', null);
+  if (error) return [];
+  return (data || []).filter((sc) => sc.master_packages);
+}
+
+export async function getPackageForBilling(caseId) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('master_packages:package_id(code, name, price)').eq('id', caseId).maybeSingle();
+  if (!sc?.master_packages) return { item: null };
+  return {
+    item: {
+      caseId, name: sc.master_packages.name, matched: true,
+      serviceCode: sc.master_packages.code, rate: sc.master_packages.price, gstPct: 0,
+    },
+  };
+}
+
+// Called once the invoice carrying this package is actually saved --
+// flips it out of the Front Office queue.
+export async function markPackageBilled(caseId, invoiceId) {
+  const supabase = await createClient();
+  if (!caseId) return { success: true };
+  const { error } = await supabase.from('surgical_cases').update({ package_billed: true }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function getBiometryForBilling(ids) {
   const supabase = await createClient();
   if (!ids || ids.length === 0) return { items: [] };

@@ -18,6 +18,8 @@ import {
   markPrescriptionsBilled,
   getBiometryForBilling,
   markBiometryBilled,
+  getPackageForBilling,
+  markPackageBilled,
 } from '../actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Surgery', 'Pharmacy'];
@@ -73,10 +75,12 @@ export default function NewInvoiceTab() {
   const urlInvOrderIds = searchParams.get('invOrderIds');
   const urlRxIds = searchParams.get('rxIds');
   const urlBioIds = searchParams.get('bioIds');
+  const urlPkgCaseId = searchParams.get('pkgCaseId');
   const contextLoadedFor = useRef(null);
   const invOrdersLoadedFor = useRef(null);
   const rxLoadedFor = useRef(null);
   const bioLoadedFor = useRef(null);
+  const pkgLoadedFor = useRef(null);
 
   useEffect(() => {
     getServiceCatalog().then(setCatalog);
@@ -195,6 +199,33 @@ export default function NewInvoiceTab() {
     })();
   }, [urlBioIds, contextPatient]);
 
+  // Prefill from Front Office's "Package Billing" widget -- the package
+  // locked in Counselling, billed the same way as everything else
+  // (through this screen -> Finalize -> Collect Payment), unlike the
+  // old auto-pay Package Billing tab.
+  useEffect(() => {
+    if (!urlPkgCaseId || !contextPatient) return;
+    if (pkgLoadedFor.current === urlPkgCaseId) return;
+    pkgLoadedFor.current = urlPkgCaseId;
+    (async () => {
+      const result = await getPackageForBilling(urlPkgCaseId);
+      if (!result.item) return;
+      const i = result.item;
+      const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
+      setDraftLines((prev) => [
+        ...prev,
+        {
+          tempId: nextTempId.current++,
+          sourcePkgCaseId: i.caseId,
+          serviceCode: i.serviceCode, serviceName: i.name, dept: 'Surgery',
+          qty: 1, rate: i.rate, gstPct: i.gstPct,
+          discType: 'none', discValue: 0, discReason: '',
+          ...computed,
+        },
+      ]);
+    })();
+  }, [urlPkgCaseId, contextPatient]);
+
   const servicesForDept = catalog.filter((s) => s.dept === dept);
 
   async function handleSearch() {
@@ -297,6 +328,9 @@ export default function NewInvoiceTab() {
     const billedBioIds = draftLines.map((l) => l.sourceBioId).filter(Boolean);
     if (billedBioIds.length > 0) await markBiometryBilled(billedBioIds, created.invoice.id);
 
+    const billedPkgCaseId = draftLines.find((l) => l.sourcePkgCaseId)?.sourcePkgCaseId;
+    if (billedPkgCaseId) await markPackageBilled(billedPkgCaseId, created.invoice.id);
+
     setSubmitting(false);
     return details.invoice;
   }
@@ -331,6 +365,7 @@ export default function NewInvoiceTab() {
     invOrdersLoadedFor.current = null;
     rxLoadedFor.current = null;
     bioLoadedFor.current = null;
+    pkgLoadedFor.current = null;
     router.push('/billing/new');
   }
 
@@ -446,7 +481,7 @@ export default function NewInvoiceTab() {
               <tbody>
                 {draftLines.map((li) => (
                   <tr key={li.tempId}>
-                    <td>{li.serviceName}{(li.sourceInvOrderId || li.sourceRxId || li.sourceBioId) && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
+                    <td>{li.serviceName}{(li.sourceInvOrderId || li.sourceRxId || li.sourceBioId || li.sourcePkgCaseId) && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
                     <td>{li.qty}</td>
                     <td>Rs.{li.rate}</td>
                     <td>{li.disc > 0 ? `Rs.${li.disc}` : '--'}</td>
