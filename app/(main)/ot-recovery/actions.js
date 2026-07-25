@@ -28,26 +28,27 @@ export async function ensureRecoveryEpisode(otScheduleId, surgicalCaseId, visitI
   return created.id;
 }
 
-// ── DASHBOARD ──
+// ── DASHBOARD: patients still in recovery, not yet discharged ──
 export async function getRecoveryCaseList() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('recovery_episodes')
     .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
-    .is('closure_status', null)
+    .is('discharge_date', null)
     .order('created_at', { ascending: true });
   if (error) return [];
   return (data || []).filter((e) => e.surgical_cases);
 }
 
-// ── HISTORY (closed episodes) ──
+// ── HISTORY: discharged episodes (Recovery's part is done -- Post Op
+// takes over follow-up tracking and closure from here) ──
 export async function getRecoveryHistory() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('recovery_episodes')
     .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
-    .not('closure_status', 'is', null)
-    .order('closed_at', { ascending: false });
+    .not('discharge_date', 'is', null)
+    .order('discharge_date', { ascending: false });
   if (error) return [];
   return (data || []).filter((e) => e.surgical_cases);
 }
@@ -131,38 +132,6 @@ export async function confirmDischarge(episodeId, checklist, dischargeNotes, dis
   ];
   await supabase.from('recovery_followups').insert(followups);
 
-  return { success: true };
-}
-
-// ── POST-OP COMPLICATIONS ──
-export async function addRecoveryComplication(episodeId, values) {
-  const supabase = await createClient();
-  if (!values.name?.trim()) return { error: 'Complication name is required.' };
-  const { data: userData } = await supabase.auth.getUser();
-  const { error } = await supabase.from('recovery_complications').insert({
-    recovery_episode_id: episodeId, name: values.name.trim(), severity: values.severity,
-    management: values.management?.trim() || null, outcome: values.outcome?.trim() || null,
-    added_by: userData?.user?.id || null,
-  });
-  if (error) return { error: error.message };
-  return { success: true };
-}
-
-// ── CLOSE EPISODE ──
-export async function closeEpisode(episodeId, values) {
-  const supabase = await createClient();
-  if (!values.outcome) return { error: 'VAL-POST-005: Overall clinical outcome is required.' };
-
-  const { data: complications } = await supabase.from('recovery_complications').select('management').eq('recovery_episode_id', episodeId);
-  const unmanaged = (complications || []).filter((c) => !c.management);
-  if (unmanaged.length > 0) return { error: 'VAL-POST-004: Unmanaged complications exist -- episode cannot close.' };
-
-  const { data: userData } = await supabase.auth.getUser();
-  const { error } = await supabase.from('recovery_episodes').update({
-    closure_status: values.status, closure_outcome: values.outcome, closure_remarks: values.remarks || null,
-    closed_by: userData?.user?.id || null, closed_at: new Date().toISOString(),
-  }).eq('id', episodeId);
-  if (error) return { error: error.message };
   return { success: true };
 }
 

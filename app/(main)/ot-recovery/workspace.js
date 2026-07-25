@@ -12,7 +12,7 @@ const TEMPLATES = {
   glaucoma: 'Eye drops as prescribed. Avoid rubbing operated eye.\nAvoid straining, heavy lifting for 4 weeks.\nWarning signs: severe pain, sudden vision loss, excessive redness -- contact immediately.\nFollow-up as scheduled by surgeon.',
 };
 
-export default function Workspace({ episodeId, onBack, onUpdate, onGoEpisodes }) {
+export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
@@ -281,9 +281,9 @@ export default function Workspace({ episodeId, onBack, onUpdate, onGoEpisodes })
             </a>
           )}
           {isDischarged && (
-            <button className="btn btn-sm" style={{ background: 'rgba(124,58,237,.15)', color: '#c4b5fd', borderColor: 'rgba(124,58,237,.3)' }} onClick={onGoEpisodes}>
-              <i className="ti ti-circle-check"></i> Episode Tracker / Close Episode
-            </button>
+            <a href="/ot-postop" className="btn btn-sm" style={{ background: 'rgba(124,58,237,.15)', color: '#c4b5fd', borderColor: 'rgba(124,58,237,.3)', textDecoration: 'none' }}>
+              <i className="ti ti-arrow-right"></i> Go to Post Op
+            </a>
           )}
         </div>
       )}

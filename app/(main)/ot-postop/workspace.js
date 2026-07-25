@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getRecoveryEpisodeDetail, addRecoveryComplication, closeEpisode } from './actions';
+import {
+  getPostOpEpisodeDetail, rescheduleFollowup, saveFollowupNotes, markFollowupStatus,
+  addRecoveryComplication, closeEpisode,
+} from './actions';
 
 const MILESTONES = [
   { key: 'recovery', label: 'Recovery', icon: 'ti-bed' },
@@ -12,21 +15,29 @@ const MILESTONES = [
   { key: 'closure', label: 'Episode Closure', icon: 'ti-circle-check' },
 ];
 
-export default function EpisodeTracker({ episodeId, onUpdate }) {
+
+export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [ok, setOk] = useState('');
+
+  const [editingFollowupId, setEditingFollowupId] = useState(null);
+  const [editDate, setEditDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
   const [complName, setComplName] = useState('');
   const [complSeverity, setComplSeverity] = useState('Mild');
   const [complManagement, setComplManagement] = useState('');
   const [complOutcome, setComplOutcome] = useState('');
+
   const [showClose, setShowClose] = useState(false);
   const [closureStatus, setClosureStatus] = useState('Successfully Completed');
   const [closureOutcome, setClosureOutcome] = useState('');
   const [closureRemarks, setClosureRemarks] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const refresh = useCallback(async () => {
-    setData(await getRecoveryEpisodeDetail(episodeId));
+    setData(await getPostOpEpisodeDetail(episodeId));
   }, [episodeId]);
 
   useEffect(() => { refresh(); }, [episodeId, refresh]);
@@ -35,6 +46,7 @@ export default function EpisodeTracker({ episodeId, onUpdate }) {
   if (data.error) return <div className="msg-err">{data.error}</div>;
 
   const { episode, sc, followups, complications } = data;
+  const patient = sc?.patients;
   const isClosed = !!episode.closure_status;
 
   const milestoneStatus = (key) => {
@@ -46,6 +58,33 @@ export default function EpisodeTracker({ episodeId, onUpdate }) {
     if (!f) return 'pending';
     return f.status === 'Completed' ? 'done' : 'scheduled';
   };
+
+  function startEdit(f) {
+    setError('');
+    setEditingFollowupId(f.id);
+    setEditDate(f.scheduled_date);
+    setEditNotes(f.notes || '');
+  }
+
+  async function handleSaveFollowup(f) {
+    setError('');
+    setSaving(true);
+    let result = { success: true };
+    if (editDate !== f.scheduled_date) {
+      result = await rescheduleFollowup(f.id, editDate, editNotes);
+    } else if (editNotes !== (f.notes || '')) {
+      result = await saveFollowupNotes(f.id, editNotes);
+    }
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setEditingFollowupId(null);
+    refresh();
+  }
+
+  async function handleMarkStatus(f, status) {
+    await markFollowupStatus(f.id, status);
+    refresh();
+  }
 
   async function handleAddComplication() {
     setError('');
@@ -63,16 +102,30 @@ export default function EpisodeTracker({ episodeId, onUpdate }) {
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setShowClose(false);
+    setOk('Episode closed.');
     onUpdate();
     refresh();
   }
 
   return (
     <div>
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}>
-          <i className="ti ti-list" style={{ color: 'var(--teal)' }}></i> Surgical Episode Dashboard -- {sc.patients?.first_name} {sc.patients?.last_name}
+      <div style={{ background: 'linear-gradient(135deg,#4c1d95,#6d28d9)', borderRadius: 12, padding: '11px 16px', color: '#fff', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>
+          {patient?.first_name?.charAt(0)}
         </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+          <div style={{ fontSize: 11, opacity: .85 }}>{patient?.uhid} -- {sc?.procedure_name} {sc?.eye} -- {sc?.profiles?.full_name}</div>
+        </div>
+        <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{isClosed ? 'Closed' : 'Post-op'}</span>
+        <button className="btn btn-sm" style={{ borderColor: 'rgba(255,255,255,.3)', background: 'rgba(255,255,255,.1)', color: '#fff' }} onClick={onBack}><i className="ti ti-arrow-left"></i> Dashboard</button>
+      </div>
+
+      {error && <div className="msg-err">{error}</div>}
+      {ok && <div className="msg-ok">{ok}</div>}
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-list" style={{ color: 'var(--purple)' }}></i> Surgical Episode Dashboard</div>
         {MILESTONES.map((m) => {
           const status = milestoneStatus(m.key);
           const color = status === 'done' ? 'var(--green)' : status === 'scheduled' ? 'var(--blue)' : 'var(--amber)';
@@ -88,7 +141,47 @@ export default function EpisodeTracker({ episodeId, onUpdate }) {
         })}
       </div>
 
-      {error && <div className="msg-err">{error}</div>}
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-calendar-plus" style={{ color: 'var(--amber)' }}></i> Follow-up Schedule</div>
+        {followups.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No follow-ups scheduled yet.</div>}
+        {followups.map((f) => (
+          <div key={f.id} style={{ padding: '10px 12px', border: '1px solid var(--g200)', borderRadius: 10, marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{f.visit_label}</div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span className={`badge ${f.status === 'Completed' ? 'b-green' : f.status === 'Due' ? 'b-red' : 'b-blue'}`} style={{ fontSize: 10 }}>{f.status}</span>
+                {f.rescheduled_count > 0 && <span style={{ fontSize: 10, color: 'var(--amber)' }}>Rescheduled {f.rescheduled_count}x</span>}
+                {!isClosed && f.status !== 'Completed' && (
+                  <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={() => handleMarkStatus(f, 'Completed')}>Mark Completed</button>
+                )}
+              </div>
+            </div>
+
+            {editingFollowupId !== f.id ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 6 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--g500)' }}>{new Date(f.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                  {f.notes && <div style={{ fontSize: 11.5, color: 'var(--g600)', marginTop: 3 }}><i className="ti ti-notes"></i> {f.notes}</div>}
+                </div>
+                {!isClosed && (
+                  <button className="btn btn-sm" onClick={() => startEdit(f)}><i className="ti ti-calendar-time"></i> Reschedule / Notes</button>
+                )}
+              </div>
+            ) : (
+              <div style={{ marginTop: 8, padding: 8, background: 'var(--amber-lt)', borderRadius: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 6 }}>
+                  <input type="date" className="fi fi-sm" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                  <textarea className="fi fi-sm" rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Notes for this visit..." />
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-sm btn-primary" onClick={() => handleSaveFollowup(f)} disabled={saving}>Save</button>
+                  <button className="btn btn-sm" onClick={() => setEditingFollowupId(null)}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
 
       <div className="card">
         <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-alert-triangle" style={{ color: 'var(--red)' }}></i> Post-operative Complications <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--g400)' }}>(separate from intraop)</span></div>
@@ -117,7 +210,7 @@ export default function EpisodeTracker({ episodeId, onUpdate }) {
         </div>
       </div>
 
-      {!isClosed && episode.discharge_date && !showClose && (
+      {!isClosed && !showClose && (
         <div className="card" style={{ textAlign: 'center', marginBottom: 0 }}>
           <button className="btn btn-primary" onClick={() => setShowClose(true)}><i className="ti ti-circle-check"></i> Close Surgical Episode</button>
           <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 6 }}>Only the Ophthalmologist should close an episode. Overall outcome must be documented.</div>
