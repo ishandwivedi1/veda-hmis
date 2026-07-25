@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation';
 const TABS = [
   { href: '/billing', label: 'Dashboard', icon: 'ti-layout-dashboard' },
   { href: '/billing/new', label: 'New Invoice', icon: 'ti-file-plus' },
-  { href: '/billing/package', label: 'Package Billing', icon: 'ti-package' },
   { href: '/billing/details', label: 'Invoice Details', icon: 'ti-search' },
   { href: '/billing/cancel', label: 'Invoice Modification', icon: 'ti-edit' },
   { href: '/billing/reports', label: 'Reports', icon: 'ti-file-report' },
@@ -29,4 +28,5 @@ export default function BillingTabs() {
     </div>
   );
 }
+
 

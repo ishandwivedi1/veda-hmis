@@ -12,7 +12,7 @@ import {
 } from '../actions';
 
 const SERVICE_DEPTS = ['Consultation', 'Investigation', 'Biometry'];
-const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key: 'Pharmacy', type: 'drug' }, { key: 'Packages', type: 'package' }];
+const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key: 'Pharmacy', type: 'drug' }, { key: 'Packages', label: 'Surgery', type: 'package' }];
 const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
 const ORIGINS = ['Indian', 'Imported'];
 
@@ -177,7 +177,7 @@ export default function FinancialMastersPage() {
               className={activeTab === t.key ? 'btn btn-primary' : 'btn'}
               onClick={() => { setActiveTab(t.key); setShowAdd(false); setEditingId(null); setError(''); setSuccess(''); }}
             >
-              {t.key}
+              {t.label || t.key}
             </button>
           ))}
         </div>
