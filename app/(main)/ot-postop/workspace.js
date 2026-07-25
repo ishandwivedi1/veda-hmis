@@ -56,6 +56,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const { episode, sc, followups, complications } = data;
   const patient = sc?.patients;
   const isClosed = !!episode.closure_status;
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   const milestoneStatus = (key) => {
     if (key === 'recovery') return 'done';
@@ -116,7 +117,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   }
 
   async function handleMarkStatus(f, status) {
-    await markFollowupStatus(f.id, status);
+    setError('');
+    const result = await markFollowupStatus(f.id, status);
+    if (result.error) { setError(result.error); return; }
     refresh();
   }
 
@@ -188,7 +191,10 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                 <div style={{ width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${color}20`, color, flexShrink: 0 }}><i className={`ti ${icon}`}></i></div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 13 }}>{f.visit_label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{new Date(f.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>
+                    {new Date(f.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {f.scheduled_date > todayStr && f.status !== 'Completed' && <span style={{ color: 'var(--blue)', marginLeft: 6 }}>-- upcoming</span>}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {f.rescheduled_count > 0 && <span style={{ fontSize: 10, color: 'var(--amber)' }}>Rescheduled {f.rescheduled_count}x</span>}
@@ -237,7 +243,15 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                     <button className="btn btn-sm" onClick={() => startNotesEdit(f)}><i className="ti ti-edit"></i> {f.notes ? 'Edit Notes' : 'Add Notes'}</button>
                   )}
                   {f.status !== 'Completed' && (
-                    <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={() => handleMarkStatus(f, 'Completed')}>Mark Completed</button>
+                    <button
+                      className="btn btn-sm"
+                      style={{ background: 'var(--green)', color: '#fff', border: 'none', opacity: f.scheduled_date > todayStr ? 0.5 : 1, cursor: f.scheduled_date > todayStr ? 'not-allowed' : 'pointer' }}
+                      onClick={() => handleMarkStatus(f, 'Completed')}
+                      disabled={f.scheduled_date > todayStr}
+                      title={f.scheduled_date > todayStr ? "This visit hasn't happened yet" : ''}
+                    >
+                      Mark Completed
+                    </button>
                   )}
                 </div>
               )}

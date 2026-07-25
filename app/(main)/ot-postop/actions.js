@@ -68,6 +68,15 @@ export async function saveFollowupNotes(followupId, notes) {
 
 export async function markFollowupStatus(followupId, status) {
   const supabase = await createClient();
+
+  if (status === 'Completed') {
+    const { data: followup } = await supabase.from('recovery_followups').select('scheduled_date').eq('id', followupId).single();
+    const today = new Date().toISOString().slice(0, 10);
+    if (followup && followup.scheduled_date > today) {
+      return { error: `This visit is scheduled for ${followup.scheduled_date}, which hasn't happened yet -- it can't be marked Completed in advance.` };
+    }
+  }
+
   const { error } = await supabase.from('recovery_followups').update({ status }).eq('id', followupId);
   if (error) return { error: error.message };
   return { success: true };
