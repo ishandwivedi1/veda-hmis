@@ -8,6 +8,7 @@ import {
 } from './actions';
 import { getPatientTimeline } from '@/app/(main)/patient-timeline/actions';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
+import { openPopup } from '@/lib/popup';
 
 const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 const HISTORY_STATUS_BADGE = { Cleared: 'b-green', 'Not Fit': 'b-red' };
@@ -366,9 +367,9 @@ function WorkspaceTab({ referralId, onDone }) {
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <span className={`badge ${INV_STATUS_BADGE[i.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{i.status}</span>
                         {hasResults && (
-                          <a href={`/investigation/${i.id}?mode=view`} target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '2px 6px', fontSize: 10, textDecoration: 'none' }}>
+                          <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
                             <i className="ti ti-eye"></i> View
-                          </a>
+                          </button>
                         )}
                         {i.status === 'Ordered' && isPending && (
                           <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => handleRemoveInvestigation(i.id)}>Remove</button>

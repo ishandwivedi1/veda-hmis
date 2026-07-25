@@ -1,5 +1,7 @@
 'use client';
 
+import { openPopup } from '@/lib/popup';
+
 const VISIT_OUTCOMES = [
   'Continue Follow-up', 'Surgery Advised', 'Proceed to Pre-operative Consultation',
   'Surgery Planned', 'Referred', 'Admitted', 'Discharged',
@@ -155,9 +157,9 @@ export function NewInvestigationsSinceLastVisit({ investigations, matchInvestiga
         return (
           <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', fontSize: 12.5 }}>
             <span><strong>{i.name}</strong> -- {i.eye} -- <span style={{ color: 'var(--g500)' }}>{summarizeResultData(type, i.result_data)}</span></span>
-            <a href={`/investigation/${i.id}?mode=view`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+            <button className="btn btn-sm" onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
               <i className="ti ti-eye"></i> View
-            </a>
+            </button>
           </div>
         );
       })}

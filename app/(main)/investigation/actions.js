@@ -101,7 +101,7 @@ export async function getInvestigationQueue() {
 
 
 // ── WORKSPACE: single order detail, with patient/doctor context ──
-export async function getInvestigationDetail(id) {
+export async function getInvestigationDetail(id, viewOnly) {
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -112,13 +112,32 @@ export async function getInvestigationDetail(id) {
 
   if (error) return { error: error.message };
 
+  // Opening the order to work on it (not just viewing) is the "start" --
+  // no separate button needed. Timestamped with whoever opened it.
+  if (!viewOnly && data.status === 'Ordered') {
+    const { data: userData } = await supabase.auth.getUser();
+    const startedAt = new Date().toISOString();
+    await supabase.from('investigation_orders').update({
+      status: 'In Progress', started_at: startedAt, started_by: userData?.user?.id || null,
+    }).eq('id', id);
+    data.status = 'In Progress';
+    data.started_at = startedAt;
+    data.started_by = userData?.user?.id || null;
+  }
+
   let doctorName = '--';
   if (data.encounters?.doctor_id) {
     const { data: doc } = await supabase.from('profiles').select('full_name').eq('id', data.encounters.doctor_id).maybeSingle();
     doctorName = doc?.full_name || '--';
   }
 
-  return { order: data, doctorName };
+  let startedByName = null;
+  if (data.started_by) {
+    const { data: tech } = await supabase.from('profiles').select('full_name').eq('id', data.started_by).maybeSingle();
+    startedByName = tech?.full_name || null;
+  }
+
+  return { order: data, doctorName, startedByName };
 }
 
 export async function startInvestigation(id) {
@@ -161,12 +180,31 @@ export async function completeInvestigation(id, resultData, remarks) {
 // the doctor" -- status jumps straight to Available once every checklist
 // item is confirmed (there's no separate persisted "Verified" state;
 // it's a visual timeline step on the way to Available).
+// Same "combine, don't overwrite" logic doctorSendOut uses -- a patient
+// can be Awaiting more than one thing at once, so resolving Investigation
+// should only clear that part, not silently blow away Biometry/Dilation
+// if they're still pending.
+async function resolveAwaitingPart(supabase, visitId, part) {
+  if (!visitId) return;
+  const { data: entry } = await supabase
+    .from('queue_entries').select('id, status')
+    .eq('visit_id', visitId).eq('department', 'Doctor')
+    .order('issued_at', { ascending: false }).limit(1).maybeSingle();
+  if (!entry || !entry.status?.startsWith('Awaiting')) return;
+
+  const remaining = entry.status.replace('Awaiting ', '').split(' & ').filter((l) => l !== part);
+  const newStatus = remaining.length > 0 ? `Awaiting ${remaining.join(' & ')}` : 'Ready for Review';
+  await supabase.from('queue_entries').update({ status: newStatus }).eq('id', entry.id);
+}
+
 export async function verifyInvestigation(id, checklist) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
   const allChecked = Object.values(checklist).every(Boolean) && Object.keys(checklist).length > 0;
   if (!allChecked) return { error: 'All verification items must be checked before verifying.' };
+
+  const { data: order } = await supabase.from('investigation_orders').select('encounter_id, encounters(visit_id)').eq('id', id).maybeSingle();
 
   const { error } = await supabase
     .from('investigation_orders')
@@ -178,6 +216,9 @@ export async function verifyInvestigation(id, checklist) {
     })
     .eq('id', id);
   if (error) return { error: error.message };
+
+  await resolveAwaitingPart(supabase, order?.encounters?.visit_id, 'Investigation');
+
   return { success: true };
 }
 

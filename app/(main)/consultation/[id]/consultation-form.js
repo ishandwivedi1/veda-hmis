@@ -35,6 +35,7 @@ import {
   saveVisitOutcome,
   carryForwardDiagnosis,
 } from '@/app/(main)/consultation/actions';
+import { openPopup } from '@/lib/popup';
 import { markForSurgery } from '@/app/(main)/counselling/actions';
 import { getDiagnosesMaster, getDrugs, getServices, getProcedures, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
@@ -551,9 +552,9 @@ export default function ConsultationForm({ queueEntryId }) {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span className={`badge ${INV_STATUS_BADGE[i.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{i.status}</span>
                           {hasResults && (
-                            <a href={`/investigation/${i.id}?mode=view`} target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '2px 8px', fontSize: 11, textDecoration: 'none' }}>
+                            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
                               <i className="ti ti-eye"></i> View findings
-                            </a>
+                            </button>
                           )}
                           {i.status === 'Ordered' && (
                             <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>

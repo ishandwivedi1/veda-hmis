@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  getInvestigationDetail, startInvestigation, saveInvestigationDraft,
+  getInvestigationDetail, saveInvestigationDraft,
   completeInvestigation, verifyInvestigation, markUnableToPerform,
 } from '../actions';
 
@@ -109,19 +109,21 @@ export default function InvestigationWorkspace({ orderId }) {
   const [error, setError] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [saving, setSaving] = useState(false);
+  const [startedByName, setStartedByName] = useState(null);
   const router = useRouter();
   const searchParams = useSearchParams();
   const viewOnly = searchParams.get('mode') === 'view';
 
   useEffect(() => {
-    getInvestigationDetail(orderId).then((result) => {
+    getInvestigationDetail(orderId, viewOnly).then((result) => {
       if (result.error) { setLoadError(result.error); return; }
       setOrder(result.order);
       setDoctorName(result.doctorName);
+      setStartedByName(result.startedByName);
       setFields(result.order.result_data || {});
       setRemarks(result.order.result_notes || '');
     });
-  }, [orderId]);
+  }, [orderId, viewOnly]);
 
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!order) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
@@ -138,20 +140,13 @@ export default function InvestigationWorkspace({ orderId }) {
   }
 
   async function refresh() {
-    const result = await getInvestigationDetail(orderId);
+    const result = await getInvestigationDetail(orderId, viewOnly);
     if (!result.error) {
       setOrder(result.order);
+      setStartedByName(result.startedByName);
       setFields(result.order.result_data || {});
       setRemarks(result.order.result_notes || '');
     }
-  }
-
-  async function handleStart() {
-    setError(''); setSaving(true);
-    const result = await startInvestigation(orderId);
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    refresh();
   }
 
   async function handleSaveDraft() {
@@ -216,6 +211,11 @@ export default function InvestigationWorkspace({ orderId }) {
             {order.status}
           </span>
           {viewOnly && <span className="badge b-purple" style={{ fontSize: 10, marginTop: 3, marginLeft: 4 }}><i className="ti ti-eye"></i> Read-only</span>}
+          {order.started_at && (
+            <div style={{ fontSize: 10, opacity: .8, marginTop: 3 }}>
+              Started by {startedByName || '--'} -- {new Date(order.started_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -279,17 +279,12 @@ export default function InvestigationWorkspace({ orderId }) {
             {viewOnly ? (
               <div className="card" style={{ marginBottom: 0, textAlign: 'center', color: 'var(--g400)', fontSize: 12 }}>
                 <i className="ti ti-lock" style={{ display: 'block', fontSize: 18, marginBottom: 4 }}></i>
-                Read-only view -- close this tab to return to Consultation.
+                Read-only view -- close this window to return.
               </div>
             ) : (
               <div className="card" style={{ marginBottom: 0 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-arrows-right" style={{ color: 'var(--teal)' }}></i> Workflow Controls</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {order.status === 'Ordered' && (
-                    <button className="btn btn-sm" style={{ background: 'var(--teal)', color: '#fff', border: 'none' }} onClick={handleStart} disabled={saving}>
-                      <i className="ti ti-play"></i> Start Investigation
-                    </button>
-                  )}
                   {order.status === 'In Progress' && (
                     <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={handleComplete} disabled={saving}>
                       <i className="ti ti-check"></i> Mark Complete
