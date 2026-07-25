@@ -6,6 +6,10 @@ import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect }
 import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
 import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
 import { getOpenPostOpEpisodeForPatient } from '@/app/(main)/ot-postop/actions';
+import BiometryWorkspace from '@/app/(main)/biometry/[id]/workspace';
+import { getBiometryApprovalsToday } from '@/app/(main)/biometry/actions';
+import { WorkspaceTab as MedicalFitnessWorkspace } from '@/app/(main)/medical-fitness/page';
+import { getMedicalFitnessToday } from '@/app/(main)/medical-fitness/actions';
 
 function elapsedMin(isoString) {
   if (!isoString) return 0;
@@ -47,7 +51,7 @@ function TabButton({ active, onClick, icon, label, disabled }) {
   );
 }
 
-function DashboardTab({ active, intermediate, completed, optometryWaiting, error, onRunAction, onOpen }) {
+function DashboardTab({ active, intermediate, completed, optometryWaiting, biometryApprovals, medicalFitnessToday, error, onRunAction, onOpen, onOpenBiometry, onOpenMedicalFitness }) {
   const inConsultation = active.find((e) => e.status === 'In Consultation');
   const waitingCount = active.filter((e) => e.status === 'Waiting' || e.status === 'Ready for Review').length;
 
@@ -153,6 +157,41 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, error
 
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head">
+              <div className="card-title"><i className="ti ti-ruler-measure" style={{ color: 'var(--indigo)' }}></i> Biometry Approvals<span className="badge b-gray">{biometryApprovals.length}</span></div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Today's visits only. Only a doctor can approve.</div>
+            {biometryApprovals.map((b) => (
+              <div key={b.id} onClick={() => onOpenBiometry(b.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}>
+                <div>
+                  {b.visits?.patients?.first_name} {b.visits?.patients?.last_name}
+                  <span className="badge b-indigo" style={{ marginLeft: 6, fontSize: 10 }}>{b.surgical_eye}</span>
+                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{b.visits?.patients?.uhid}</div>
+                </div>
+                <button className="btn btn-sm btn-primary"><i className="ti ti-shield-check"></i> Approve</button>
+              </div>
+            ))}
+            {biometryApprovals.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing awaiting approval today.</div>}
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head">
+              <div className="card-title"><i className="ti ti-heart-rate-monitor" style={{ color: 'var(--amber)' }}></i> Medical Fitness<span className="badge b-gray">{medicalFitnessToday.length}</span></div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Today's referrals only.</div>
+            {medicalFitnessToday.map((r) => (
+              <div key={r.id} onClick={() => onOpenMedicalFitness(r.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}>
+                <div>
+                  {r.visits?.patients?.first_name} {r.visits?.patients?.last_name}
+                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{r.visits?.patients?.uhid} -- {r.surgical_cases?.procedure_name}</div>
+                </div>
+                <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Review</button>
+              </div>
+            ))}
+            {medicalFitnessToday.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing pending today.</div>}
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head">
               <div className="card-title"><i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)' }}></i> Intermediate Queues<span className="badge b-gray">{intermediate.length}</span></div>
             </div>
             {intermediate.map((e) => (
@@ -241,10 +280,14 @@ export default function DoctorDashboardPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedId, setSelectedId] = useState(null);
   const [postOpEpisodeId, setPostOpEpisodeId] = useState(null);
+  const [biometryId, setBiometryId] = useState(null);
+  const [medFitnessId, setMedFitnessId] = useState(null);
   const [active, setActive] = useState([]);
   const [intermediate, setIntermediate] = useState([]);
   const [completed, setCompleted] = useState([]);
   const [optometryWaiting, setOptometryWaiting] = useState([]);
+  const [biometryApprovals, setBiometryApprovals] = useState([]);
+  const [medicalFitnessToday, setMedicalFitnessToday] = useState([]);
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
@@ -255,6 +298,8 @@ export default function DoctorDashboardPage() {
     setIntermediate(result.intermediate);
     setCompleted(result.completed);
     setOptometryWaiting(result.optometryWaiting);
+    setBiometryApprovals(await getBiometryApprovalsToday());
+    setMedicalFitnessToday(await getMedicalFitnessToday());
   }, []);
 
   const refreshHistory = useCallback(async () => {
@@ -284,12 +329,24 @@ export default function DoctorDashboardPage() {
         return;
       }
       setPostOpEpisodeId(episodeId);
-      setSelectedId(null);
+      setSelectedId(null); setBiometryId(null); setMedFitnessId(null);
       setActiveTab('workspace');
       return;
     }
-    setPostOpEpisodeId(null);
+    setPostOpEpisodeId(null); setBiometryId(null); setMedFitnessId(null);
     setSelectedId(entry.id);
+    setActiveTab('workspace');
+  }
+
+  function openBiometry(id) {
+    setSelectedId(null); setPostOpEpisodeId(null); setMedFitnessId(null);
+    setBiometryId(id);
+    setActiveTab('workspace');
+  }
+
+  function openMedicalFitness(id) {
+    setSelectedId(null); setPostOpEpisodeId(null); setBiometryId(null);
+    setMedFitnessId(id);
     setActiveTab('workspace');
   }
 
@@ -297,6 +354,8 @@ export default function DoctorDashboardPage() {
     refresh(); refreshHistory();
     setSelectedId(null);
     setPostOpEpisodeId(null);
+    setBiometryId(null);
+    setMedFitnessId(null);
     setActiveTab('dashboard');
   }
 
@@ -304,18 +363,39 @@ export default function DoctorDashboardPage() {
     <div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 520 }}>
         <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
-        <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!selectedId && !postOpEpisodeId} />
+        <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!selectedId && !postOpEpisodeId && !biometryId && !medFitnessId} />
         <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
       </div>
 
       {activeTab === 'dashboard' && (
-        <DashboardTab active={active} intermediate={intermediate} completed={completed} optometryWaiting={optometryWaiting} error={error} onRunAction={runAction} onOpen={openConsultation} />
+        <DashboardTab
+          active={active} intermediate={intermediate} completed={completed} optometryWaiting={optometryWaiting}
+          biometryApprovals={biometryApprovals} medicalFitnessToday={medicalFitnessToday}
+          error={error} onRunAction={runAction} onOpen={openConsultation}
+          onOpenBiometry={openBiometry} onOpenMedicalFitness={openMedicalFitness}
+        />
       )}
 
       {activeTab === 'workspace' && postOpEpisodeId && (
         <PostOpWorkspace episodeId={postOpEpisodeId} onBack={handleBack} onUpdate={() => {}} />
       )}
-      {activeTab === 'workspace' && selectedId && !postOpEpisodeId && (
+      {activeTab === 'workspace' && biometryId && (
+        <div>
+          <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
+            <i className="ti ti-arrow-left"></i> Dashboard
+          </button>
+          <BiometryWorkspace recordId={biometryId} />
+        </div>
+      )}
+      {activeTab === 'workspace' && medFitnessId && (
+        <div>
+          <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
+            <i className="ti ti-arrow-left"></i> Dashboard
+          </button>
+          <MedicalFitnessWorkspace referralId={medFitnessId} onDone={handleBack} />
+        </div>
+      )}
+      {activeTab === 'workspace' && selectedId && !postOpEpisodeId && !biometryId && !medFitnessId && (
         <div>
           <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
             <i className="ti ti-arrow-left"></i> Dashboard
@@ -323,7 +403,7 @@ export default function DoctorDashboardPage() {
           <ConsultationForm queueEntryId={selectedId} />
         </div>
       )}
-      {activeTab === 'workspace' && !selectedId && !postOpEpisodeId && (
+      {activeTab === 'workspace' && !selectedId && !postOpEpisodeId && !biometryId && !medFitnessId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Dashboard or History.</div>
       )}
 

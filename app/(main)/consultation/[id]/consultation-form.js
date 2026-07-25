@@ -36,7 +36,7 @@ import {
   carryForwardDiagnosis,
 } from '@/app/(main)/consultation/actions';
 import { openPopup } from '@/lib/popup';
-import { markForSurgery } from '@/app/(main)/counselling/actions';
+import { markForSurgery, updateSurgicalCase } from '@/app/(main)/counselling/actions';
 import { getDiagnosesMaster, getDrugs, getServices, getProcedures, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import HistoryTab from './history-tab';
@@ -125,6 +125,9 @@ export default function ConsultationForm({ queueEntryId }) {
   const [showSurgery, setShowSurgery] = useState(false);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
+  const [editingSurgicalCaseId, setEditingSurgicalCaseId] = useState(null);
+  const [editSurgeryProcedure, setEditSurgeryProcedure] = useState('');
+  const [editSurgeryEye, setEditSurgeryEye] = useState('OU');
   const [surgeryLoading, setSurgeryLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('history');
   const [unlocked, setUnlocked] = useState(false);
@@ -371,6 +374,24 @@ export default function ConsultationForm({ queueEntryId }) {
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
     setSurgeryProcedure('');
+    refresh();
+  }
+
+  function startEditSurgicalCase(sc) {
+    setError('');
+    setEditingSurgicalCaseId(sc.id);
+    setEditSurgeryProcedure(sc.procedure_name);
+    setEditSurgeryEye(sc.eye);
+  }
+
+  async function handleUpdateSurgicalCase() {
+    setError('');
+    if (!editSurgeryProcedure) { setError('Select a surgery.'); return; }
+    setSurgeryLoading(true);
+    const result = await updateSurgicalCase(editingSurgicalCaseId, editSurgeryProcedure, editSurgeryEye);
+    setSurgeryLoading(false);
+    if (result.error) { setError(result.error); return; }
+    setEditingSurgicalCaseId(null);
     refresh();
   }
 
@@ -832,10 +853,37 @@ export default function ConsultationForm({ queueEntryId }) {
                 {data.surgicalCases.length > 0 ? (
                   <div>
                     {data.surgicalCases.map((sc) => (
-                      <div key={sc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 13 }}>
-                        <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
-                        <span style={{ flex: 1 }}><strong>{sc.procedure_name}</strong> -- {sc.eye}</span>
-                        <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
+                      <div key={sc.id}>
+                        {editingSurgicalCaseId === sc.id ? (
+                          <div style={{ padding: '8px 0' }}>
+                            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                              <select className="fi" value={editSurgeryProcedure} onChange={(e) => setEditSurgeryProcedure(e.target.value)} style={{ flex: 2 }}>
+                                <option value="">-- Select surgery --</option>
+                                {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                              </select>
+                              <select className="fi" value={editSurgeryEye} onChange={(e) => setEditSurgeryEye(e.target.value)} style={{ width: 80 }}>
+                                <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+                              </select>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button className="btn btn-primary btn-sm" onClick={handleUpdateSurgicalCase} disabled={surgeryLoading}>
+                                {surgeryLoading ? 'Saving...' : 'Save'}
+                              </button>
+                              <button className="btn btn-sm" onClick={() => setEditingSurgicalCaseId(null)}>Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 13 }}>
+                            <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
+                            <span style={{ flex: 1 }}><strong>{sc.procedure_name}</strong> -- {sc.eye}</span>
+                            <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
+                            {sc.status === 'Pending Workup' && (
+                              <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => startEditSurgicalCase(sc)}>
+                                <i className="ti ti-edit"></i> Edit
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                     <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>One surgical case per visit -- already marked for this visit.</div>

@@ -44,6 +44,14 @@ export async function getMedicalFitnessQueue() {
   return (data || []).filter((r) => r.visits);
 }
 
+// ── Used by the Doctor Dashboard's Medical Fitness widget -- pending
+// referrals mapped to today's visits only. ──
+export async function getMedicalFitnessToday() {
+  const rows = await getMedicalFitnessQueue();
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.filter((r) => r.referred_at?.slice(0, 10) === today);
+}
+
 // ── WORKSPACE: full clinical picture + ability to order investigations ──
 export async function getMedicalFitnessDetail(referralId) {
   const supabase = await createClient();

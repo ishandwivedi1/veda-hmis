@@ -207,9 +207,29 @@ export async function saveFormulaResults(id, targetRefraction, formulaResults, s
 // BR-BIO-005: approval supersedes but never deletes a prior version --
 // every approve call adds a new biometry_iol_versions row and marks
 // any previous Approved version for this record as Superseded.
+// ── Used by the Doctor Dashboard's Biometry Approvals widget --
+// records ready for surgeon sign-off, mapped to today's visits only. ──
+export async function getBiometryApprovalsToday() {
+  const supabase = await createClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from('biometry_records')
+    .select('id, surgical_eye, status, visits(id, created_at, patients(first_name, last_name, uhid))')
+    .eq('status', 'Calculated')
+    .gte('visits.created_at', today);
+  if (error) return [];
+  // The visits filter above can't be applied as a proper join filter via
+  // PostgREST here, so double-check in JS that the visit really is today's.
+  return (data || []).filter((r) => r.visits && r.visits.created_at?.slice(0, 10) === today);
+}
+
 export async function approveIolPlan(id, plan) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
+
+  const { data: approverProfile } = await supabase.from('profiles').select('designation').eq('id', userData?.user?.id).maybeSingle();
+  const isDoctor = /ophthalmologist|doctor/i.test(approverProfile?.designation || '');
+  if (!isDoctor) return { error: 'Only a doctor can approve a biometry / IOL plan.' };
 
   if (!plan.finalPower || !plan.finalCategory) return { error: 'Final IOL power and category are required.' };
 

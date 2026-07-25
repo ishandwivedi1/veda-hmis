@@ -103,6 +103,22 @@ export async function sendForDilation(caseId) {
 }
 
 // ── Case creation (called from Consultation when doctor recommends surgery) ──
+// Doctor can correct the procedure/eye on a case they marked for
+// surgery, as long as Counselling hasn't already started working with
+// it -- once package/decision work is underway, changes should go
+// through Counselling instead to avoid corrupting what's already locked.
+export async function updateSurgicalCase(caseId, procedureName, eye) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('status').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+  if (sc.status !== 'Pending Workup') {
+    return { error: `This case has already moved to "${sc.status}" -- further changes should go through Counselling.` };
+  }
+  const { error } = await supabase.from('surgical_cases').update({ procedure_name: procedureName, eye }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function markForSurgery(patientId, encounterId, procedureName, eye) {
   const supabase = await createClient();
 

@@ -168,7 +168,7 @@ function HistoryTab({ rows, loading, onOpen }) {
 }
 
 // ── TAB 2: WORKSPACE (per-patient clinical review) ──
-function WorkspaceTab({ referralId, onDone }) {
+export function WorkspaceTab({ referralId, onDone }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
