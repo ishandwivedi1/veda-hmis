@@ -141,13 +141,16 @@ export async function getConsultationData(queueEntryId) {
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   // Follow-up Template: same consultation engine, just extra context --
-  // a patient is a "follow-up" the moment they have any prior completed
-  // encounter at all, regardless of which visit it was under.
-  const priorCompletedEncounters = (diagnosisHistoryRaw || [])
+  // a patient is a "follow-up" the moment they have any prior encounter
+  // at all, on a different visit, regardless of whether that encounter
+  // was ever formally completed (an abandoned/in-progress note still
+  // means this isn't their first time being seen).
+  const priorEncounters = (diagnosisHistoryRaw || [])
     .flatMap((v) => v.encounters || [])
-    .filter((e) => e.id !== encounter.id && e.status === 'Completed')
+    .filter((e) => e.id !== encounter.id)
     .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
-  const isFollowUp = priorCompletedEncounters.length > 0;
+  const priorCompletedEncounters = priorEncounters.filter((e) => e.status === 'Completed');
+  const isFollowUp = priorEncounters.length > 0;
 
   if (isFollowUp && encounter.encounter_type !== 'Follow-up') {
     await supabase.from('encounters').update({ encounter_type: 'Follow-up' }).eq('id', encounter.id);
@@ -179,24 +182,27 @@ export async function getFollowUpContext(patientId, currentVisitId, currentEncou
     .select('id, visit_number, encounters(id, started_at, completed_at, chief_complaint, status)')
     .eq('patient_id', patientId);
 
-  const priorEncounters = (visitsRaw || [])
+  const allPriorEncounters = (visitsRaw || [])
     .flatMap((v) => (v.encounters || []).map((e) => ({ ...e, visitId: v.id, visitNumber: v.visit_number })))
-    .filter((e) => e.id !== currentEncounterId && e.status === 'Completed')
+    .filter((e) => e.id !== currentEncounterId)
     .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  const priorEncounters = allPriorEncounters.filter((e) => e.status === 'Completed');
 
   // Map each prior visit back to its Doctor queue entry, so the
   // timeline can open it read-only -- same lookup pattern Patient
   // Timeline already uses.
-  const priorVisitIds = [...new Set(priorEncounters.map((e) => e.visitId))];
+  const priorVisitIds = [...new Set(allPriorEncounters.map((e) => e.visitId))];
   let queueEntryByVisit = {};
   if (priorVisitIds.length > 0) {
     const { data: entries } = await supabase.from('queue_entries').select('id, visit_id').in('visit_id', priorVisitIds).eq('department', 'Doctor');
     (entries || []).forEach((e) => { queueEntryByVisit[e.visit_id] = e.id; });
   }
 
-  const timeline = priorEncounters.slice(0, 15).map((e) => ({
+  // Timeline shows every prior visit, including ones that were never
+  // finalized -- still useful context, just labeled as such.
+  const timeline = allPriorEncounters.slice(0, 15).map((e) => ({
     encounterId: e.id, date: e.started_at, chiefComplaint: e.chief_complaint,
-    queueEntryId: queueEntryByVisit[e.visitId] || null,
+    status: e.status, queueEntryId: queueEntryByVisit[e.visitId] || null,
   }));
 
   const lastEncounter = priorEncounters[0] || null;
@@ -205,6 +211,7 @@ export async function getFollowUpContext(patientId, currentVisitId, currentEncou
     currentDiagnoses: [], currentMedications: [], allergy: null,
     lastVision: null, lastIop: null, surgicalStatus: null,
     previousVisitSummary: null,
+    noCompletedPriorVisit: !lastEncounter,
   };
   let newInvestigations = [];
 

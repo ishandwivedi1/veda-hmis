@@ -23,6 +23,15 @@ function iopStr(iop) {
 // ── Patient Snapshot (top panel, always visible for a Follow-up encounter) ──
 export function PatientSnapshotBar({ snapshot }) {
   if (!snapshot) return null;
+  if (snapshot.noCompletedPriorVisit) {
+    return (
+      <div className="card" style={{ marginBottom: 16, background: 'var(--amber-lt)', border: '1px solid #fcd34d' }}>
+        <div style={{ fontSize: 12, color: 'var(--amber)' }}>
+          <i className="ti ti-info-circle"></i> This patient has prior visits, but none were ever finalized -- no completed clinical record to summarize yet.
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="card" style={{ marginBottom: 16, background: 'var(--blue-lt)', border: '1px solid #93c5fd' }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue)', textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -79,7 +88,8 @@ export function PatientTimelineSidebar({ timeline }) {
             >
               <div style={{ fontSize: 11.5, fontWeight: 700 }}>{fmtDate(t.date)}</div>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>{t.chiefComplaint || 'Consultation'}</div>
-              {clickable && <div style={{ fontSize: 10, color: 'var(--blue)', marginTop: 2 }}><i className="ti ti-eye"></i> View read-only</div>}
+              {t.status !== 'Completed' && <div style={{ fontSize: 10, color: 'var(--amber)', marginTop: 2 }}>Not finalized -- {t.status}</div>}
+              {clickable && <div style={{ fontSize: 10, color: 'var(--blue)', marginTop: 2 }}><i className="ti ti-eye"></i> {t.status === 'Completed' ? 'View read-only' : 'Open'}</div>}
             </div>
           );
         })}
