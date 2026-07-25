@@ -31,6 +31,9 @@ import {
   saveFollowup,
   savePatientInstructions,
   saveDraft,
+  getFollowUpContext,
+  saveVisitOutcome,
+  carryForwardDiagnosis,
 } from '@/app/(main)/consultation/actions';
 import { markForSurgery } from '@/app/(main)/counselling/actions';
 import { getDiagnosesMaster, getDrugs, getServices, getProcedures, getSurgeries } from '@/app/(main)/master-data/actions';
@@ -38,6 +41,7 @@ import ExaminationTab from './examination-tab';
 import HistoryTab from './history-tab';
 import OptometryTab from './optometry-tab';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
+import { PatientSnapshotBar, PatientTimelineSidebar, PreviousVisitSummary, CarryForwardDiagnoses, VisitOutcomeSelector, NewInvestigationsSinceLastVisit } from './follow-up-panel';
 
 const WF_ITEMS = {
   Biometry: { icon: 'ti-ruler-measure', color: '#818cf8' },
@@ -112,6 +116,8 @@ function GroupHeader({ num, color, title }) {
 
 export default function ConsultationForm({ queueEntryId }) {
   const [data, setData] = useState(null);
+  const [followUpContext, setFollowUpContext] = useState(null);
+  const [visitOutcome, setVisitOutcome] = useState('');
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -199,6 +205,10 @@ export default function ConsultationForm({ queueEntryId }) {
   useEffect(() => {
     if (!data) return;
     setPatientInstructions(data.encounter.patient_instructions || '');
+    setVisitOutcome(data.encounter.visit_outcome || '');
+    if (data.isFollowUp && !followUpContext) {
+      getFollowUpContext(data.entry.visits.patients.id, data.entry.visits.id, data.encounter.id).then(setFollowUpContext);
+    }
     if (data.followup) {
       setFuAfter(data.followup.after_period);
       setFuType(data.followup.visit_type);
@@ -235,6 +245,18 @@ export default function ConsultationForm({ queueEntryId }) {
   async function handleRemoveBiometry(id) {
     setError('');
     const result = await removeBiometryRecord(id, data.encounter.id);
+    if (result.error) { setError(result.error); return; }
+    refresh();
+  }
+
+  async function handleVisitOutcomeChange(outcome) {
+    setVisitOutcome(outcome);
+    await saveVisitOutcome(data.encounter.id, outcome);
+  }
+
+  async function handleCarryForward(priorDiagnosis) {
+    setError('');
+    const result = await carryForwardDiagnosis(data.encounter.id, priorDiagnosis);
     if (result.error) { setError(result.error); return; }
     refresh();
   }
@@ -419,12 +441,27 @@ export default function ConsultationForm({ queueEntryId }) {
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+      {data.isFollowUp && followUpContext && (
+        <div style={{ position: 'fixed', left: 16, top: 90, width: 210, zIndex: 5 }}>
+          <PatientTimelineSidebar timeline={followUpContext.timeline} />
+        </div>
+      )}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 700 }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)', marginRight: 6 }}></i>Consultation -- {data.entry.token}</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>
+          <i className="ti ti-stethoscope" style={{ color: 'var(--blue)', marginRight: 6 }}></i>Consultation -- {data.entry.token}
+          {data.isFollowUp && <span className="badge b-blue" style={{ marginLeft: 10, fontSize: 11 }}>Follow-up Visit</span>}
+        </div>
         <div style={{ fontSize: 13, color: 'var(--g500)' }}>
           {patient.first_name} {patient.last_name} -- {patient.uhid} -- {patient.age} {patient.gender}
         </div>
       </div>
+
+      {data.isFollowUp && followUpContext && (
+        <>
+          <PatientSnapshotBar snapshot={followUpContext.snapshot} />
+          <PreviousVisitSummary summary={followUpContext.snapshot.previousVisitSummary} />
+        </>
+      )}
 
       {data.isLocked && (
         <div
@@ -497,6 +534,13 @@ export default function ConsultationForm({ queueEntryId }) {
 
               <div className="card" style={{ marginBottom: 20 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
+                {data.isFollowUp && followUpContext && (
+                  <NewInvestigationsSinceLastVisit
+                    investigations={followUpContext.newInvestigations}
+                    matchInvestigationType={matchInvestigationType}
+                    summarizeResultData={summarizeResultData}
+                  />
+                )}
                 {data.investigations.map((i) => {
                   const type = matchInvestigationType(i.name);
                   const hasResults = i.status === 'Available';
@@ -654,6 +698,13 @@ export default function ConsultationForm({ queueEntryId }) {
 
               <div className="card" style={{ marginBottom: 20 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Diagnosis</div>
+                {data.isFollowUp && followUpContext && !isReadOnly && (
+                  <CarryForwardDiagnoses
+                    priorDiagnoses={followUpContext.snapshot.currentDiagnoses}
+                    alreadyAdded={data.diagnoses}
+                    onCarryForward={handleCarryForward}
+                  />
+                )}
                 {data.diagnoses.map((d, idx) => (
                   <DiagnosisRow key={d.id} d={d} index={idx} encounterId={data.encounter.id} onRemove={async () => { await removeDiagnosis(d.id, data.encounter.id); refresh(); }} />
                 ))}
@@ -683,6 +734,27 @@ export default function ConsultationForm({ queueEntryId }) {
 
               <div className="card" style={{ marginBottom: 12 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i> Prescription</div>
+                {data.isFollowUp && followUpContext && followUpContext.snapshot.currentMedications.length > 0 && !isReadOnly && (
+                  <div style={{ background: 'var(--amber-lt)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}><i className="ti ti-arrow-back-up"></i> Continue from last visit</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {followUpContext.snapshot.currentMedications
+                        .filter((m) => !data.prescriptions.some((r) => r.drug_name === m.drug_name && r.eye === m.eye))
+                        .map((m) => (
+                          <button
+                            key={m.id}
+                            className="btn btn-sm"
+                            onClick={async () => {
+                              await addPrescription(data.encounter.id, { drugName: m.drug_name, dosage: m.dosage, frequency: m.frequency, duration: m.duration, eye: m.eye });
+                              refresh();
+                            }}
+                          >
+                            <i className="ti ti-plus"></i> {m.drug_name} ({m.eye})
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 {data.prescriptions.map((r) => (
                   <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
                     <span>
@@ -893,6 +965,10 @@ export default function ConsultationForm({ queueEntryId }) {
                 </div>
               ))}
             </div>
+          )}
+
+          {data.isFollowUp && (
+            <VisitOutcomeSelector value={visitOutcome} onChange={handleVisitOutcomeChange} disabled={isReadOnly} />
           )}
 
           {/* ACTIONS */}

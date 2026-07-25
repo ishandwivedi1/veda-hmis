@@ -121,7 +121,7 @@ export async function getConsultationData(queueEntryId) {
     // patient has, across all their encounters, via visits -> encounters.
     supabase
       .from('visits')
-      .select('id, encounters(id, started_at, diagnoses(id, name, category, eye, status, created_at))')
+      .select('id, encounters(id, started_at, status, diagnoses(id, name, category, eye, status, created_at))')
       .eq('patient_id', patientId),
     // Biometry gets its own dedicated section in Diagnosis & Plan (not
     // folded into Investigations) -- same reasoning as its own
@@ -140,6 +140,20 @@ export async function getConsultationData(queueEntryId) {
     .flatMap((e) => (e.diagnoses || []).map((d) => ({ ...d, encounterDate: e.started_at })))
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+  // Follow-up Template: same consultation engine, just extra context --
+  // a patient is a "follow-up" the moment they have any prior completed
+  // encounter at all, regardless of which visit it was under.
+  const priorCompletedEncounters = (diagnosisHistoryRaw || [])
+    .flatMap((v) => v.encounters || [])
+    .filter((e) => e.id !== encounter.id && e.status === 'Completed')
+    .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  const isFollowUp = priorCompletedEncounters.length > 0;
+
+  if (isFollowUp && encounter.encounter_type !== 'Follow-up') {
+    await supabase.from('encounters').update({ encounter_type: 'Follow-up' }).eq('id', encounter.id);
+    encounter.encounter_type = 'Follow-up';
+  }
+
   return {
     entry, findings, iopReadings, encounter, examination,
     diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [],
@@ -149,10 +163,128 @@ export async function getConsultationData(queueEntryId) {
     biometryRecords: biometryRecords || [],
     surgicalCases: surgicalCases || [],
     isLocked: encounter.status === 'Completed',
+    isFollowUp, priorEncounterId: priorCompletedEncounters[0]?.id || null,
   };
 }
 
-// ── EXAMINATION (Section 12, M19 Examination tab) ──
+// ── FOLLOW-UP TEMPLATE CONTEXT ──
+// Everything the Follow-up template needs beyond what getConsultationData
+// already returns: the visit timeline, patient snapshot, and a summary
+// of the immediately preceding visit. Only called when isFollowUp is true.
+export async function getFollowUpContext(patientId, currentVisitId, currentEncounterId) {
+  const supabase = await createClient();
+
+  const { data: visitsRaw } = await supabase
+    .from('visits')
+    .select('id, visit_number, encounters(id, started_at, completed_at, chief_complaint, status)')
+    .eq('patient_id', patientId);
+
+  const priorEncounters = (visitsRaw || [])
+    .flatMap((v) => (v.encounters || []).map((e) => ({ ...e, visitId: v.id, visitNumber: v.visit_number })))
+    .filter((e) => e.id !== currentEncounterId && e.status === 'Completed')
+    .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+
+  // Map each prior visit back to its Doctor queue entry, so the
+  // timeline can open it read-only -- same lookup pattern Patient
+  // Timeline already uses.
+  const priorVisitIds = [...new Set(priorEncounters.map((e) => e.visitId))];
+  let queueEntryByVisit = {};
+  if (priorVisitIds.length > 0) {
+    const { data: entries } = await supabase.from('queue_entries').select('id, visit_id').in('visit_id', priorVisitIds).eq('department', 'Doctor');
+    (entries || []).forEach((e) => { queueEntryByVisit[e.visit_id] = e.id; });
+  }
+
+  const timeline = priorEncounters.slice(0, 15).map((e) => ({
+    encounterId: e.id, date: e.started_at, chiefComplaint: e.chief_complaint,
+    queueEntryId: queueEntryByVisit[e.visitId] || null,
+  }));
+
+  const lastEncounter = priorEncounters[0] || null;
+  let snapshot = {
+    lastVisitDate: lastEncounter?.started_at || null,
+    currentDiagnoses: [], currentMedications: [], allergy: null,
+    lastVision: null, lastIop: null, surgicalStatus: null,
+    previousVisitSummary: null,
+  };
+  let newInvestigations = [];
+
+  if (lastEncounter) {
+    // Investigations ordered (anywhere -- Counselling, a walk-in
+    // Investigation visit, etc.) since the last consultation, with
+    // results ready -- these are easy to miss since they don't
+    // necessarily belong to *this* encounter's own Investigations list.
+    const allEncounterIds = (visitsRaw || []).flatMap((v) => (v.encounters || []).map((e) => e.id));
+    if (allEncounterIds.length > 0) {
+      const { data: recentInv } = await supabase
+        .from('investigation_orders')
+        .select('*')
+        .in('encounter_id', allEncounterIds)
+        .neq('encounter_id', currentEncounterId)
+        .eq('status', 'Available')
+        .gt('created_at', lastEncounter.started_at)
+        .order('created_at', { ascending: false });
+      newInvestigations = recentInv || [];
+    }
+    const [{ data: fullEncounter }, { data: diagnoses }, { data: medications }, { data: assessment }, { data: advice }, { data: fu }] = await Promise.all([
+      supabase.from('encounters').select('hx_drug_allergy').eq('id', lastEncounter.id).maybeSingle(),
+      supabase.from('diagnoses').select('*').eq('encounter_id', lastEncounter.id).eq('status', 'Active').order('created_at'),
+      supabase.from('prescriptions').select('*').eq('encounter_id', lastEncounter.id).order('created_at'),
+      supabase.from('optometry_assessments').select('*').eq('visit_id', lastEncounter.visitId).eq('status', 'Completed').maybeSingle(),
+      supabase.from('plan_optical_advice').select('*').eq('encounter_id', lastEncounter.id).order('created_at'),
+      supabase.from('plan_followups').select('*').eq('encounter_id', lastEncounter.id).maybeSingle(),
+    ]);
+
+    let lastIop = null;
+    if (assessment) {
+      const { data: iopReadings } = await supabase.from('optometry_iop_readings').select('*').eq('assessment_id', assessment.id).order('recorded_at', { ascending: false }).limit(1);
+      lastIop = iopReadings?.[0] || null;
+    }
+
+    const { data: recentSurgicalCase } = await supabase
+      .from('surgical_cases').select('procedure_name, eye, status')
+      .eq('patient_id', patientId).neq('status', 'Cancelled')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+    snapshot = {
+      lastVisitDate: lastEncounter.started_at,
+      currentDiagnoses: diagnoses || [],
+      currentMedications: medications || [],
+      allergy: fullEncounter?.hx_drug_allergy || null,
+      lastVision: assessment ? { re: assessment.re_dist_glasses || assessment.re_dist_unaided, le: assessment.le_dist_glasses || assessment.le_dist_unaided } : null,
+      lastIop,
+      surgicalStatus: recentSurgicalCase || null,
+      previousVisitSummary: {
+        date: lastEncounter.started_at,
+        diagnoses: diagnoses || [],
+        medications: medications || [],
+        advice: advice || [],
+        followupPlan: fu || null,
+        vision: assessment ? { re: assessment.re_dist_glasses || assessment.re_dist_unaided, le: assessment.le_dist_glasses || assessment.le_dist_unaided } : null,
+        iop: lastIop,
+      },
+    };
+  }
+
+  return { timeline, snapshot, newInvestigations };
+}
+
+// ── VISIT OUTCOME ──
+export async function saveVisitOutcome(encounterId, outcome) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('encounters').update({ visit_outcome: outcome }).eq('id', encounterId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── CARRY FORWARD a prior diagnosis into the current encounter ──
+export async function carryForwardDiagnosis(encounterId, diagnosis) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('diagnoses').insert({
+    encounter_id: encounterId, name: diagnosis.name, category: diagnosis.category, eye: diagnosis.eye, status: 'Active',
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
 export async function saveExamination(examinationId, encounterId, fields) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
