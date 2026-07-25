@@ -24,7 +24,7 @@ export default async function VisitsPage({ searchParams }) {
 
   let query = supabase
     .from('visits')
-    .select('*, patients(first_name, last_name, uhid, mobile), profiles(full_name)')
+    .select('*, patients(first_name, last_name, uhid, mobile), profiles!doctor_id(full_name)')
     .order('created_at', { ascending: false });
 
   if (tab === 'today') {

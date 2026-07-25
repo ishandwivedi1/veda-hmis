@@ -40,7 +40,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     supabase.from('queue_entries').select('*, visits(patients(first_name, last_name))').neq('status', 'Done').order('issued_at', { ascending: true }),
     supabase.from('visits').select('*', { count: 'exact', head: true }).gte('created_at', today).is('appointment_id', null),
     supabase.from('invoices').select('net, paid').in('status', ['Pending', 'Partial']),
-    supabase.from('visits').select('*, patients(id, first_name, last_name, uhid), profiles(full_name)').gte('created_at', today).order('created_at', { ascending: false }),
+    supabase.from('visits').select('*, patients(id, first_name, last_name, uhid), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: false }),
     supabase.from('appointments').select('*, patients(first_name, last_name, uhid, mobile), profiles(full_name)').eq('appointment_date', today).order('appointment_time', { ascending: true }),
     supabase.from('surgical_cases').select('*', { count: 'exact', head: true }).eq('status', 'Pending Workup'),
   ]);

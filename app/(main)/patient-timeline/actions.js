@@ -25,7 +25,7 @@ export async function getPatientTimeline(patientId) {
     supabase.from('patients').select('*').eq('id', patientId).single(),
     supabase
       .from('visits')
-      .select('id, visit_number, visit_type, status, created_at, profiles(full_name)')
+      .select('id, visit_number, visit_type, status, created_at, profiles!doctor_id(full_name)')
       .eq('patient_id', patientId)
       .order('created_at', { ascending: false }),
     supabase.from('surgical_cases').select('*').eq('patient_id', patientId).order('created_at', { ascending: false }),
@@ -126,3 +126,4 @@ export async function getPatientTimeline(patientId) {
 
   return { patient, events };
 }
+
