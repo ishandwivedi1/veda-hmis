@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { getDoctorDashboardData, getDoctorHistory } from './actions';
 import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
 import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
+import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
+import { getOpenPostOpEpisodeForPatient } from '@/app/(main)/ot-postop/actions';
 
 function elapsedMin(isoString) {
   if (!isoString) return 0;
@@ -96,7 +98,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, error
                   <i className="ti ti-clock"></i> In consultation {elapsedMin(inConsultation.called_at || inConsultation.issued_at)}m
                 </span>
               </div>
-              <button className="btn btn-primary btn-sm" onClick={() => onOpen(inConsultation.id)}>
+              <button className="btn btn-primary btn-sm" onClick={() => onOpen(inConsultation)}>
                 <i className="ti ti-clipboard-text"></i> Open Consultation
               </button>
             </div>
@@ -108,6 +110,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, error
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 3 }}>
                   <TokenBadge token={e.token} color={e.status === 'Ready for Review' ? 'var(--green)' : 'var(--amber)'} />
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{patientName(e)}</span>
+                  {e.visits?.visit_type === 'Post-operative Review' && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 10 }}>Post-op Review</span>}
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span className={`badge ${e.status === 'Ready for Review' ? 'b-green' : 'b-amber'}`}>{e.status}</span>
@@ -172,7 +175,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, error
             {completed.slice(0, 8).map((e) => (
               <div
                 key={e.id}
-                onClick={() => onOpen(e.id)}
+                onClick={() => onOpen(e)}
                 style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -216,7 +219,7 @@ function HistoryTab({ rows, loading, onOpen }) {
           <thead><tr><th>Token</th><th>Patient</th><th>Completed</th><th></th></tr></thead>
           <tbody>
             {filtered.map((e) => (
-              <tr key={e.id} onClick={() => onOpen(e.id)} style={{ cursor: 'pointer' }}>
+              <tr key={e.id} onClick={() => onOpen(e)} style={{ cursor: 'pointer' }}>
                 <td style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12 }}>{e.token}</td>
                 <td>
                   <strong>{patientName(e)}</strong>
@@ -237,6 +240,7 @@ function HistoryTab({ rows, loading, onOpen }) {
 export default function DoctorDashboardPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedId, setSelectedId] = useState(null);
+  const [postOpEpisodeId, setPostOpEpisodeId] = useState(null);
   const [active, setActive] = useState([]);
   const [intermediate, setIntermediate] = useState([]);
   const [completed, setCompleted] = useState([]);
@@ -272,14 +276,27 @@ export default function DoctorDashboardPage() {
     refresh();
   }
 
-  function openConsultation(queueEntryId) {
-    setSelectedId(queueEntryId);
+  async function openConsultation(entry) {
+    if (entry.visits?.visit_type === 'Post-operative Review') {
+      const episodeId = await getOpenPostOpEpisodeForPatient(entry.visits.patients.id);
+      if (!episodeId) {
+        setError('This is marked as a Post-operative Review visit, but no open post-op episode was found for this patient.');
+        return;
+      }
+      setPostOpEpisodeId(episodeId);
+      setSelectedId(null);
+      setActiveTab('workspace');
+      return;
+    }
+    setPostOpEpisodeId(null);
+    setSelectedId(entry.id);
     setActiveTab('workspace');
   }
 
   function handleBack() {
     refresh(); refreshHistory();
     setSelectedId(null);
+    setPostOpEpisodeId(null);
     setActiveTab('dashboard');
   }
 
@@ -287,7 +304,7 @@ export default function DoctorDashboardPage() {
     <div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 520 }}>
         <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
-        <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!selectedId} />
+        <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!selectedId && !postOpEpisodeId} />
         <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
       </div>
 
@@ -295,7 +312,10 @@ export default function DoctorDashboardPage() {
         <DashboardTab active={active} intermediate={intermediate} completed={completed} optometryWaiting={optometryWaiting} error={error} onRunAction={runAction} onOpen={openConsultation} />
       )}
 
-      {activeTab === 'workspace' && selectedId && (
+      {activeTab === 'workspace' && postOpEpisodeId && (
+        <PostOpWorkspace episodeId={postOpEpisodeId} onBack={handleBack} onUpdate={() => {}} />
+      )}
+      {activeTab === 'workspace' && selectedId && !postOpEpisodeId && (
         <div>
           <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
             <i className="ti ti-arrow-left"></i> Dashboard
@@ -303,7 +323,7 @@ export default function DoctorDashboardPage() {
           <ConsultationForm queueEntryId={selectedId} />
         </div>
       )}
-      {activeTab === 'workspace' && !selectedId && (
+      {activeTab === 'workspace' && !selectedId && !postOpEpisodeId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Dashboard or History.</div>
       )}
 

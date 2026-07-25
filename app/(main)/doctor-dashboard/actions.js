@@ -9,7 +9,7 @@ export async function getDoctorDashboardData() {
   const [{ data: active }, { data: intermediate }, { data: completed }, { data: optometryWaiting }] = await Promise.all([
     supabase
       .from('queue_entries')
-      .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, visit_type, patients(id, first_name, last_name, uhid, age, gender))')
       .eq('department', 'Doctor')
       .in('status', ['Waiting', 'Ready for Review', 'In Consultation'])
       .gte('issued_at', today)
@@ -28,7 +28,7 @@ export async function getDoctorDashboardData() {
       .order('sent_out_at', { ascending: true }),
     supabase
       .from('queue_entries')
-      .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, visit_type, patients(id, first_name, last_name, uhid, age, gender))')
       .eq('department', 'Doctor')
       .eq('status', 'Done')
       .gte('issued_at', today)
@@ -50,7 +50,7 @@ export async function getDoctorHistory() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('queue_entries')
-    .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+    .select('*, visits(id, visit_type, patients(id, first_name, last_name, uhid, age, gender))')
     .eq('department', 'Doctor')
     .eq('status', 'Done')
     .order('completed_at', { ascending: false })

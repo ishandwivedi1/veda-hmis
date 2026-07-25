@@ -2,6 +2,27 @@
 
 import { createClient } from '@/lib/supabase-server';
 
+// Used by Doctor Dashboard: a Post-operative Review visit routes here
+// instead of the normal Consultation form -- find the patient's most
+// recent still-open episode (discharged, not yet closed).
+export async function getOpenPostOpEpisodeForPatient(patientId) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('recovery_episodes')
+    .select('id, surgical_case_id')
+    .is('closure_status', null)
+    .not('discharge_date', 'is', null)
+    .order('created_at', { ascending: false });
+  if (!data || data.length === 0) return null;
+
+  const caseIds = data.map((e) => e.surgical_case_id);
+  const { data: cases } = await supabase.from('surgical_cases').select('id, patient_id').in('id', caseIds).eq('patient_id', patientId);
+  if (!cases || cases.length === 0) return null;
+
+  const match = data.find((e) => cases.some((c) => c.id === e.surgical_case_id));
+  return match?.id || null;
+}
+
 // ── DASHBOARD: discharged episodes not yet closed ──
 export async function getPostOpCaseList() {
   const supabase = await createClient();

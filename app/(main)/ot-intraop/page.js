@@ -56,6 +56,9 @@ function DashboardTab({ cases, loading, onOpen }) {
               <div style={{ flex: 1 }}>
                 <span style={{ fontWeight: 700, fontSize: 13 }}>{patient?.first_name} {patient?.last_name}</span>
                 <span className={`badge ${STATUS_BADGE[c.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{c.status}</span>
+                <span className={`badge ${c.patient_reported_at ? 'b-green' : 'b-gray'}`} style={{ marginLeft: 6, fontSize: 10 }}>
+                  {c.patient_reported_at ? 'Reported' : 'Not yet reported'}
+                </span>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                   {patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
                 </div>
