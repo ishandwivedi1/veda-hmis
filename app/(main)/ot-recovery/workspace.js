@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   getRecoveryEpisodeDetail,
-  saveRecoveryFields, addRecoveryMedication, removeRecoveryMedication, confirmDischarge,
+  saveRecoveryFields, addRecoveryMedication, removeRecoveryMedication, confirmDischarge, getDrugOptions,
 } from './actions';
 import { DISCHARGE_ITEMS } from './constants';
 
@@ -33,6 +33,8 @@ export default function Workspace({ episodeId, onBack, onUpdate, onGoEpisodes })
 
   const [checklist, setChecklist] = useState({});
   const [medName, setMedName] = useState('');
+  const [drugOptions, setDrugOptions] = useState([]);
+  const [dischargeDate, setDischargeDate] = useState(new Date().toISOString().slice(0, 10));
   const [medSig, setMedSig] = useState('');
   const [medReason, setMedReason] = useState('');
   const [showMedForm, setShowMedForm] = useState(false);
@@ -59,9 +61,10 @@ export default function Workspace({ episodeId, onBack, onUpdate, onGoEpisodes })
     setChecklist(e.discharge_checklist || {});
     setInstructions(e.discharge_instructions || '');
     setDischargeNotes(e.discharge_notes || '');
+    setDischargeDate(e.discharge_date || new Date().toISOString().slice(0, 10));
   }, [episodeId]);
 
-  useEffect(() => { refresh(); }, [episodeId, refresh]);
+  useEffect(() => { refresh(); getDrugOptions().then(setDrugOptions); }, [episodeId, refresh]);
 
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;
@@ -106,7 +109,8 @@ export default function Workspace({ episodeId, onBack, onUpdate, onGoEpisodes })
 
   async function handleDischarge() {
     setError(''); setOk('');
-    const result = await confirmDischarge(episodeId, checklist, dischargeNotes, instructions);
+    if (!dischargeDate) { setError('Discharge date is required.'); return; }
+    const result = await confirmDischarge(episodeId, checklist, dischargeNotes, instructions, dischargeDate);
     if (result.error) { setError(result.error); return; }
     setOk('Patient discharged. Discharge summary is ready to print. Follow-up schedule generated.');
     onUpdate();
@@ -138,7 +142,7 @@ export default function Workspace({ episodeId, onBack, onUpdate, onGoEpisodes })
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
               <div><label className="flbl">Admission date</label><input type="date" className="fi fi-sm" value={admissionDate} onChange={(e) => setAdmissionDate(e.target.value)} disabled={isClosed} /></div>
               <div><label className="flbl">Surgery date</label><input type="date" className="fi fi-sm" value={surgeryDate} onChange={(e) => setSurgeryDate(e.target.value)} disabled={isClosed} /></div>
-              <div><label className="flbl">Discharge date</label><input type="date" className="fi fi-sm" value={episode.discharge_date || ''} readOnly style={{ background: 'var(--g50)' }} /></div>
+              <div><label className="flbl">Discharge date</label><input type="date" className="fi fi-sm" value={isDischarged ? episode.discharge_date : dischargeDate} onChange={(e) => setDischargeDate(e.target.value)} disabled={isDischarged || isClosed} /></div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}><span style={{ color: 'var(--g500)' }}>Procedure</span><strong>{sc.procedure_name}</strong></div>
             {biometryPlans.map((p) => (
@@ -211,7 +215,10 @@ export default function Workspace({ episodeId, onBack, onUpdate, onGoEpisodes })
                 ) : (
                   <div style={{ marginTop: 8 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
-                      <input className="fi fi-sm" value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="Medicine name" />
+                      <select className="fi fi-sm" value={medName} onChange={(e) => setMedName(e.target.value)}>
+                        <option value="">-- Select medicine --</option>
+                        {drugOptions.map((d) => <option key={d.id} value={d.label}>{d.label}</option>)}
+                      </select>
                       <input className="fi fi-sm" value={medSig} onChange={(e) => setMedSig(e.target.value)} placeholder="Dose/Freq/Duration" />
                     </div>
                     <input className="fi fi-sm" value={medReason} onChange={(e) => setMedReason(e.target.value)} placeholder="Reason for change (if modifying existing plan)..." style={{ marginBottom: 6 }} />

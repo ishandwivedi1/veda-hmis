@@ -2,6 +2,16 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { DISCHARGE_ITEMS } from './constants';
+import { getDrugs } from '../master-data/actions';
+
+// Same Pharmacy drug list used in Financial Masters -- so post-op
+// medication is picked from the real catalog, not free text.
+export async function getDrugOptions() {
+  const all = await getDrugs();
+  return all
+    .filter((d) => d.status === 'Active')
+    .map((d) => ({ id: d.id, label: `${d.generic}${d.strength ? ` ${d.strength}` : ''}${d.brand ? ` (${d.brand})` : ''}` }));
+}
 
 // Called from OT Intraop's "Hand Over to Recovery" -- creates the
 // episode the moment a patient actually arrives here, same
@@ -94,24 +104,25 @@ export async function removeRecoveryMedication(id) {
 }
 
 // ── DISCHARGE ──
-export async function confirmDischarge(episodeId, checklist, dischargeNotes, dischargeInstructions) {
+export async function confirmDischarge(episodeId, checklist, dischargeNotes, dischargeInstructions, dischargeDate) {
   const supabase = await createClient();
 
   const mandatoryDone = DISCHARGE_ITEMS.filter((i) => i.mandatory).every((i) => checklist[i.key]);
   if (!mandatoryDone) return { error: 'VAL-POST-002: All mandatory discharge items must be checked.' };
+  if (!dischargeDate) return { error: 'Discharge date is required.' };
 
   const { data: userData } = await supabase.auth.getUser();
-  const today = new Date().toISOString().slice(0, 10);
 
   const { error } = await supabase.from('recovery_episodes').update({
-    discharge_date: today, discharge_checklist: checklist,
+    discharge_date: dischargeDate, discharge_checklist: checklist,
     discharge_notes: dischargeNotes || null, discharge_instructions: dischargeInstructions || null,
     discharged_by: userData?.user?.id || null, discharged_at: new Date().toISOString(),
   }).eq('id', episodeId);
   if (error) return { error: error.message };
 
-  // AUTO-POST-002: generate the standard follow-up schedule.
-  const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  // AUTO-POST-002: generate the standard follow-up schedule, relative
+  // to the actual discharge date chosen (not just "today").
+  const addDays = (n) => { const d = new Date(`${dischargeDate}T00:00:00`); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   const followups = [
     { recovery_episode_id: episodeId, visit_label: 'Post-op Day 1', scheduled_date: addDays(1) },
     { recovery_episode_id: episodeId, visit_label: 'Post-op Week 1', scheduled_date: addDays(7) },
