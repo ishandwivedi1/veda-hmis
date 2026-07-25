@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
+import { getDoctorOptionsForVisit } from './actions';
+import VisitActions from './visit-actions';
 
 const VISIT_TYPE_COLOR = {
   'New Consultation': '--blue',
@@ -32,6 +34,7 @@ export default async function VisitsPage({ searchParams }) {
   }
 
   const { data: visits, error } = await query;
+  const doctors = await getDoctorOptionsForVisit();
 
   const visitIds = (visits || []).map((v) => v.id);
   let billingByVisit = {};
@@ -94,12 +97,17 @@ export default async function VisitsPage({ searchParams }) {
                 </td>
                 <td><span className="badge" style={{ background: `var(${VISIT_TYPE_COLOR[v.visit_type] || '--g100'})`, color: '#fff' }}>{v.visit_type}</span></td>
                 <td>{v.profiles?.full_name || '--'}</td>
-                <td><span className={`badge ${v.status === 'Open' ? 'b-blue' : 'b-gray'}`}>{v.status}</span></td>
+                <td><span className={`badge ${v.status === 'Open' ? 'b-blue' : v.status === 'Cancelled' ? 'b-red' : 'b-gray'}`}>{v.status}</span></td>
                 <td><span className={`badge ${BILLING_BADGE[billStatus]}`}>{billStatus}</span></td>
                 <td>
-                  <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
-                    <i className="ti ti-receipt"></i> Bill
-                  </Link>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    {v.status === 'Open' && (
+                      <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                        <i className="ti ti-receipt"></i> Bill
+                      </Link>
+                    )}
+                    <VisitActions visit={v} doctors={doctors} />
+                  </div>
                 </td>
               </tr>
             );
@@ -116,4 +124,5 @@ export default async function VisitsPage({ searchParams }) {
     </div>
   );
 }
+
 
