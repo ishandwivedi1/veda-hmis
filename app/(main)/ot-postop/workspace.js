@@ -6,12 +6,11 @@ import {
   addRecoveryComplication, closeEpisode,
 } from './actions';
 
-const MILESTONES = [
+const MILESTONES_START = [
   { key: 'recovery', label: 'Recovery', icon: 'ti-bed' },
   { key: 'discharge', label: 'Discharge', icon: 'ti-door-exit' },
-  { key: 'day1', label: 'Day 1 Review', icon: 'ti-calendar' },
-  { key: 'week1', label: 'Week 1 Review', icon: 'ti-calendar' },
-  { key: 'month1', label: 'Month 1 Review', icon: 'ti-calendar' },
+];
+const MILESTONES_END = [
   { key: 'closure', label: 'Episode Closure', icon: 'ti-circle-check' },
 ];
 
@@ -53,10 +52,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     if (key === 'recovery') return 'done';
     if (key === 'discharge') return episode.discharge_date ? 'done' : 'pending';
     if (key === 'closure') return episode.closure_status ? 'done' : 'pending';
-    const labelMap = { day1: 'Post-op Day 1', week1: 'Post-op Week 1', month1: 'Post-op Month 1' };
-    const f = followups.find((fu) => fu.visit_label === labelMap[key]);
-    if (!f) return 'pending';
-    return f.status === 'Completed' ? 'done' : 'scheduled';
+    return 'pending';
   };
 
   function startEdit(f) {
@@ -126,11 +122,12 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
       <div className="card">
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-list" style={{ color: 'var(--purple)' }}></i> Surgical Episode Dashboard</div>
-        {MILESTONES.map((m) => {
+
+        {MILESTONES_START.map((m) => {
           const status = milestoneStatus(m.key);
-          const color = status === 'done' ? 'var(--green)' : status === 'scheduled' ? 'var(--blue)' : 'var(--amber)';
-          const bg = status === 'done' ? 'var(--green-lt)' : status === 'scheduled' ? 'var(--blue-lt)' : 'var(--amber-lt)';
-          const icon = status === 'done' ? 'ti-check' : status === 'scheduled' ? 'ti-calendar' : 'ti-clock';
+          const color = status === 'done' ? 'var(--green)' : 'var(--amber)';
+          const bg = status === 'done' ? 'var(--green-lt)' : 'var(--amber-lt)';
+          const icon = status === 'done' ? 'ti-check' : 'ti-clock';
           return (
             <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 12px', borderRadius: 12, marginBottom: 8, border: '1px solid var(--g200)', background: bg }}>
               <div style={{ width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${color}20`, color }}><i className={`ti ${icon}`}></i></div>
@@ -139,48 +136,70 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
             </div>
           );
         })}
-      </div>
 
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-calendar-plus" style={{ color: 'var(--amber)' }}></i> Follow-up Schedule</div>
-        {followups.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No follow-ups scheduled yet.</div>}
-        {followups.map((f) => (
-          <div key={f.id} style={{ padding: '10px 12px', border: '1px solid var(--g200)', borderRadius: 10, marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{f.visit_label}</div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span className={`badge ${f.status === 'Completed' ? 'b-green' : f.status === 'Due' ? 'b-red' : 'b-blue'}`} style={{ fontSize: 10 }}>{f.status}</span>
-                {f.rescheduled_count > 0 && <span style={{ fontSize: 10, color: 'var(--amber)' }}>Rescheduled {f.rescheduled_count}x</span>}
-                {!isClosed && f.status !== 'Completed' && (
-                  <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={() => handleMarkStatus(f, 'Completed')}>Mark Completed</button>
-                )}
-              </div>
-            </div>
-
-            {editingFollowupId !== f.id ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 6 }}>
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--g500)' }}>{new Date(f.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-                  {f.notes && <div style={{ fontSize: 11.5, color: 'var(--g600)', marginTop: 3 }}><i className="ti ti-notes"></i> {f.notes}</div>}
+        {followups.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--g400)', padding: '8px 0' }}>No follow-ups scheduled yet.</div>
+        )}
+        {followups.map((f) => {
+          const color = f.status === 'Completed' ? 'var(--green)' : f.status === 'Due' ? 'var(--red)' : 'var(--blue)';
+          const bg = f.status === 'Completed' ? 'var(--green-lt)' : f.status === 'Due' ? 'var(--red-lt)' : 'var(--blue-lt)';
+          const icon = f.status === 'Completed' ? 'ti-check' : 'ti-calendar';
+          return (
+            <div key={f.id} style={{ padding: '10px 12px', border: '1px solid var(--g200)', borderRadius: 12, marginBottom: 8, background: bg }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${color}20`, color, flexShrink: 0 }}><i className={`ti ${icon}`}></i></div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{f.visit_label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{new Date(f.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
                 </div>
-                {!isClosed && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {f.rescheduled_count > 0 && <span style={{ fontSize: 10, color: 'var(--amber)' }}>Rescheduled {f.rescheduled_count}x</span>}
+                  <span className="badge" style={{ background: `${color}20`, color }}>{f.status}</span>
+                </div>
+              </div>
+
+              {f.notes && editingFollowupId !== f.id && (
+                <div style={{ fontSize: 11.5, color: 'var(--g600)', marginTop: 6, marginLeft: 42 }}><i className="ti ti-notes"></i> {f.notes}</div>
+              )}
+
+              {!isClosed && editingFollowupId !== f.id && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 8, marginLeft: 42 }}>
                   <button className="btn btn-sm" onClick={() => startEdit(f)}><i className="ti ti-calendar-time"></i> Reschedule / Notes</button>
-                )}
-              </div>
-            ) : (
-              <div style={{ marginTop: 8, padding: 8, background: 'var(--amber-lt)', borderRadius: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 6 }}>
-                  <input type="date" className="fi fi-sm" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
-                  <textarea className="fi fi-sm" rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Notes for this visit..." />
+                  {f.status !== 'Completed' && (
+                    <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={() => handleMarkStatus(f, 'Completed')}>Mark Completed</button>
+                  )}
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn-sm btn-primary" onClick={() => handleSaveFollowup(f)} disabled={saving}>Save</button>
-                  <button className="btn btn-sm" onClick={() => setEditingFollowupId(null)}>Cancel</button>
+              )}
+
+              {editingFollowupId === f.id && (
+                <div style={{ marginTop: 8, marginLeft: 42, padding: 8, background: '#fff', borderRadius: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 6 }}>
+                    <input type="date" className="fi fi-sm" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                    <textarea className="fi fi-sm" rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Notes for this visit..." />
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm btn-primary" onClick={() => handleSaveFollowup(f)} disabled={saving}>Save</button>
+                    <button className="btn btn-sm" onClick={() => setEditingFollowupId(null)}>Cancel</button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          );
+        })}
+
+        {MILESTONES_END.map((m) => {
+          const status = milestoneStatus(m.key);
+          const color = status === 'done' ? 'var(--green)' : 'var(--amber)';
+          const bg = status === 'done' ? 'var(--green-lt)' : 'var(--amber-lt)';
+          const icon = status === 'done' ? 'ti-check' : 'ti-clock';
+          return (
+            <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 12px', borderRadius: 12, marginBottom: 8, border: '1px solid var(--g200)', background: bg }}>
+              <div style={{ width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${color}20`, color }}><i className={`ti ${icon}`}></i></div>
+              <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{m.label}</div></div>
+              <span className="badge" style={{ background: `${color}20`, color }}>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
+            </div>
+          );
+        })}
       </div>
 
       <div className="card">
