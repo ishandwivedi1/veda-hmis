@@ -255,9 +255,16 @@ export async function completeSurgery(otScheduleId, surgicalCaseId, values) {
   const { error: caseError } = await supabase.from('surgical_cases').update({ status: 'Completed' }).eq('id', surgicalCaseId);
   if (caseError) return { error: caseError.message };
 
+  // Completing surgery and handing over to Recovery are the same real
+  // moment -- create the Recovery episode right here instead of a
+  // separate "Transfer to Recovery" step.
+  const { data: booking } = await supabase.from('ot_schedule').select('scheduled_date').eq('id', otScheduleId).single();
+  const { data: caseRow } = await supabase.from('surgical_cases').select('visit_id').eq('id', surgicalCaseId).single();
+  if (booking && caseRow) await ensureRecoveryEpisode(otScheduleId, surgicalCaseId, caseRow.visit_id, booking.scheduled_date);
+
   await supabase.from('ot_schedule_audit_log').insert({
     ot_schedule_id: otScheduleId, action: 'Completed',
-    detail: `Surgery completed -- outcome: ${values.surgicalOutcome || '--'}`,
+    detail: `Surgery completed -- outcome: ${values.surgicalOutcome || '--'} -- handed over to Recovery (${values.recoveryDestination || '--'})`,
     changed_by: userData?.user?.id || null,
   });
 

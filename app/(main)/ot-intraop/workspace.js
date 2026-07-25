@@ -5,7 +5,7 @@ import {
   getOTCaseDetail,
   saveCheckinItems, completeCheckin, recordAnaesthesia, saveIntraopDraft,
   addConsumable, removeConsumable, addIntraopEvent, removeIntraopEvent,
-  completeSurgery, transferToRecovery, getConsumableOptions,
+  completeSurgery, getConsumableOptions,
 } from './actions';
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { uploadAttachment, deleteAttachment } from '@/lib/attachments';
@@ -209,8 +209,9 @@ export default function Workspace({ otScheduleId, onBack }) {
   }
 
   async function handleSaveDraft() {
+    setError(''); setOk('');
     setSaving(true);
-    await saveIntraopDraft(otScheduleId, sc.id, {
+    const result = await saveIntraopDraft(otScheduleId, sc.id, {
       implant_manufacturer: imMfr || null, implant_model: imModel || null,
       implant_power: imPower || null, implant_serial: imSerial || null, implant_expiry: imExpiry || null,
       implant_eye: imEye, variance_reason: varianceReason || null, operative_notes: opNotes || null,
@@ -219,16 +220,10 @@ export default function Workspace({ otScheduleId, onBack }) {
       recovery_instructions: recoveryInstructions || null, recovery_concerns: recoveryConcerns || null,
     });
     setSaving(false);
+    if (result.error) { setError(result.error); return; }
     addLog('Draft saved');
     setOk('Draft saved -- documentation preserved.');
-  }
-
-  async function handleTransferToRecovery() {
-    setError('');
-    const result = await transferToRecovery(otScheduleId, sc.id, { recoveryDestination: recoveryDest, recoveryMonitoring: recoveryMonitor, recoveryInstructions, recoveryConcerns });
-    if (result.error) { setError(result.error); return; }
-    addLog(`Patient transferred to ${recoveryDest}`);
-    setOk(`Transferred to ${recoveryDest} -- handover documented.`);
+    refresh();
   }
 
   const plannedPower = biometryPlans[0]?.final_iol_power;
@@ -245,8 +240,8 @@ export default function Workspace({ otScheduleId, onBack }) {
     });
     if (result.error) { setError(result.error); return; }
     clearInterval(timerRef.current);
-    addLog('SURGERY COMPLETED -- OT Case marked complete');
-    setOk('Surgery completed. Case marked Completed in OT Scheduling.');
+    addLog('SURGERY COMPLETED -- OT Case marked complete, handed over to Recovery');
+    setOk('Surgery completed and handed over to Recovery. Case marked Completed in OT Scheduling.');
     refresh();
   }
 
@@ -606,16 +601,6 @@ export default function Workspace({ otScheduleId, onBack }) {
             </div>
             <input className="fi fi-sm" value={recoveryConcerns} onChange={(e) => setRecoveryConcerns(e.target.value)} disabled={isCompleted} placeholder="Immediate concerns (if any)..." />
           </div>
-
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            {intraop?.transferred_at ? (
-              <span className="btn" style={{ background: 'var(--teal)', color: '#fff', border: 'none', cursor: 'default' }}><i className="ti ti-circle-check"></i> Handed Over to Recovery</span>
-            ) : (
-              <button className="btn btn-primary" style={{ background: 'var(--teal)', borderColor: 'transparent' }} onClick={handleTransferToRecovery} disabled={isCompleted}>
-                <i className="ti ti-bed"></i> Hand Over to Recovery
-              </button>
-            )}
-          </div>
           </>
           )}
         </div>
@@ -657,7 +642,7 @@ export default function Workspace({ otScheduleId, onBack }) {
             <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save Draft'}
           </button>
           <button className="btn btn-sm" style={{ background: 'rgba(34,197,94,.2)', borderColor: 'rgba(34,197,94,.4)', color: '#86efac', fontWeight: 700 }} onClick={handleCompleteSurgery}>
-            <i className="ti ti-circle-check"></i> Complete Surgery
+            <i className="ti ti-circle-check"></i> Surgery Complete
           </button>
         </div>
       )}
