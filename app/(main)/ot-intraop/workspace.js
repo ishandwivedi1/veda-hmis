@@ -5,13 +5,12 @@ import {
   getOTCaseDetail,
   saveCheckinItems, completeCheckin, recordAnaesthesia, saveIntraopDraft,
   addConsumable, removeConsumable, addIntraopEvent, removeIntraopEvent,
-  completeSurgery, transferToRecovery,
+  completeSurgery, transferToRecovery, getConsumableOptions,
 } from './actions';
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { uploadAttachment, deleteAttachment } from '@/lib/attachments';
 
 const STEPS = ['Check-In', 'Anaesthesia', 'Surgery', 'Implant', 'Recovery'];
-const CONSUMABLE_QUICK = ['Viscoelastic', 'Irrigation Solution', 'Surgical Pack', 'Trypan Blue Dye', '10-0 Nylon Suture'];
 const EVENT_QUICK = ['Small Pupil', 'Zonular Weakness', 'Difficult Capsulorhexis', 'Iris Prolapse', 'Floppy Iris Syndrome'];
 const COMPL_QUICK = ['Posterior Capsular Rupture', 'Dropped Nucleus', 'Vitreous Loss', 'Wound Leak', 'Endothelial Trauma'];
 const CONSENT_INDEX = CHECKIN_ITEMS.indexOf('Consent availability verified');
@@ -51,6 +50,8 @@ export default function Workspace({ otScheduleId, onBack }) {
   const [varianceReason, setVarianceReason] = useState('');
 
   const [consumableName, setConsumableName] = useState('');
+  const [consumableOptions, setConsumableOptions] = useState([]);
+  const [checkinConsumableId, setCheckinConsumableId] = useState('');
   const [eventName, setEventName] = useState('');
   const [eventSeverity, setEventSeverity] = useState('Mild');
   const [complName, setComplName] = useState('');
@@ -110,6 +111,7 @@ export default function Workspace({ otScheduleId, onBack }) {
 
   useEffect(() => {
     refresh();
+    getConsumableOptions().then(setConsumableOptions);
     initializedTabRef.current = false;
     setSubTab('checkin');
     setSeconds(0);
@@ -455,6 +457,40 @@ export default function Workspace({ otScheduleId, onBack }) {
             {intraop?.anaesthesia_recorded_at && <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6 }}><i className="ti ti-check"></i> Recorded</div>}
           </div>
 
+          {/* Surgical Consumables -- pre-op selection via dropdown from
+              the Clinical Master; same underlying list as the quick-pick
+              badges in Intraoperative Management. */}
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-box" style={{ color: 'var(--amber)' }}></i> Surgical Consumables</div>
+            {!isCompleted && (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <select className="fi fi-sm" style={{ flex: 1 }} value={checkinConsumableId} onChange={(e) => setCheckinConsumableId(e.target.value)}>
+                  <option value="">-- Select consumable --</option>
+                  {consumableOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <button
+                  className="btn btn-sm"
+                  style={{ background: 'var(--amber)', color: '#fff', border: 'none' }}
+                  onClick={() => {
+                    const selected = consumableOptions.find((c) => c.id === checkinConsumableId);
+                    if (!selected) return;
+                    handleAddConsumable(selected.name);
+                    setCheckinConsumableId('');
+                  }}
+                >
+                  <i className="ti ti-plus"></i> Add
+                </button>
+              </div>
+            )}
+            {consumables.map((c) => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', background: 'var(--g50)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
+                <i className="ti ti-box" style={{ color: 'var(--amber)' }}></i><span style={{ flex: 1 }}>{c.name}</span>
+                {!isCompleted && <button onClick={() => removeConsumable(c.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+              </div>
+            ))}
+            {consumables.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>None selected yet.</div>}
+          </div>
+
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button className="btn" onClick={onBack}><i className="ti ti-arrow-left"></i> Back to Dashboard</button>
             {intraop?.checkin_completed_at || isCompleted ? (
@@ -474,7 +510,7 @@ export default function Workspace({ otScheduleId, onBack }) {
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-box" style={{ color: 'var(--amber)' }}></i> Consumables</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-              {CONSUMABLE_QUICK.map((c) => <span key={c} className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => !isCompleted && handleAddConsumable(c)}>{c}</span>)}
+              {consumableOptions.map((c) => <span key={c.id} className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => !isCompleted && handleAddConsumable(c.name)}>{c.name}</span>)}
             </div>
             {!isCompleted && (
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>

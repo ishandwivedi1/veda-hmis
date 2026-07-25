@@ -11,6 +11,7 @@ import {
   getClinicalObservations, addClinicalObservation, updateClinicalObservation, deleteClinicalObservation,
   getHistoryOptions, addHistoryOption, updateHistoryOption, deleteHistoryOption,
   getIolCatalog, addIolCatalogItem, updateIolCatalogItem, deleteIolCatalogItem,
+  getSurgicalConsumablesMaster, addSurgicalConsumable, updateSurgicalConsumable, deleteSurgicalConsumable,
 } from '../actions';
 
 const TABS = [
@@ -22,6 +23,7 @@ const TABS = [
   { key: 'observations', label: 'Clinical Observations' },
   { key: 'historyOptions', label: 'History Options' },
   { key: 'iolCatalog', label: 'IOL Catalog' },
+  { key: 'surgicalConsumables', label: 'Surgical Consumables' },
 ];
 
 const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
@@ -63,6 +65,7 @@ export default function ClinicalMastersPage() {
   const [observations, setObservations] = useState([]);
   const [historyOptions, setHistoryOptions] = useState([]);
   const [iolCatalog, setIolCatalog] = useState([]);
+  const [surgicalConsumables, setSurgicalConsumables] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
@@ -79,6 +82,7 @@ export default function ClinicalMastersPage() {
     setObservations(await getClinicalObservations());
     setHistoryOptions(await getHistoryOptions());
     setIolCatalog(await getIolCatalog());
+    setSurgicalConsumables(await getSurgicalConsumablesMaster());
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -108,6 +112,7 @@ export default function ClinicalMastersPage() {
     else if (activeTab === 'observations') result = await addClinicalObservation(form);
     else if (activeTab === 'historyOptions') result = await addHistoryOption(form);
     else if (activeTab === 'iolCatalog') result = await addIolCatalogItem(form);
+    else if (activeTab === 'surgicalConsumables') result = await addSurgicalConsumable(form);
     else result = await addDiagnosisMaster(form);
     if (result?.error) { setError(result.error); return; }
     setForm({});
@@ -135,6 +140,7 @@ export default function ClinicalMastersPage() {
     else if (activeTab === 'observations') result = await updateClinicalObservation(record.id, record, editForm);
     else if (activeTab === 'historyOptions') result = await updateHistoryOption(record.id, record, editForm);
     else if (activeTab === 'iolCatalog') result = await updateIolCatalogItem(record.id, record, editForm);
+    else if (activeTab === 'surgicalConsumables') result = await updateSurgicalConsumable(record.id, record, editForm);
     else result = await updateDiagnosisMaster(record.id, record, editForm);
     if (result?.error) { setError(result.error); return; }
     setEditingId(null);
@@ -152,6 +158,7 @@ export default function ClinicalMastersPage() {
     else if (activeTab === 'observations') result = await deleteClinicalObservation(record.id, record.code);
     else if (activeTab === 'historyOptions') result = await deleteHistoryOption(record.id, record.code);
     else if (activeTab === 'iolCatalog') result = await deleteIolCatalogItem(record.id, record.code);
+    else if (activeTab === 'surgicalConsumables') result = await deleteSurgicalConsumable(record.id, record.code);
     else result = await deleteDiagnosisMaster(record.id, record.code);
     if (result?.error) { setError(result.error); return; }
     refresh();
@@ -207,7 +214,7 @@ export default function ClinicalMastersPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
-          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'surgeries' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions' || activeTab === 'iolCatalog') && (
+          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'surgeries' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions' || activeTab === 'iolCatalog' || activeTab === 'surgicalConsumables') && (
             <button className="btn btn-primary btn-sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
               <i className="ti ti-plus"></i> Add New
             </button>
@@ -475,6 +482,29 @@ export default function ClinicalMastersPage() {
                 ))}
                 {iolCatalog.length === 0 && (
                   <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No IOL catalog items added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'surgicalConsumables' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Populates the consumables dropdown in OT Intraoperative Management&apos;s Patient Check-In tab, and the quick-pick list in Intraoperative Management. Code is generated automatically from the name.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <input className="fi" placeholder="Name (e.g. Viscoelastic)" onChange={update('name')} />
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {surgicalConsumables.map((c) => renderSimpleRow(c, 'master_surgical_consumables', false))}
+                {surgicalConsumables.length === 0 && (
+                  <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No surgical consumables added yet.</td></tr>
                 )}
               </tbody>
             </table>

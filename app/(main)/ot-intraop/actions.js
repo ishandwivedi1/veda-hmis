@@ -3,6 +3,16 @@
 import { createClient } from '@/lib/supabase-server';
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { ensureRecoveryEpisode } from '../ot-recovery/actions';
+import { getSurgicalConsumablesMaster } from '../master-data/actions';
+
+// Same Surgical Consumables Clinical Master used to seed both the
+// Patient Check-In dropdown and the Intraoperative Management
+// quick-pick list -- one source, two input styles for two different
+// moments in the workflow.
+export async function getConsumableOptions() {
+  const all = await getSurgicalConsumablesMaster();
+  return all.filter((c) => c.status === 'Active');
+}
 
 // ── HISTORY: completed OT cases ──
 export async function getOTIntraopHistory() {

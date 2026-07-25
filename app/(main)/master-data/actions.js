@@ -134,6 +134,35 @@ export async function deleteIopMethod(id, code) {
   return deleteMasterRecord(supabase, 'master_iop_methods', id, code);
 }
 
+// ── SURGICAL CONSUMABLES (Clinical Master -- Patient Check-In dropdown
+// and Intraoperative Management quick-pick, both in OT Intraop) ──
+export async function getSurgicalConsumablesMaster() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_surgical_consumables').select('*').order('name');
+  return data || [];
+}
+export async function addSurgicalConsumable(values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const code = await generateCategoryCode(supabase, 'master_surgical_consumables', 'CONS');
+  const { error } = await supabase.from('master_surgical_consumables').insert({ code, name, status: 'Active' });
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_surgical_consumables', code, 'Create', `${name} created`);
+  return { success: true };
+}
+export async function updateSurgicalConsumable(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const { error } = await supabase.from('master_surgical_consumables').update({ name }).eq('id', id);
+  if (error) return { error: error.message };
+  if (oldValues.name !== name) await logMasterAudit(supabase, 'master_surgical_consumables', oldValues.code, 'Edit', `Name ${oldValues.name} -> ${name}`);
+  return { success: true };
+}
+export async function deleteSurgicalConsumable(id, code) {
+  const supabase = await createClient();
+  return deleteMasterRecord(supabase, 'master_surgical_consumables', id, code);
+}
+
 // ── CLINICAL OBSERVATIONS (Clinical Master -- quick-pick chips in
 // Optometry Assessment's Clinical Observations section) ──
 export async function getClinicalObservations() {
