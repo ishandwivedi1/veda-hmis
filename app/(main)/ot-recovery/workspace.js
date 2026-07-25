@@ -281,9 +281,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
             </a>
           )}
           {isDischarged && (
-            <a href="/ot-postop" className="btn btn-sm" style={{ background: 'rgba(124,58,237,.15)', color: '#c4b5fd', borderColor: 'rgba(124,58,237,.3)', textDecoration: 'none' }}>
-              <i className="ti ti-arrow-right"></i> Go to Post Op
-            </a>
+            <span className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none', cursor: 'default', fontWeight: 700 }}>
+              <i className="ti ti-circle-check"></i> Discharged
+            </span>
           )}
         </div>
       )}
