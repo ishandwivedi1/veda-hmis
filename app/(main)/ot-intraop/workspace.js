@@ -601,6 +601,22 @@ export default function Workspace({ otScheduleId, onBack }) {
             </div>
             <input className="fi fi-sm" value={recoveryConcerns} onChange={(e) => setRecoveryConcerns(e.target.value)} disabled={isCompleted} placeholder="Immediate concerns (if any)..." />
           </div>
+
+          {!isCompleted && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={handleSaveDraft} disabled={saving}>
+                <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save Draft'}
+              </button>
+              <button className="btn btn-primary" onClick={handleCompleteSurgery}>
+                <i className="ti ti-circle-check"></i> Surgery Complete
+              </button>
+            </div>
+          )}
+          {isCompleted && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <span className="btn" style={{ background: 'var(--green)', color: '#fff', border: 'none', cursor: 'default' }}><i className="ti ti-circle-check"></i> Surgery Completed</span>
+            </div>
+          )}
           </>
           )}
         </div>
@@ -633,19 +649,6 @@ export default function Workspace({ otScheduleId, onBack }) {
           </div>
         </div>
       </div>
-
-      {/* Bottom action bar */}
-      {!isCompleted && (
-        <div style={{ background: '#0f172a', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>ACTIONS:</span>
-          <button className="btn btn-sm" style={{ background: 'rgba(96,165,250,.15)', borderColor: 'rgba(96,165,250,.3)', color: '#93c5fd' }} onClick={handleSaveDraft} disabled={saving}>
-            <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save Draft'}
-          </button>
-          <button className="btn btn-sm" style={{ background: 'rgba(34,197,94,.2)', borderColor: 'rgba(34,197,94,.4)', color: '#86efac', fontWeight: 700 }} onClick={handleCompleteSurgery}>
-            <i className="ti ti-circle-check"></i> Surgery Complete
-          </button>
-        </div>
-      )}
     </div>
   );
 }
