@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { searchPatientsForBooking, getDoctors } from '@/app/(main)/appointments/actions';
-import { createWalkInVisit } from '@/app/(main)/visits/actions';
+import { createWalkInVisit, getSurgeryTypeOptions } from '@/app/(main)/visits/actions';
 
 export default function NewVisitPage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -16,6 +16,8 @@ export default function NewVisitPage() {
   const [visitType, setVisitType] = useState('New Consultation');
   const [referralSource, setReferralSource] = useState('Walk-in');
   const [priority, setPriority] = useState('Routine');
+  const [surgeryTypes, setSurgeryTypes] = useState([]);
+  const [surgeryType, setSurgeryType] = useState('');
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,6 +25,7 @@ export default function NewVisitPage() {
 
   useEffect(() => {
     getDoctors().then(setDoctors);
+    getSurgeryTypeOptions().then(setSurgeryTypes);
   }, []);
 
   async function handleSearch() {
@@ -57,6 +60,10 @@ export default function NewVisitPage() {
       setError('Search and select a registered patient.');
       return;
     }
+    if (visitType === 'Surgery' && !surgeryType) {
+      setError('Select the type of surgery.');
+      return;
+    }
 
     setLoading(true);
     const result = await createWalkInVisit({
@@ -65,6 +72,7 @@ export default function NewVisitPage() {
       visitType,
       referralSource,
       priority,
+      surgeryType,
     });
     setLoading(false);
 
@@ -163,18 +171,27 @@ export default function NewVisitPage() {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: visitType === 'Surgery' ? '1fr 1fr 1fr' : '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <label className="flbl">Visit type</label>
-              <select className="fi" value={visitType} onChange={(e) => setVisitType(e.target.value)}>
+              <select className="fi" value={visitType} onChange={(e) => { setVisitType(e.target.value); if (e.target.value !== 'Surgery') setSurgeryType(''); }}>
                 <option>New Consultation</option>
                 <option>Follow-up</option>
                 <option>Investigation Only</option>
                 <option>Post-operative Review</option>
                 <option>Emergency</option>
-                <option>Procedure</option>
+                <option>Surgery</option>
               </select>
             </div>
+            {visitType === 'Surgery' && (
+              <div>
+                <label className="flbl">Type of surgery</label>
+                <select className="fi" value={surgeryType} onChange={(e) => setSurgeryType(e.target.value)}>
+                  <option value="">-- Select --</option>
+                  {surgeryTypes.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className="flbl">Doctor</label>
               <select className="fi" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
@@ -221,4 +238,5 @@ export default function NewVisitPage() {
     </div>
   );
 }
+
 

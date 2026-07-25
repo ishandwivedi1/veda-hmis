@@ -34,6 +34,7 @@ export async function createWalkInVisit(values) {
     p_visit_type: values.visitType,
     p_referral_source: values.referralSource || null,
     p_priority: values.priority || 'Routine',
+    p_surgery_type: values.visitType === 'Surgery' ? (values.surgeryType || null) : null,
   });
 
   if (error) {
@@ -42,7 +43,13 @@ export async function createWalkInVisit(values) {
   return { visit: data };
 }
 
-const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Post-operative Review', 'Emergency', 'Procedure'];
+export async function getSurgeryTypeOptions() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_surgeries').select('id, name').eq('status', 'Active').order('name');
+  return data || [];
+}
+
+const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Post-operative Review', 'Emergency', 'Surgery'];
 
 // Doctor / visit type / priority can be corrected after check-in --
 // front desk mistakes happen. Scoped to Open visits only; a closed or
@@ -59,6 +66,7 @@ export async function updateVisit(visitId, values) {
     doctor_id: values.doctorId || null,
     visit_type: values.visitType,
     priority: values.priority || 'Routine',
+    surgery_type: values.visitType === 'Surgery' ? (values.surgeryType || null) : null,
   }).eq('id', visitId);
   if (error) return { error: error.message };
   return { success: true };

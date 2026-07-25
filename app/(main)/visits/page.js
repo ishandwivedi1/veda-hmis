@@ -9,7 +9,7 @@ const VISIT_TYPE_COLOR = {
   'Investigation Only': '--purple',
   'Post-operative Review': '--amber',
   'Emergency': '--red',
-  'Procedure': '--teal',
+  'Surgery': '--teal',
 };
 
 const BILLING_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', '--': 'b-gray' };
@@ -95,7 +95,10 @@ export default async function VisitsPage({ searchParams }) {
                   <div style={{ fontWeight: 600 }}>{v.patients?.first_name} {v.patients?.last_name}</div>
                   <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{v.patients?.uhid}</div>
                 </td>
-                <td><span className="badge" style={{ background: `var(${VISIT_TYPE_COLOR[v.visit_type] || '--g100'})`, color: '#fff' }}>{v.visit_type}</span></td>
+                <td>
+                  <span className="badge" style={{ background: `var(${VISIT_TYPE_COLOR[v.visit_type] || '--g100'})`, color: '#fff' }}>{v.visit_type}</span>
+                  {v.surgery_type && <div style={{ fontSize: 10, color: 'var(--g500)', marginTop: 2 }}>{v.surgery_type}</div>}
+                </td>
                 <td>{v.profiles?.full_name || '--'}</td>
                 <td><span className={`badge ${v.status === 'Open' ? 'b-blue' : v.status === 'Cancelled' ? 'b-red' : 'b-gray'}`}>{v.status}</span></td>
                 <td><span className={`badge ${BILLING_BADGE[billStatus]}`}>{billStatus}</span></td>

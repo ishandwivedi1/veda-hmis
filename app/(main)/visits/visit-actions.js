@@ -2,15 +2,17 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { updateVisit, cancelVisit } from './actions';
+import { updateVisit, cancelVisit, getSurgeryTypeOptions } from './actions';
 
-const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Post-operative Review', 'Emergency', 'Procedure'];
+const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Post-operative Review', 'Emergency', 'Surgery'];
 
 export default function VisitActions({ visit, doctors }) {
   const [mode, setMode] = useState(null); // 'edit' | 'cancel' | null
   const [doctorId, setDoctorId] = useState(visit.doctor_id || '');
   const [visitType, setVisitType] = useState(visit.visit_type || 'New Consultation');
   const [priority, setPriority] = useState(visit.priority || 'Routine');
+  const [surgeryType, setSurgeryType] = useState(visit.surgery_type || '');
+  const [surgeryTypes, setSurgeryTypes] = useState([]);
   const [cancelReason, setCancelReason] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -21,13 +23,16 @@ export default function VisitActions({ visit, doctors }) {
     setDoctorId(visit.doctor_id || '');
     setVisitType(visit.visit_type || 'New Consultation');
     setPriority(visit.priority || 'Routine');
+    setSurgeryType(visit.surgery_type || '');
+    if (surgeryTypes.length === 0) getSurgeryTypeOptions().then(setSurgeryTypes);
     setMode('edit');
   }
 
   async function handleSaveEdit() {
     setError('');
+    if (visitType === 'Surgery' && !surgeryType) { setError('Select the type of surgery.'); return; }
     setSaving(true);
-    const result = await updateVisit(visit.id, { doctorId, visitType, priority });
+    const result = await updateVisit(visit.id, { doctorId, visitType, priority, surgeryType });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setMode(null);
@@ -69,6 +74,15 @@ export default function VisitActions({ visit, doctors }) {
                 {VISIT_TYPES.map((t) => <option key={t}>{t}</option>)}
               </select>
             </div>
+            {visitType === 'Surgery' && (
+              <div style={{ marginBottom: 8 }}>
+                <label className="flbl">Type of surgery</label>
+                <select className="fi" value={surgeryType} onChange={(e) => setSurgeryType(e.target.value)}>
+                  <option value="">-- Select --</option>
+                  {surgeryTypes.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
             <div style={{ marginBottom: 8 }}>
               <label className="flbl">Doctor</label>
               <select className="fi" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
