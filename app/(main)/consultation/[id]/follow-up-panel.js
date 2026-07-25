@@ -71,29 +71,36 @@ export function PatientSnapshotBar({ snapshot }) {
   );
 }
 
-// ── Left sidebar: previous visits, click to open read-only ──
+// ── Previous visits, shown as an in-flow horizontal strip at the top of
+// the workspace (not floating -- sits inside the consultation content,
+// same as everything else). ──
 export function PatientTimelineSidebar({ timeline }) {
   return (
-    <div style={{ width: 210, flexShrink: 0 }}>
-      <div className="card" style={{ position: 'sticky', top: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 10 }}>Previous Visits</div>
-        {timeline.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No prior visits.</div>}
-        {timeline.map((t) => {
-          const clickable = !!t.queueEntryId;
-          return (
-            <div
-              key={t.encounterId}
-              onClick={clickable ? () => window.open(`/consultation/${t.queueEntryId}`, '_blank', 'noopener,noreferrer') : undefined}
-              style={{ padding: '8px 10px', borderRadius: 8, marginBottom: 6, border: '1px solid var(--g200)', cursor: clickable ? 'pointer' : 'default', background: clickable ? '#fff' : 'var(--g50)' }}
-            >
-              <div style={{ fontSize: 11.5, fontWeight: 700 }}>{fmtDate(t.date)}</div>
-              <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>{t.chiefComplaint || 'Consultation'}</div>
-              {t.status !== 'Completed' && <div style={{ fontSize: 10, color: 'var(--amber)', marginTop: 2 }}>Not finalized -- {t.status}</div>}
-              {clickable && <div style={{ fontSize: 10, color: 'var(--blue)', marginTop: 2 }}><i className="ti ti-eye"></i> {t.status === 'Completed' ? 'View read-only' : 'Open'}</div>}
-            </div>
-          );
-        })}
+    <div className="card" style={{ marginBottom: 16, borderLeft: '4px solid var(--indigo)' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--indigo)', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <i className="ti ti-history"></i> Previous Visits
       </div>
+      {timeline.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}>No prior visits.</div>
+      ) : (
+        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+          {timeline.map((t) => {
+            const clickable = !!t.queueEntryId;
+            return (
+              <div
+                key={t.encounterId}
+                onClick={clickable ? () => window.open(`/consultation/${t.queueEntryId}`, '_blank', 'noopener,noreferrer') : undefined}
+                style={{ minWidth: 160, flexShrink: 0, padding: '10px 12px', borderRadius: 10, border: '1.5px solid var(--indigo)', cursor: clickable ? 'pointer' : 'default', background: 'var(--indigo-lt)' }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--indigo)' }}>{fmtDate(t.date)}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--g700)', marginTop: 2 }}>{t.chiefComplaint || 'Consultation'}</div>
+                {t.status !== 'Completed' && <div style={{ fontSize: 10, color: 'var(--amber)', marginTop: 4, fontWeight: 600 }}>Not finalized -- {t.status}</div>}
+                {clickable && <div style={{ fontSize: 10.5, color: 'var(--indigo)', marginTop: 4, fontWeight: 700 }}><i className="ti ti-eye"></i> {t.status === 'Completed' ? 'View read-only' : 'Open'}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

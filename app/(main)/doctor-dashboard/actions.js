@@ -6,7 +6,7 @@ export async function getDoctorDashboardData() {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [{ data: active }, { data: intermediate }, { data: completed }] = await Promise.all([
+  const [{ data: active }, { data: intermediate }, { data: completed }, { data: optometryWaiting }] = await Promise.all([
     supabase
       .from('queue_entries')
       .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
@@ -33,9 +33,16 @@ export async function getDoctorDashboardData() {
       .eq('status', 'Done')
       .gte('issued_at', today)
       .order('completed_at', { ascending: false }),
+    supabase
+      .from('queue_entries')
+      .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+      .eq('department', 'Optometry')
+      .in('status', ['Waiting', 'Calling'])
+      .gte('issued_at', today)
+      .order('issued_at', { ascending: true }),
   ]);
 
-  return { active: active || [], intermediate: intermediate || [], completed: completed || [] };
+  return { active: active || [], intermediate: intermediate || [], completed: completed || [], optometryWaiting: optometryWaiting || [] };
 }
 
 // ── HISTORY: every completed consultation, not just today's ──

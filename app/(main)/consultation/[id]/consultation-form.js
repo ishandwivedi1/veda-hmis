@@ -442,9 +442,7 @@ export default function ConsultationForm({ queueEntryId }) {
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
       {data.isFollowUp && followUpContext && (
-        <div style={{ position: 'fixed', left: 16, top: 90, width: 210, zIndex: 5 }}>
-          <PatientTimelineSidebar timeline={followUpContext.timeline} />
-        </div>
+        <PatientTimelineSidebar timeline={followUpContext.timeline} />
       )}
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}>

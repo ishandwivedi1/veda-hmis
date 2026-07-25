@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getDoctorDashboardData, getDoctorHistory } from './actions';
-import { doctorCallNext, doctorCallSpecific, doctorMarkReady } from '@/app/(main)/queue/actions';
+import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
 import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
 
 function elapsedMin(isoString) {
@@ -45,7 +45,7 @@ function TabButton({ active, onClick, icon, label, disabled }) {
   );
 }
 
-function DashboardTab({ active, intermediate, completed, error, onRunAction, onOpen }) {
+function DashboardTab({ active, intermediate, completed, optometryWaiting, error, onRunAction, onOpen }) {
   const inConsultation = active.find((e) => e.status === 'In Consultation');
   const waitingCount = active.filter((e) => e.status === 'Waiting' || e.status === 'Ready for Review').length;
 
@@ -126,6 +126,28 @@ function DashboardTab({ active, intermediate, completed, error, onRunAction, onO
         </div>
 
         <div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head">
+              <div className="card-title"><i className="ti ti-eye" style={{ color: 'var(--teal)' }}></i> Waiting in Optometry<span className="badge b-gray">{optometryWaiting.length}</span></div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+              Pull a patient straight into consultation without waiting for their optometry workup -- useful for quick reviews or referrals.
+            </div>
+            {optometryWaiting.map((e) => (
+              <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                <div>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
+                  {patientName(e)}
+                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{elapsedMin(e.issued_at)}m waiting in Optometry</div>
+                </div>
+                <button className="btn btn-sm" onClick={() => onRunAction(doctorCallDirect, e.id)} disabled={!!inConsultation}>
+                  <i className="ti ti-arrow-right"></i> Call Directly
+                </button>
+              </div>
+            ))}
+            {optometryWaiting.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No one currently waiting in Optometry.</div>}
+          </div>
+
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head">
               <div className="card-title"><i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)' }}></i> Intermediate Queues<span className="badge b-gray">{intermediate.length}</span></div>
@@ -218,6 +240,7 @@ export default function DoctorDashboardPage() {
   const [active, setActive] = useState([]);
   const [intermediate, setIntermediate] = useState([]);
   const [completed, setCompleted] = useState([]);
+  const [optometryWaiting, setOptometryWaiting] = useState([]);
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
@@ -227,6 +250,7 @@ export default function DoctorDashboardPage() {
     setActive(result.active);
     setIntermediate(result.intermediate);
     setCompleted(result.completed);
+    setOptometryWaiting(result.optometryWaiting);
   }, []);
 
   const refreshHistory = useCallback(async () => {
@@ -268,7 +292,7 @@ export default function DoctorDashboardPage() {
       </div>
 
       {activeTab === 'dashboard' && (
-        <DashboardTab active={active} intermediate={intermediate} completed={completed} error={error} onRunAction={runAction} onOpen={openConsultation} />
+        <DashboardTab active={active} intermediate={intermediate} completed={completed} optometryWaiting={optometryWaiting} error={error} onRunAction={runAction} onOpen={openConsultation} />
       )}
 
       {activeTab === 'workspace' && selectedId && (

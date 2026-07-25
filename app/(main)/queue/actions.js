@@ -91,6 +91,28 @@ export async function doctorCallSpecific(id) {
   return { success: true };
 }
 
+// Lets the doctor pull a patient straight out of Optometry's waiting
+// list and into consultation, for cases where the normal Optometry
+// workup isn't needed first (e.g. a quick post-op or referral review).
+// Reuses the exact same handoff mechanism Optometry itself uses when it
+// finishes normally, just triggered from the other end.
+export async function doctorCallDirect(optometryEntryId) {
+  const supabase = await createClient();
+  const { data: entry } = await supabase.from('queue_entries').select('visit_id').eq('id', optometryEntryId).eq('department', 'Optometry').single();
+  if (!entry) return { error: 'Queue entry not found in Optometry.' };
+
+  const { error: rpcError } = await supabase.rpc('optometry_complete', { p_queue_entry_id: optometryEntryId });
+  if (rpcError) return { error: rpcError.message };
+
+  const { data: doctorEntry } = await supabase
+    .from('queue_entries').select('id')
+    .eq('visit_id', entry.visit_id).eq('department', 'Doctor')
+    .order('issued_at', { ascending: false }).limit(1).maybeSingle();
+  if (!doctorEntry) return { error: 'Could not route patient to Doctor queue.' };
+
+  return doctorCallSpecific(doctorEntry.id);
+}
+
 export async function doctorComplete(id) {
   const supabase = await createClient();
   const { error } = await supabase
