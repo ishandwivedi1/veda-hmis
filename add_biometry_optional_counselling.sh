@@ -1,3 +1,395 @@
+#!/bin/bash
+set -e
+
+echo 'Applying: optional Biometry step in Counselling...'
+
+mkdir -p 'app/(main)/counselling'
+
+cat > 'app/(main)/counselling/actions.js' << 'COUNS_ACTIONS_EOF'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+
+// This file replaces the old "Surgical Coordination" module's actions file.
+// The following exports
+// are used by OTHER modules and MUST keep the same name + signature:
+//   getSurgicalCases, getSurgeons, scheduleOT, getOTSchedule, completeOT
+//     -- imported by app/(main)/ot-schedule/page.js
+//   markForSurgery
+//     -- imported by app/(main)/consultation/[id]/consultation-form.js
+// Everything else below is new/rebuilt for the Counselling workflow.
+
+// ── Sending a patient to an ancillary service (Biometry, Dilation, ...)
+//    from Counselling. Once a doctor completes a consultation, ALL of
+//    that visit's queue_entries get marked 'Done' -- so by the time a
+//    case reaches Counselling (even same-day), there's nothing left to
+//    "update". send_case_to_department_queue() (see migration 027)
+//    issues a FRESH queue token against the patient's still-open visit
+//    (found via ist_date(), so it's IST-correct rather than doing UTC
+//    date math here) and flips it straight to the target status.
+async function sendCaseToQueueStatus(caseId, queueStatus, auditMessage) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase.rpc('send_case_to_department_queue', {
+    p_case_id: caseId,
+    p_queue_status: queueStatus,
+    p_audit_message: auditMessage,
+    p_user_id: userData?.user?.id || null,
+  });
+
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function sendForBiometry(caseId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { data: sc } = await supabase.from('surgical_cases').select('id, encounter_id').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  const { data: queueEntry, error } = await supabase.rpc('send_case_to_department_queue', {
+    p_case_id: caseId,
+    p_queue_status: 'Awaiting Biometry',
+    p_audit_message: 'Sent for Biometry (from Counselling)',
+    p_user_id: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+
+  // Also create the biometry_records stub right away (mirrors
+  // getOrCreateBiometryRecord in the Biometry module) so the Counselling
+  // dashboard reflects "Awaiting Biometry" immediately instead of only
+  // after the technician opens the queue entry -- and so the technician
+  // finds it already there rather than creating a fresh one.
+  const visitId = queueEntry?.visit_id;
+  if (visitId) {
+    const { data: existing } = await supabase
+      .from('biometry_records')
+      .select('id')
+      .eq('visit_id', visitId)
+      .neq('status', 'Cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!existing || existing.length === 0) {
+      const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
+      await supabase.from('biometry_records').insert({ visit_id: visitId, encounter_id: sc.encounter_id || null, surgeon_id: visit?.doctor_id || null });
+    }
+  }
+
+  return { success: true };
+}
+
+// For surgeries where biometry genuinely doesn't apply (retina,
+// glaucoma, oculoplasty...) -- a reason is required so there's an
+// audit trail for why this case skipped a normally-required step.
+export async function skipBiometry(caseId, reason) {
+  const supabase = await createClient();
+  if (!reason || !reason.trim()) return { error: 'A reason is required to skip Biometry.' };
+  const { error } = await supabase
+    .from('surgical_cases')
+    .update({ biometry_required: false, biometry_skip_reason: reason.trim() })
+    .eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Undo a skip -- puts Biometry back as a required step for this case.
+export async function unskipBiometry(caseId) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('surgical_cases')
+    .update({ biometry_required: true, biometry_skip_reason: null })
+    .eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function sendForDilation(caseId) {
+  return sendCaseToQueueStatus(caseId, 'Awaiting Dilation', 'Sent for Dilation (from Counselling)');
+}
+
+// ── Case creation (called from Consultation when doctor recommends surgery) ──
+export async function markForSurgery(patientId, encounterId, procedureName, eye) {
+  const supabase = await createClient();
+
+  // Pull surgeon + visit + priority through so the case doesn't start
+  // with everything null -- encounters already carries doctor_id.
+  const { data: encounter } = await supabase
+    .from('encounters')
+    .select('id, visit_id, doctor_id')
+    .eq('id', encounterId)
+    .single();
+
+  let priority = 'Routine';
+  if (encounter?.visit_id) {
+    const { data: visit } = await supabase.from('visits').select('priority').eq('id', encounter.visit_id).single();
+    if (visit?.priority) priority = visit.priority;
+  }
+
+  const { error } = await supabase.from('surgical_cases').insert({
+    patient_id: patientId,
+    encounter_id: encounterId,
+    visit_id: encounter?.visit_id || null,
+    surgeon_id: encounter?.doctor_id || null,
+    procedure_name: procedureName,
+    eye,
+    priority,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Cases list (used by OT Scheduling -- keep shape unchanged) ──
+export async function getSurgicalCases() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select('*, patients(first_name, last_name, uhid), master_packages(name, price)')
+    .in('status', ['Pending Workup', 'Ready for Scheduling'])
+    .order('created_at', { ascending: false });
+  if (error) return [];
+  return data;
+}
+
+// ── Cases list for the Counselling workspace (richer -- surgeon, decision, IOL type) ──
+export async function getCounsellingCases() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select(`
+      id, patient_id, encounter_id, procedure_name, eye, priority, status,
+      iol_category, decision, decision_reason,
+      biometry_done, biometry_required, biometry_skip_reason,
+      fitness_cleared, investigations_complete,
+      package_id, surgeon_id, advance_payment_id, created_at,
+      patients:patient_id ( id, first_name, last_name, uhid, age, gender ),
+      profiles:surgeon_id ( id, full_name ),
+      master_packages:package_id ( id, name, price )
+    `)
+    .in('status', ['Pending Workup', 'Ready for Scheduling'])
+    .order('created_at', { ascending: false });
+  if (error) return [];
+
+  // surgical_cases and biometry_records are siblings linked only by
+  // encounter_id (no direct FK Supabase can auto-embed), so this is a
+  // separate batch query rather than a nested select. Used to tell
+  // "Surgery Advised" (nobody has sent for biometry yet) apart from
+  // "Awaiting Biometry" (sent, technician hasn't finished it) on the
+  // dashboard -- both are biometry_done = false, but they're different
+  // stages for the counsellor.
+  const encounterIds = [...new Set((data || []).map((c) => c.encounter_id).filter(Boolean))];
+  let biometryByEncounter = {};
+  if (encounterIds.length > 0) {
+    const { data: records } = await supabase
+      .from('biometry_records')
+      .select('id, encounter_id, status')
+      .in('encounter_id', encounterIds);
+    (records || []).forEach((r) => { biometryByEncounter[r.encounter_id] = r; });
+  }
+
+  return (data || []).map((c) => ({ ...c, biometry_record: biometryByEncounter[c.encounter_id] || null }));
+}
+
+// ── Packages, filtered by the IOL type advised at Biometry ──
+// iol_category/origin live on master_packages (Master Data, M29). A package
+// with iol_category = NULL is not IOL-specific (e.g. Glaucoma surgery) and
+// is shown regardless of what was advised. Filtered in JS rather than a
+// PostgREST .or() filter to avoid escaping issues with values like
+// "Monofocal Toric" that contain a space.
+export async function getPackagesForCase(iolCategory) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('master_packages')
+    .select('id, code, name, price, includes, iol_category, origin')
+    .eq('status', 'Active')
+    .order('name');
+  if (error) return [];
+  return (data || []).filter((p) => !p.iol_category || p.iol_category === iolCategory);
+}
+
+// ── Package selection (BR-SCC-002: only after Biometry & IOL advice) ──
+export async function selectPackage(caseId, packageId) {
+  const supabase = await createClient();
+
+  const { data: sc } = await supabase.from('surgical_cases').select('biometry_done, biometry_required').eq('id', caseId).single();
+  if (!sc?.biometry_done && sc?.biometry_required !== false) {
+    return { error: 'BR-SCC-002: Biometry & IOL type advice must be complete before selecting a package.' };
+  }
+
+  const { error } = await supabase.from('surgical_cases').update({ package_id: packageId }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function changePackage(caseId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ package_id: null }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Patient decision ──
+const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
+
+export async function setDecision(caseId, decision, reason) {
+  if (!DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ decision, decision_reason: reason || null }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Counselling notes log ──
+export async function getCaseNotes(caseId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_case_notes')
+    .select('id, note, created_at, profiles:created_by ( id, full_name )')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: false });
+  if (error) return [];
+  return data;
+}
+
+export async function addCaseNote(caseId, note) {
+  if (!note || !note.trim()) return { error: 'Note cannot be empty.' };
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('surgical_case_notes').insert({
+    surgical_case_id: caseId,
+    note: note.trim(),
+    created_by: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Patient education topics (populated by the doctor's plan, M17/M19) ──
+export async function getCounsellingItems(encounterId) {
+  if (!encounterId) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('plan_counselling_items')
+    .select('id, topic, status')
+    .eq('encounter_id', encounterId)
+    .order('created_at', { ascending: true });
+  if (error) return [];
+  return data;
+}
+
+export async function toggleCounsellingItem(itemId, done) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_counselling_items').update({ status: done ? 'Done' : 'Pending' }).eq('id', itemId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Post-decision checklist (BR-SCC-004: only after package + Accepted) ──
+async function requirePostDecision(supabase, caseId) {
+  const { data: sc } = await supabase.from('surgical_cases').select('package_id, decision').eq('id', caseId).single();
+  if (!(sc?.package_id && sc.decision === 'Accepted')) {
+    return 'BR-SCC-004: Package must be confirmed and the patient decision must be Accepted first.';
+  }
+  return null;
+}
+
+export async function markInvestigationsComplete(caseId) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+  const { error } = await supabase.from('surgical_cases').update({ investigations_complete: true }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function markFitnessCleared(caseId) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+  const { error } = await supabase.from('surgical_cases').update({ fitness_cleared: true }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Ready for Scheduling ──
+// NOTE: this intentionally does NOT require consent_taken. Per BR-SCC-005,
+// consent is taken day-of-surgery (day-care model), not a pre-scheduling
+// gate here -- that belongs to the Intraoperative module (M25). This is a
+// behavior change from the previous version of this function, which did
+// require consent_taken.
+export async function markReadyForScheduling(caseId) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('*').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  if (!sc.biometry_done && sc.biometry_required !== false) return { error: 'VAL-SCC-002: Biometry & IOL type advice must be complete.' };
+  if (!sc.package_id) return { error: 'VAL-SCC-002: Select a package first.' };
+  if (sc.decision !== 'Accepted') return { error: 'VAL-SCC-002: Patient decision must be Accepted.' };
+  if (!sc.investigations_complete) return { error: 'VAL-SCC-002: Investigations must be complete.' };
+  if (!sc.fitness_cleared) return { error: 'VAL-SCC-002: Medical fitness must be cleared.' };
+
+  const { error } = await supabase.from('surgical_cases').update({ status: 'Ready for Scheduling' }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function referBackToDoctor(caseId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ status: 'Pending Workup' }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Surgeons (used by OT Scheduling -- keep shape unchanged) ──
+export async function getSurgeons() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('profiles').select('id, full_name').ilike('designation', '%ophthalmologist%').eq('status', 'Active');
+  return data || [];
+}
+
+// ── OT Scheduling (used by app/(main)/ot-schedule/page.js -- keep unchanged) ──
+export async function scheduleOT(caseId, surgeonId, date, time, notes) {
+  const supabase = await createClient();
+
+  const { error: otError } = await supabase.from('ot_schedule').insert({
+    surgical_case_id: caseId, surgeon_id: surgeonId || null, scheduled_date: date, scheduled_time: time || null, notes,
+  });
+  if (otError) return { error: otError.message };
+
+  const { error: caseError } = await supabase.from('surgical_cases').update({ status: 'Scheduled' }).eq('id', caseId);
+  if (caseError) return { error: caseError.message };
+
+  return { success: true };
+}
+
+export async function getOTSchedule() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('ot_schedule')
+    .select('*, surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid)), profiles(full_name)')
+    .neq('status', 'Cancelled')
+    .order('scheduled_date', { ascending: true });
+  if (error) return [];
+  return data;
+}
+
+export async function completeOT(otScheduleId, surgicalCaseId) {
+  const supabase = await createClient();
+
+  const { error: otError } = await supabase.from('ot_schedule').update({ status: 'Completed' }).eq('id', otScheduleId);
+  if (otError) return { error: otError.message };
+
+  const { error: caseError } = await supabase.from('surgical_cases').update({ status: 'Completed' }).eq('id', surgicalCaseId);
+  if (caseError) return { error: caseError.message };
+
+  return { success: true };
+}
+
+COUNS_ACTIONS_EOF
+
+cat > 'app/(main)/counselling/page.js' << 'COUNS_PAGE_EOF'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -5,15 +397,23 @@ import {
   getCounsellingCases, getPackagesForCase, selectPackage, changePackage,
   setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
   markInvestigationsComplete, markFitnessCleared, markReadyForScheduling, referBackToDoctor,
-  sendForBiometry, getSurgeons, getOTAvailability, bookOTSlot, getOTSchedule, completeOT,
+  sendForBiometry, skipBiometry, unskipBiometry,
 } from './actions';
+
+// Biometry is satisfied either by actually being done, or by having
+// been explicitly marked not required for this case (retina, glaucoma,
+// oculoplasty...). Every gate that used to check biometry_done alone
+// now goes through this.
+function biometrySatisfied(sc) {
+  return sc.biometry_done || sc.biometry_required === false;
+}
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 
 function readiness(sc) {
   const items = [
     { key: 'surgeryRec', label: 'Surgery Recommended', done: true },
-    { key: 'biometry', label: 'Biometry & IOL Type Advised (M23)', done: sc.biometry_done },
+    { key: 'biometry', label: sc.biometry_required === false ? 'Biometry & IOL Type Advised (M23) -- Skipped' : 'Biometry & IOL Type Advised (M23)', done: biometrySatisfied(sc) },
     { key: 'investigations', label: 'Investigations complete', done: sc.investigations_complete },
     { key: 'fitness', label: 'Medical Fitness', done: sc.fitness_cleared },
     { key: 'advance', label: 'Advance Payment', done: !!sc.advance_payment_id },
@@ -28,11 +428,11 @@ function PackagePicker({ sc, onUpdate }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!sc.biometry_done) { setLoading(false); return; }
+    if (!biometrySatisfied(sc)) { setLoading(false); return; }
     getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoading(false); });
-  }, [sc.biometry_done, sc.iol_category]);
+  }, [sc.biometry_done, sc.biometry_required, sc.iol_category]);
 
-  if (!sc.biometry_done) {
+  if (!biometrySatisfied(sc)) {
     return (
       <div style={{ textAlign: 'center', padding: 20, color: 'var(--g400)', fontSize: 12.5, background: 'var(--g50)', borderRadius: 'var(--r)' }}>
         <i className="ti ti-lock" style={{ fontSize: 20, display: 'block', marginBottom: 6 }}></i>
@@ -185,111 +585,6 @@ function CounsellingSection({ num, color, title, badge, open, onToggle, children
   );
 }
 
-// ── 6. Book Surgery Slot -- last step of Counselling, replaces the old
-//    standalone OT Scheduling module. Picking a date loads that date's OT
-//    sessions (Morning/Midday/Afternoon etc, from Financial Masters) with
-//    live booked/remaining counts so the counsellor books strictly within
-//    capacity. ──
-function BookSurgerySlot({ sc, onUpdate }) {
-  const [surgeons, setSurgeons] = useState([]);
-  const [surgeonId, setSurgeonId] = useState(sc.surgeon_id || '');
-  const [date, setDate] = useState('');
-  const [sessions, setSessions] = useState([]);
-  const [sessionId, setSessionId] = useState('');
-  const [notes, setNotes] = useState('');
-  const [loadingSessions, setLoadingSessions] = useState(false);
-  const [booking, setBooking] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => { getSurgeons().then(setSurgeons); }, []);
-
-  useEffect(() => {
-    setSessionId('');
-    setError('');
-    if (!date) { setSessions([]); return; }
-    setLoadingSessions(true);
-    getOTAvailability(date).then((rows) => { setSessions(rows); setLoadingSessions(false); });
-  }, [date]);
-
-  async function handleBook() {
-    setError('');
-    if (!date) { setError('Pick a date.'); return; }
-    if (!sessionId) { setError('Select an OT session.'); return; }
-    setBooking(true);
-    const result = await bookOTSlot(sc.id, date, sessionId, surgeonId, notes);
-    setBooking(false);
-    if (result.error) { setError(result.error); return; }
-    onUpdate();
-  }
-
-  return (
-    <div>
-      {error && <div className="msg-err">{error}</div>}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-        <div>
-          <label className="flbl">Surgeon</label>
-          <select className="fi" value={surgeonId} onChange={(e) => setSurgeonId(e.target.value)}>
-            <option value="">-- Surgeon --</option>
-            {surgeons.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="flbl">Surgery Date</label>
-          <input type="date" className="fi" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
-        </div>
-      </div>
-
-      {date && (
-        <div style={{ marginBottom: 10 }}>
-          <label className="flbl">OT Session</label>
-          {loadingSessions ? (
-            <div style={{ fontSize: 12, color: 'var(--g400)' }}>Checking availability...</div>
-          ) : sessions.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--g400)' }}>No active OT sessions configured.</div>
-          ) : (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {sessions.map((s) => {
-                const full = s.remaining <= 0;
-                const selected = sessionId === s.session_id;
-                return (
-                  <button
-                    key={s.session_id}
-                    type="button"
-                    disabled={full}
-                    onClick={() => setSessionId(s.session_id)}
-                    className="btn btn-sm"
-                    style={{
-                      textAlign: 'left', minWidth: 160,
-                      background: selected ? 'var(--purple)' : full ? 'var(--g100)' : '',
-                      color: selected ? '#fff' : full ? 'var(--g400)' : '',
-                      borderColor: selected ? 'transparent' : '',
-                      cursor: full ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700 }}>{s.name}</div>
-                    <div style={{ fontSize: 10.5, opacity: .85 }}>
-                      {s.start_time?.slice(0, 5)}--{s.end_time?.slice(0, 5)} -- {s.default_room || 'Room TBD'}
-                    </div>
-                    <div style={{ fontSize: 10.5, opacity: .85 }}>
-                      {full ? 'FULL' : `${s.remaining} of ${s.capacity} slots left`}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      <input className="fi" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ marginBottom: 10 }} />
-
-      <button className="btn btn-primary btn-sm" onClick={handleBook} disabled={booking || !date || !sessionId}>
-        {booking ? 'Booking...' : 'Confirm Surgery Slot'}
-      </button>
-    </div>
-  );
-}
-
 function CaseWorkspace({ sc, onUpdate }) {
   const [error, setError] = useState('');
   const [ancillaryMsg, setAncillaryMsg] = useState(null); // { type: 'error'|'success', text }
@@ -326,6 +621,22 @@ function CaseWorkspace({ sc, onUpdate }) {
     onUpdate();
   }
 
+  async function handleSkipBiometry() {
+    const reason = window.prompt('Why is Biometry not required for this case? (e.g. Retina surgery -- no IOL power needed)');
+    if (reason === null) return;
+    setAncillaryMsg(null);
+    const result = await skipBiometry(sc.id, reason);
+    if (result.error) { setAncillaryMsg({ type: 'error', text: result.error }); return; }
+    onUpdate();
+  }
+
+  async function handleUnskipBiometry() {
+    setAncillaryMsg(null);
+    const result = await unskipBiometry(sc.id);
+    if (result.error) { setAncillaryMsg({ type: 'error', text: result.error }); return; }
+    onUpdate();
+  }
+
   const advancePaid = !!sc.advance_payment_id;
   const investigationsItem = items.find((i) => i.key === 'investigations');
   const fitnessItem = items.find((i) => i.key === 'fitness');
@@ -358,7 +669,7 @@ function CaseWorkspace({ sc, onUpdate }) {
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 10, opacity: .7 }}>IOL Type Advised</div>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.iol_category || 'Pending biometry'}</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.iol_category || (sc.biometry_required === false ? 'Not applicable' : 'Pending biometry')}</div>
           <span className={`badge ${sc.status === 'Ready for Scheduling' ? 'b-green' : 'b-amber'}`} style={{ marginTop: 4 }}>{sc.status}</span>
           <div style={{ fontSize: 10, opacity: .7, marginTop: 4 }}>{pct}% ready</div>
         </div>
@@ -380,6 +691,8 @@ function CaseWorkspace({ sc, onUpdate }) {
         badge={
           sc.biometry_done
             ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span>
+            : sc.biometry_required === false
+            ? <span className="badge b-purple">Not Required</span>
             : sc.biometry_record
             ? <span className="badge b-blue">Awaiting Technician</span>
             : <span className="badge b-amber">Not sent</span>
@@ -387,6 +700,11 @@ function CaseWorkspace({ sc, onUpdate }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {sc.biometry_done ? (
             <span className="badge b-green"><i className="ti ti-check"></i> Biometry Complete -- {sc.iol_category}</span>
+          ) : sc.biometry_required === false ? (
+            <>
+              <span className="badge b-purple"><i className="ti ti-player-skip-forward"></i> Not required -- {sc.biometry_skip_reason}</span>
+              <button className="btn btn-sm" onClick={handleUnskipBiometry} style={{ fontSize: 11 }}>Undo -- make required again</button>
+            </>
           ) : sc.biometry_record ? (
             <>
               <span className="badge b-blue"><i className="ti ti-clock"></i> Biometry Requested -- Awaiting Technician</span>
@@ -395,9 +713,14 @@ function CaseWorkspace({ sc, onUpdate }) {
               </button>
             </>
           ) : (
-            <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry}>
-              <i className="ti ti-ruler-measure"></i> {sendingBiometry ? 'Sending...' : 'Send for Biometry'}
-            </button>
+            <>
+              <button className="btn btn-sm" onClick={handleSendForBiometry} disabled={sendingBiometry}>
+                <i className="ti ti-ruler-measure"></i> {sendingBiometry ? 'Sending...' : 'Send for Biometry'}
+              </button>
+              <button className="btn btn-sm" onClick={handleSkipBiometry} style={{ fontSize: 11 }}>
+                <i className="ti ti-player-skip-forward"></i> Not required for this surgery
+              </button>
+            </>
           )}
           {ancillaryMsg && (
             <span style={{ fontSize: 11.5, color: ancillaryMsg.type === 'error' ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>
@@ -482,20 +805,6 @@ function CaseWorkspace({ sc, onUpdate }) {
         <NotesPanel caseId={sc.id} />
       </div>
 
-      {/* 6. BOOK SURGERY SLOT -- only once Ready for Scheduling */}
-      {sc.status === 'Ready for Scheduling' && (
-        <CounsellingSection num={6} color="var(--indigo)" title="Book Surgery Slot" open onToggle={() => {}}
-          badge={<span className="badge b-green"><i className="ti ti-check"></i> Ready</span>}>
-          <BookSurgerySlot sc={sc} onUpdate={onUpdate} />
-        </CounsellingSection>
-      )}
-
-      {sc.status === 'Scheduled' && (
-        <div className="msg-success" style={{ marginBottom: 16 }}>
-          <i className="ti ti-circle-check"></i> Surgery slot booked -- see the OT Calendar tab.
-        </div>
-      )}
-
       <div style={{ display: 'flex', gap: 8 }}>
         <button
           className="btn btn-sm"
@@ -505,6 +814,11 @@ function CaseWorkspace({ sc, onUpdate }) {
         </button>
         {sc.status === 'Pending Workup' && (
           <button className="btn btn-primary btn-sm" onClick={handleReady}>Ready for Scheduling (VAL-SCC-002)</button>
+        )}
+        {sc.status === 'Ready for Scheduling' && (
+          <div className="msg-success" style={{ margin: 0 }}>
+            <i className="ti ti-circle-check"></i> Ready -- go to OT Scheduling to book a date.
+          </div>
         )}
       </div>
     </div>
@@ -530,7 +844,7 @@ const STAGE_MAP = Object.fromEntries(STAGES.map((s) => [s.key, s]));
 
 function getStage(sc) {
   if (sc.status === 'Ready for Scheduling') return 'ready';
-  if (!sc.biometry_done) return sc.biometry_record ? 'awaiting_biometry' : 'surgery_advised';
+  if (!sc.biometry_done && sc.biometry_required !== false) return sc.biometry_record ? 'awaiting_biometry' : 'surgery_advised';
   if (!sc.package_id) return 'awaiting_package';
   if (sc.decision === 'Declined') return 'declined';
   if (sc.decision === 'Financial Constraint') return 'financial_constraint';
@@ -650,62 +964,6 @@ function CounsellingDashboard({ cases, onOpen }) {
   );
 }
 
-// ── OT Calendar tab -- the read-only schedule + Complete action that used
-//    to be the whole of the standalone OT Scheduling page. Booking itself
-//    now happens inline in each case's workspace (BookSurgerySlot above). ──
-function OTCalendar() {
-  const [schedule, setSchedule] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    setSchedule(await getOTSchedule());
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  async function handleComplete(otId, caseId) {
-    await completeOT(otId, caseId);
-    refresh();
-  }
-
-  if (loading) return <div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading OT calendar...</div>;
-
-  return (
-    <div className="card">
-      <div className="card-title" style={{ marginBottom: 10 }}>
-        <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> OT Calendar
-      </div>
-      <table className="tbl">
-        <thead>
-          <tr><th>Date</th><th>Session</th><th>Room</th><th>Patient</th><th>Procedure</th><th>Surgeon</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody>
-          {schedule.map((s) => (
-            <tr key={s.id}>
-              <td>{new Date(s.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
-              <td>{s.scheduled_time?.slice(0, 5) || '--'}</td>
-              <td>{s.room || '--'}</td>
-              <td>{s.surgical_cases?.patients?.first_name} {s.surgical_cases?.patients?.last_name}</td>
-              <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
-              <td>{s.profiles?.full_name || '--'}</td>
-              <td><span className={`badge ${s.status === 'Completed' ? 'b-green' : 'b-blue'}`}>{s.status}</span></td>
-              <td>
-                {s.status === 'Scheduled' && (
-                  <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id)}>Complete</button>
-                )}
-              </td>
-            </tr>
-          ))}
-          {schedule.length === 0 && (
-            <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No surgeries scheduled.</td></tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function TabButton({ active, onClick, icon, label, disabled }) {
   return (
     <button
@@ -747,7 +1005,6 @@ export default function CounsellingPage() {
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 420 }}>
         <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
         <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-messages" label="Workspace" disabled={!selectedCase} />
-        <TabButton active={activeTab === 'otcalendar'} onClick={() => setActiveTab('otcalendar')} icon="ti-calendar-event" label="OT Calendar" />
       </div>
 
       {activeTab === 'dashboard' && <CounsellingDashboard cases={cases} onOpen={openCase} />}
@@ -766,8 +1023,17 @@ export default function CounsellingPage() {
           Select a patient from the Dashboard tab.
         </div>
       )}
-
-      {activeTab === 'otcalendar' && <OTCalendar />}
     </div>
   );
 }
+
+COUNS_PAGE_EOF
+
+echo 'Files written. Running build check...'
+npm run build
+
+echo ''
+echo 'Build succeeded. Review the changes, then commit:'
+echo '  git add "app/(main)/counselling/actions.js" "app/(main)/counselling/page.js"'
+echo '  git commit -m "Make Biometry step optional in Counselling for surgeries that dont need it"'
+echo '  git push'

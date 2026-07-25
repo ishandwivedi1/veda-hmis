@@ -1,0 +1,504 @@
+#!/bin/bash
+set -e
+
+echo 'Applying: date filter + sorting on Investigation History...'
+
+mkdir -p 'app/(main)/investigation/history'
+
+cat > 'app/(main)/investigation/actions.js' << 'INV_ACTIONS_EOF'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+
+// ── QUEUE (Ordered + In Progress, grouped by visit) plus today's KPI
+// stats for the Queue screen's summary cards. ──
+export async function getInvestigationQueue() {
+  const supabase = await createClient();
+
+  const { data: pending, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters(id, visit_id, visits(id, patients(first_name, last_name, uhid)))')
+    .in('status', ['Ordered', 'In Progress'])
+    .order('priority', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) return { groups: [], stats: { ordered: 0, inProgress: 0, availableToday: 0, totalToday: 0 } };
+
+  const groups = {};
+  (pending || []).forEach((io) => {
+    const visitId = io.encounters?.visit_id;
+    if (!visitId) return;
+    if (!groups[visitId]) {
+      groups[visitId] = { visitId, patient: io.encounters.visits.patients, items: [] };
+    }
+    groups[visitId].items.push(io);
+  });
+
+  const ordered = (pending || []).filter((i) => i.status === 'Ordered').length;
+  const inProgress = (pending || []).filter((i) => i.status === 'In Progress').length;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const { data: todayOrders } = await supabase
+    .from('investigation_orders')
+    .select('id, status, verified_at, created_at')
+    .gte('created_at', todayStart.toISOString());
+
+  const availableToday = (todayOrders || []).filter((o) => o.status === 'Available' && o.verified_at && new Date(o.verified_at) >= todayStart).length;
+  const totalToday = (todayOrders || []).length;
+
+  return { groups: Object.values(groups), stats: { ordered, inProgress, availableToday, totalToday } };
+}
+
+// ── WORKSPACE: single order detail, with patient/doctor context ──
+export async function getInvestigationDetail(id) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters(id, visit_id, doctor_id, visits(id, visit_number, patients(first_name, last_name, uhid, age, gender)))')
+    .eq('id', id)
+    .single();
+
+  if (error) return { error: error.message };
+
+  let doctorName = '--';
+  if (data.encounters?.doctor_id) {
+    const { data: doc } = await supabase.from('profiles').select('full_name').eq('id', data.encounters.doctor_id).maybeSingle();
+    doctorName = doc?.full_name || '--';
+  }
+
+  return { order: data, doctorName };
+}
+
+export async function startInvestigation(id) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('investigation_orders').update({ status: 'In Progress' }).eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Persists whatever's been entered so far without changing status --
+// technician can leave and resume later, patient stays in the queue.
+export async function saveInvestigationDraft(id, resultData, remarks) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('investigation_orders')
+    .update({ result_data: resultData, result_notes: remarks })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function completeInvestigation(id, resultData, remarks) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('investigation_orders')
+    .update({
+      status: 'Completed',
+      result_data: resultData,
+      result_notes: remarks || null,
+      completed_at: new Date().toISOString(),
+      completed_by: userData?.user?.id || null,
+    })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Verification is the gate between "technically done" and "visible to
+// the doctor" -- status jumps straight to Available once every checklist
+// item is confirmed (there's no separate persisted "Verified" state;
+// it's a visual timeline step on the way to Available).
+export async function verifyInvestigation(id, checklist) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const allChecked = Object.values(checklist).every(Boolean) && Object.keys(checklist).length > 0;
+  if (!allChecked) return { error: 'All verification items must be checked before verifying.' };
+
+  const { error } = await supabase
+    .from('investigation_orders')
+    .update({
+      status: 'Available',
+      verification_checklist: checklist,
+      verified_by: userData?.user?.id || null,
+      verified_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function markUnableToPerform(id, reason) {
+  const supabase = await createClient();
+  if (!reason || !reason.trim()) return { error: 'A reason is required.' };
+  const { error } = await supabase
+    .from('investigation_orders')
+    .update({ status: 'Cancelled', unable_reason: reason })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── FRONT OFFICE BILLING QUEUE ──
+// Every investigation lands here the moment it's ordered from
+// Consultation, regardless of lab status -- Front Office bills as soon
+// as the doctor orders it, it doesn't wait on the lab. Grouped by visit
+// the same way the lab's own Queue screen is, so it reads the same way.
+export async function getPendingInvestigationBilling() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, last_name, uhid, mobile)))')
+    .in('billing_status', ['Pending', 'Deferred'])
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: true });
+
+  if (error) return [];
+
+  const groups = {};
+  (data || []).forEach((io) => {
+    const visitId = io.encounters?.visit_id;
+    const visit = io.encounters?.visits;
+    if (!visitId || !visit) return;
+    if (!groups[visitId]) {
+      groups[visitId] = { visitId, visitNumber: visit.visit_number, patient: visit.patients, items: [] };
+    }
+    groups[visitId].items.push(io);
+  });
+
+  return Object.values(groups);
+}
+
+async function setInvestigationBillingStatus(id, billingStatus, note) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('investigation_orders')
+    .update({
+      billing_status: billingStatus,
+      billing_note: note || null,
+      billing_updated_by: userData?.user?.id || null,
+      billing_updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function markInvestigationDenied(id, note) {
+  return setInvestigationBillingStatus(id, 'Denied', note);
+}
+
+export async function markInvestigationDeferred(id, note) {
+  return setInvestigationBillingStatus(id, 'Deferred', note);
+}
+
+// Undo a Denied/Deferred mark -- puts it back in the Front Office queue.
+export async function resetInvestigationBilling(id) {
+  return setInvestigationBillingStatus(id, 'Pending', null);
+}
+
+// ── HISTORY ──
+// Every investigation ever ordered, regardless of status -- filtering
+// happens client-side (patient/type dropdowns) since a single-hospital
+// dataset is small enough that a broad fetch is simpler and fast enough,
+// same approach the rest of this module already takes.
+export async function getInvestigationHistory(fromDate, toDate) {
+  const supabase = await createClient();
+  let query = supabase
+    .from('investigation_orders')
+    .select('*, encounters(id, visit_id, doctor_id, visits(id, visit_number, patients(id, first_name, last_name, uhid)))')
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  // Applied before the row cap so a date range reaches further back
+  // than the default "most recent 500" would otherwise allow.
+  if (fromDate) query = query.gte('created_at', `${fromDate}T00:00:00`);
+  if (toDate) query = query.lte('created_at', `${toDate}T23:59:59`);
+
+  const { data, error } = await query;
+  if (error) return { error: error.message };
+
+  const doctorIds = (data || []).map((o) => o.encounters?.doctor_id).filter(Boolean);
+  const staffIds = (data || []).flatMap((o) => [o.completed_by, o.verified_by]).filter(Boolean);
+  const allIds = [...new Set([...doctorIds, ...staffIds])];
+
+  let profileMap = {};
+  if (allIds.length > 0) {
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', allIds);
+    (profiles || []).forEach((p) => { profileMap[p.id] = p.full_name; });
+  }
+
+  const rows = (data || []).map((o) => ({
+    ...o,
+    doctorName: profileMap[o.encounters?.doctor_id] || '--',
+    performedByName: profileMap[o.verified_by] || profileMap[o.completed_by] || '--',
+  }));
+
+  return { rows };
+}
+
+// ── LONGITUDINAL COMPARISON ──
+export async function searchPatientsForInvestigation(q) {
+  if (!q) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('patients')
+    .select('id, uhid, first_name, last_name')
+    .or(`uhid.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+    .limit(10);
+  return data || [];
+}
+
+export async function getInvestigationComparisonData(patientId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters!inner(id, visit_id, visits!inner(id, patient_id))')
+    .eq('encounters.visits.patient_id', patientId)
+    .in('status', ['Completed', 'Available'])
+    .order('created_at', { ascending: true });
+  if (error) return { error: error.message };
+  return { rows: data || [] };
+}
+
+// ── REPORTS ──
+export async function getInvestigationReport(reportId, fromDate, toDate) {
+  const supabase = await createClient();
+  const fromIso = `${fromDate}T00:00:00`;
+  const toIso = `${toDate}T23:59:59`;
+
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters(id, doctor_id, visits(id, patients(first_name, last_name, uhid)))')
+    .gte('created_at', fromIso)
+    .lte('created_at', toIso)
+    .order('created_at', { ascending: false });
+  if (error) return { title: 'Error', headers: [], rows: [] };
+
+  const doctorIds = [...new Set((data || []).map((o) => o.encounters?.doctor_id).filter(Boolean))];
+  let profileMap = {};
+  if (doctorIds.length > 0) {
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', doctorIds);
+    (profiles || []).forEach((p) => { profileMap[p.id] = p.full_name; });
+  }
+  const doctorName = (o) => profileMap[o.encounters?.doctor_id] || '--';
+  const patientName = (o) => {
+    const p = o.encounters?.visits?.patients;
+    return p ? `${p.first_name} ${p.last_name} (${p.uhid})` : '--';
+  };
+
+  if (reportId === 'register') {
+    return {
+      title: 'Daily Investigation Register',
+      headers: ['Date', 'Patient', 'Investigation', 'Eye', 'Status', 'Doctor'],
+      rows: (data || []).map((o) => ({
+        cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.eye, o.status, doctorName(o)],
+      })),
+    };
+  }
+
+  if (reportId === 'type_summary') {
+    const counts = {};
+    (data || []).forEach((o) => {
+      const n = (o.name || '').toLowerCase();
+      const type = n.includes('oct') ? 'OCT' : (n.includes('visual field') || n.includes(' vf')) ? 'Visual Field' : n.includes('fundus') ? 'Fundus Photography' : 'External Report';
+      counts[type] = (counts[type] || 0) + 1;
+    });
+    return {
+      title: 'Investigation Type Summary',
+      headers: ['Type', 'Count'],
+      rows: Object.entries(counts).map(([type, count]) => ({ cols: [type, count] })),
+    };
+  }
+
+  if (reportId === 'pending') {
+    const pending = (data || []).filter((o) => o.status === 'Ordered' || o.status === 'In Progress');
+    return {
+      title: 'Pending Investigations',
+      headers: ['Date', 'Patient', 'Investigation', 'Eye', 'Status', 'Doctor'],
+      rows: pending.map((o) => ({
+        cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.eye, o.status, doctorName(o)],
+      })),
+    };
+  }
+
+  if (reportId === 'quality') {
+    const cancelled = (data || []).filter((o) => o.status === 'Cancelled');
+    const total = (data || []).length;
+    const rows = cancelled.map((o) => ({
+      cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.unable_reason || '--'],
+    }));
+    rows.push({ cols: [`Total ordered in period: ${total}`, `Unable to perform: ${cancelled.length}`, '', ''] });
+    return {
+      title: 'Quality Report -- Unable to Perform',
+      headers: ['Date', 'Patient', 'Investigation', 'Reason'],
+      rows,
+    };
+  }
+
+  return { title: 'Unknown report', headers: [], rows: [] };
+}
+
+INV_ACTIONS_EOF
+
+cat > 'app/(main)/investigation/history/page.js' << 'INV_HISTORY_EOF'
+'use client';
+
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { getInvestigationHistory } from '../actions';
+import { matchInvestigationType, summarizeResultData } from '../investigation-types';
+import InvestigationTabs from '../investigation-tabs';
+
+const STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
+
+const SORT_OPTIONS = [
+  { value: 'date_desc', label: 'Newest first' },
+  { value: 'date_asc', label: 'Oldest first' },
+  { value: 'patient_asc', label: 'Patient (A-Z)' },
+  { value: 'status', label: 'Status' },
+];
+
+function patientLabel(r) {
+  const p = r.encounters?.visits?.patients;
+  return p ? `${p.first_name} ${p.last_name}` : '';
+}
+
+export default function InvestigationHistoryPage() {
+  const [rows, setRows] = useState([]);
+  const [patientFilter, setPatientFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [sortBy, setSortBy] = useState('date_desc');
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+
+  const refresh = useCallback(async (from, to) => {
+    setLoading(true);
+    const result = await getInvestigationHistory(from || undefined, to || undefined);
+    setLoading(false);
+    setRows(result.rows || []);
+  }, []);
+
+  useEffect(() => { refresh(fromDate, toDate); }, [fromDate, toDate, refresh]);
+
+  function clearDates() {
+    setFromDate('');
+    setToDate('');
+  }
+
+  const patients = useMemo(() => {
+    const map = new Map();
+    rows.forEach((r) => {
+      const p = r.encounters?.visits?.patients;
+      if (p && !map.has(p.id)) map.set(p.id, p);
+    });
+    return [...map.values()];
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const result = rows.filter((r) => {
+      if (patientFilter && r.encounters?.visits?.patients?.id !== patientFilter) return false;
+      if (typeFilter && matchInvestigationType(r.name) !== typeFilter) return false;
+      return true;
+    });
+
+    const sorted = [...result];
+    if (sortBy === 'date_desc') sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    else if (sortBy === 'date_asc') sorted.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    else if (sortBy === 'patient_asc') sorted.sort((a, b) => patientLabel(a).localeCompare(patientLabel(b)));
+    else if (sortBy === 'status') sorted.sort((a, b) => a.status.localeCompare(b.status));
+    return sorted;
+  }, [rows, patientFilter, typeFilter, sortBy]);
+
+  return (
+    <div>
+      <InvestigationTabs />
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-head" style={{ marginBottom: 10 }}>
+          <div className="card-title"><i className="ti ti-history" style={{ color: 'var(--teal)' }}></i> Investigation History</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div>
+            <label className="flbl">From</label>
+            <input type="date" className="fi" style={{ width: 150 }} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="flbl">To</label>
+            <input type="date" className="fi" style={{ width: 150 }} value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          </div>
+          {(fromDate || toDate) && (
+            <button className="btn btn-sm" style={{ alignSelf: 'flex-end' }} onClick={clearDates}>
+              <i className="ti ti-x"></i> Clear dates
+            </button>
+          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignSelf: 'flex-end' }}>
+            <select className="fi" style={{ width: 'auto', padding: '7px 10px', fontSize: 12 }} value={patientFilter} onChange={(e) => setPatientFilter(e.target.value)}>
+              <option value="">All patients</option>
+              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name} -- {p.uhid}</option>)}
+            </select>
+            <select className="fi" style={{ width: 'auto', padding: '7px 10px', fontSize: 12 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <option value="">All types</option>
+              <option value="OCT">OCT</option>
+              <option value="Visual Field">Visual Field</option>
+              <option value="Fundus Photography">Fundus Photography</option>
+              <option value="External Report">External Report</option>
+            </select>
+            <select className="fi" style={{ width: 'auto', padding: '7px 10px', fontSize: 12 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              {SORT_OPTIONS.map((s) => <option key={s.value} value={s.value}>Sort: {s.label}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <table className="tbl">
+          <thead>
+            <tr><th>Date/Time</th><th>Patient</th><th>Investigation</th><th>Eye</th><th>Key values</th><th>Status</th><th>Doctor</th><th>Performed by</th></tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => {
+              const p = r.encounters?.visits?.patients;
+              const type = matchInvestigationType(r.name);
+              return (
+                <tr key={r.id} onClick={() => router.push(`/investigation/${r.id}`)} style={{ cursor: 'pointer' }}>
+                  <td style={{ fontSize: 11 }}>{new Date(r.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                  <td>
+                    <strong>{p?.first_name} {p?.last_name}</strong>
+                    <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{p?.uhid}</span>
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{r.name}</td>
+                  <td><span className="badge b-blue" style={{ fontSize: 10 }}>{r.eye}</span></td>
+                  <td style={{ fontSize: 11, color: 'var(--g600)' }}>{summarizeResultData(type, r.result_data)}</td>
+                  <td><span className={`badge ${STATUS_BADGE[r.status] || 'b-gray'}`}>{r.status}</span></td>
+                  <td style={{ fontSize: 11 }}>{r.doctorName}</td>
+                  <td style={{ fontSize: 11, color: 'var(--g400)' }}>{r.performedByName}</td>
+                </tr>
+              );
+            })}
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No records found.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+INV_HISTORY_EOF
+
+echo 'Files written. Running build check...'
+npm run build
+
+echo ''
+echo 'Build succeeded. Review the changes, then commit:'
+echo '  git add "app/(main)/investigation/actions.js" "app/(main)/investigation/history/page.js"'
+echo '  git commit -m "Add date filter and sorting to Investigation History"'
+echo '  git push'
