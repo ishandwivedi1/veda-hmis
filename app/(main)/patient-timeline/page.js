@@ -1,15 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { searchPatients, getPatientTimeline } from './actions';
+import { openPopup } from '@/lib/popup';
 
+// Same mapping used in the Consultation workspace's context sidebar --
+// kept identical across both so an event type reads as the same color
+// everywhere in the app.
 const TYPE_COLOR = {
-  Visit: 'var(--blue)',
-  Diagnosis: 'var(--red)',
+  Visit: 'var(--indigo)',
+  Diagnosis: 'var(--blue)',
   Investigation: 'var(--teal)',
   Prescription: 'var(--purple)',
-  Surgery: 'var(--amber)',
+  Surgery: 'var(--red)',
 };
 const TYPE_ICON = {
   Visit: 'ti-door-enter',
@@ -19,7 +24,7 @@ const TYPE_ICON = {
   Surgery: 'ti-scalpel',
 };
 
-export default function PatientTimelinePage() {
+function PatientTimelineInner() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [patient, setPatient] = useState(null);
@@ -27,6 +32,7 @@ export default function PatientTimelinePage() {
   const [filter, setFilter] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [loading, setLoading] = useState(false);
+  const searchParams = useSearchParams();
 
   async function handleSearch(val) {
     setQuery(val);
@@ -35,16 +41,28 @@ export default function PatientTimelinePage() {
     setResults(rows);
   }
 
-  async function handleSelectPatient(p) {
+  const loadPatientById = useCallback(async (patientId) => {
     setLoading(true);
     setResults([]);
-    setQuery(`${p.first_name} ${p.last_name} -- ${p.uhid}`);
     setSelectedEvent(null);
-    const result = await getPatientTimeline(p.id);
+    const result = await getPatientTimeline(patientId);
     setLoading(false);
     setPatient(result.patient);
-    setEvents(result.events);
+    setEvents(result.events || []);
+    if (result.patient) setQuery(`${result.patient.first_name} ${result.patient.last_name} -- ${result.patient.uhid}`);
+  }, []);
+
+  async function handleSelectPatient(p) {
+    await loadPatientById(p.id);
   }
+
+  // Deep link from elsewhere in the app (e.g. the Consultation workspace's
+  // "Open full timeline" link) -- skip the search step and load directly.
+  useEffect(() => {
+    const patientId = searchParams.get('patientId');
+    if (patientId) loadPatientById(patientId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const filteredEvents = filter ? events.filter((e) => e.type === filter) : events;
   const counts = {};
@@ -149,6 +167,15 @@ export default function PatientTimelinePage() {
                 {selectedEvent.type === 'Visit' && !selectedEvent.queueEntryId && (
                   <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 6 }}>No clinical record was created for this visit.</div>
                 )}
+                {selectedEvent.type === 'Investigation' && selectedEvent.id && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
+                    onClick={() => openPopup(`/investigation/${selectedEvent.id}?mode=view`, `inv-${selectedEvent.id}`)}
+                  >
+                    <i className="ti ti-eye"></i> View Result
+                  </button>
+                )}
               </div>
             )}
 
@@ -175,5 +202,13 @@ export default function PatientTimelinePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PatientTimelinePage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--g400)' }}>Loading...</div>}>
+      <PatientTimelineInner />
+    </Suspense>
   );
 }

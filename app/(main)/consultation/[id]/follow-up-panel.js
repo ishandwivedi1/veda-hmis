@@ -127,8 +127,20 @@ export function PreviousVisitSummary({ summary }) {
   );
 }
 
-const EVENT_ICON = { Visit: 'ti-door-enter', Diagnosis: 'ti-stethoscope', Investigation: 'ti-flask', Prescription: 'ti-pill', Surgery: 'ti-scalpel' };
+// Same mapping as the standalone Patient Timeline module -- kept
+// identical across both so an event type reads as the same color
+// everywhere in the app, not just within this sidebar.
+const EVENT_ICON = { Visit: 'ti-door-enter', Diagnosis: 'ti-clipboard-list', Investigation: 'ti-flask', Prescription: 'ti-pill', Surgery: 'ti-scalpel' };
 const EVENT_COLOR = { Visit: 'var(--indigo)', Diagnosis: 'var(--blue)', Investigation: 'var(--teal)', Prescription: 'var(--purple)', Surgery: 'var(--red)' };
+
+function EventTypeChip({ type }) {
+  const color = EVENT_COLOR[type] || 'var(--g500)';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 999, background: `${color}1a`, color, fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.3px' }}>
+      <i className={`ti ${EVENT_ICON[type] || 'ti-point'}`} style={{ fontSize: 10 }}></i> {type}
+    </span>
+  );
+}
 
 // ── Context sidebar -- lives alongside the workspace, separate from the
 //    Encounter Status panel on the right. Pulls the same cross-visit
@@ -167,26 +179,32 @@ export function ContextSidebar({ patientId, previousVisitSummary }) {
         {events && events.length > 0 && (
           <div style={{ maxHeight: 300, overflowY: 'auto' }}>
             {events.slice(0, 25).map((e, idx) => {
-              const clickable = e.type === 'Visit' && !!e.queueEntryId;
+              const clickable = (e.type === 'Visit' && !!e.queueEntryId) || (e.type === 'Investigation' && !!e.id);
+              function handleClick() {
+                if (e.type === 'Visit' && e.queueEntryId) window.open(`/consultation/${e.queueEntryId}`, '_blank', 'noopener,noreferrer');
+                else if (e.type === 'Investigation' && e.id) openPopup(`/investigation/${e.id}?mode=view`, `inv-${e.id}`);
+              }
               return (
                 <div
                   key={idx}
-                  onClick={clickable ? () => window.open(`/consultation/${e.queueEntryId}`, '_blank', 'noopener,noreferrer') : undefined}
-                  style={{ padding: '7px 0', borderBottom: '1px solid var(--g100)', cursor: clickable ? 'pointer' : 'default' }}
+                  onClick={clickable ? handleClick : undefined}
+                  style={{ padding: '8px 4px', borderBottom: '1px solid var(--g100)', cursor: clickable ? 'pointer' : 'default', borderRadius: 6 }}
+                  onMouseEnter={clickable ? (ev) => { ev.currentTarget.style.background = 'var(--g50)'; } : undefined}
+                  onMouseLeave={clickable ? (ev) => { ev.currentTarget.style.background = 'transparent'; } : undefined}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5 }}>
-                    <i className={`ti ${EVENT_ICON[e.type] || 'ti-point'}`} style={{ color: EVENT_COLOR[e.type] || 'var(--g400)' }}></i>
-                    <span style={{ fontWeight: 700, color: EVENT_COLOR[e.type] || 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.3px' }}>{e.type}</span>
-                    <span style={{ marginLeft: 'auto', color: 'var(--g400)' }}>{fmtDate(e.date)}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <EventTypeChip type={e.type} />
+                    <span style={{ marginLeft: 'auto', color: 'var(--g400)', fontSize: 10 }}>{fmtDate(e.date)}</span>
+                    {clickable && <i className="ti ti-chevron-right" style={{ color: EVENT_COLOR[e.type], fontSize: 12 }}></i>}
                   </div>
-                  <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 2 }}>{e.title}</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 4 }}>{e.title}</div>
                   <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>{e.detail}</div>
                 </div>
               );
             })}
           </div>
         )}
-        <a href="/patient-timeline" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10.5, color: 'var(--blue)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
+        <a href={patientId ? `/patient-timeline?patientId=${patientId}` : '/patient-timeline'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10.5, color: 'var(--blue)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
           <i className="ti ti-external-link"></i> Open full timeline
         </a>
       </div>
@@ -196,8 +214,18 @@ export function ContextSidebar({ patientId, previousVisitSummary }) {
         {events === null && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>Loading...</div>}
         {events && investigations.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>None on record.</div>}
         {investigations.slice(0, 15).map((e, idx) => (
-          <div key={idx} style={{ padding: '6px 0', borderBottom: '1px solid var(--g100)' }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600 }}>{e.title}</div>
+          <div
+            key={idx}
+            onClick={e.id ? () => openPopup(`/investigation/${e.id}?mode=view`, `inv-${e.id}`) : undefined}
+            style={{ padding: '7px 4px', borderBottom: '1px solid var(--g100)', cursor: e.id ? 'pointer' : 'default', borderRadius: 6 }}
+            onMouseEnter={e.id ? (ev) => { ev.currentTarget.style.background = 'var(--g50)'; } : undefined}
+            onMouseLeave={e.id ? (ev) => { ev.currentTarget.style.background = 'transparent'; } : undefined}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600, flex: 1 }}>{e.title}</span>
+              <span className="badge" style={{ background: `${EVENT_COLOR.Investigation}1a`, color: EVENT_COLOR.Investigation, fontSize: 9 }}>{e.status || '--'}</span>
+              {e.id && <i className="ti ti-chevron-right" style={{ color: EVENT_COLOR.Investigation, fontSize: 12 }}></i>}
+            </div>
             <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>{e.detail}</div>
             <div style={{ fontSize: 10, color: 'var(--g400)' }}>{fmtDate(e.date)}</div>
           </div>
