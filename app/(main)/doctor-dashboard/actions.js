@@ -6,7 +6,7 @@ export async function getDoctorDashboardData() {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [{ data: active }, { data: intermediate }, { data: completed }, { data: optometryWaiting }] = await Promise.all([
+  const [{ data: active }, { data: intermediate }, { data: completed }, { data: optometryWaiting }, { data: todaysVisits }] = await Promise.all([
     supabase
       .from('queue_entries')
       .select('*, visits(id, visit_type, patients(id, first_name, last_name, uhid, age, gender))')
@@ -40,9 +40,18 @@ export async function getDoctorDashboardData() {
       .in('status', ['Waiting', 'Calling'])
       .gte('issued_at', today)
       .order('issued_at', { ascending: true }),
+    supabase.from('visits').select('visit_type').gte('created_at', today),
   ]);
 
-  return { active: active || [], intermediate: intermediate || [], completed: completed || [], optometryWaiting: optometryWaiting || [] };
+  const visitTypeCounts = {};
+  (todaysVisits || []).forEach((v) => {
+    visitTypeCounts[v.visit_type] = (visitTypeCounts[v.visit_type] || 0) + 1;
+  });
+
+  return {
+    active: active || [], intermediate: intermediate || [], completed: completed || [], optometryWaiting: optometryWaiting || [],
+    visitTypeCounts, totalVisitsToday: todaysVisits?.length || 0,
+  };
 }
 
 // ── HISTORY: every completed consultation, not just today's ──
