@@ -103,17 +103,19 @@ export async function markFollowupStatus(followupId, status) {
   return { success: true };
 }
 
-// ── PATIENT REVIEW SHEET (Optometry / Examination / Diagnosis) ──
+// ── PATIENT REVIEW -- reuses the real Consultation screen ──
 // A post-op follow-up patient doesn't go through the normal Optometry ->
-// Doctor queue -- clicking a follow-up here creates (once) a real visit
-// of type 'Post-operative Review' via get_or_create_postop_review_visit(),
-// which reuses the patient's visit for today if one already exists (front
-// desk check-in, or an earlier follow-up already opened today) instead of
-// failing on the one-visit-per-day rule -- so it shows up correctly in
-// reports/timeline and reuses the exact same clinical tables
-// (optometry_assessments, clinical_examinations, diagnoses) as a normal
-// consultation. Reopening the same follow-up later reuses the same
-// visit/encounter instead of creating a new one each time.
+// Doctor queue -- clicking a follow-up here gets (or creates, once) a
+// real visit of type 'Post-operative Review' via
+// get_or_create_postop_review_visit(), which reuses the patient's visit
+// for today if one already exists (front desk check-in, or an earlier
+// follow-up already opened today) instead of failing on the one-visit-
+// per-day rule. create_walk_in_visit() already issues a Doctor queue
+// token for this visit type, so the returned queueEntryId can be handed
+// straight to <ConsultationForm queueEntryId hideHistoryTracker /> --
+// the exact same screen as a normal consultation, just without History
+// and Action Tracker. Reopening the same follow-up later reuses the same
+// visit/queue entry instead of creating a new one each time.
 export async function openFollowupReview(followupId) {
   const supabase = await createClient();
   const { data: followup, error } = await supabase
@@ -123,85 +125,43 @@ export async function openFollowupReview(followupId) {
     .single();
   if (error) return { error: error.message };
 
-  if (followup.visit_id && followup.encounter_id) {
-    return { visitId: followup.visit_id, encounterId: followup.encounter_id };
+  let visitId = followup.visit_id;
+
+  if (!visitId) {
+    const sc = followup.recovery_episodes?.surgical_cases;
+    if (!sc) return { error: 'Could not find the surgical case for this follow-up.' };
+
+    const { data: visit, error: visitError } = await supabase.rpc('get_or_create_postop_review_visit', {
+      p_patient_id: sc.patient_id,
+      p_doctor_id: sc.surgeon_id,
+    });
+    if (visitError) return { error: visitError.message };
+    visitId = visit.id;
+
+    const { error: linkError } = await supabase.from('recovery_followups').update({ visit_id: visitId }).eq('id', followupId);
+    if (linkError) return { error: linkError.message };
   }
 
-  const sc = followup.recovery_episodes?.surgical_cases;
-  if (!sc) return { error: 'Could not find the surgical case for this follow-up.' };
-
-  const { data: visit, error: visitError } = await supabase.rpc('get_or_create_postop_review_visit', {
-    p_patient_id: sc.patient_id,
-    p_doctor_id: sc.surgeon_id,
-  });
-  if (visitError) return { error: visitError.message };
-
-  // The visit might have been reused (already had one for today) -- reuse
-  // its encounter too if one already exists, rather than creating a
-  // second encounter under the same visit.
-  let { data: encounter } = await supabase
-    .from('encounters')
-    .select('*')
-    .eq('visit_id', visit.id)
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!encounter) {
-    const { data: newEncounter, error: encError } = await supabase
-      .from('encounters')
-      .insert({ visit_id: visit.id, doctor_id: sc.surgeon_id })
-      .select()
-      .single();
-    if (encError) return { error: encError.message };
-    encounter = newEncounter;
-  }
-
-  const { data: existingExam } = await supabase.from('clinical_examinations').select('id').eq('encounter_id', encounter.id).maybeSingle();
-  if (!existingExam) {
-    await supabase.from('clinical_examinations').insert({ encounter_id: encounter.id });
-  }
-
-  const { error: linkError } = await supabase
-    .from('recovery_followups')
-    .update({ visit_id: visit.id, encounter_id: encounter.id })
-    .eq('id', followupId);
-  if (linkError) return { error: linkError.message };
-
-  return { visitId: visit.id, encounterId: encounter.id };
-}
-
-export async function getPostOpReviewData(encounterId, visitId) {
-  const supabase = await createClient();
-
-  const { data: findings } = await supabase
-    .from('optometry_assessments')
-    .select('*')
+  // create_walk_in_visit already issues a Doctor queue token for this
+  // visit type -- reuse it if present, otherwise issue one (covers the
+  // rare case where the visit was reused from a different visit type
+  // that doesn't auto-issue a Doctor token).
+  let { data: queueEntry } = await supabase
+    .from('queue_entries')
+    .select('id')
     .eq('visit_id', visitId)
-    .order('created_at', { ascending: false })
+    .eq('department', 'Doctor')
+    .order('issued_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  let iopReadings = [];
-  if (findings) {
-    const { data: readings } = await supabase
-      .from('optometry_iop_readings')
-      .select('*')
-      .eq('assessment_id', findings.id)
-      .order('recorded_at', { ascending: true });
-    iopReadings = readings || [];
+  if (!queueEntry) {
+    const { data: newEntry, error: tokenError } = await supabase.rpc('issue_queue_token', { p_visit_id: visitId, p_department: 'Doctor' });
+    if (tokenError) return { error: tokenError.message };
+    queueEntry = newEntry;
   }
 
-  let { data: examination } = await supabase.from('clinical_examinations').select('*').eq('encounter_id', encounterId).maybeSingle();
-  if (!examination) {
-    const { data: newExam, error: examError } = await supabase.from('clinical_examinations').insert({ encounter_id: encounterId }).select().single();
-    if (examError) return { error: examError.message };
-    examination = newExam;
-  }
-
-  const { data: diagnoses } = await supabase.from('diagnoses').select('*').eq('encounter_id', encounterId).order('created_at');
-
-  return { findings: findings || null, iopReadings, examination, diagnoses: diagnoses || [] };
+  return { queueEntryId: queueEntry.id };
 }
 
 // ── POST-OP COMPLICATIONS ──

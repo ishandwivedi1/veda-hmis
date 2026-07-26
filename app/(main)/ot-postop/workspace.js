@@ -6,7 +6,7 @@ import {
   addRecoveryComplication, closeEpisode, openFollowupReview,
 } from './actions';
 import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
-import ReviewSheet from './review-sheet';
+import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
 
 const MILESTONES_START = [
   { key: 'recovery', label: 'Recovery', icon: 'ti-bed' },
@@ -41,7 +41,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [closureRemarks, setClosureRemarks] = useState('');
 
   const [reviewingFollowup, setReviewingFollowup] = useState(null);
-  const [reviewIds, setReviewIds] = useState(null);
+  const [reviewQueueEntryId, setReviewQueueEntryId] = useState(null);
   const [openingReview, setOpeningReview] = useState(null);
 
   const refresh = useCallback(async () => {
@@ -58,14 +58,14 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;
   if (data.error) return <div className="msg-err">{data.error}</div>;
 
-  if (reviewingFollowup && reviewIds) {
+  if (reviewingFollowup && reviewQueueEntryId) {
     return (
-      <ReviewSheet
-        followup={reviewingFollowup}
-        visitId={reviewIds.visitId}
-        encounterId={reviewIds.encounterId}
-        onBack={handleBackFromReview}
-      />
+      <div>
+        <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBackFromReview}>
+          <i className="ti ti-arrow-left"></i> Back to Post-op
+        </button>
+        <ConsultationForm queueEntryId={reviewQueueEntryId} hideHistoryTracker />
+      </div>
     );
   }
 
@@ -154,13 +154,13 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     const result = await openFollowupReview(f.id);
     setOpeningReview(null);
     if (result.error) { setError(result.error); return; }
-    setReviewIds(result);
+    setReviewQueueEntryId(result.queueEntryId);
     setReviewingFollowup(f);
   }
 
   function handleBackFromReview() {
     setReviewingFollowup(null);
-    setReviewIds(null);
+    setReviewQueueEntryId(null);
     refresh();
   }
 
