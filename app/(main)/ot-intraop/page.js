@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getOTCaseList, getOTIntraopHistory } from './actions';
+import { getOTCaseList, getOTIntraopHistory, markPatientReported, unmarkPatientReported } from './actions';
 import Workspace from './workspace';
 
 const STATUS_BADGE = { Scheduled: 'b-amber', 'In Progress': 'b-blue' };
@@ -19,7 +19,18 @@ function TabButton({ active, onClick, icon, label, disabled }) {
   );
 }
 
-function DashboardTab({ cases, loading, onOpen }) {
+function DashboardTab({ cases, loading, onOpen, onRefresh }) {
+  const [busyId, setBusyId] = useState(null);
+
+  async function handleToggleReported(e, otId, currentlyReported) {
+    e.stopPropagation();
+    setBusyId(otId);
+    if (currentlyReported) await unmarkPatientReported(otId);
+    else await markPatientReported(otId);
+    setBusyId(null);
+    onRefresh();
+  }
+
   const counts = {
     Scheduled: cases.filter((c) => c.status === 'Scheduled').length,
     'In Progress': cases.filter((c) => c.status === 'In Progress').length,
@@ -56,9 +67,16 @@ function DashboardTab({ cases, loading, onOpen }) {
               <div style={{ flex: 1 }}>
                 <span style={{ fontWeight: 700, fontSize: 13 }}>{patient?.first_name} {patient?.last_name}</span>
                 <span className={`badge ${STATUS_BADGE[c.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{c.status}</span>
-                <span className={`badge ${c.patient_reported_at ? 'b-green' : 'b-gray'}`} style={{ marginLeft: 6, fontSize: 10 }}>
-                  {c.patient_reported_at ? 'Reported' : 'Not yet reported'}
-                </span>
+                <button
+                  type="button"
+                  className={`badge ${c.patient_reported_at ? 'b-green' : 'b-gray'}`}
+                  style={{ marginLeft: 6, fontSize: 10, border: 'none', cursor: 'pointer' }}
+                  disabled={busyId === c.id}
+                  onClick={(e) => handleToggleReported(e, c.id, !!c.patient_reported_at)}
+                  title={c.patient_reported_at ? `Reported at ${new Date(c.patient_reported_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} -- click to undo` : 'Click to mark patient as reported'}
+                >
+                  {busyId === c.id ? '...' : c.patient_reported_at ? 'Reported' : 'Mark Reported'}
+                </button>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                   {patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
                 </div>
@@ -152,7 +170,7 @@ export default function OTIntraopPage() {
         <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
       </div>
 
-      {activeTab === 'dashboard' && <DashboardTab cases={cases} loading={loadingCases} onOpen={openCase} />}
+      {activeTab === 'dashboard' && <DashboardTab cases={cases} loading={loadingCases} onOpen={openCase} onRefresh={refreshCases} />}
       {activeTab === 'history' && <HistoryTab rows={history} loading={loadingHistory} onOpen={openCase} />}
       {activeTab === 'workspace' && selectedId && <Workspace otScheduleId={selectedId} onBack={handleBack} />}
       {activeTab === 'workspace' && !selectedId && (

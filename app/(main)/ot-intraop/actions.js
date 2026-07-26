@@ -56,6 +56,26 @@ export async function getOTCaseList() {
   return (data || []).filter((b) => b.surgical_cases);
 }
 
+// ── PATIENT REPORTED TO OT -- the surgery patient doesn't route through
+//    Optometry or Doctor Consultation queues on the day of surgery; this
+//    is how OT staff record that they've physically arrived, straight
+//    from the Dashboard widget or the workspace header. ──
+export async function markPatientReported(otScheduleId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('ot_schedule').update({ patient_reported_at: new Date().toISOString() }).eq('id', otScheduleId);
+  if (error) return { error: error.message };
+  const { data: userData } = await supabase.auth.getUser();
+  await supabase.from('ot_schedule_audit_log').insert({ ot_schedule_id: otScheduleId, action: 'Patient Reported', detail: 'Patient marked as reported to OT', changed_by: userData?.user?.id || null });
+  return { success: true };
+}
+
+export async function unmarkPatientReported(otScheduleId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('ot_schedule').update({ patient_reported_at: null }).eq('id', otScheduleId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── FULL CASE DETAIL ──
 export async function getOTCaseDetail(otScheduleId) {
   const supabase = await createClient();

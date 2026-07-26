@@ -5,7 +5,7 @@ import {
   getOTCaseDetail,
   saveCheckinItems, completeCheckin, recordAnaesthesia, saveIntraopDraft,
   addConsumable, removeConsumable, addIntraopEvent, removeIntraopEvent,
-  completeSurgery, getConsumableOptions,
+  completeSurgery, getConsumableOptions, markPatientReported, unmarkPatientReported,
 } from './actions';
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { uploadAttachment, deleteAttachment } from '@/lib/attachments';
@@ -163,6 +163,12 @@ export default function Workspace({ otScheduleId, onBack }) {
     saveCheckinItems(otScheduleId, sc.id, updated);
   }
 
+  async function handleToggleReported() {
+    if (booking.patient_reported_at) await unmarkPatientReported(otScheduleId);
+    else { await markPatientReported(otScheduleId); addLog('Patient marked as reported to OT'); }
+    refresh();
+  }
+
   async function handleCompleteCheckin() {
     setError('');
     const result = await completeCheckin(otScheduleId, sc.id);
@@ -255,6 +261,21 @@ export default function Workspace({ otScheduleId, onBack }) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{isCompleted ? 'Surgery Completed' : booking.status}</span>
+          {!isCompleted && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{
+                borderColor: 'rgba(255,255,255,.3)',
+                background: booking.patient_reported_at ? 'rgba(34,197,94,.35)' : 'rgba(255,255,255,.1)',
+                color: '#fff',
+              }}
+              onClick={handleToggleReported}
+              title={booking.patient_reported_at ? `Reported at ${new Date(booking.patient_reported_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} -- click to undo` : 'Mark patient as reported to OT'}
+            >
+              <i className={`ti ${booking.patient_reported_at ? 'ti-check' : 'ti-door-enter'}`}></i> {booking.patient_reported_at ? 'Patient Reported' : 'Mark Reported'}
+            </button>
+          )}
           {!isCompleted && (
             <div style={{ textAlign: 'center', background: 'rgba(255,255,255,.12)', borderRadius: 8, padding: '6px 12px' }}>
               <div style={{ fontSize: 9, opacity: .7, textTransform: 'uppercase' }}>OT Duration</div>
