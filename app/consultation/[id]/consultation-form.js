@@ -488,7 +488,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const bioSent = data.entry?.status?.includes('Biometry') || false;
 
   return (
-    <div style={{ maxWidth: 1440, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1440, margin: '0 auto', padding: '20px 26px' }}>
       {/* STICKY HEADER + TABS -- frozen at the top of the scroll area so
           the patient's identity and which tab you're on never scroll out
           of view, no matter how long the tab's content gets. */}
