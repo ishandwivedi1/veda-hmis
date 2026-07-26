@@ -130,7 +130,7 @@ export default function AppShell({ children }) {
                 className={`sb-item ${item.href === activeHref ? 'active' : ''}`}
               >
                 <span className="sb-icon-wrap"><i className={`ti ${item.icon}`}></i></span>
-                {item.label}
+                <span>{item.label}</span>
               </Link>
             ))}
           </div>
@@ -143,15 +143,26 @@ export default function AppShell({ children }) {
             <div className="top-title">{pageTitle}</div>
             <div className="top-sub">Veda Eye Hospital</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 12, color: 'var(--g500)' }}>{today}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--g500)', fontWeight: 500 }}>{today}</div>
               {profile && (
                 <div style={{ fontSize: 11, color: 'var(--g400)' }}>
                   {profile.full_name} -- {profile.designation}
                 </div>
               )}
             </div>
+            {profile && (
+              <div style={{
+                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                background: 'linear-gradient(135deg, var(--blue), var(--blue-dk))',
+                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'var(--font-display-stack)', fontWeight: 700, fontSize: 13,
+              }}>
+                {profile.full_name?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+            )}
+            <div style={{ width: 1, height: 24, background: 'var(--g200)' }}></div>
             <button className="btn btn-sm" onClick={handleSignOut}>Sign out</button>
           </div>
         </div>

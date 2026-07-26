@@ -390,7 +390,7 @@ function CaseWorkspace({ sc, onUpdate }) {
       {/* PATIENT STRIP -- fixed at top of the workspace, same visual language as Optometry History */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: 'linear-gradient(135deg,#4c1d95,#7c3aed)', borderRadius: 12, padding: '12px 16px', color: '#fff',
+        background: 'linear-gradient(135deg,#4c1d95,#6d28a8)', borderRadius: 12, padding: '12px 16px', color: '#fff',
         marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14,
       }}>
         <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, flexShrink: 0, border: '2px solid rgba(255,255,255,.3)' }}>

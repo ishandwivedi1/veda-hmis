@@ -99,7 +99,7 @@ export default function LedgerTab() {
           </div>
         ) : (
           <div>
-            <div style={{ background: 'linear-gradient(135deg,#4c1d95,#7c3aed)', borderRadius: 12, padding: '14px 18px', color: '#fff', marginBottom: 16 }}>
+            <div style={{ background: 'linear-gradient(135deg,#4c1d95,#6d28a8)', borderRadius: 12, padding: '14px 18px', color: '#fff', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700 }}>{patient.first_name} {patient.last_name}</div>

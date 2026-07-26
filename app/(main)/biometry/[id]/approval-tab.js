@@ -72,7 +72,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
 
   return (
     <div>
-      <div style={{ background: 'linear-gradient(135deg,#166534,#15803d)', borderRadius: 12, padding: '11px 16px', color: '#fff', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ background: 'linear-gradient(135deg,#166534,#157a4f)', borderRadius: 12, padding: '11px 16px', color: '#fff', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
         <i className="ti ti-shield-check" style={{ fontSize: 26, flexShrink: 0 }}></i>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>Final IOL Plan Approval</div>

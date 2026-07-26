@@ -274,7 +274,7 @@ export default function ClinicalMastersPage() {
 
         {activeTab === 'surgeries' && (
           <>
-            <div className="msg-info" style={{ background: 'var(--red-lt, #fee2e2)', color: 'var(--red)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+            <div className="msg-info" style={{ background: 'var(--red-lt, #fbe9e7)', color: 'var(--red)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
               <i className="ti ti-info-circle"></i> The OT-based surgery a doctor advises (e.g. "Phacoemulsification", "SICS") -- no price here. Populates the Surgery dropdown in Doctor's Diagnosis &amp; Plan and links to Counselling (M22). Billing packages for a surgery are set up separately in Financial Masters, and multiple packages can offer the same surgery at different price points (e.g. by IOL type/origin for Cataract). Code is generated automatically from the name.
             </div>
             {showAdd && (
