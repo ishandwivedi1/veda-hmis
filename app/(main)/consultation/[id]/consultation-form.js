@@ -115,7 +115,7 @@ function GroupHeader({ num, color, title }) {
   );
 }
 
-export default function ConsultationForm({ queueEntryId, hideHistoryTracker = false }) {
+export default function ConsultationForm({ queueEntryId, hideHistoryTracker = false, onBack, backLabel = 'Dashboard' }) {
   const [data, setData] = useState(null);
   const [followUpContext, setFollowUpContext] = useState(null);
   const [visitOutcome, setVisitOutcome] = useState('');
@@ -125,9 +125,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [showSurgery, setShowSurgery] = useState(false);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
+  const [surgeryPreOp, setSurgeryPreOp] = useState('Both');
   const [editingSurgicalCaseId, setEditingSurgicalCaseId] = useState(null);
   const [editSurgeryProcedure, setEditSurgeryProcedure] = useState('');
   const [editSurgeryEye, setEditSurgeryEye] = useState('OU');
+  const [editSurgeryPreOp, setEditSurgeryPreOp] = useState('Both');
   const [surgeryLoading, setSurgeryLoading] = useState(false);
   const [activeTab, setActiveTab] = useState(hideHistoryTracker ? 'optometry' : 'history');
   const [unlocked, setUnlocked] = useState(false);
@@ -369,7 +371,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setError('');
     if (!surgeryProcedure) { setError('Select a surgery.'); return; }
     setSurgeryLoading(true);
-    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye);
+    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryPreOp);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
@@ -382,13 +384,14 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setEditingSurgicalCaseId(sc.id);
     setEditSurgeryProcedure(sc.procedure_name);
     setEditSurgeryEye(sc.eye);
+    setEditSurgeryPreOp(sc.biometry_required !== false && sc.fitness_required !== false ? 'Both' : sc.biometry_required !== false ? 'Biometry' : sc.fitness_required !== false ? 'Medical Fitness' : 'None');
   }
 
   async function handleUpdateSurgicalCase() {
     setError('');
     if (!editSurgeryProcedure) { setError('Select a surgery.'); return; }
     setSurgeryLoading(true);
-    const result = await updateSurgicalCase(editingSurgicalCaseId, editSurgeryProcedure, editSurgeryEye);
+    const result = await updateSurgicalCase(editingSurgicalCaseId, editSurgeryProcedure, editSurgeryEye, editSurgeryPreOp);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setEditingSurgicalCaseId(null);
@@ -467,6 +470,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
           the patient's identity and which tab you're on never scroll out
           of view, no matter how long the tab's content gets. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'var(--g50)', paddingBottom: 10, marginBottom: 6 }}>
+        {onBack && (
+          <button className="btn btn-sm" style={{ marginBottom: 10 }} onClick={onBack}>
+            <i className="ti ti-arrow-left"></i> {backLabel}
+          </button>
+        )}
         <div style={{
           background: 'linear-gradient(135deg, var(--blue-dk), var(--blue))', borderRadius: 'var(--r-lg)',
           padding: '14px 20px', color: '#fff', boxShadow: 'var(--shadow-md)', marginBottom: 12,
@@ -899,6 +907,15 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                                 <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
                               </select>
                             </div>
+                            <div style={{ marginBottom: 8 }}>
+                              <label className="flbl">Pre-op Required</label>
+                              <select className="fi" value={editSurgeryPreOp} onChange={(e) => setEditSurgeryPreOp(e.target.value)}>
+                                <option value="None">None</option>
+                                <option value="Biometry">Biometry</option>
+                                <option value="Medical Fitness">Medical Fitness</option>
+                                <option value="Both">Both</option>
+                              </select>
+                            </div>
                             <div style={{ display: 'flex', gap: 6 }}>
                               <button className="btn btn-primary btn-sm" onClick={handleUpdateSurgicalCase} disabled={surgeryLoading}>
                                 {surgeryLoading ? 'Saving...' : 'Save'}
@@ -909,7 +926,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 13 }}>
                             <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
-                            <span style={{ flex: 1 }}><strong>{sc.procedure_name}</strong> -- {sc.eye}</span>
+                            <span style={{ flex: 1 }}>
+                              <strong>{sc.procedure_name}</strong> -- {sc.eye}
+                              <span style={{ marginLeft: 8, fontSize: 10.5, color: 'var(--g500)' }}>
+                                Pre-op: {sc.biometry_required !== false && sc.fitness_required !== false ? 'Both' : sc.biometry_required !== false ? 'Biometry' : sc.fitness_required !== false ? 'Medical Fitness' : 'None'}
+                              </span>
+                            </span>
                             <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
                             {sc.status === 'Pending Workup' && (
                               <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => startEditSurgicalCase(sc)}>
@@ -935,6 +957,15 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       </select>
                       <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 80 }}>
                         <option value="OD">OD</option><option value="OS">OS</option><option value="OU">OU</option>
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label className="flbl">Pre-op Required</label>
+                      <select className="fi" value={surgeryPreOp} onChange={(e) => setSurgeryPreOp(e.target.value)}>
+                        <option value="None">None</option>
+                        <option value="Biometry">Biometry</option>
+                        <option value="Medical Fitness">Medical Fitness</option>
+                        <option value="Both">Both</option>
                       </select>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>

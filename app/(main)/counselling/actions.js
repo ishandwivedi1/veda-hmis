@@ -110,19 +110,24 @@ export async function sendForDilation(caseId) {
 // surgery, as long as Counselling hasn't already started working with
 // it -- once package/decision work is underway, changes should go
 // through Counselling instead to avoid corrupting what's already locked.
-export async function updateSurgicalCase(caseId, procedureName, eye) {
+export async function updateSurgicalCase(caseId, procedureName, eye, preOpRequired) {
   const supabase = await createClient();
   const { data: sc } = await supabase.from('surgical_cases').select('status').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
   if (sc.status !== 'Pending Workup') {
     return { error: `This case has already moved to "${sc.status}" -- further changes should go through Counselling.` };
   }
-  const { error } = await supabase.from('surgical_cases').update({ procedure_name: procedureName, eye }).eq('id', caseId);
+  const update = { procedure_name: procedureName, eye };
+  if (preOpRequired !== undefined) {
+    update.biometry_required = preOpRequired === 'Biometry' || preOpRequired === 'Both';
+    update.fitness_required = preOpRequired === 'Medical Fitness' || preOpRequired === 'Both';
+  }
+  const { error } = await supabase.from('surgical_cases').update(update).eq('id', caseId);
   if (error) return { error: error.message };
   return { success: true };
 }
 
-export async function markForSurgery(patientId, encounterId, procedureName, eye) {
+export async function markForSurgery(patientId, encounterId, procedureName, eye, preOpRequired) {
   const supabase = await createClient();
 
   // Pull surgeon + visit + priority through so the case doesn't start
@@ -155,6 +160,13 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye)
     if (visit?.priority) priority = visit.priority;
   }
 
+  // Doctor's call on what pre-op workup this case actually needs --
+  // carried forward to Counselling, which reads biometry_required /
+  // fitness_required the same way for both (see readiness() and
+  // markReadyForScheduling).
+  const biometryRequired = preOpRequired === 'Biometry' || preOpRequired === 'Both';
+  const fitnessRequired = preOpRequired === 'Medical Fitness' || preOpRequired === 'Both';
+
   const { error } = await supabase.from('surgical_cases').insert({
     patient_id: patientId,
     encounter_id: encounterId,
@@ -163,6 +175,8 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye)
     procedure_name: procedureName,
     eye,
     priority,
+    biometry_required: biometryRequired,
+    fitness_required: fitnessRequired,
   });
   if (error) return { error: error.message };
   return { success: true };
@@ -177,7 +191,7 @@ export async function getCounsellingCases() {
       id, patient_id, encounter_id, procedure_name, eye, priority, status,
       iol_category, decision, decision_reason,
       biometry_done, biometry_required, biometry_skip_reason,
-      fitness_cleared, investigations_complete,
+      fitness_cleared, fitness_required, investigations_complete,
       package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
       patients:patient_id ( id, first_name, last_name, uhid, age, gender ),
       profiles:surgeon_id ( id, full_name ),
@@ -236,7 +250,7 @@ export async function getCounsellingHistory() {
       id, patient_id, encounter_id, procedure_name, eye, priority, status,
       iol_category, decision, decision_reason,
       biometry_done, biometry_required, biometry_skip_reason,
-      fitness_cleared, investigations_complete,
+      fitness_cleared, fitness_required, investigations_complete,
       package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
       patients:patient_id ( id, first_name, last_name, uhid, age, gender ),
       profiles:surgeon_id ( id, full_name ),
@@ -541,7 +555,7 @@ export async function markReadyForScheduling(caseId) {
   if (!sc.biometry_done && sc.biometry_required !== false) return { error: 'VAL-SCC-002: Biometry & IOL type advice must be complete.' };
   if (!sc.package_id) return { error: 'VAL-SCC-002: Select a package first.' };
   if (sc.decision !== 'Accepted') return { error: 'VAL-SCC-002: Patient decision must be Accepted.' };
-  if (!sc.fitness_cleared) return { error: 'VAL-SCC-002: Medical fitness must be cleared.' };
+  if (!sc.fitness_cleared && sc.fitness_required !== false) return { error: 'VAL-SCC-002: Medical fitness must be cleared.' };
 
   const { error } = await supabase.from('surgical_cases').update({ status: 'Ready for Scheduling' }).eq('id', caseId);
   if (error) return { error: error.message };

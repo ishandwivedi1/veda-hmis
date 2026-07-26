@@ -131,7 +131,7 @@ export async function getConsultationData(queueEntryId) {
     // of silently reverting to a blank button after saving. Scoped by
     // visit_id (one visit, one surgical case), not just this encounter,
     // since a visit can span more than one encounter.
-    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
+    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority, biometry_required, fitness_required').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])

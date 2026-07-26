@@ -66,12 +66,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
   if (reviewingFollowup && reviewQueueEntryId) {
     return (
-      <div>
-        <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBackFromReview}>
-          <i className="ti ti-arrow-left"></i> Back to Post-op
-        </button>
-        <ConsultationForm queueEntryId={reviewQueueEntryId} hideHistoryTracker />
-      </div>
+      <ConsultationForm queueEntryId={reviewQueueEntryId} hideHistoryTracker onBack={handleBackFromReview} backLabel="Back to Post-op" />
     );
   }
 

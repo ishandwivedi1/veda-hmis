@@ -18,13 +18,17 @@ function biometrySatisfied(sc) {
   return sc.biometry_done || sc.biometry_required === false;
 }
 
+function fitnessSatisfied(sc) {
+  return sc.fitness_cleared || sc.fitness_required === false;
+}
+
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 
 function readiness(sc) {
   const items = [
     { key: 'surgeryRec', label: 'Surgery Recommended', done: true },
     { key: 'biometry', label: sc.biometry_required === false ? 'Biometry & IOL Type Advised (M23) -- Skipped' : 'Biometry & IOL Type Advised (M23)', done: biometrySatisfied(sc) },
-    { key: 'fitness', label: 'Medical Fitness', done: sc.fitness_cleared },
+    { key: 'fitness', label: sc.fitness_required === false ? 'Medical Fitness -- Not Required' : 'Medical Fitness', done: fitnessSatisfied(sc) },
     { key: 'advance', label: 'Advance Payment', done: !!sc.advance_payment_id },
   ];
   const done = items.filter((i) => i.done).length;
@@ -524,9 +528,17 @@ function CaseWorkspace({ sc, onUpdate }) {
 
       {/* 4. MEDICAL FITNESS */}
       <CounsellingSection num={4} color="var(--amber)" title="Medical Fitness" open={openSections.fitness} onToggle={() => toggleSection('fitness')}
-        badge={fitnessItem?.done ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span> : <span className="badge b-amber">Pending</span>}>
+        badge={
+          fitnessItem?.done && sc.fitness_required === false
+            ? <span className="badge b-purple">Not Required</span>
+            : fitnessItem?.done
+            ? <span className="badge b-green"><i className="ti ti-check"></i> Done</span>
+            : <span className="badge b-amber">Pending</span>
+        }>
         {!stage2Unlocked ? (
           <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Locked until package confirmed and decision is Accepted.</div>
+        ) : sc.fitness_required === false && !sc.fitness_referral ? (
+          <span className="badge b-purple"><i className="ti ti-player-skip-forward"></i> Not required for this case -- per doctor's advice at consultation</span>
         ) : (
           <>
             {!sc.fitness_referral && (

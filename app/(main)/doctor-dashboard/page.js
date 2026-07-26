@@ -446,12 +446,7 @@ export default function DoctorDashboardPage() {
         </div>
       )}
       {activeTab === 'workspace' && selectedId && !postOpEpisodeId && !biometryId && !medFitnessId && (
-        <div>
-          <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
-            <i className="ti ti-arrow-left"></i> Dashboard
-          </button>
-          <ConsultationForm queueEntryId={selectedId} />
-        </div>
+        <ConsultationForm queueEntryId={selectedId} onBack={handleBack} />
       )}
       {activeTab === 'workspace' && !selectedId && !postOpEpisodeId && !biometryId && !medFitnessId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Dashboard or History.</div>
