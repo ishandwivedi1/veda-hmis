@@ -1,3 +1,15 @@
+#!/bin/bash
+set -e
+
+echo "== Errors now pop out as floating alerts app-wide =="
+echo "   Pure CSS change to the shared .msg-err/.msg-warn classes -- every"
+echo "   {error && <div className=msg-err>} in the whole codebase now floats"
+echo "   as an animated top-right toast with an alert badge, instead of"
+echo "   sitting as an easy-to-miss inline red line. No JS files touched."
+
+echo "-- Writing app/globals.css --"
+mkdir -p "$(dirname "app/globals.css")"
+cat > "app/globals.css" << 'JSEOF_15411269'
 * {
   box-sizing: border-box;
   margin: 0;
@@ -308,3 +320,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .content-area { padding: 16px; }
   .topbar { padding: 12px 16px; }
 }
+JSEOF_15411269
+
+echo "-- Installing deps & building --"
+npm install --no-audit --no-fund
+npm run build
+
+echo "== Done. Review changes, then commit. =="
