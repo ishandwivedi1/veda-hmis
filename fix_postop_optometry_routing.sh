@@ -1,3 +1,13 @@
+#!/bin/bash
+set -e
+
+echo "== Post-op patients now also queue through Optometry =="
+echo "   (refraction/clinical recording may be needed post-surgery too --"
+echo "    doctor still has Call Directly override via Start Review)"
+
+echo "-- Writing app/(main)/ot-postop/actions.js --"
+mkdir -p "$(dirname "app/(main)/ot-postop/actions.js")"
+cat > "app/(main)/ot-postop/actions.js" << 'JSEOF_30938310'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -224,3 +234,10 @@ export async function closeEpisode(episodeId, values) {
   return { success: true };
 }
 
+JSEOF_30938310
+
+echo "-- Installing deps & building --"
+npm install --no-audit --no-fund
+npm run build
+
+echo "== Done. DB fix already applied live -- just build & push this file. =="
