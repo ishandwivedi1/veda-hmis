@@ -23,6 +23,7 @@ import {
   removeOpticalAdvice,
   addProcedure,
   removeProcedure,
+  sendForProcedureFromConsultation,
   addReferral,
   removeReferral,
   addCounsellingItem,
@@ -37,7 +38,7 @@ import {
 } from '@/app/(main)/consultation/actions';
 import { openPopup } from '@/lib/popup';
 import { markForSurgery, updateSurgicalCase } from '@/app/(main)/counselling/actions';
-import { getDiagnosesMaster, getDrugs, getServices, getProcedures, getSurgeries } from '@/app/(main)/master-data/actions';
+import { getDiagnosesMaster, getDrugs, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import HistoryTab from './history-tab';
 import OptometryTab from './optometry-tab';
@@ -160,6 +161,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [optText, setOptText] = useState('');
   const [procName, setProcName] = useState('');
   const [procEye, setProcEye] = useState('OD');
+  const [procNotes, setProcNotes] = useState('');
   const [refDest, setRefDest] = useState('');
   const [refReason, setRefReason] = useState('');
   const [counselTopic, setCounselTopic] = useState('');
@@ -181,7 +183,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   useEffect(() => {
     (async () => {
-      const [dx, dr, sv, pr, sg] = await Promise.all([getDiagnosesMaster(), getDrugs(), getServices(), getProcedures(), getSurgeries()]);
+      const [dx, dr, sv, sg] = await Promise.all([getDiagnosesMaster(), getDrugs(), getServices(), getSurgeries()]);
       setDiagnosisOptions(dx.filter((d) => d.status === 'Active'));
       setDrugOptions(dr.filter((d) => d.status === 'Active'));
       // Biometry stays in Financial Masters for billing purposes only --
@@ -190,7 +192,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
       // Substring match, not exact -- the catalog entry is named
       // "Biometry (Procedure Charge)", not literally "Biometry".
       setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation' && !s.name.toLowerCase().includes('biometry')));
-      setProcedureOptions(pr.filter((p) => p.status === 'Active'));
+      setProcedureOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Minor Procedure'));
       setSurgeryOptions(sg.filter((s) => s.status === 'Active'));
     })();
   }, []);
@@ -308,10 +310,20 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleAddProcedure() {
     setError('');
     if (!procName) { setError('Select a procedure.'); return; }
-    const result = await addProcedure(data.encounter.id, procName, procEye);
+    const result = await addProcedure(data.encounter.id, procName, procEye, procNotes);
     if (result.error) { setError(result.error); return; }
     setProcName('');
+    setProcNotes('');
     refresh();
+  }
+
+  async function handleSendForProcedure() {
+    setError('');
+    setLoading(true);
+    const result = await sendForProcedureFromConsultation(data.encounter.id);
+    setLoading(false);
+    if (result.error) { setError(result.error); return; }
+    finishAndClose();
   }
 
   async function handleAddReferral() {
@@ -354,6 +366,17 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     refresh();
   }
 
+  // This page is meant to be opened in its own window (see doctor-dashboard's
+  // "Call"/"Call Next" and ot-postop's "Start Review"), closing itself the
+  // moment the doctor is done with this sitting -- window.close() only
+  // works on script-opened windows, so this quietly falls back to
+  // navigating back to the queue if it was opened by direct navigation
+  // instead (e.g. a bookmark or typed URL).
+  function finishAndClose() {
+    window.close();
+    router.push('/queue');
+  }
+
   async function handleComplete() {
     setError('');
     if (!data.diagnoses.length) {
@@ -364,7 +387,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     const result = await completeConsultation(data.encounter.id, queueEntryId);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
-    router.push('/queue');
+    finishAndClose();
   }
 
   async function handleMarkForSurgery() {
@@ -414,7 +437,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     // and Investigation keep the existing "done with this patient for
     // now" behavior since that wasn't something you flagged.
     if (kind === 'biometry') { refresh(); return; }
-    router.push('/queue');
+    finishAndClose();
   }
 
   async function handleSaveDraft() {
@@ -423,7 +446,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     const result = await saveDraft(data.encounter.id);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
-    router.push('/queue');
+    finishAndClose();
   }
 
   async function handleCompleteWorkflow(id) {
@@ -869,23 +892,27 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 </div>
 
                 <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> Procedures</div>
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> Minor Procedures</div>
                   {data.procedures.map((p) => (
-                    <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                      <span>{p.name} -- {p.eye}</span>
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeProcedure(p.id, data.encounter.id); refresh(); }}>Remove</button>
+                    <div key={p.id} style={{ padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{p.name} -- {p.eye}</span>
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeProcedure(p.id, data.encounter.id); refresh(); }}>Remove</button>
+                      </div>
+                      {p.notes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{p.notes}</div>}
                     </div>
                   ))}
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                     <select className="fi fi-sm" value={procName} onChange={(e) => setProcName(e.target.value)} style={{ flex: 1 }}>
-                      <option value="">-- Select procedure --</option>
-                      {procedureOptions.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                      <option value="">-- Select minor procedure --</option>
+                      {procedureOptions.map((p) => <option key={p.id} value={p.name}>{p.name} -- Rs.{p.rate}</option>)}
                     </select>
                     <select className="fi fi-sm" value={procEye} onChange={(e) => setProcEye(e.target.value)} style={{ width: 70 }}>
                       <option>OD</option><option>OS</option><option>OU</option>
                     </select>
                     <button className="btn btn-sm btn-primary" onClick={handleAddProcedure}>Add</button>
                   </div>
+                  <input className="fi fi-sm" placeholder="Notes (optional)" value={procNotes} onChange={(e) => setProcNotes(e.target.value)} />
                 </div>
               </div>
 
@@ -1094,12 +1121,19 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
             <button className="btn" onClick={() => handleSendOut('dilate')} disabled={loading}>
               Send for Dilation
             </button>
-            <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
-              Send for Investigation
-            </button>
-            {!bioSent && (
+            {data.investigations.length > 0 && (
+              <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
+                Send for Investigation
+              </button>
+            )}
+            {!bioSent && data.biometryRecords.length > 0 && (
               <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
                 <i className="ti ti-ruler-measure"></i> Send for Biometry
+              </button>
+            )}
+            {data.procedures.length > 0 && (
+              <button className="btn" onClick={handleSendForProcedure} disabled={loading}>
+                <i className="ti ti-tool"></i> Send for Procedure
               </button>
             )}
             <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>

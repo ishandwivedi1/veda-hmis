@@ -11,7 +11,7 @@ import {
   getMasterAuditLog,
 } from '../actions';
 
-const SERVICE_DEPTS = ['Consultation', 'Investigation', 'Biometry'];
+const SERVICE_DEPTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure'];
 const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key: 'Pharmacy', type: 'drug' }, { key: 'Packages', label: 'Surgery', type: 'package' }];
 const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
 const ORIGINS = ['Indian', 'Imported'];

@@ -18,11 +18,13 @@ import {
   markPrescriptionsBilled,
   getBiometryForBilling,
   markBiometryBilled,
+  getProceduresForBilling,
+  markProceduresBilled,
   getPackageForBilling,
   markPackageBilled,
 } from '../actions';
 
-const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Surgery', 'Pharmacy'];
+const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure', 'Surgery', 'Pharmacy'];
 const DEFAULT_PURPOSE = 'Consultation';
 
 // Mirrors add_invoice_line_item's math exactly, so the running totals
@@ -69,17 +71,20 @@ export default function NewInvoiceTab() {
   const [unmatchedInvestigations, setUnmatchedInvestigations] = useState([]);
   const [unmatchedPrescriptions, setUnmatchedPrescriptions] = useState([]);
   const [unmatchedBiometry, setUnmatchedBiometry] = useState([]);
+  const [unmatchedProcedures, setUnmatchedProcedures] = useState([]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlVisitId = searchParams.get('visitId');
   const urlInvOrderIds = searchParams.get('invOrderIds');
   const urlRxIds = searchParams.get('rxIds');
   const urlBioIds = searchParams.get('bioIds');
+  const urlProcIds = searchParams.get('procIds');
   const urlPkgCaseId = searchParams.get('pkgCaseId');
   const contextLoadedFor = useRef(null);
   const invOrdersLoadedFor = useRef(null);
   const rxLoadedFor = useRef(null);
   const bioLoadedFor = useRef(null);
+  const procLoadedFor = useRef(null);
   const pkgLoadedFor = useRef(null);
 
   useEffect(() => {
@@ -134,6 +139,39 @@ export default function NewInvoiceTab() {
       ]);
     })();
   }, [urlInvOrderIds, contextPatient]);
+
+  // Prefill from Front Office's "Prescribed Minor Procedures" widget --
+  // same pattern as investigations above, matched against the Minor
+  // Procedure department of the service catalog.
+  useEffect(() => {
+    if (!urlProcIds || !contextPatient) return;
+    if (procLoadedFor.current === urlProcIds) return;
+    procLoadedFor.current = urlProcIds;
+    (async () => {
+      const ids = urlProcIds.split(',').filter(Boolean);
+      const result = await getProceduresForBilling(ids);
+      if (result.error) { setError(result.error); return; }
+
+      const matched = (result.items || []).filter((i) => i.matched);
+      const unmatched = (result.items || []).filter((i) => !i.matched);
+      setUnmatchedProcedures(unmatched);
+
+      setDraftLines((prev) => [
+        ...prev,
+        ...matched.map((i) => {
+          const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
+          return {
+            tempId: nextTempId.current++,
+            sourceProcId: i.procedureId,
+            serviceCode: i.serviceCode, serviceName: `${i.name} (${i.eye})`, dept: 'Minor Procedure',
+            qty: 1, rate: i.rate, gstPct: i.gstPct,
+            discType: 'none', discValue: 0, discReason: '',
+            ...computed,
+          };
+        }),
+      ]);
+    })();
+  }, [urlProcIds, contextPatient]);
 
   // Prefill from Front Office's "Prescribed Medicines" widget -- same
   // pattern as investigations above, matched against the drug catalog.
@@ -321,6 +359,8 @@ export default function NewInvoiceTab() {
 
     const billedInvOrderIds = draftLines.map((l) => l.sourceInvOrderId).filter(Boolean);
     if (billedInvOrderIds.length > 0) await markInvestigationOrdersBilled(billedInvOrderIds, created.invoice.id);
+    const billedProcIds = draftLines.map((l) => l.sourceProcId).filter(Boolean);
+    if (billedProcIds.length > 0) await markProceduresBilled(billedProcIds, created.invoice.id);
 
     const billedRxIds = draftLines.map((l) => l.sourceRxId).filter(Boolean);
     if (billedRxIds.length > 0) await markPrescriptionsBilled(billedRxIds);
@@ -365,6 +405,7 @@ export default function NewInvoiceTab() {
     invOrdersLoadedFor.current = null;
     rxLoadedFor.current = null;
     bioLoadedFor.current = null;
+    procLoadedFor.current = null;
     pkgLoadedFor.current = null;
     router.push('/billing/new');
   }
@@ -415,6 +456,11 @@ export default function NewInvoiceTab() {
             {unmatchedPrescriptions.length > 0 && (
               <div className="msg-err" style={{ fontSize: 12, marginBottom: 12 }}>
                 <i className="ti ti-alert-triangle"></i> {unmatchedPrescriptions.length} prescribed medicine{unmatchedPrescriptions.length > 1 ? 's' : ''} couldn&apos;t be matched to a priced drug and weren&apos;t added automatically -- add manually below: {unmatchedPrescriptions.map((i) => i.name).join(', ')}
+              </div>
+            )}
+            {unmatchedProcedures.length > 0 && (
+              <div className="msg-err" style={{ fontSize: 12, marginBottom: 12 }}>
+                <i className="ti ti-alert-triangle"></i> {unmatchedProcedures.length} prescribed minor procedure{unmatchedProcedures.length > 1 ? 's' : ''} couldn&apos;t be matched to a priced service and weren&apos;t added automatically -- add manually below: {unmatchedProcedures.map((i) => i.name).join(', ')}
               </div>
             )}
             {unmatchedBiometry.length > 0 && (
@@ -481,7 +527,7 @@ export default function NewInvoiceTab() {
               <tbody>
                 {draftLines.map((li) => (
                   <tr key={li.tempId}>
-                    <td>{li.serviceName}{(li.sourceInvOrderId || li.sourceRxId || li.sourceBioId || li.sourcePkgCaseId) && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
+                    <td>{li.serviceName}{(li.sourceInvOrderId || li.sourceRxId || li.sourceBioId || li.sourceProcId || li.sourcePkgCaseId) && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
                     <td>{li.qty}</td>
                     <td>Rs.{li.rate}</td>
                     <td>{li.disc > 0 ? `Rs.${li.disc}` : '--'}</td>

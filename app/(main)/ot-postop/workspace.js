@@ -6,7 +6,6 @@ import {
   addRecoveryComplication, closeEpisode, openFollowupReview, addFollowup, removeFollowup,
 } from './actions';
 import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
-import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
 
 const MILESTONES_START = [
   { key: 'recovery', label: 'Recovery', icon: 'ti-bed' },
@@ -40,8 +39,6 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [closureOutcome, setClosureOutcome] = useState('');
   const [closureRemarks, setClosureRemarks] = useState('');
 
-  const [reviewingFollowup, setReviewingFollowup] = useState(null);
-  const [reviewQueueEntryId, setReviewQueueEntryId] = useState(null);
   const [openingReview, setOpeningReview] = useState(null);
 
   const [showAddFollowup, setShowAddFollowup] = useState(false);
@@ -63,12 +60,6 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;
   if (data.error) return <div className="msg-err">{data.error}</div>;
-
-  if (reviewingFollowup && reviewQueueEntryId) {
-    return (
-      <ConsultationForm queueEntryId={reviewQueueEntryId} hideHistoryTracker onBack={handleBackFromReview} backLabel="Back to Post-op" />
-    );
-  }
 
 
   const { episode, sc, followups, complications } = data;
@@ -155,14 +146,15 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     const result = await openFollowupReview(f.id);
     setOpeningReview(null);
     if (result.error) { setError(result.error); return; }
-    setReviewQueueEntryId(result.queueEntryId);
-    setReviewingFollowup(f);
-  }
-
-  function handleBackFromReview() {
-    setReviewingFollowup(null);
-    setReviewQueueEntryId(null);
-    refresh();
+    // Opens in its own window (closes itself once the doctor finishes --
+    // see finishAndClose() in consultation-form.js) -- poll for it
+    // closing so the follow-up list refreshes without waiting on a timer.
+    const win = window.open(`/consultation/${result.queueEntryId}`, 'postop-review-window');
+    if (win) {
+      const poll = setInterval(() => {
+        if (win.closed) { clearInterval(poll); refresh(); }
+      }, 800);
+    }
   }
 
   async function handleAddFollowup() {

@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getDoctorDashboardData, getDoctorHistory } from './actions';
 import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
-import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
 import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
 import { getOpenPostOpEpisodeForPatient } from '@/app/(main)/ot-postop/actions';
 import BiometryWorkspace from '@/app/(main)/biometry/[id]/workspace';
@@ -321,7 +320,6 @@ function HistoryTab({ rows, loading, onOpen }) {
 
 export default function DoctorDashboardPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedId, setSelectedId] = useState(null);
   const [postOpEpisodeId, setPostOpEpisodeId] = useState(null);
   const [biometryId, setBiometryId] = useState(null);
   const [medFitnessId, setMedFitnessId] = useState(null);
@@ -376,30 +374,39 @@ export default function DoctorDashboardPage() {
         return;
       }
       setPostOpEpisodeId(episodeId);
-      setSelectedId(null); setBiometryId(null); setMedFitnessId(null);
+      setBiometryId(null); setMedFitnessId(null);
       setActiveTab('workspace');
       return;
     }
-    setPostOpEpisodeId(null); setBiometryId(null); setMedFitnessId(null);
-    setSelectedId(entry.id);
-    setActiveTab('workspace');
+    // Opens in its own window, which closes itself once the doctor
+    // finishes this sitting (Save Draft / Send for Dilation / Send for
+    // Investigation / Complete Encounter) -- see finishAndClose() in
+    // consultation-form.js. Reuses the same window name so repeated
+    // "Call" clicks don't spawn a pile of windows. Polls for the window
+    // closing so the dashboard refreshes immediately rather than
+    // waiting on the 15s interval.
+    const win = window.open(`/consultation/${entry.id}`, 'doctor-consultation-window');
+    if (win) {
+      const poll = setInterval(() => {
+        if (win.closed) { clearInterval(poll); refresh(); }
+      }, 800);
+    }
   }
 
   function openBiometry(id) {
-    setSelectedId(null); setPostOpEpisodeId(null); setMedFitnessId(null);
+    setPostOpEpisodeId(null); setMedFitnessId(null);
     setBiometryId(id);
     setActiveTab('workspace');
   }
 
   function openMedicalFitness(id) {
-    setSelectedId(null); setPostOpEpisodeId(null); setBiometryId(null);
+    setPostOpEpisodeId(null); setBiometryId(null);
     setMedFitnessId(id);
     setActiveTab('workspace');
   }
 
   function handleBack() {
     refresh(); refreshHistory();
-    setSelectedId(null);
     setPostOpEpisodeId(null);
     setBiometryId(null);
     setMedFitnessId(null);
@@ -411,7 +418,7 @@ export default function DoctorDashboardPage() {
       {activeTab !== 'workspace' && (
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 520 }}>
           <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
-          <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!selectedId && !postOpEpisodeId && !biometryId && !medFitnessId} />
+          <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!postOpEpisodeId && !biometryId && !medFitnessId} />
           <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
         </div>
       )}
@@ -445,10 +452,7 @@ export default function DoctorDashboardPage() {
           <MedicalFitnessWorkspace referralId={medFitnessId} onDone={handleBack} />
         </div>
       )}
-      {activeTab === 'workspace' && selectedId && !postOpEpisodeId && !biometryId && !medFitnessId && (
-        <ConsultationForm queueEntryId={selectedId} onBack={handleBack} />
-      )}
-      {activeTab === 'workspace' && !selectedId && !postOpEpisodeId && !biometryId && !medFitnessId && (
+      {activeTab === 'workspace' && !postOpEpisodeId && !biometryId && !medFitnessId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Dashboard or History.</div>
       )}
 

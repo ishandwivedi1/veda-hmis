@@ -184,6 +184,83 @@ export async function markInvestigationOrdersBilled(ids, invoiceId) {
   return { success: true };
 }
 
+// ── FRONT OFFICE WIDGET DATA -- grouped by visit, same shape as
+//    getPendingInvestigationBilling() in the investigation module. ──
+export async function getPendingProcedureBilling() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('plan_procedures')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, last_name, uhid, mobile)))')
+    .eq('billing_status', 'Pending')
+    .order('created_at', { ascending: true });
+
+  if (error) return [];
+
+  const groups = {};
+  (data || []).forEach((p) => {
+    const visitId = p.encounters?.visit_id;
+    const visit = p.encounters?.visits;
+    if (!visitId || !visit) return;
+    if (!groups[visitId]) {
+      groups[visitId] = { visitId, visitNumber: visit.visit_number, patient: visit.patients, items: [] };
+    }
+    groups[visitId].items.push(p);
+  });
+
+  return Object.values(groups);
+}
+
+// ── PREFILL FROM FRONT OFFICE'S "PRESCRIBED MINOR PROCEDURES" WIDGET ──
+// Same pattern as getInvestigationOrdersForBilling -- matches each
+// plan_procedures row against the Minor Procedure department of the
+// service catalog by name.
+export async function getProceduresForBilling(ids) {
+  const supabase = await createClient();
+  if (!ids || ids.length === 0) return { items: [] };
+
+  const { data: orders, error } = await supabase
+    .from('plan_procedures')
+    .select('id, name, eye, notes, billing_status')
+    .in('id', ids);
+  if (error) return { error: error.message };
+
+  const { data: catalog } = await supabase.from('master_services').select('*').eq('dept', 'Minor Procedure').eq('status', 'Active');
+
+  const items = (orders || []).map((p) => {
+    const match = (catalog || []).find((s) => s.name.toLowerCase() === p.name.toLowerCase());
+    return {
+      procedureId: p.id,
+      name: p.name,
+      eye: p.eye,
+      notes: p.notes,
+      matched: !!match,
+      serviceCode: match?.code || null,
+      rate: match?.rate ?? null,
+      gstPct: match?.gst_pct ?? null,
+    };
+  });
+
+  return { items };
+}
+
+export async function markProceduresBilled(ids, invoiceId) {
+  const supabase = await createClient();
+  if (!ids || ids.length === 0) return { success: true };
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('plan_procedures')
+    .update({
+      billing_status: 'Billed',
+      billed: true,
+      invoice_id: invoiceId || null,
+      billing_updated_by: userData?.user?.id || null,
+      billing_updated_at: new Date().toISOString(),
+    })
+    .in('id', ids);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── PREFILL FROM FRONT OFFICE'S "PRESCRIBED MEDICINES" WIDGET ──
 // Same idea as investigation prefill, but matched against master_drugs
 // the same fuzzy way the pharmacy's own auto-bill RPC does (drug_name

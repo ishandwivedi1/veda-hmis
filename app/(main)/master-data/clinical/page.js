@@ -5,7 +5,6 @@ import {
   toggleStatus,
   getDiagnosesMaster, addDiagnosisMaster, updateDiagnosisMaster, deleteDiagnosisMaster,
   getDoctorsMaster,
-  getProcedures, addProcedure, updateProcedure, deleteProcedure,
   getSurgeries, addSurgery, updateSurgery, deleteSurgery,
   getIopMethods, addIopMethod, updateIopMethod, deleteIopMethod,
   getClinicalObservations, addClinicalObservation, updateClinicalObservation, deleteClinicalObservation,
@@ -16,7 +15,6 @@ import {
 
 const TABS = [
   { key: 'doctors', label: 'Doctor' },
-  { key: 'procedures', label: 'Procedure' },
   { key: 'surgeries', label: 'Surgery' },
   { key: 'diagnoses', label: 'Diagnoses' },
   { key: 'iopMethods', label: 'IOP Methods' },
@@ -59,7 +57,6 @@ export default function ClinicalMastersPage() {
   const [activeTab, setActiveTab] = useState('doctors');
   const [diagnoses, setDiagnoses] = useState([]);
   const [doctors, setDoctors] = useState([]);
-  const [procedures, setProcedures] = useState([]);
   const [surgeries, setSurgeries] = useState([]);
   const [iopMethods, setIopMethods] = useState([]);
   const [observations, setObservations] = useState([]);
@@ -76,7 +73,6 @@ export default function ClinicalMastersPage() {
   const refresh = useCallback(async () => {
     setDiagnoses(await getDiagnosesMaster());
     setDoctors(await getDoctorsMaster());
-    setProcedures(await getProcedures());
     setSurgeries(await getSurgeries());
     setIopMethods(await getIopMethods());
     setObservations(await getClinicalObservations());
@@ -101,13 +97,12 @@ export default function ClinicalMastersPage() {
   async function handleAdd() {
     setError('');
     if (activeTab === 'historyOptions' && !form.category) { setError('Category is required.'); return; }
-    if ((activeTab === 'procedures' || activeTab === 'surgeries' || activeTab === 'diagnoses') && !form.category) { setError('Category is required.'); return; }
+    if ((activeTab === 'surgeries' || activeTab === 'diagnoses') && !form.category) { setError('Category is required.'); return; }
     if (activeTab === 'iolCatalog') {
       if (!form.brand || !form.model || !form.category) { setError('Brand, model, and category are required.'); return; }
     } else if (!form.name) { setError('Name is required.'); return; }
     let result;
-    if (activeTab === 'procedures') result = await addProcedure(form);
-    else if (activeTab === 'surgeries') result = await addSurgery(form);
+    if (activeTab === 'surgeries') result = await addSurgery(form);
     else if (activeTab === 'iopMethods') result = await addIopMethod(form);
     else if (activeTab === 'observations') result = await addClinicalObservation(form);
     else if (activeTab === 'historyOptions') result = await addHistoryOption(form);
@@ -123,7 +118,7 @@ export default function ClinicalMastersPage() {
   function startEdit(record) {
     setError('');
     setEditingId(record.id);
-    if (activeTab === 'procedures' || activeTab === 'surgeries' || activeTab === 'diagnoses') setEditForm({ name: record.name, category: record.category });
+    if (activeTab === 'surgeries' || activeTab === 'diagnoses') setEditForm({ name: record.name, category: record.category });
     else if (activeTab === 'iolCatalog') setEditForm({ brand: record.brand, model: record.model, manufacturer: record.manufacturer, category: record.category });
     else setEditForm({ name: record.name });
   }
@@ -134,8 +129,7 @@ export default function ClinicalMastersPage() {
   async function saveEdit(record) {
     setError('');
     let result;
-    if (activeTab === 'procedures') result = await updateProcedure(record.id, record, editForm);
-    else if (activeTab === 'surgeries') result = await updateSurgery(record.id, record, editForm);
+    if (activeTab === 'surgeries') result = await updateSurgery(record.id, record, editForm);
     else if (activeTab === 'iopMethods') result = await updateIopMethod(record.id, record, editForm);
     else if (activeTab === 'observations') result = await updateClinicalObservation(record.id, record, editForm);
     else if (activeTab === 'historyOptions') result = await updateHistoryOption(record.id, record, editForm);
@@ -152,8 +146,7 @@ export default function ClinicalMastersPage() {
     if (!window.confirm(`Delete "${label}"? This cannot be undone. If it's in use elsewhere, deletion will be blocked and you should mark it Inactive instead.`)) return;
     setError('');
     let result;
-    if (activeTab === 'procedures') result = await deleteProcedure(record.id, record.code);
-    else if (activeTab === 'surgeries') result = await deleteSurgery(record.id, record.code);
+    if (activeTab === 'surgeries') result = await deleteSurgery(record.id, record.code);
     else if (activeTab === 'iopMethods') result = await deleteIopMethod(record.id, record.code);
     else if (activeTab === 'observations') result = await deleteClinicalObservation(record.id, record.code);
     else if (activeTab === 'historyOptions') result = await deleteHistoryOption(record.id, record.code);
@@ -214,7 +207,7 @@ export default function ClinicalMastersPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
-          {(activeTab === 'diagnoses' || activeTab === 'procedures' || activeTab === 'surgeries' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions' || activeTab === 'iolCatalog' || activeTab === 'surgicalConsumables') && (
+          {(activeTab === 'diagnoses' || activeTab === 'surgeries' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions' || activeTab === 'iolCatalog' || activeTab === 'surgicalConsumables') && (
             <button className="btn btn-primary btn-sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
               <i className="ti ti-plus"></i> Add New
             </button>
@@ -240,32 +233,6 @@ export default function ClinicalMastersPage() {
                 ))}
                 {doctors.length === 0 && (
                   <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No doctor profiles found. Create one in User Management.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </>
-        )}
-
-        {activeTab === 'procedures' && (
-          <>
-            <div className="msg-info" style={{ background: 'var(--teal-lt)', color: 'var(--teal)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-              <i className="ti ti-info-circle"></i> Minor, in-clinic procedures a doctor performs directly during a consultation (e.g. "Syringing", "FB Removal") -- no price here. Populates the Procedures dropdown in Doctor's Diagnosis &amp; Plan. Distinct from Surgeries (next tab), which are OT-based. Code is generated automatically from the name.
-            </div>
-            {showAdd && (
-              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Name (e.g. Syringing)" onChange={update('name')} />
-                  <input className="fi" placeholder="Category (e.g. Minor Procedure)" onChange={update('category')} />
-                </div>
-                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
-              </div>
-            )}
-            <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Status</th><th></th></tr></thead>
-              <tbody>
-                {procedures.map((p) => renderSimpleRow(p, 'master_procedures', true))}
-                {procedures.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No procedures added yet.</td></tr>
                 )}
               </tbody>
             </table>

@@ -590,12 +590,12 @@ export async function removeOpticalAdvice(id, encounterId) {
   return { success: true };
 }
 
-export async function addProcedure(encounterId, name, eye) {
+export async function addProcedure(encounterId, name, eye, notes) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
-  const { error } = await supabase.from('plan_procedures').insert({ encounter_id: encounterId, name, eye, created_by: userData?.user?.id || null });
+  const { error } = await supabase.from('plan_procedures').insert({ encounter_id: encounterId, name, eye, notes: notes || null, created_by: userData?.user?.id || null });
   if (error) return { error: error.message };
-  await addAudit(supabase, encounterId, `Procedure planned: ${name} (${eye})`, userData?.user?.id);
+  await addAudit(supabase, encounterId, `Minor Procedure planned: ${name} (${eye})`, userData?.user?.id);
   return { success: true };
 }
 
@@ -703,6 +703,19 @@ export async function sendForInvestigationFromConsultation(queueEntryId, encount
   const result = await doctorSendOut(queueEntryId, 'investigate');
   if (!result.error) await addAudit(supabase, encounterId, 'Sent for Investigation', userData?.user?.id);
   return result;
+}
+
+// Minor Procedures are performed by the doctor directly, in the same
+// sitting -- unlike Dilation/Investigation/Biometry there's no separate
+// department to route the patient to, so this just confirms the
+// procedure(s) for the audit trail. Billing already picks them up the
+// moment they're added (billing_status defaults to 'Pending'); this
+// doesn't change that.
+export async function sendForProcedureFromConsultation(encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  await addAudit(supabase, encounterId, 'Sent for Procedure', userData?.user?.id);
+  return { success: true };
 }
 
 // Shared by both the "Add" button (advises Biometry without moving the

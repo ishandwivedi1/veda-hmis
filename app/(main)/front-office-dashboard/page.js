@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
 import InvestigationsBillingWidget from './investigations-billing-widget';
+import ProceduresBillingWidget from './procedures-billing-widget';
 import PharmacyBillingWidget from './pharmacy-billing-widget';
 import BiometryBillingWidget from './biometry-billing-widget';
 import PackageBillingWidget from './package-billing-widget';
@@ -243,6 +244,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
 
         <div>
           <InvestigationsBillingWidget />
+          <ProceduresBillingWidget />
           <PharmacyBillingWidget />
           <BiometryBillingWidget />
           <PackageBillingWidget />
