@@ -102,6 +102,7 @@ export async function getPatientTimeline(patientId) {
       type: 'Investigation', date: i.created_at, title: i.name,
       detail: `${i.eye} -- ${i.status}${i.result_notes ? ` -- ${i.result_notes}` : ''}`,
       visit: visit?.visit_number || '--',
+      id: i.id, status: i.status,
     });
   });
 
