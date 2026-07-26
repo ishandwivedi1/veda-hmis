@@ -1,3 +1,375 @@
+#!/bin/bash
+set -e
+
+echo "== Consultation page facelift, matching the prototype =="
+echo "   1. Colored patient header (name, avatar, duration timer)"
+echo "   2. Header + tab bar frozen at top while tab content scrolls"
+echo "   3. Outer Dashboard/Workspace/History nav hidden while in a"
+echo "      workspace, for a cleaner focused view"
+echo "   (bundles the context-sidebar work too, in case it is not applied yet)"
+
+echo "-- Writing app/(main)/consultation/[id]/follow-up-panel.js --"
+mkdir -p "$(dirname "app/(main)/consultation/[id]/follow-up-panel.js")"
+cat > "app/(main)/consultation/[id]/follow-up-panel.js" << 'JSEOF_46288777'
+'use client';
+
+import { useState, useEffect } from 'react';
+import { openPopup } from '@/lib/popup';
+import { getPatientTimeline } from '@/app/(main)/patient-timeline/actions';
+
+const VISIT_OUTCOMES = [
+  'Continue Follow-up', 'Surgery Advised', 'Proceed to Pre-operative Consultation',
+  'Surgery Planned', 'Referred', 'Admitted', 'Discharged',
+];
+
+function fmtDate(d) {
+  if (!d) return '--';
+  return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function visionStr(v) {
+  if (!v) return '--';
+  return `RE ${v.re || '--'} / LE ${v.le || '--'}`;
+}
+
+function iopStr(iop) {
+  if (!iop) return '--';
+  return `RE ${iop.re ?? '--'} / LE ${iop.le ?? '--'} mmHg`;
+}
+
+// ── Patient Snapshot (top panel, always visible for a Follow-up encounter) ──
+export function PatientSnapshotBar({ snapshot }) {
+  if (!snapshot) return null;
+  if (snapshot.noCompletedPriorVisit) {
+    return (
+      <div className="card" style={{ marginBottom: 16, background: 'var(--amber-lt)', border: '1px solid #fcd34d' }}>
+        <div style={{ fontSize: 12, color: 'var(--amber)' }}>
+          <i className="ti ti-info-circle"></i> This patient has prior visits, but none were ever finalized -- no completed clinical record to summarize yet.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="card" style={{ marginBottom: 16, background: 'var(--blue-lt)', border: '1px solid #93c5fd' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue)', textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <i className="ti ti-history"></i> Patient Snapshot -- Follow-up Visit
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--g500)', textTransform: 'uppercase' }}>Current Diagnosis</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{snapshot.currentDiagnoses.length > 0 ? snapshot.currentDiagnoses.map((d) => d.name).join(', ') : 'None on record'}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--g500)', textTransform: 'uppercase' }}>Surgery Status</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{snapshot.surgicalStatus ? `${snapshot.surgicalStatus.procedure_name} -- ${snapshot.surgicalStatus.status}` : 'None'}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--g500)', textTransform: 'uppercase' }}>Current Medications</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{snapshot.currentMedications.length > 0 ? `${snapshot.currentMedications.length} active` : 'None'}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--g500)', textTransform: 'uppercase' }}>Drug Allergies</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: snapshot.allergy ? 'var(--red)' : 'inherit' }}>{snapshot.allergy || 'None recorded'}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--g500)', textTransform: 'uppercase' }}>Last Visit</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{fmtDate(snapshot.lastVisitDate)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--g500)', textTransform: 'uppercase' }}>Last Vision</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{visionStr(snapshot.lastVision)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--g500)', textTransform: 'uppercase' }}>Last IOP</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{iopStr(snapshot.lastIop)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Previous visits, shown as an in-flow horizontal strip at the top of
+// the workspace (not floating -- sits inside the consultation content,
+// same as everything else). ──
+export function PatientTimelineSidebar({ timeline }) {
+  return (
+    <div className="card" style={{ marginBottom: 16, borderLeft: '4px solid var(--indigo)' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--indigo)', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <i className="ti ti-history"></i> Previous Visits
+      </div>
+      {timeline.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}>No prior visits.</div>
+      ) : (
+        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+          {timeline.map((t) => {
+            const clickable = !!t.queueEntryId;
+            return (
+              <div
+                key={t.encounterId}
+                onClick={clickable ? () => window.open(`/consultation/${t.queueEntryId}`, '_blank', 'noopener,noreferrer') : undefined}
+                style={{ minWidth: 160, flexShrink: 0, padding: '10px 12px', borderRadius: 10, border: '1.5px solid var(--indigo)', cursor: clickable ? 'pointer' : 'default', background: 'var(--indigo-lt)' }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--indigo)' }}>{fmtDate(t.date)}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--g700)', marginTop: 2 }}>{t.chiefComplaint || 'Consultation'}</div>
+                {t.status !== 'Completed' && <div style={{ fontSize: 10, color: 'var(--amber)', marginTop: 4, fontWeight: 600 }}>Not finalized -- {t.status}</div>}
+                {clickable && <div style={{ fontSize: 10.5, color: 'var(--indigo)', marginTop: 4, fontWeight: 700 }}><i className="ti ti-eye"></i> {t.status === 'Completed' ? 'View read-only' : 'Open'}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Previous Visit Summary (read-only card) ──
+export function PreviousVisitSummary({ summary }) {
+  if (!summary) return null;
+  return (
+    <div className="card">
+      <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-file-text" style={{ color: 'var(--g500)' }}></i> Previous Visit Summary -- {fmtDate(summary.date)}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12.5 }}>
+        <div><span style={{ color: 'var(--g500)' }}>Vision: </span>{visionStr(summary.vision)}</div>
+        <div><span style={{ color: 'var(--g500)' }}>IOP: </span>{iopStr(summary.iop)}</div>
+        <div style={{ gridColumn: 'span 2' }}><span style={{ color: 'var(--g500)' }}>Diagnosis: </span>{summary.diagnoses.length > 0 ? summary.diagnoses.map((d) => d.name).join(', ') : '--'}</div>
+        <div style={{ gridColumn: 'span 2' }}><span style={{ color: 'var(--g500)' }}>Medications: </span>{summary.medications.length > 0 ? summary.medications.map((m) => m.drug_name).join(', ') : '--'}</div>
+        <div style={{ gridColumn: 'span 2' }}><span style={{ color: 'var(--g500)' }}>Advice: </span>{summary.advice.length > 0 ? summary.advice.map((a) => a.text || a.advice_text || a.note).filter(Boolean).join('; ') : '--'}</div>
+        <div style={{ gridColumn: 'span 2' }}><span style={{ color: 'var(--g500)' }}>Follow-up Plan: </span>{summary.followupPlan?.instructions || summary.followupPlan?.notes || '--'}</div>
+      </div>
+    </div>
+  );
+}
+
+// Same mapping as the standalone Patient Timeline module -- kept
+// identical across both so an event type reads as the same color
+// everywhere in the app, not just within this sidebar.
+const EVENT_ICON = { Visit: 'ti-door-enter', Diagnosis: 'ti-clipboard-list', Investigation: 'ti-flask', Prescription: 'ti-pill', Surgery: 'ti-scalpel' };
+const EVENT_COLOR = { Visit: 'var(--indigo)', Diagnosis: 'var(--blue)', Investigation: 'var(--teal)', Prescription: 'var(--purple)', Surgery: 'var(--red)' };
+
+function EventTypeChip({ type }) {
+  const color = EVENT_COLOR[type] || 'var(--g500)';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 999, background: `${color}1a`, color, fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.3px' }}>
+      <i className={`ti ${EVENT_ICON[type] || 'ti-point'}`} style={{ fontSize: 10 }}></i> {type}
+    </span>
+  );
+}
+
+function elapsedMin(iso) {
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+}
+
+// ── Context sidebar -- lives alongside the workspace. Combines patient
+//    history (previous visit, timeline, past investigations) with this
+//    encounter's own status/tasks/audit log, all in one column so the
+//    main workspace gets the full remaining width. ──
+export function ContextSidebar({ patientId, previousVisitSummary, encounter, auditLog, openInvestigations, activeWorkflows, pendingRx, wfItems }) {
+  const [showSummary, setShowSummary] = useState(false);
+  const [events, setEvents] = useState(null);
+
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+    getPatientTimeline(patientId).then((r) => { if (!cancelled) setEvents(r.events || []); });
+    return () => { cancelled = true; };
+  }, [patientId]);
+
+  const investigations = (events || []).filter((e) => e.type === 'Investigation');
+
+  return (
+    <div>
+      <button
+        className="btn"
+        style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }}
+        onClick={() => setShowSummary(true)}
+        disabled={!previousVisitSummary}
+        title={previousVisitSummary ? '' : 'No previous visit on record'}
+      >
+        <i className="ti ti-file-text"></i> Previous Visit Summary
+      </button>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-timeline" style={{ color: 'var(--indigo)' }}></i> Patient Timeline</div>
+        {events === null && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>Loading...</div>}
+        {events && events.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>No prior history.</div>}
+        {events && events.length > 0 && (
+          <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+            {events.slice(0, 25).map((e, idx) => {
+              const clickable = (e.type === 'Visit' && !!e.queueEntryId) || (e.type === 'Investigation' && !!e.id);
+              function handleClick() {
+                if (e.type === 'Visit' && e.queueEntryId) window.open(`/consultation/${e.queueEntryId}`, '_blank', 'noopener,noreferrer');
+                else if (e.type === 'Investigation' && e.id) openPopup(`/investigation/${e.id}?mode=view`, `inv-${e.id}`);
+              }
+              return (
+                <div
+                  key={idx}
+                  onClick={clickable ? handleClick : undefined}
+                  style={{ padding: '8px 4px', borderBottom: '1px solid var(--g100)', cursor: clickable ? 'pointer' : 'default', borderRadius: 6 }}
+                  onMouseEnter={clickable ? (ev) => { ev.currentTarget.style.background = 'var(--g50)'; } : undefined}
+                  onMouseLeave={clickable ? (ev) => { ev.currentTarget.style.background = 'transparent'; } : undefined}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <EventTypeChip type={e.type} />
+                    <span style={{ marginLeft: 'auto', color: 'var(--g400)', fontSize: 10 }}>{fmtDate(e.date)}</span>
+                    {clickable && <i className="ti ti-chevron-right" style={{ color: EVENT_COLOR[e.type], fontSize: 12 }}></i>}
+                  </div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 4 }}>{e.title}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>{e.detail}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <a href={patientId ? `/patient-timeline?patientId=${patientId}` : '/patient-timeline'} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10.5, color: 'var(--blue)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
+          <i className="ti ti-external-link"></i> Open full timeline
+        </a>
+      </div>
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Previous Investigations</div>
+        {events === null && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>Loading...</div>}
+        {events && investigations.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>None on record.</div>}
+        {investigations.slice(0, 15).map((e, idx) => (
+          <div
+            key={idx}
+            onClick={e.id ? () => openPopup(`/investigation/${e.id}?mode=view`, `inv-${e.id}`) : undefined}
+            style={{ padding: '7px 4px', borderBottom: '1px solid var(--g100)', cursor: e.id ? 'pointer' : 'default', borderRadius: 6 }}
+            onMouseEnter={e.id ? (ev) => { ev.currentTarget.style.background = 'var(--g50)'; } : undefined}
+            onMouseLeave={e.id ? (ev) => { ev.currentTarget.style.background = 'transparent'; } : undefined}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600, flex: 1 }}>{e.title}</span>
+              <span className="badge" style={{ background: `${EVENT_COLOR.Investigation}1a`, color: EVENT_COLOR.Investigation, fontSize: 9 }}>{e.status || '--'}</span>
+              {e.id && <i className="ti ti-chevron-right" style={{ color: EVENT_COLOR.Investigation, fontSize: 12 }}></i>}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>{e.detail}</div>
+            <div style={{ fontSize: 10, color: 'var(--g400)' }}>{fmtDate(e.date)}</div>
+          </div>
+        ))}
+      </div>
+
+      {encounter && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-activity" style={{ color: 'var(--blue)' }}></i> Encounter Status</div>
+          <div style={{ fontSize: 11.5, color: 'var(--g600)', lineHeight: 1.9 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Status</span><span className="badge b-blue">{encounter.status}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Started</span><span>{new Date(encounter.started_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>In progress</span><span style={{ fontWeight: 700 }}>{elapsedMin(encounter.started_at)}m</span></div>
+          </div>
+        </div>
+      )}
+
+      {(openInvestigations || activeWorkflows || pendingRx) && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-list-checks" style={{ color: 'var(--amber)' }}></i> Outstanding Tasks</div>
+          {(openInvestigations || []).length === 0 && (activeWorkflows || []).length === 0 && (pendingRx || []).length === 0 && (
+            <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>Nothing outstanding.</div>
+          )}
+          {(openInvestigations || []).map((i) => (
+            <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+              <i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i><span style={{ flex: 1 }}>{i.name}</span><span className="badge b-amber" style={{ fontSize: 9 }}>{i.status}</span>
+            </div>
+          ))}
+          {(activeWorkflows || []).map((w) => (
+            <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+              <i className={`ti ${wfItems?.[w.kind]?.icon || 'ti-clipboard'}`} style={{ color: 'var(--amber)' }}></i><span style={{ flex: 1 }}>{w.kind}</span><span className="badge b-amber" style={{ fontSize: 9 }}>Requested</span>
+            </div>
+          ))}
+          {(pendingRx || []).map((r) => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+              <i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i><span style={{ flex: 1 }}>{r.drug_name}</span><span className="badge b-amber" style={{ fontSize: 9 }}>{r.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {auditLog && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
+          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {auditLog.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>No activity yet.</div>}
+            {auditLog.map((a) => (
+              <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)' }}>
+                <div style={{ color: 'var(--teal)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                <div>{a.message}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showSummary && previousVisitSummary && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setShowSummary(false)}>
+          <div style={{ width: 480, maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <PreviousVisitSummary summary={previousVisitSummary} />
+            <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setShowSummary(false)}>Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Carry Forward: bring an unresolved diagnosis from the last visit
+// into this one, without silently duplicating it -- doctor picks. ──
+export function CarryForwardDiagnoses({ priorDiagnoses, alreadyAdded, onCarryForward }) {
+  const available = priorDiagnoses.filter((pd) => !alreadyAdded.some((d) => d.name === pd.name && d.eye === pd.eye));
+  if (available.length === 0) return null;
+  return (
+    <div style={{ background: 'var(--amber-lt)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}><i className="ti ti-arrow-back-up"></i> Carry forward from last visit</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {available.map((pd) => (
+          <button key={pd.id} className="btn btn-sm" onClick={() => onCarryForward(pd)}>
+            <i className="ti ti-plus"></i> {pd.name} ({pd.eye})
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── New investigations since the last visit, with results ready ──
+export function NewInvestigationsSinceLastVisit({ investigations, matchInvestigationType, summarizeResultData }) {
+  if (!investigations || investigations.length === 0) return null;
+  return (
+    <div style={{ background: 'var(--teal-lt)', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--teal)', marginBottom: 6 }}>
+        <i className="ti ti-flask"></i> New since last visit -- {investigations.length} result{investigations.length > 1 ? 's' : ''} ready
+      </div>
+      {investigations.map((i) => {
+        const type = matchInvestigationType(i.name);
+        return (
+          <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', fontSize: 12.5 }}>
+            <span><strong>{i.name}</strong> -- {i.eye} -- <span style={{ color: 'var(--g500)' }}>{summarizeResultData(type, i.result_data)}</span></span>
+            <button className="btn btn-sm" onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
+              <i className="ti ti-eye"></i> View
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Visit Outcome selector ──
+export function VisitOutcomeSelector({ value, onChange, disabled }) {
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-flag" style={{ color: 'var(--purple)' }}></i> Visit Outcome</div>
+      <select className="fi" value={value || ''} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+        <option value="">-- Select outcome --</option>
+        {VISIT_OUTCOMES.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+JSEOF_46288777
+
+echo "-- Writing app/(main)/consultation/[id]/consultation-form.js --"
+mkdir -p "$(dirname "app/(main)/consultation/[id]/consultation-form.js")"
+cat > "app/(main)/consultation/[id]/consultation-form.js" << 'JSEOF_60527296'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -1081,3 +1453,479 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     </div>
   );
 }
+JSEOF_60527296
+
+echo "-- Writing app/(main)/doctor-dashboard/page.js --"
+mkdir -p "$(dirname "app/(main)/doctor-dashboard/page.js")"
+cat > "app/(main)/doctor-dashboard/page.js" << 'JSEOF_99391176'
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { getDoctorDashboardData, getDoctorHistory } from './actions';
+import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
+import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
+import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
+import { getOpenPostOpEpisodeForPatient } from '@/app/(main)/ot-postop/actions';
+import BiometryWorkspace from '@/app/(main)/biometry/[id]/workspace';
+import { getBiometryApprovalsToday } from '@/app/(main)/biometry/actions';
+import { WorkspaceTab as MedicalFitnessWorkspace } from '@/app/(main)/medical-fitness/page';
+import { getMedicalFitnessToday } from '@/app/(main)/medical-fitness/actions';
+
+function elapsedMin(isoString) {
+  if (!isoString) return 0;
+  return Math.floor((Date.now() - new Date(isoString).getTime()) / 60000);
+}
+
+function waitBadgeClass(mins) {
+  if (mins >= 20) return 'b-red';
+  if (mins >= 10) return 'b-amber';
+  return 'b-green';
+}
+
+function patientName(entry) {
+  const p = entry.visits?.patients;
+  return p ? `${p.first_name} ${p.last_name}` : 'Unknown';
+}
+
+const VISIT_TYPE_COLOR = {
+  'New Consultation': '--blue',
+  'Follow-up': '--green',
+  'Investigation Only': '--purple',
+  'Post-operative Review': '--amber',
+  'Emergency': '--red',
+  'Procedure': '--teal',
+};
+
+function TokenBadge({ token, color }) {
+  return (
+    <span style={{
+      fontFamily: 'monospace', fontWeight: 800, fontSize: 13, background: color || 'var(--g900)', color: '#fff',
+      padding: '3px 9px', borderRadius: 6, marginRight: 8,
+    }}>
+      {token}
+    </span>
+  );
+}
+
+function TabButton({ active, onClick, icon, label, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: active ? '#fff' : 'transparent', color: disabled ? 'var(--g300)' : active ? 'var(--blue)' : 'var(--g500)', cursor: disabled ? 'not-allowed' : 'pointer', boxShadow: active ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+    >
+      <i className={`ti ${icon}`}></i> {label}
+    </button>
+  );
+}
+
+function DashboardTab({ active, intermediate, completed, optometryWaiting, biometryApprovals, medicalFitnessToday, visitTypeCounts, totalVisitsToday, error, onRunAction, onOpen, onOpenBiometry, onOpenMedicalFitness }) {
+  const inConsultation = active.find((e) => e.status === 'In Consultation');
+  const waitingCount = active.filter((e) => e.status === 'Waiting' || e.status === 'Ready for Review').length;
+
+  return (
+    <div>
+      {error && <div className="msg-err">{error}</div>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+        <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>In Consultation</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{inConsultation ? 1 : 0}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>With doctor now</div>
+        </div>
+        <div className="card" style={{ borderTop: '3px solid var(--amber)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Waiting for Doctor</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{waitingCount}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>In doctor queue</div>
+        </div>
+        <div className="card" style={{ borderTop: '3px solid var(--purple)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Intermediate</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{intermediate.length}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Dilation / Investigation</div>
+        </div>
+        <div className="card" style={{ borderTop: '3px solid var(--green)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Completed Today</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{completed.length}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Encounters closed</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title"><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Doctor Queue<span className="badge b-gray">{active.length}</span></div>
+          </div>
+          <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => onRunAction(doctorCallNext)} disabled={!!inConsultation}>
+            <i className="ti ti-bell-ringing"></i> Call Next
+          </button>
+
+          {inConsultation && (
+            <div style={{ background: 'var(--blue-lt)', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                <TokenBadge token={inConsultation.token} color="var(--blue)" />
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{patientName(inConsultation)}</span>
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <span className={`badge ${waitBadgeClass(elapsedMin(inConsultation.called_at || inConsultation.issued_at))}`}>
+                  <i className="ti ti-clock"></i> In consultation {elapsedMin(inConsultation.called_at || inConsultation.issued_at)}m
+                </span>
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={() => onOpen(inConsultation)}>
+                <i className="ti ti-clipboard-text"></i> Open Consultation
+              </button>
+            </div>
+          )}
+
+          {active.filter((e) => e.id !== inConsultation?.id).map((e) => (
+            <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: '1px solid var(--g100)', borderRadius: 6 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 3 }}>
+                  <TokenBadge token={e.token} color={e.status === 'Ready for Review' ? 'var(--green)' : 'var(--amber)'} />
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{patientName(e)}</span>
+                  {e.visits?.visit_type === 'Post-operative Review' && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 10 }}>Post-op Review</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className={`badge ${e.status === 'Ready for Review' ? 'b-green' : 'b-amber'}`}>{e.status}</span>
+                  <span className={`badge ${waitBadgeClass(elapsedMin(e.issued_at))}`}><i className="ti ti-clock"></i> {elapsedMin(e.issued_at)}m</span>
+                </div>
+              </div>
+              <button className="btn btn-sm" onClick={() => onRunAction(doctorCallSpecific, e.id)} disabled={!!inConsultation}>Call</button>
+            </div>
+          ))}
+          {active.length === 0 && (
+            <div style={{ textAlign: 'center', color: 'var(--g400)', fontSize: 13, padding: 24 }}>
+              <i className="ti ti-circle-check" style={{ fontSize: 22, display: 'block', marginBottom: 6 }}></i>
+              Queue is empty
+            </div>
+          )}
+        </div>
+
+        {/* INTERMEDIATE QUEUE -- side by side with Doctor Queue, not
+            buried further down, since it's just as time-sensitive
+            (patients sent out for Dilation/Investigation/Biometry who
+            need to be pulled back in). */}
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title"><i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)' }}></i> Intermediate Queue<span className="badge b-gray">{intermediate.length}</span></div>
+          </div>
+          {intermediate.map((e) => (
+            <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+              <div>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
+                {patientName(e)}
+                <div style={{ fontSize: 11, color: 'var(--g500)' }}>{e.status} -- {elapsedMin(e.sent_out_at)}m</div>
+              </div>
+              <button className="btn btn-sm" onClick={() => onRunAction(doctorMarkReady, e.id)}>Mark Ready</button>
+            </div>
+          ))}
+          {intermediate.length === 0 && (
+            <div style={{ textAlign: 'center', color: 'var(--g400)', fontSize: 13, padding: 24 }}>
+              <i className="ti ti-circle-check" style={{ fontSize: 22, display: 'block', marginBottom: 6 }}></i>
+              No one in Dilation, Investigation, or Biometry.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Everything else -- side by side in pairs rather than one long
+          vertical stack. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* VISIT TYPE BREAKDOWN -- same widget as Front Office Dashboard */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            <i className="ti ti-chart-pie" style={{ color: 'var(--purple)' }}></i> Visits by Type Today
+          </div>
+          {Object.keys(visitTypeCounts || {}).length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>No visits yet today.</div>
+          )}
+          {Object.entries(visitTypeCounts || {}).map(([type, count]) => (
+            <div key={type} style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                <span>{type}</span><span style={{ fontWeight: 600 }}>{count}</span>
+              </div>
+              <div style={{ height: 6, background: 'var(--g100)', borderRadius: 3 }}>
+                <div style={{
+                  width: `${totalVisitsToday ? (count / totalVisitsToday) * 100 : 0}%`,
+                  height: '100%', background: `var(${VISIT_TYPE_COLOR[type] || '--g400'})`, borderRadius: 3,
+                }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title"><i className="ti ti-eye" style={{ color: 'var(--teal)' }}></i> Waiting in Optometry<span className="badge b-gray">{optometryWaiting.length}</span></div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+            Pull a patient straight into consultation without waiting for their optometry workup -- useful for quick reviews or referrals.
+          </div>
+          {optometryWaiting.map((e) => (
+            <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+              <div>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
+                {patientName(e)}
+                <div style={{ fontSize: 11, color: 'var(--g500)' }}>{elapsedMin(e.issued_at)}m waiting in Optometry</div>
+              </div>
+              <button className="btn btn-sm" onClick={() => onRunAction(doctorCallDirect, e.id)} disabled={!!inConsultation}>
+                <i className="ti ti-arrow-right"></i> Call Directly
+              </button>
+            </div>
+          ))}
+          {optometryWaiting.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No one currently waiting in Optometry.</div>}
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title"><i className="ti ti-ruler-measure" style={{ color: 'var(--indigo)' }}></i> Biometry Approvals<span className="badge b-gray">{biometryApprovals.length}</span></div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Today's visits only. Only a doctor can approve.</div>
+          {biometryApprovals.map((b) => (
+            <div key={b.id} onClick={() => onOpenBiometry(b.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}>
+              <div>
+                {b.visits?.patients?.first_name} {b.visits?.patients?.last_name}
+                <span className="badge b-indigo" style={{ marginLeft: 6, fontSize: 10 }}>{b.surgical_eye}</span>
+                <div style={{ fontSize: 11, color: 'var(--g500)' }}>{b.visits?.patients?.uhid}</div>
+              </div>
+              <button className="btn btn-sm btn-primary"><i className="ti ti-shield-check"></i> Approve</button>
+            </div>
+          ))}
+          {biometryApprovals.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing awaiting approval today.</div>}
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title"><i className="ti ti-heart-rate-monitor" style={{ color: 'var(--amber)' }}></i> Medical Fitness<span className="badge b-gray">{medicalFitnessToday.length}</span></div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Today's referrals only.</div>
+          {medicalFitnessToday.map((r) => (
+            <div key={r.id} onClick={() => onOpenMedicalFitness(r.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}>
+              <div>
+                {r.visits?.patients?.first_name} {r.visits?.patients?.last_name}
+                <div style={{ fontSize: 11, color: 'var(--g500)' }}>{r.visits?.patients?.uhid} -- {r.surgical_cases?.procedure_name}</div>
+              </div>
+              <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Review</button>
+            </div>
+          ))}
+          {medicalFitnessToday.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing pending today.</div>}
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title"><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Completed Today<span className="badge b-green">{completed.length}</span></div>
+          </div>
+          {completed.slice(0, 8).map((e) => (
+            <div
+              key={e.id}
+              onClick={() => onOpen(e)}
+              style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}</span>
+                <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--g500)' }}>
+                {e.completed_at ? new Date(e.completed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+              </div>
+            </div>
+          ))}
+          {completed.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing completed yet today.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryTab({ rows, loading, onOpen }) {
+  const [search, setSearch] = useState('');
+  const filtered = search.trim()
+    ? rows.filter((e) => {
+        const q = search.trim().toLowerCase();
+        const p = e.visits?.patients;
+        return `${p?.first_name} ${p?.last_name}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
+      })
+    : rows;
+
+  return (
+    <div className="card">
+      <div className="card-head" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div className="card-title"><i className="ti ti-history" style={{ color: 'var(--g500)' }}></i> Consultation History</div>
+        <input className="fi fi-sm" placeholder="Search patient / UHID" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} />
+      </div>
+
+      {loading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 20, textAlign: 'center' }}>Loading...</div>}
+
+      {!loading && (
+        <table className="tbl">
+          <thead><tr><th>Token</th><th>Patient</th><th>Completed</th><th></th></tr></thead>
+          <tbody>
+            {filtered.map((e) => (
+              <tr key={e.id} onClick={() => onOpen(e)} style={{ cursor: 'pointer' }}>
+                <td style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12 }}>{e.token}</td>
+                <td>
+                  <strong>{patientName(e)}</strong>
+                  <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.visits?.patients?.uhid}</span>
+                </td>
+                <td style={{ fontSize: 11 }}>{e.completed_at ? new Date(e.completed_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
+                <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
+              </tr>
+            ))}
+            {filtered.length === 0 && <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No completed consultations found.</td></tr>}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+export default function DoctorDashboardPage() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedId, setSelectedId] = useState(null);
+  const [postOpEpisodeId, setPostOpEpisodeId] = useState(null);
+  const [biometryId, setBiometryId] = useState(null);
+  const [medFitnessId, setMedFitnessId] = useState(null);
+  const [active, setActive] = useState([]);
+  const [intermediate, setIntermediate] = useState([]);
+  const [completed, setCompleted] = useState([]);
+  const [optometryWaiting, setOptometryWaiting] = useState([]);
+  const [biometryApprovals, setBiometryApprovals] = useState([]);
+  const [medicalFitnessToday, setMedicalFitnessToday] = useState([]);
+  const [visitTypeCounts, setVisitTypeCounts] = useState({});
+  const [totalVisitsToday, setTotalVisitsToday] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    const result = await getDoctorDashboardData();
+    setActive(result.active);
+    setIntermediate(result.intermediate);
+    setCompleted(result.completed);
+    setOptometryWaiting(result.optometryWaiting);
+    setVisitTypeCounts(result.visitTypeCounts);
+    setTotalVisitsToday(result.totalVisitsToday);
+    setBiometryApprovals(await getBiometryApprovalsToday());
+    setMedicalFitnessToday(await getMedicalFitnessToday());
+  }, []);
+
+  const refreshHistory = useCallback(async () => {
+    setHistory(await getDoctorHistory());
+    setLoadingHistory(false);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    refreshHistory();
+    const interval = setInterval(refresh, 15000);
+    return () => clearInterval(interval);
+  }, [refresh, refreshHistory]);
+
+  async function runAction(fn, ...args) {
+    setError('');
+    const result = await fn(...args);
+    if (result?.error) setError(result.error);
+    refresh();
+  }
+
+  async function openConsultation(entry) {
+    if (entry.visits?.visit_type === 'Post-operative Review') {
+      const episodeId = await getOpenPostOpEpisodeForPatient(entry.visits.patients.id);
+      if (!episodeId) {
+        setError('This is marked as a Post-operative Review visit, but no open post-op episode was found for this patient.');
+        return;
+      }
+      setPostOpEpisodeId(episodeId);
+      setSelectedId(null); setBiometryId(null); setMedFitnessId(null);
+      setActiveTab('workspace');
+      return;
+    }
+    setPostOpEpisodeId(null); setBiometryId(null); setMedFitnessId(null);
+    setSelectedId(entry.id);
+    setActiveTab('workspace');
+  }
+
+  function openBiometry(id) {
+    setSelectedId(null); setPostOpEpisodeId(null); setMedFitnessId(null);
+    setBiometryId(id);
+    setActiveTab('workspace');
+  }
+
+  function openMedicalFitness(id) {
+    setSelectedId(null); setPostOpEpisodeId(null); setBiometryId(null);
+    setMedFitnessId(id);
+    setActiveTab('workspace');
+  }
+
+  function handleBack() {
+    refresh(); refreshHistory();
+    setSelectedId(null);
+    setPostOpEpisodeId(null);
+    setBiometryId(null);
+    setMedFitnessId(null);
+    setActiveTab('dashboard');
+  }
+
+  return (
+    <div>
+      {activeTab !== 'workspace' && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 520 }}>
+          <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
+          <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!selectedId && !postOpEpisodeId && !biometryId && !medFitnessId} />
+          <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
+        </div>
+      )}
+
+      {activeTab === 'dashboard' && (
+        <DashboardTab
+          active={active} intermediate={intermediate} completed={completed} optometryWaiting={optometryWaiting}
+          biometryApprovals={biometryApprovals} medicalFitnessToday={medicalFitnessToday}
+          visitTypeCounts={visitTypeCounts} totalVisitsToday={totalVisitsToday}
+          error={error} onRunAction={runAction} onOpen={openConsultation}
+          onOpenBiometry={openBiometry} onOpenMedicalFitness={openMedicalFitness}
+        />
+      )}
+
+      {activeTab === 'workspace' && postOpEpisodeId && (
+        <PostOpWorkspace episodeId={postOpEpisodeId} onBack={handleBack} onUpdate={() => {}} />
+      )}
+      {activeTab === 'workspace' && biometryId && (
+        <div>
+          <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
+            <i className="ti ti-arrow-left"></i> Dashboard
+          </button>
+          <BiometryWorkspace recordId={biometryId} />
+        </div>
+      )}
+      {activeTab === 'workspace' && medFitnessId && (
+        <div>
+          <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
+            <i className="ti ti-arrow-left"></i> Dashboard
+          </button>
+          <MedicalFitnessWorkspace referralId={medFitnessId} onDone={handleBack} />
+        </div>
+      )}
+      {activeTab === 'workspace' && selectedId && !postOpEpisodeId && !biometryId && !medFitnessId && (
+        <div>
+          <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
+            <i className="ti ti-arrow-left"></i> Dashboard
+          </button>
+          <ConsultationForm queueEntryId={selectedId} />
+        </div>
+      )}
+      {activeTab === 'workspace' && !selectedId && !postOpEpisodeId && !biometryId && !medFitnessId && (
+        <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Dashboard or History.</div>
+      )}
+
+      {activeTab === 'history' && <HistoryTab rows={history} loading={loadingHistory} onOpen={openConsultation} />}
+    </div>
+  );
+}
+
+JSEOF_99391176
+
+echo "-- Installing deps & building --"
+npm install --no-audit --no-fund
+npm run build
+
+echo "== Done. Review changes, then commit. =="
