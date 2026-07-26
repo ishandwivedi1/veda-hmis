@@ -1,3 +1,13 @@
+#!/bin/bash
+set -e
+
+echo "== Fixing: Post-op Review fails when patient already has a visit today =="
+echo "   (e.g. scheduled for a later date but walked in early -- now reuses"
+echo "    the existing visit/encounter for today instead of erroring)"
+
+echo "-- Writing app/(main)/ot-postop/actions.js --"
+mkdir -p "$(dirname "app/(main)/ot-postop/actions.js")"
+cat > "app/(main)/ot-postop/actions.js" << 'JSEOF_99545954'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -236,3 +246,10 @@ export async function closeEpisode(episodeId, values) {
   return { success: true };
 }
 
+JSEOF_99545954
+
+echo "-- Installing deps & building --"
+npm install --no-audit --no-fund
+npm run build
+
+echo "== Done. DB fix already applied live -- just build & push this file. =="
