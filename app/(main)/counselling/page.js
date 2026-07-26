@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getCounsellingCases, getPackagesForCase, selectPackage, changePackage,
+  getCounsellingCases, getCounsellingHistory, getPackagesForCase, selectPackage, changePackage,
   setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
   markReadyForScheduling, referBackToDoctor,
   referForMedicalFitness,
@@ -792,6 +792,56 @@ function OTCalendar() {
   );
 }
 
+// ── History tab -- cases that have left the active Dashboard (Scheduled,
+//    Completed, Cancelled, etc). Read-only lookup, same pattern as the
+//    History tabs elsewhere in the app (Post-op, Investigation,
+//    Optometry). Opens the same CaseWorkspace as an active case -- its
+//    action buttons already only render for statuses that are still
+//    actionable, so a past case naturally shows as read-only. ──
+function HistoryTab({ cases, loading, onOpen }) {
+  const [search, setSearch] = useState('');
+  const filtered = search.trim()
+    ? cases.filter((sc) => {
+        const q = search.trim().toLowerCase();
+        const p = sc.patients;
+        return `${p?.first_name} ${p?.last_name}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
+      })
+    : cases;
+
+  const STATUS_BADGE = { Scheduled: 'b-blue', Completed: 'b-green', Cancelled: 'b-red' };
+
+  return (
+    <div className="card">
+      <div className="card-head" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div className="card-title"><i className="ti ti-history" style={{ color: 'var(--g500)' }}></i> Counselling History</div>
+        <input className="fi fi-sm" placeholder="Search patient / UHID" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} />
+      </div>
+
+      {loading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 20, textAlign: 'center' }}>Loading...</div>}
+
+      {!loading && (
+        <table className="tbl">
+          <thead><tr><th>Patient</th><th>Procedure</th><th>Surgeon</th><th>Decision</th><th>Status</th><th>Date</th><th></th></tr></thead>
+          <tbody>
+            {filtered.map((sc) => (
+              <tr key={sc.id} onClick={() => onOpen(sc.id)} style={{ cursor: 'pointer' }}>
+                <td><strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span></td>
+                <td style={{ fontSize: 12 }}>{sc.procedure_name} ({sc.eye})</td>
+                <td style={{ fontSize: 12 }}>{sc.profiles?.full_name || '--'}</td>
+                <td style={{ fontSize: 12 }}>{sc.decision || '--'}</td>
+                <td><span className={`badge ${STATUS_BADGE[sc.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{sc.status}</span></td>
+                <td style={{ fontSize: 11 }}>{sc.created_at ? new Date(sc.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}</td>
+                <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
+              </tr>
+            ))}
+            {filtered.length === 0 && <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No past cases yet.</td></tr>}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function TabButton({ active, onClick, icon, label, disabled }) {
   return (
     <button
@@ -808,7 +858,9 @@ function TabButton({ active, onClick, icon, label, disabled }) {
 
 export default function CounsellingPage() {
   const [cases, setCases] = useState([]);
+  const [historyCases, setHistoryCases] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedCaseId, setSelectedCaseId] = useState(null);
 
@@ -817,23 +869,33 @@ export default function CounsellingPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  const refreshHistory = useCallback(async () => {
+    setHistoryCases(await getCounsellingHistory());
+    setLoadingHistory(false);
+  }, []);
+
+  useEffect(() => { refresh(); refreshHistory(); }, [refresh, refreshHistory]);
 
   function openCase(id) {
     setSelectedCaseId(id);
     setActiveTab('workspace');
   }
 
-  const selectedCase = cases.find((sc) => sc.id === selectedCaseId) || null;
+  function handleUpdate() {
+    refresh(); refreshHistory();
+  }
+
+  const selectedCase = cases.find((sc) => sc.id === selectedCaseId) || historyCases.find((sc) => sc.id === selectedCaseId) || null;
 
   if (loading) return <div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading counselling cases...</div>;
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 420 }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 540 }}>
         <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
         <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-messages" label="Workspace" disabled={!selectedCase} />
         <TabButton active={activeTab === 'otcalendar'} onClick={() => setActiveTab('otcalendar')} icon="ti-calendar-event" label="OT Calendar" />
+        <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
       </div>
 
       {activeTab === 'dashboard' && <CounsellingDashboard cases={cases} onOpen={openCase} />}
@@ -843,7 +905,7 @@ export default function CounsellingPage() {
           <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={() => setActiveTab('dashboard')}>
             <i className="ti ti-arrow-left"></i> Back to Dashboard
           </button>
-          <CaseWorkspace sc={selectedCase} onUpdate={refresh} />
+          <CaseWorkspace sc={selectedCase} onUpdate={handleUpdate} />
         </div>
       )}
 
@@ -854,6 +916,8 @@ export default function CounsellingPage() {
       )}
 
       {activeTab === 'otcalendar' && <OTCalendar />}
+
+      {activeTab === 'history' && <HistoryTab cases={historyCases} loading={loadingHistory} onOpen={openCase} />}
     </div>
   );
 }

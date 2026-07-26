@@ -224,6 +224,31 @@ export async function getCounsellingCases() {
   }));
 }
 
+// ── History -- cases that have left the active Dashboard (Scheduled,
+//    Completed, Cancelled). Read-only lookup, same underlying data shape
+//    as getCounsellingCases minus the biometry/fitness batching, which
+//    only matters for cases still in active workup. ──
+export async function getCounsellingHistory() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select(`
+      id, patient_id, encounter_id, procedure_name, eye, priority, status,
+      iol_category, decision, decision_reason,
+      biometry_done, biometry_required, biometry_skip_reason,
+      fitness_cleared, investigations_complete,
+      package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
+      patients:patient_id ( id, first_name, last_name, uhid, age, gender ),
+      profiles:surgeon_id ( id, full_name ),
+      master_packages:package_id ( id, name, price )
+    `)
+    .not('status', 'in', '("Pending Workup","Ready for Scheduling")')
+    .order('created_at', { ascending: false })
+    .limit(300);
+  if (error) return [];
+  return data || [];
+}
+
 // ── Packages, filtered by the IOL type advised at Biometry ──
 // iol_category/origin live on master_packages (Master Data, M29). A package
 // with iol_category = NULL is not IOL-specific (e.g. Glaucoma surgery) and
@@ -573,7 +598,7 @@ export async function getOTSchedule() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('ot_schedule')
-    .select('*, surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid)), profiles(full_name)')
+    .select('*, surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)')
     .neq('status', 'Cancelled')
     .order('scheduled_date', { ascending: true });
   if (error) return [];

@@ -148,6 +148,27 @@ export async function completeCheckin(otScheduleId, surgicalCaseId) {
   const checked = Object.values(intraop?.checkin_items || {}).filter(Boolean).length;
   if (checked < CHECKIN_ITEMS.length - 1) return { error: `Complete all check-in items first (${checked}/${CHECKIN_ITEMS.length - 1}).` };
 
+  // VAL-OT-IOL-001: if an approved IOL plan exists for this visit, its
+  // power and manufacturer must both be present. Check-in is the last
+  // point this can still be corrected -- discovering a missing power or
+  // manufacturer only after the implant is already in the eye is too
+  // late to do anything useful with the information. A case with no
+  // approved plan at all is left alone (non-IOL procedures legitimately
+  // have none).
+  const { data: sc } = await supabase.from('surgical_cases').select('visit_id').eq('id', surgicalCaseId).single();
+  if (sc) {
+    const { data: biometryPlans } = await supabase
+      .from('biometry_records')
+      .select('surgical_eye, final_iol_power, master_iol_catalog:final_iol_catalog_id(manufacturer)')
+      .eq('visit_id', sc.visit_id)
+      .eq('status', 'Approved');
+    const badPlan = (biometryPlans || []).find((p) => !p.final_iol_power || !p.master_iol_catalog?.manufacturer);
+    if (badPlan) {
+      const missing = !badPlan.final_iol_power ? 'power' : 'manufacturer';
+      return { error: `Approved IOL plan for ${badPlan.surgical_eye} is missing its ${missing} -- fix this in Biometry before check-in can be completed.` };
+    }
+  }
+
   const { data: userData } = await supabase.auth.getUser();
   await supabase.from('ot_intraop_records').update({ checkin_completed_at: new Date().toISOString() }).eq('id', recordId);
   await supabase.from('ot_schedule').update({ status: 'In Progress' }).eq('id', otScheduleId);
