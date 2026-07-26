@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   getPostOpEpisodeDetail, rescheduleFollowup, saveFollowupNotes, markFollowupStatus,
-  addRecoveryComplication, closeEpisode, openFollowupReview,
+  addRecoveryComplication, closeEpisode, openFollowupReview, addFollowup, removeFollowup,
 } from './actions';
 import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
 import ConsultationForm from '@/app/(main)/consultation/[id]/consultation-form';
@@ -43,6 +43,12 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [reviewingFollowup, setReviewingFollowup] = useState(null);
   const [reviewQueueEntryId, setReviewQueueEntryId] = useState(null);
   const [openingReview, setOpeningReview] = useState(null);
+
+  const [showAddFollowup, setShowAddFollowup] = useState(false);
+  const [newFollowupLabel, setNewFollowupLabel] = useState('');
+  const [newFollowupDate, setNewFollowupDate] = useState('');
+  const [addingFollowup, setAddingFollowup] = useState(false);
+  const [removingFollowupId, setRemovingFollowupId] = useState(null);
 
   const refresh = useCallback(async () => {
     const result = await getPostOpEpisodeDetail(episodeId);
@@ -164,6 +170,27 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     refresh();
   }
 
+  async function handleAddFollowup() {
+    setError('');
+    if (!newFollowupLabel.trim()) { setError('A label for the review is required.'); return; }
+    if (!newFollowupDate) { setError('A date is required.'); return; }
+    setAddingFollowup(true);
+    const result = await addFollowup(episodeId, newFollowupLabel, newFollowupDate);
+    setAddingFollowup(false);
+    if (result.error) { setError(result.error); return; }
+    setNewFollowupLabel(''); setNewFollowupDate(''); setShowAddFollowup(false);
+    refresh();
+  }
+
+  async function handleRemoveFollowup(followupId) {
+    setError('');
+    setRemovingFollowupId(followupId);
+    const result = await removeFollowup(followupId);
+    setRemovingFollowupId(null);
+    if (result.error) { setError(result.error); return; }
+    refresh();
+  }
+
   async function handleCloseEpisode() {
     setError('');
     if (!closureOutcome) { setError('VAL-POST-005: Overall clinical outcome is required.'); return; }
@@ -272,7 +299,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
               {!isClosed && editingFollowupId !== f.id && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 8, marginLeft: 42 }}>
                   <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={() => handleOpenReview(f)} disabled={openingReview === f.id}>
-                    <i className="ti ti-clipboard-text"></i> {openingReview === f.id ? 'Opening...' : f.encounter_id ? 'Open Review' : 'Start Review'}
+                    <i className="ti ti-clipboard-text"></i> {openingReview === f.id ? 'Opening...' : f.visit_id ? 'Open Review' : 'Start Review'}
                   </button>
                   <button className="btn btn-sm" onClick={() => startEdit(f)}><i className="ti ti-calendar-time"></i> Reschedule</button>
                   {notesEditingId !== f.id && (
@@ -289,6 +316,15 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                       Mark Completed
                     </button>
                   )}
+                  <button
+                    className="btn btn-sm"
+                    style={{ color: 'var(--red)' }}
+                    onClick={() => handleRemoveFollowup(f.id)}
+                    disabled={removingFollowupId === f.id}
+                    title={f.visit_id ? 'A review that already has a visit recorded cannot be removed' : 'Remove this review'}
+                  >
+                    <i className="ti ti-trash"></i> {removingFollowupId === f.id ? 'Removing...' : 'Remove'}
+                  </button>
                 </div>
               )}
 
@@ -307,6 +343,23 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
             </div>
           );
         })}
+
+        {!isClosed && (
+          showAddFollowup ? (
+            <div style={{ padding: '10px 12px', border: '1px dashed var(--g300)', borderRadius: 12, marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Review label (e.g. Post-op Week 2)" value={newFollowupLabel} onChange={(e) => setNewFollowupLabel(e.target.value)} />
+                <input type="date" className="fi fi-sm" style={{ width: 150 }} value={newFollowupDate} onChange={(e) => setNewFollowupDate(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-sm btn-primary" onClick={handleAddFollowup} disabled={addingFollowup}>{addingFollowup ? 'Adding...' : 'Add Review'}</button>
+                <button className="btn btn-sm" onClick={() => { setShowAddFollowup(false); setNewFollowupLabel(''); setNewFollowupDate(''); }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button className="btn btn-sm" style={{ marginBottom: 8 }} onClick={() => setShowAddFollowup(true)}><i className="ti ti-plus"></i> Add Review</button>
+          )
+        )}
 
         {MILESTONES_END.map((m) => {
           const status = milestoneStatus(m.key);

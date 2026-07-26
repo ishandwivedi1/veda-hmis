@@ -105,7 +105,12 @@ export async function removeRecoveryMedication(id) {
 }
 
 // ── DISCHARGE ──
-export async function confirmDischarge(episodeId, checklist, dischargeNotes, dischargeInstructions, dischargeDate) {
+// The 4 suggested review dates (Day 1 / Week 1 / Month 1 / Final
+// Refraction) are a starting point, not a rule -- different surgeries
+// need different review schedules, so the doctor can edit labels/dates
+// or remove any of them before confirming discharge. followupPlan is
+// whatever's left in that editable list at the time of discharge.
+export async function confirmDischarge(episodeId, checklist, dischargeNotes, dischargeInstructions, dischargeDate, followupPlan) {
   const supabase = await createClient();
 
   const mandatoryDone = DISCHARGE_ITEMS.filter((i) => i.mandatory).every((i) => checklist[i.key]);
@@ -121,16 +126,12 @@ export async function confirmDischarge(episodeId, checklist, dischargeNotes, dis
   }).eq('id', episodeId);
   if (error) return { error: error.message };
 
-  // AUTO-POST-002: generate the standard follow-up schedule, relative
-  // to the actual discharge date chosen (not just "today").
-  const addDays = (n) => { const d = new Date(`${dischargeDate}T00:00:00`); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-  const followups = [
-    { recovery_episode_id: episodeId, visit_label: 'Post-op Day 1', scheduled_date: addDays(1) },
-    { recovery_episode_id: episodeId, visit_label: 'Post-op Week 1', scheduled_date: addDays(7) },
-    { recovery_episode_id: episodeId, visit_label: 'Post-op Month 1', scheduled_date: addDays(30) },
-    { recovery_episode_id: episodeId, visit_label: 'Final Refraction', scheduled_date: addDays(45) },
-  ];
-  await supabase.from('recovery_followups').insert(followups);
+  const followups = (followupPlan || [])
+    .filter((f) => f.visit_label?.trim() && f.scheduled_date)
+    .map((f) => ({ recovery_episode_id: episodeId, visit_label: f.visit_label.trim(), scheduled_date: f.scheduled_date }));
+  if (followups.length > 0) {
+    await supabase.from('recovery_followups').insert(followups);
+  }
 
   return { success: true };
 }

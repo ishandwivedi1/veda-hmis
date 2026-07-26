@@ -12,6 +12,21 @@ const TEMPLATES = {
   glaucoma: 'Eye drops as prescribed. Avoid rubbing operated eye.\nAvoid straining, heavy lifting for 4 weeks.\nWarning signs: severe pain, sudden vision loss, excessive redness -- contact immediately.\nFollow-up as scheduled by surgeon.',
 };
 
+// Suggested starting point -- Day 1 / Week 1 / Month 1 / Final Refraction
+// relative to the chosen discharge date. Purely a default: the doctor
+// can rename, redate, remove, or add to this list before confirming
+// discharge, since different surgeries need different review schedules.
+let planRowSeq = 0;
+function defaultFollowupPlan(dischargeDate) {
+  const addDays = (n) => { const d = new Date(`${dischargeDate}T00:00:00`); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  return [
+    { key: `p${planRowSeq++}`, visit_label: 'Post-op Day 1', scheduled_date: addDays(1) },
+    { key: `p${planRowSeq++}`, visit_label: 'Post-op Week 1', scheduled_date: addDays(7) },
+    { key: `p${planRowSeq++}`, visit_label: 'Post-op Month 1', scheduled_date: addDays(30) },
+    { key: `p${planRowSeq++}`, visit_label: 'Final Refraction', scheduled_date: addDays(45) },
+  ];
+}
+
 export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -41,6 +56,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
   const [instructions, setInstructions] = useState('');
   const [dischargeNotes, setDischargeNotes] = useState('');
+  const [followupPlan, setFollowupPlan] = useState([]);
 
   const refresh = useCallback(async () => {
     const result = await getRecoveryEpisodeDetail(episodeId);
@@ -62,6 +78,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setInstructions(e.discharge_instructions || '');
     setDischargeNotes(e.discharge_notes || '');
     setDischargeDate(e.discharge_date || new Date().toISOString().slice(0, 10));
+    if (!e.discharge_date) {
+      setFollowupPlan((prev) => (prev.length > 0 ? prev : defaultFollowupPlan(e.discharge_date || new Date().toISOString().slice(0, 10))));
+    }
   }, [episodeId]);
 
   useEffect(() => { refresh(); getDrugOptions().then(setDrugOptions); }, [episodeId, refresh]);
@@ -107,10 +126,26 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     refresh();
   }
 
+  function updatePlanRow(key, field, value) {
+    setFollowupPlan((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  }
+
+  function removePlanRow(key) {
+    setFollowupPlan((prev) => prev.filter((r) => r.key !== key));
+  }
+
+  function addPlanRow() {
+    setFollowupPlan((prev) => [...prev, { key: `p${planRowSeq++}`, visit_label: '', scheduled_date: dischargeDate }]);
+  }
+
+  function resetPlanToDefault() {
+    setFollowupPlan(defaultFollowupPlan(dischargeDate));
+  }
+
   async function handleDischarge() {
     setError(''); setOk('');
     if (!dischargeDate) { setError('Discharge date is required.'); return; }
-    const result = await confirmDischarge(episodeId, checklist, dischargeNotes, instructions, dischargeDate);
+    const result = await confirmDischarge(episodeId, checklist, dischargeNotes, instructions, dischargeDate, followupPlan);
     if (result.error) { setError(result.error); return; }
     setOk('Patient discharged. Discharge summary is ready to print. Follow-up schedule generated.');
     onUpdate();
@@ -251,15 +286,45 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
           {/* Follow-up schedule */}
           <div className="card" style={{ marginBottom: 0 }}>
-            <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-calendar-plus" style={{ color: 'var(--amber)' }}></i> Follow-up Schedule</div>
-            {followups.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Generated automatically once discharged.</div>}
-            {followups.map((f) => (
+            <div className="card-head">
+              <div className="card-title"><i className="ti ti-calendar-plus" style={{ color: 'var(--amber)' }}></i> Follow-up Schedule</div>
+              {!isDischarged && (
+                <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={resetPlanToDefault}>Reset to standard schedule</button>
+              )}
+            </div>
+            {!isDischarged && (
+              <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+                Suggested reviews below -- edit the label/date, remove any that don't apply, or add your own before discharging.
+              </div>
+            )}
+
+            {!isDischarged && followupPlan.map((f) => (
+              <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid var(--g100)' }}>
+                <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Review label (e.g. Post-op Week 2)" value={f.visit_label} onChange={(e) => updatePlanRow(f.key, 'visit_label', e.target.value)} />
+                <input type="date" className="fi fi-sm" style={{ width: 130 }} value={f.scheduled_date} onChange={(e) => updatePlanRow(f.key, 'scheduled_date', e.target.value)} />
+                <button onClick={() => removePlanRow(f.key)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 16, padding: '0 4px' }} title="Remove this review">&times;</button>
+              </div>
+            ))}
+            {!isDischarged && followupPlan.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--g400)', padding: '4px 0' }}>No reviews planned -- add one below if needed, or leave empty if none are required.</div>
+            )}
+            {!isDischarged && (
+              <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={addPlanRow}><i className="ti ti-plus"></i> Add review</button>
+            )}
+
+            {isDischarged && followups.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No reviews were scheduled at discharge.</div>}
+            {isDischarged && followups.map((f) => (
               <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                 <span style={{ fontWeight: 600 }}>{f.visit_label}</span>
                 <span style={{ color: 'var(--g500)' }}>{new Date(f.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                 <span className={`badge ${f.status === 'Completed' ? 'b-green' : f.status === 'Due' ? 'b-red' : 'b-blue'}`} style={{ fontSize: 10 }}>{f.status}</span>
               </div>
             ))}
+            {isDischarged && (
+              <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 8 }}>
+                Reviews can be added or removed from the Post-op page as requirements change.
+              </div>
+            )}
           </div>
         </div>
       </div>

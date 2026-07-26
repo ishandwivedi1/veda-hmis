@@ -66,6 +66,33 @@ export async function getPostOpEpisodeDetail(episodeId) {
   return { episode, sc: episode.surgical_cases, followups: followups || [], complications: complications || [] };
 }
 
+// ── ADD / REMOVE a review from the schedule -- requirements can change
+//    after discharge (e.g. an unplanned complication needs an extra
+//    check, or a review turns out unnecessary). Removal is blocked once
+//    a review has an actual clinical visit tied to it (encounter already
+//    started), so a real record never gets silently orphaned. ──
+export async function addFollowup(episodeId, visitLabel, scheduledDate) {
+  const supabase = await createClient();
+  if (!visitLabel?.trim()) return { error: 'A label for the review is required.' };
+  if (!scheduledDate) return { error: 'A date is required.' };
+  const { error } = await supabase.from('recovery_followups').insert({
+    recovery_episode_id: episodeId, visit_label: visitLabel.trim(), scheduled_date: scheduledDate,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function removeFollowup(followupId) {
+  const supabase = await createClient();
+  const { data: followup } = await supabase.from('recovery_followups').select('visit_id, status').eq('id', followupId).single();
+  if (followup?.visit_id) {
+    return { error: 'This review already has a visit recorded against it and cannot be removed -- reschedule it instead if it needs to move.' };
+  }
+  const { error } = await supabase.from('recovery_followups').delete().eq('id', followupId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── RESCHEDULE / NOTES on a follow-up visit ──
 export async function rescheduleFollowup(followupId, newDate, notes) {
   const supabase = await createClient();
