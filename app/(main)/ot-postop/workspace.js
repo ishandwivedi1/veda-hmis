@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   getPostOpEpisodeDetail, rescheduleFollowup, saveFollowupNotes, markFollowupStatus,
-  addRecoveryComplication, closeEpisode,
+  addRecoveryComplication, closeEpisode, openFollowupReview,
 } from './actions';
 import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
+import ReviewSheet from './review-sheet';
 
 const MILESTONES_START = [
   { key: 'recovery', label: 'Recovery', icon: 'ti-bed' },
@@ -39,6 +40,10 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [closureOutcome, setClosureOutcome] = useState('');
   const [closureRemarks, setClosureRemarks] = useState('');
 
+  const [reviewingFollowup, setReviewingFollowup] = useState(null);
+  const [reviewIds, setReviewIds] = useState(null);
+  const [openingReview, setOpeningReview] = useState(null);
+
   const refresh = useCallback(async () => {
     const result = await getPostOpEpisodeDetail(episodeId);
     setData(result);
@@ -52,6 +57,18 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;
   if (data.error) return <div className="msg-err">{data.error}</div>;
+
+  if (reviewingFollowup && reviewIds) {
+    return (
+      <ReviewSheet
+        followup={reviewingFollowup}
+        visitId={reviewIds.visitId}
+        encounterId={reviewIds.encounterId}
+        onBack={handleBackFromReview}
+      />
+    );
+  }
+
 
   const { episode, sc, followups, complications } = data;
   const patient = sc?.patients;
@@ -128,6 +145,22 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     const result = await addRecoveryComplication(episodeId, { name: complName, severity: complSeverity, management: complManagement, outcome: complOutcome });
     if (result.error) { setError(result.error); return; }
     setComplName(''); setComplManagement(''); setComplOutcome('');
+    refresh();
+  }
+
+  async function handleOpenReview(f) {
+    setError('');
+    setOpeningReview(f.id);
+    const result = await openFollowupReview(f.id);
+    setOpeningReview(null);
+    if (result.error) { setError(result.error); return; }
+    setReviewIds(result);
+    setReviewingFollowup(f);
+  }
+
+  function handleBackFromReview() {
+    setReviewingFollowup(null);
+    setReviewIds(null);
     refresh();
   }
 
@@ -238,6 +271,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
 
               {!isClosed && editingFollowupId !== f.id && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 8, marginLeft: 42 }}>
+                  <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={() => handleOpenReview(f)} disabled={openingReview === f.id}>
+                    <i className="ti ti-clipboard-text"></i> {openingReview === f.id ? 'Opening...' : f.encounter_id ? 'Open Review' : 'Start Review'}
+                  </button>
                   <button className="btn btn-sm" onClick={() => startEdit(f)}><i className="ti ti-calendar-time"></i> Reschedule</button>
                   {notesEditingId !== f.id && (
                     <button className="btn btn-sm" onClick={() => startNotesEdit(f)}><i className="ti ti-edit"></i> {f.notes ? 'Edit Notes' : 'Add Notes'}</button>

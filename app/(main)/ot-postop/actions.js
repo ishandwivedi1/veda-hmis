@@ -103,6 +103,89 @@ export async function markFollowupStatus(followupId, status) {
   return { success: true };
 }
 
+// ── PATIENT REVIEW SHEET (Optometry / Examination / Diagnosis) ──
+// A post-op follow-up patient doesn't go through the normal Optometry ->
+// Doctor queue -- clicking a follow-up here creates (once) a real visit
+// of type 'Post-operative Review' via the same create_walk_in_visit()
+// used everywhere else, so it shows up correctly in reports/timeline and
+// reuses the exact same clinical tables (optometry_assessments,
+// clinical_examinations, diagnoses) as a normal consultation. Reopening
+// the same follow-up later reuses the same visit/encounter instead of
+// creating a new one each time.
+export async function openFollowupReview(followupId) {
+  const supabase = await createClient();
+  const { data: followup, error } = await supabase
+    .from('recovery_followups')
+    .select('*, recovery_episodes(surgical_case_id, surgical_cases(patient_id, surgeon_id))')
+    .eq('id', followupId)
+    .single();
+  if (error) return { error: error.message };
+
+  if (followup.visit_id && followup.encounter_id) {
+    return { visitId: followup.visit_id, encounterId: followup.encounter_id };
+  }
+
+  const sc = followup.recovery_episodes?.surgical_cases;
+  if (!sc) return { error: 'Could not find the surgical case for this follow-up.' };
+
+  const { data: visit, error: visitError } = await supabase.rpc('create_walk_in_visit', {
+    p_patient_id: sc.patient_id,
+    p_doctor_id: sc.surgeon_id,
+    p_visit_type: 'Post-operative Review',
+  });
+  if (visitError) return { error: visitError.message };
+
+  const { data: encounter, error: encError } = await supabase
+    .from('encounters')
+    .insert({ visit_id: visit.id, doctor_id: sc.surgeon_id })
+    .select()
+    .single();
+  if (encError) return { error: encError.message };
+
+  await supabase.from('clinical_examinations').insert({ encounter_id: encounter.id });
+
+  const { error: linkError } = await supabase
+    .from('recovery_followups')
+    .update({ visit_id: visit.id, encounter_id: encounter.id })
+    .eq('id', followupId);
+  if (linkError) return { error: linkError.message };
+
+  return { visitId: visit.id, encounterId: encounter.id };
+}
+
+export async function getPostOpReviewData(encounterId, visitId) {
+  const supabase = await createClient();
+
+  const { data: findings } = await supabase
+    .from('optometry_assessments')
+    .select('*')
+    .eq('visit_id', visitId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let iopReadings = [];
+  if (findings) {
+    const { data: readings } = await supabase
+      .from('optometry_iop_readings')
+      .select('*')
+      .eq('assessment_id', findings.id)
+      .order('recorded_at', { ascending: true });
+    iopReadings = readings || [];
+  }
+
+  let { data: examination } = await supabase.from('clinical_examinations').select('*').eq('encounter_id', encounterId).maybeSingle();
+  if (!examination) {
+    const { data: newExam, error: examError } = await supabase.from('clinical_examinations').insert({ encounter_id: encounterId }).select().single();
+    if (examError) return { error: examError.message };
+    examination = newExam;
+  }
+
+  const { data: diagnoses } = await supabase.from('diagnoses').select('*').eq('encounter_id', encounterId).order('created_at');
+
+  return { findings: findings || null, iopReadings, examination, diagnoses: diagnoses || [] };
+}
+
 // ── POST-OP COMPLICATIONS ──
 export async function addRecoveryComplication(episodeId, values) {
   const supabase = await createClient();
