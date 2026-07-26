@@ -1,3 +1,14 @@
+#!/bin/bash
+set -e
+
+echo "== Fixing: create_walk_in_visit overload ambiguity =="
+echo "   (DB had 3 overlapping versions of this function from earlier"
+echo "    iterations -- dropped the 2 obsolete ones directly in Supabase,"
+echo "    and made the Post-op Review call pass all 6 params explicitly)"
+
+echo "-- Writing app/(main)/ot-postop/actions.js --"
+mkdir -p "$(dirname "app/(main)/ot-postop/actions.js")"
+cat > "app/(main)/ot-postop/actions.js" << 'JSEOF_74037966'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -221,3 +232,10 @@ export async function closeEpisode(episodeId, values) {
   return { success: true };
 }
 
+JSEOF_74037966
+
+echo "-- Installing deps & building --"
+npm install --no-audit --no-fund
+npm run build
+
+echo "== Done. DB fix already applied live -- just build & push this file. =="
