@@ -1,6 +1,8 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { openPopup } from '@/lib/popup';
+import { getPatientTimeline } from '@/app/(main)/patient-timeline/actions';
 
 const VISIT_OUTCOMES = [
   'Continue Follow-up', 'Surgery Advised', 'Proceed to Pre-operative Consultation',
@@ -121,6 +123,95 @@ export function PreviousVisitSummary({ summary }) {
         <div style={{ gridColumn: 'span 2' }}><span style={{ color: 'var(--g500)' }}>Advice: </span>{summary.advice.length > 0 ? summary.advice.map((a) => a.text || a.advice_text || a.note).filter(Boolean).join('; ') : '--'}</div>
         <div style={{ gridColumn: 'span 2' }}><span style={{ color: 'var(--g500)' }}>Follow-up Plan: </span>{summary.followupPlan?.instructions || summary.followupPlan?.notes || '--'}</div>
       </div>
+    </div>
+  );
+}
+
+const EVENT_ICON = { Visit: 'ti-door-enter', Diagnosis: 'ti-stethoscope', Investigation: 'ti-flask', Prescription: 'ti-pill', Surgery: 'ti-scalpel' };
+const EVENT_COLOR = { Visit: 'var(--indigo)', Diagnosis: 'var(--blue)', Investigation: 'var(--teal)', Prescription: 'var(--purple)', Surgery: 'var(--red)' };
+
+// ── Context sidebar -- lives alongside the workspace, separate from the
+//    Encounter Status panel on the right. Pulls the same cross-visit
+//    data the standalone Patient Timeline module uses (getPatientTimeline)
+//    rather than duplicating a second query, so this stays in sync with
+//    that module by construction. ──
+export function ContextSidebar({ patientId, previousVisitSummary }) {
+  const [showSummary, setShowSummary] = useState(false);
+  const [events, setEvents] = useState(null);
+
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+    getPatientTimeline(patientId).then((r) => { if (!cancelled) setEvents(r.events || []); });
+    return () => { cancelled = true; };
+  }, [patientId]);
+
+  const investigations = (events || []).filter((e) => e.type === 'Investigation');
+
+  return (
+    <div>
+      <button
+        className="btn"
+        style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }}
+        onClick={() => setShowSummary(true)}
+        disabled={!previousVisitSummary}
+        title={previousVisitSummary ? '' : 'No previous visit on record'}
+      >
+        <i className="ti ti-file-text"></i> Previous Visit Summary
+      </button>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-timeline" style={{ color: 'var(--indigo)' }}></i> Patient Timeline</div>
+        {events === null && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>Loading...</div>}
+        {events && events.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>No prior history.</div>}
+        {events && events.length > 0 && (
+          <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+            {events.slice(0, 25).map((e, idx) => {
+              const clickable = e.type === 'Visit' && !!e.queueEntryId;
+              return (
+                <div
+                  key={idx}
+                  onClick={clickable ? () => window.open(`/consultation/${e.queueEntryId}`, '_blank', 'noopener,noreferrer') : undefined}
+                  style={{ padding: '7px 0', borderBottom: '1px solid var(--g100)', cursor: clickable ? 'pointer' : 'default' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5 }}>
+                    <i className={`ti ${EVENT_ICON[e.type] || 'ti-point'}`} style={{ color: EVENT_COLOR[e.type] || 'var(--g400)' }}></i>
+                    <span style={{ fontWeight: 700, color: EVENT_COLOR[e.type] || 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.3px' }}>{e.type}</span>
+                    <span style={{ marginLeft: 'auto', color: 'var(--g400)' }}>{fmtDate(e.date)}</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 2 }}>{e.title}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>{e.detail}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <a href="/patient-timeline" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10.5, color: 'var(--blue)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
+          <i className="ti ti-external-link"></i> Open full timeline
+        </a>
+      </div>
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Previous Investigations</div>
+        {events === null && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>Loading...</div>}
+        {events && investigations.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>None on record.</div>}
+        {investigations.slice(0, 15).map((e, idx) => (
+          <div key={idx} style={{ padding: '6px 0', borderBottom: '1px solid var(--g100)' }}>
+            <div style={{ fontSize: 11.5, fontWeight: 600 }}>{e.title}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>{e.detail}</div>
+            <div style={{ fontSize: 10, color: 'var(--g400)' }}>{fmtDate(e.date)}</div>
+          </div>
+        ))}
+      </div>
+
+      {showSummary && previousVisitSummary && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setShowSummary(false)}>
+          <div style={{ width: 480, maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <PreviousVisitSummary summary={previousVisitSummary} />
+            <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setShowSummary(false)}>Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
