@@ -1,3 +1,17 @@
+#!/bin/bash
+set -e
+
+echo "== Dark sidebar + genuinely frozen top layer =="
+echo "   1. Sidebar is now dark navy with white/light text, gold accent"
+echo "      for the active module"
+echo "   2. Root cause found for topbar not staying put: layout used"
+echo "      min-height:100vh (lets it grow) instead of height:100vh, so"
+echo "      long pages scrolled the WHOLE document -- sidebar and topbar"
+echo "      included. Fixed so only the content underneath scrolls."
+
+echo "-- Writing app/globals.css --"
+mkdir -p "$(dirname "app/globals.css")"
+cat > "app/globals.css" << 'JSEOF_19774529'
 * {
   box-sizing: border-box;
   margin: 0;
@@ -243,3 +257,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .content-area { padding: 16px; }
   .topbar { padding: 12px 16px; }
 }
+JSEOF_19774529
+
+echo "-- Installing deps & building --"
+npm install --no-audit --no-fund
+npm run build
+
+echo "== Done. Review changes, then commit. =="
