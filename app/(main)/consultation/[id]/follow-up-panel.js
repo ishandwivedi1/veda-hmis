@@ -142,12 +142,15 @@ function EventTypeChip({ type }) {
   );
 }
 
-// ── Context sidebar -- lives alongside the workspace, separate from the
-//    Encounter Status panel on the right. Pulls the same cross-visit
-//    data the standalone Patient Timeline module uses (getPatientTimeline)
-//    rather than duplicating a second query, so this stays in sync with
-//    that module by construction. ──
-export function ContextSidebar({ patientId, previousVisitSummary }) {
+function elapsedMin(iso) {
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+}
+
+// ── Context sidebar -- lives alongside the workspace. Combines patient
+//    history (previous visit, timeline, past investigations) with this
+//    encounter's own status/tasks/audit log, all in one column so the
+//    main workspace gets the full remaining width. ──
+export function ContextSidebar({ patientId, previousVisitSummary, encounter, auditLog, openInvestigations, activeWorkflows, pendingRx, wfItems }) {
   const [showSummary, setShowSummary] = useState(false);
   const [events, setEvents] = useState(null);
 
@@ -231,6 +234,56 @@ export function ContextSidebar({ patientId, previousVisitSummary }) {
           </div>
         ))}
       </div>
+
+      {encounter && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-activity" style={{ color: 'var(--blue)' }}></i> Encounter Status</div>
+          <div style={{ fontSize: 11.5, color: 'var(--g600)', lineHeight: 1.9 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Status</span><span className="badge b-blue">{encounter.status}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Started</span><span>{new Date(encounter.started_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>In progress</span><span style={{ fontWeight: 700 }}>{elapsedMin(encounter.started_at)}m</span></div>
+          </div>
+        </div>
+      )}
+
+      {(openInvestigations || activeWorkflows || pendingRx) && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-list-checks" style={{ color: 'var(--amber)' }}></i> Outstanding Tasks</div>
+          {(openInvestigations || []).length === 0 && (activeWorkflows || []).length === 0 && (pendingRx || []).length === 0 && (
+            <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>Nothing outstanding.</div>
+          )}
+          {(openInvestigations || []).map((i) => (
+            <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+              <i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i><span style={{ flex: 1 }}>{i.name}</span><span className="badge b-amber" style={{ fontSize: 9 }}>{i.status}</span>
+            </div>
+          ))}
+          {(activeWorkflows || []).map((w) => (
+            <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+              <i className={`ti ${wfItems?.[w.kind]?.icon || 'ti-clipboard'}`} style={{ color: 'var(--amber)' }}></i><span style={{ flex: 1 }}>{w.kind}</span><span className="badge b-amber" style={{ fontSize: 9 }}>Requested</span>
+            </div>
+          ))}
+          {(pendingRx || []).map((r) => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
+              <i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i><span style={{ flex: 1 }}>{r.drug_name}</span><span className="badge b-amber" style={{ fontSize: 9 }}>{r.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {auditLog && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
+          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {auditLog.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>No activity yet.</div>}
+            {auditLog.map((a) => (
+              <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)' }}>
+                <div style={{ color: 'var(--teal)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                <div>{a.message}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showSummary && previousVisitSummary && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setShowSummary(false)}>
