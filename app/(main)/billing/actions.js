@@ -65,6 +65,46 @@ export async function getBillingDashboardData() {
   };
 }
 
+// ── TODAY'S VISITS (with per-visit billing status) -- moved here from
+// Front Office Dashboard, since New Invoice / Modify are billing
+// actions. Front Office keeps its own read-only version of this same
+// list without these actions. ──
+export async function getTodaysVisitsWithBillingStatus() {
+  const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC();
+
+  const { data: visits } = await supabase
+    .from('visits')
+    .select('*, patients(id, first_name, last_name, uhid), profiles!doctor_id(full_name)')
+    .gte('created_at', startUTC)
+    .lte('created_at', endUTC)
+    .order('created_at', { ascending: false });
+
+  const visitIds = (visits || []).map((v) => v.id);
+  const billingByVisit = {};
+  if (visitIds.length > 0) {
+    const { data: invoices } = await supabase.from('invoices').select('visit_id, net, paid, status').in('visit_id', visitIds);
+    const grouped = {};
+    (invoices || []).forEach((inv) => {
+      if (!grouped[inv.visit_id]) grouped[inv.visit_id] = [];
+      grouped[inv.visit_id].push(inv);
+    });
+    Object.entries(grouped).forEach(([visitId, invs]) => {
+      const active = invs.filter((i) => i.status !== 'Cancelled');
+      const outstanding = active.reduce((s, i) => s + Math.max(0, Number(i.net) - Number(i.paid)), 0);
+      const allPaid = active.length > 0 && active.every((i) => i.status === 'Paid');
+      billingByVisit[visitId] = {
+        count: active.length,
+        outstanding,
+        label: active.length === 0 ? '--' : allPaid ? 'Paid' : `Rs.${outstanding.toLocaleString('en-IN')} due`,
+        badge: active.length === 0 ? 'b-gray' : allPaid ? 'b-green' : 'b-red',
+      };
+    });
+  }
+
+  return { visits: visits || [], billingByVisit };
+}
+
 export async function getTodaysVisitsForBilling() {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);

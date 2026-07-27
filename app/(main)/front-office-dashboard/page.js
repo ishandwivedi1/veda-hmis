@@ -199,7 +199,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
             <i className="ti ti-door-enter" style={{ color: 'var(--blue)' }}></i> Today&apos;s Visits
           </div>
           <table className="tbl">
-            <thead><tr><th>Visit ID</th><th>Time</th><th>Patient</th><th>Type</th><th>Doctor</th><th>Status</th><th>Billing</th><th></th></tr></thead>
+            <thead><tr><th>Visit ID</th><th>Time</th><th>Patient</th><th>Type</th><th>Doctor</th><th>Status</th><th>Billing</th></tr></thead>
             <tbody>
               {(todaysVisits || []).map((v) => {
                 const billing = billingByVisit[v.id] || { count: 0, label: '--', badge: 'b-gray' };
@@ -224,37 +224,17 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                       )}
                       {billing.count > 1 && <span style={{ fontSize: 10, color: 'var(--g400)', marginLeft: 4 }}>({billing.count} invoices)</span>}
                     </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
-                          <i className="ti ti-receipt"></i> New Invoice
-                        </Link>
-                        {billing.count > 0 && (
-                          <Link href={`/billing/cancel?visitId=${v.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}>
-                            <i className="ti ti-edit"></i> Modify
-                          </Link>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
               {(!todaysVisits || todaysVisits.length === 0) && (
-                <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No visits yet today.</td></tr>
+                <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No visits yet today.</td></tr>
               )}
             </tbody>
           </table>
         </div>
 
         <div>
-          <div className="card" style={{ marginBottom: 16, background: 'var(--g50)' }}>
-            <div style={{ fontSize: 12, color: 'var(--g500)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-              <span><i className="ti ti-info-circle"></i> Pending billing queues (Investigations, Procedures, Pharmacy, Biometry, Packages) have moved to the Billing Dashboard.</span>
-              <Link href="/billing" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>Go to Billing Dashboard</Link>
-            </div>
-          </div>
-
-          {/* VISIT TYPE BREAKDOWN */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 10 }}>
               <i className="ti ti-chart-pie" style={{ color: 'var(--purple)' }}></i> Visits by Type Today
