@@ -1136,7 +1136,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 <i className="ti ti-tool"></i> Send for Procedure
               </button>
             )}
-            <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>
+            <a href={`/opd-case-sheet-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>
+              <i className="ti ti-file-description"></i> Print Case Sheet
+            </a>
+            <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn">
               <i className="ti ti-printer"></i> Print Visit Summary
             </a>
           </div>

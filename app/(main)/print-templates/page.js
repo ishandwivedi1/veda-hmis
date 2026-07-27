@@ -29,6 +29,19 @@ PLACEHOLDER_REFERENCE.receipt = [
 ];
 PLACEHOLDER_REFERENCE.receipt_advance = PLACEHOLDER_REFERENCE.receipt;
 
+PLACEHOLDER_REFERENCE.opd_case_sheet = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_mobile', 'patient_age', 'patient_gender',
+  'visit_date', 'visit_type', 'doctor_name', 'doctor_regn_no',
+  '{{#if chief_complaint}}...{{/if}}', 'hx_duration', 'hx_laterality',
+  '{{#if hasVision}}...{{/if}}', 're_vision_unaided', 'le_vision_unaided', 're_vision_glasses', 'le_vision_glasses',
+  're_iop', 'le_iop', '{{#if hasRefraction}}...{{/if}}', 're_refraction', 'le_refraction',
+  '{{#if hasDiagnoses}}...{{/if}}', 'diagnoses (loop: name, eye, notes)',
+  '{{#if hasPrescriptions}}...{{/if}}', 'prescriptions (loop: drug, eye, dosage, frequency, duration)',
+  '{{#if advice}}...{{/if}}', '{{#if followup_text}}...{{/if}}',
+];
+
 const SETTINGS_FIELDS = [
   { key: 'name', label: 'Hospital Name' },
   { key: 'unit_line', label: 'Unit Line (e.g. "A Unit of...")' },

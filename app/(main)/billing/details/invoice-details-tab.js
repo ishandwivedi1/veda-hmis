@@ -55,7 +55,7 @@ export default function InvoiceDetailsTab() {
         </div>
 
         <table className="tbl">
-          <thead><tr><th>Invoice #</th><th>Date</th><th>Patient</th><th>Visit</th><th>Gross</th><th>Disc</th><th>Net</th><th>Paid</th><th>Status</th></tr></thead>
+          <thead><tr><th>Invoice #</th><th>Date</th><th>Patient</th><th>Visit</th><th>Gross</th><th>Disc</th><th>Net</th><th>Paid</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {invoices.map((inv) => (
               <tr key={inv.id} onClick={() => openInvoice(inv)} style={{ cursor: 'pointer', background: selected?.id === inv.id ? 'var(--blue-lt)' : 'transparent' }}>
@@ -68,10 +68,23 @@ export default function InvoiceDetailsTab() {
                 <td>Rs.{inv.net}</td>
                 <td>Rs.{inv.paid}</td>
                 <td><span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span></td>
+                <td>
+                  <a
+                    href={`/invoice-print/${inv.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="btn"
+                    style={{ padding: '3px 8px', fontSize: 11, textDecoration: 'none' }}
+                    title="Print / PDF"
+                  >
+                    <i className="ti ti-printer"></i>
+                  </a>
+                </td>
               </tr>
             ))}
             {invoices.length === 0 && (
-              <tr><td colSpan={9} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No invoices found.</td></tr>
+              <tr><td colSpan={10} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No invoices found.</td></tr>
             )}
           </tbody>
         </table>
