@@ -87,7 +87,7 @@ export default function AppShell({ children }) {
   const pageTitle = PAGE_TITLES.find((t) => t.match.test(pathname))?.title || 'VEDA HMIS';
 
   useEffect(() => {
-    setToday(new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }));
+    setToday(new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }));
 
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return;

@@ -70,7 +70,7 @@ export default function Workspace({ otScheduleId, onBack }) {
   const [saving, setSaving] = useState(false);
 
   function addLog(msg) {
-    setLog((prev) => [`${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} -- ${msg}`, ...prev].slice(0, 20));
+    setLog((prev) => [`${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })} -- ${msg}`, ...prev].slice(0, 20));
   }
 
   const refresh = useCallback(async () => {
@@ -271,7 +271,7 @@ export default function Workspace({ otScheduleId, onBack }) {
                 color: '#fff',
               }}
               onClick={handleToggleReported}
-              title={booking.patient_reported_at ? `Reported at ${new Date(booking.patient_reported_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} -- click to undo` : 'Mark patient as reported to OT'}
+              title={booking.patient_reported_at ? `Reported at ${new Date(booking.patient_reported_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} -- click to undo` : 'Mark patient as reported to OT'}
             >
               <i className={`ti ${booking.patient_reported_at ? 'ti-check' : 'ti-door-enter'}`}></i> {booking.patient_reported_at ? 'Patient Reported' : 'Mark Reported'}
             </button>

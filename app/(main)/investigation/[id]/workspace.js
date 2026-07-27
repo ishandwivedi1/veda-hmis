@@ -213,7 +213,7 @@ export default function InvestigationWorkspace({ orderId }) {
           {viewOnly && <span className="badge b-purple" style={{ fontSize: 10, marginTop: 3, marginLeft: 4 }}><i className="ti ti-eye"></i> Read-only</span>}
           {order.started_at && (
             <div style={{ fontSize: 10, opacity: .8, marginTop: 3 }}>
-              Started by {startedByName || '--'} -- {new Date(order.started_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              Started by {startedByName || '--'} -- {new Date(order.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             </div>
           )}
         </div>

@@ -46,7 +46,7 @@ export default function CashManagementPage() {
   const [reconEdits, setReconEdits] = useState({});
   const [reconApprover, setReconApprover] = useState('');
   const [closeNotes, setCloseNotes] = useState('');
-  const [reportDate, setReportDate] = useState(new Date().toLocaleDateString('en-CA'));
+  const [reportDate, setReportDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
   const [report, setReport] = useState(null);
   const [reopenTarget, setReopenTarget] = useState(null);
   const [reopenReason, setReopenReason] = useState('');
@@ -64,7 +64,7 @@ export default function CashManagementPage() {
     setClosedToday(isClosed);
     setOpening(await getDayOpening());
     if (isClosed) {
-      const todayStr = new Date().toLocaleDateString('en-CA');
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
       setTodayClosingInfo(await getDailyReport(todayStr));
     } else {
       setTodayClosingInfo(null);
@@ -119,7 +119,7 @@ export default function CashManagementPage() {
     setSuccess('Day closed successfully. Daily report generated.');
     refresh();
     setActiveTab('report');
-    loadReport(new Date().toLocaleDateString('en-CA'));
+    loadReport(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
   }
 
   async function loadReport(date) {
@@ -146,9 +146,9 @@ export default function CashManagementPage() {
           <div style={{ width: 10, height: 10, borderRadius: '50%', background: closedToday ? '#97a0aa' : opening ? '#4ade80' : '#fbbf24', boxShadow: closedToday ? 'none' : `0 0 8px ${opening ? '#4ade80' : '#fbbf24'}` }}></div>
           <div>
             <div style={{ fontWeight: 700 }}>
-              {closedToday ? `Closed at ${new Date(todayClosingInfo?.closing?.closed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : opening ? `Opened at ${new Date(opening.opened_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} by ${opening.profiles?.full_name || '--'}` : 'Day not opened yet'}
+              {closedToday ? `Closed at ${new Date(todayClosingInfo?.closing?.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : opening ? `Opened at ${new Date(opening.opened_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} by ${opening.profiles?.full_name || '--'}` : 'Day not opened yet'}
             </div>
-            <div style={{ fontSize: 12, opacity: .85 }}>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+            <div style={{ fontSize: 12, opacity: .85 }}>{new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
           </div>
           <div style={{ marginLeft: 'auto', fontSize: 13 }}>{fmt(summary.total)} collected today ({summary.count} transactions)</div>
         </div>
@@ -204,7 +204,7 @@ export default function CashManagementPage() {
                 {summary.transactions.map((p) => (
                   <tr key={p.id}>
                     <td style={{ fontFamily: 'monospace' }}>{p.receipt_number}</td>
-                    <td>{new Date(p.collected_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                    <td>{new Date(p.collected_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
                     <td>{p.patients?.first_name} {p.patients?.last_name}</td>
                     <td>{(p.payment_modes || []).map((m) => m.mode).join('+')}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: p.payment_type === 'refund' ? 'var(--red)' : 'var(--g800)' }}>
@@ -302,7 +302,7 @@ export default function CashManagementPage() {
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-checklist" style={{ color: 'var(--green)' }}></i> Pre-close Checklist</div>
             <div style={{ fontSize: 13, lineHeight: 2.2 }}>
               <div><i className={`ti ${opening ? 'ti-circle-check' : 'ti-circle-x'}`} style={{ color: opening ? 'var(--green)' : 'var(--amber)', marginRight: 6 }}></i>
-                Day opened{opening ? ` at ${new Date(opening.opened_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ' -- optional, but recommended for the record'}
+                Day opened{opening ? ` at ${new Date(opening.opened_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : ' -- required before any payment can be collected today'}
               </div>
               <div><i className={`ti ${readiness?.reconciliationComplete ? 'ti-circle-check' : 'ti-circle-x'}`} style={{ color: readiness?.reconciliationComplete ? 'var(--green)' : 'var(--red)', marginRight: 6 }}></i>
                 Reconciliation complete for all payment modes
@@ -331,7 +331,7 @@ export default function CashManagementPage() {
                 <div style={{ fontSize: 13, fontWeight: 700, marginTop: 10, borderTop: '1px solid rgba(255,255,255,.2)', paddingTop: 10 }}>
                   DAILY CASH CLOSING REPORT<br />
                   Date: {report.closing.closing_date}<br />
-                  Closed by: {report.closing.profiles?.full_name || '--'} at {new Date(report.closing.closed_at).toLocaleTimeString('en-IN')}
+                  Closed by: {report.closing.profiles?.full_name || '--'} at {new Date(report.closing.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

@@ -120,7 +120,7 @@ export default function InvestigationHistoryPage() {
               const type = matchInvestigationType(r.name);
               return (
                 <tr key={r.id} onClick={() => router.push(`/investigation/${r.id}`)} style={{ cursor: 'pointer' }}>
-                  <td style={{ fontSize: 11 }}>{new Date(r.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                  <td style={{ fontSize: 11 }}>{new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                   <td>
                     <strong>{p?.first_name} {p?.last_name}</strong>
                     <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{p?.uhid}</span>

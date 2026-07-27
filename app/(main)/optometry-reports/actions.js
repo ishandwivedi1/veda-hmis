@@ -56,7 +56,7 @@ export async function getOptometryReport(id, from, to) {
       headers: ['Date/Time', 'Patient', 'Visit', 'VA RE', 'VA LE', 'IOP RE', 'IOP LE', 'Status', 'By'],
       rows: rows.map((r) => ({
         cols: [
-          new Date(r.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+          new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
           `${patientName(r)} (${r.visits?.patients?.uhid || '--'})`,
           r.visits?.visit_number || '--',
           r.re_dist_unaided || '--',

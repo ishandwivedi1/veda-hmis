@@ -145,7 +145,7 @@ export default function AdjustmentsTab() {
               <label className="flbl" style={{ marginBottom: 8 }}>Audit trail -- this patient</label>
               {audit.map((a) => (
                 <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)' }}>
-                  {new Date(a.recorded_at).toLocaleDateString('en-IN')} -- {a.entry_type} -- Rs.{Math.abs(a.amount).toFixed(2)}
+                  {new Date(a.recorded_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} -- {a.entry_type} -- Rs.{Math.abs(a.amount).toFixed(2)}
                 </div>
               ))}
             </div>

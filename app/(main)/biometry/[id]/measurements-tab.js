@@ -222,7 +222,7 @@ export default function MeasurementsTab({ record, recordId, onSaved }) {
         <div className="card" style={{ background: 'var(--green-lt)', borderColor: '#86efac' }}>
           <div style={{ fontSize: 13, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <i className="ti ti-circle-check" style={{ fontSize: 18 }}></i>
-            Measurements verified{record.verified_at ? ` on ${new Date(record.verified_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. Continue to the IOL Calculation tab.
+            Measurements verified{record.verified_at ? ` on ${new Date(record.verified_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. Continue to the IOL Calculation tab.
           </div>
         </div>
       )}

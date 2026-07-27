@@ -7,6 +7,7 @@ import ProceduresBillingWidget from './procedures-billing-widget';
 import PharmacyBillingWidget from './pharmacy-billing-widget';
 import BiometryBillingWidget from './biometry-billing-widget';
 import PackageBillingWidget from './package-billing-widget';
+import { isTodayOpen } from '@/app/(main)/cash-management/actions';
 
 function elapsedMin(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -36,6 +37,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     { data: todaysVisits },
     { data: todaysAppointments },
     { count: surgicalPendingWorkup },
+    dayOpen,
   ] = await Promise.all([
     supabase.from('patients').select('*', { count: 'exact', head: true }).gte('created_at', today),
     supabase.from('queue_entries').select('*, visits(patients(first_name, last_name))').neq('status', 'Done').order('issued_at', { ascending: true }),
@@ -44,6 +46,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     supabase.from('visits').select('*, patients(id, first_name, last_name, uhid), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: false }),
     supabase.from('appointments').select('*, patients(first_name, last_name, uhid, mobile), profiles(full_name)').eq('appointment_date', today).order('appointment_time', { ascending: true }),
     supabase.from('surgical_cases').select('*', { count: 'exact', head: true }).eq('status', 'Pending Workup'),
+    isTodayOpen(),
   ]);
 
   const waitingEntries = (queueEntries || []).filter((e) => e.status === 'Waiting');
@@ -88,6 +91,12 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
 
   return (
     <div>
+      {!dayOpen && (
+        <div className="msg-err" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span><i className="ti ti-lock"></i> <strong>Today's cash day hasn't been opened.</strong> Payment collection is blocked until it is.</span>
+          <Link href="/cash-management" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>Open Day Now</Link>
+        </div>
+      )}
       {params?.registered && (
         <div className="msg-success">
           <i className="ti ti-circle-check"></i> Registered successfully -- UHID: <strong>{params.registered}</strong>
@@ -202,7 +211,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                 return (
                   <tr key={v.id}>
                     <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{v.visit_number || '--'}</td>
-                    <td>{new Date(v.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                    <td>{new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{v.patients?.first_name} {v.patients?.last_name}</div>
                       <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{v.patients?.uhid}</div>

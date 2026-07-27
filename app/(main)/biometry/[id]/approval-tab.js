@@ -179,7 +179,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
             )}
             {record.status === 'Approved' && !revising && (
               <div style={{ fontSize: 11, color: 'var(--g500)' }}>
-                Approved{record.approved_at ? ` on ${new Date(record.approved_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. To change the plan (e.g. patient requests a different IOL), click Revise -- this creates a new version without deleting the old one.
+                Approved{record.approved_at ? ` on ${new Date(record.approved_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. To change the plan (e.g. patient requests a different IOL), click Revise -- this creates a new version without deleting the old one.
               </div>
             )}
             {record.status === 'Approved' && !revising && (
@@ -215,7 +215,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
                   <span className={`badge ${v.status === 'Approved' ? 'b-green' : 'b-gray'}`} style={{ fontSize: 9 }}>{v.status}</span>
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>
-                  {v.profiles?.full_name || 'Staff'} -- {new Date(v.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  {v.profiles?.full_name || 'Staff'} -- {new Date(v.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             ))}

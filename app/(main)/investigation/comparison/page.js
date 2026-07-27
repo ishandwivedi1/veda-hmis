@@ -100,7 +100,7 @@ export default function InvestigationComparisonPage() {
             {rows.map((r) => (
               <div key={r.id} className="card" style={{ marginBottom: 0 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', marginBottom: 8 }}>
-                  {new Date(r.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {new Date(r.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
                 </div>
                 {type === 'OCT' ? (
                   <>

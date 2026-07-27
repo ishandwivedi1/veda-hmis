@@ -173,7 +173,7 @@ export default function RefundTab() {
                 <div key={p.id} className="card" style={{ padding: '10px 12px', marginBottom: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
                     <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{p.receipt_number}</span>
-                    <span style={{ color: 'var(--g500)' }}>{new Date(p.collected_at).toLocaleDateString('en-IN')} -- Rs.{p.total_amount}</span>
+                    <span style={{ color: 'var(--g500)' }}>{new Date(p.collected_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} -- Rs.{p.total_amount}</span>
                   </div>
                   {(p.payment_allocations || []).length === 0 && <div style={{ fontSize: 11, color: 'var(--g400)' }}>Not applied to any invoice (advance).</div>}
                   {(p.payment_allocations || []).map((a) => (

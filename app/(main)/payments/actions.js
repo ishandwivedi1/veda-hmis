@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 
 export async function getTodaysVisits() {
   const supabase = await createClient();
@@ -138,6 +139,8 @@ export async function getPatientUnifiedLedger(patientId) {
 // ── EDIT PAYMENT (clerical corrections only -- mode/reference/remarks,
 // never amount) ──
 export async function editPaymentClerical(paymentId, modes, reference, remarks, reason) {
+  const blocked = await requireDayOpen();
+  if (blocked) return blocked;
   const supabase = await createClient();
   const { error } = await supabase.rpc('edit_payment_clerical', {
     p_payment_id: paymentId,
@@ -187,6 +190,8 @@ export async function getPatientPayments(patientId) {
 }
 
 export async function refundAdvance(patientId, amount, reason, refundMode, approvedBy) {
+  const blocked = await requireDayOpen();
+  if (blocked) return blocked;
   const supabase = await createClient();
   const { error } = await supabase.rpc('refund_advance', {
     p_patient_id: patientId,
@@ -240,6 +245,8 @@ export async function getAdvanceBalance(patientId) {
 }
 
 export async function collectAdvance(patientId, advanceType, amount, modes, reference, remarks) {
+  const blocked = await requireDayOpen();
+  if (blocked) return blocked;
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('collect_advance', {
     p_patient_id: patientId,
@@ -377,6 +384,8 @@ export async function getRefundHistory(paymentId) {
 }
 
 export async function refundPayment(paymentId, invoiceId, amount, reason, refundMode, approvedBy) {
+  const blocked = await requireDayOpen();
+  if (blocked) return blocked;
   const supabase = await createClient();
   const { error } = await supabase.rpc('refund_payment', {
     p_payment_id: paymentId,
@@ -398,8 +407,8 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
   const to = toDate || today;
   // Include the entire "to" day, not just its midnight instant.
   const toEnd = `${to}T23:59:59`;
-  const rangeLabel = from === to ? new Date(from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-    : `${new Date(from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} -- ${new Date(to).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  const rangeLabel = from === to ? new Date(from).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })
+    : `${new Date(from).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })} -- ${new Date(to).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}`;
 
   if (reportId === 'daily') {
     const [{ data }, { data: refundsData }] = await Promise.all([
@@ -417,7 +426,7 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
         .lte('refunded_at', toEnd),
     ]);
     const rows = (data || []).map((p) => ({
-      cols: [p.receipt_number, `${p.patients?.first_name} ${p.patients?.last_name}`, new Date(p.collected_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), `Rs.${p.total_amount}`],
+      cols: [p.receipt_number, `${p.patients?.first_name} ${p.patients?.last_name}`, new Date(p.collected_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), `Rs.${p.total_amount}`],
     }));
     const grossTotal = (data || []).reduce((s, p) => s + Number(p.total_amount), 0);
     const refundTotal = (refundsData || []).reduce((s, r) => s + Number(r.amount), 0);
@@ -459,7 +468,7 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
       return {
         cols: [
           m.payments?.receipt_number, `${m.payments?.patients?.first_name} ${m.payments?.patients?.last_name}`,
-          new Date(m.payments?.collected_at).toLocaleDateString('en-IN'),
+          new Date(m.payments?.collected_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
           isRefund ? 'Refund' : 'Collection',
           `${isRefund ? '-' : ''}Rs.${m.amount}`,
         ],
@@ -507,7 +516,7 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
       .order('collected_at', { ascending: false })
       .limit(200);
     const rows = (data || []).map((p) => ({
-      cols: [p.receipt_number, `${p.patients?.first_name} ${p.patients?.last_name}`, p.payment_type, new Date(p.collected_at).toLocaleDateString('en-IN'), `Rs.${p.total_amount}`],
+      cols: [p.receipt_number, `${p.patients?.first_name} ${p.patients?.last_name}`, p.payment_type, new Date(p.collected_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }), `Rs.${p.total_amount}`],
     }));
     return { title: `Receipt Register -- ${rangeLabel}`, headers: ['Receipt #', 'Patient', 'Type', 'Date', 'Amount'], rows, total: null };
   }
@@ -529,6 +538,8 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
 }
 
 export async function collectPayment(patientId, invoiceIds, amount, modes, reference, remarks) {
+  const blocked = await requireDayOpen();
+  if (blocked) return blocked;
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('collect_payment', {
     p_patient_id: patientId,

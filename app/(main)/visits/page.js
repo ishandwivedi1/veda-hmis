@@ -88,8 +88,8 @@ export default async function VisitsPage({ searchParams }) {
                 <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{v.visit_number || '--'}</td>
                 <td style={{ color: 'var(--g500)' }}>
                   {tab === 'today'
-                    ? new Date(v.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-                    : new Date(v.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    ? new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
+                    : new Date(v.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
                 </td>
                 <td>
                   <div style={{ fontWeight: 600 }}>{v.patients?.first_name} {v.patients?.last_name}</div>

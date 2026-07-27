@@ -105,7 +105,7 @@ export default async function PatientsPage({ searchParams }) {
                 <td><span className={`badge ${GENDER_BADGE[p.gender] || 'b-gray'}`}>{GENDER_LABEL[p.gender] || p.gender}</span></td>
                 <td>{p.mobile}</td>
                 <td>{p.blood_group ? <span className="badge b-red">{p.blood_group}</span> : '--'}</td>
-                <td style={{ color: 'var(--g500)' }}>{info ? new Date(info.lastVisit).toLocaleDateString('en-IN') : 'Never'}</td>
+                <td style={{ color: 'var(--g500)' }}>{info ? new Date(info.lastVisit).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Never'}</td>
                 <td>{info?.hasActive ? <span className="badge b-green">Active</span> : <span className="badge b-gray">None</span>}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 6 }}>

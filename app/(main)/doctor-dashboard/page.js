@@ -279,7 +279,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
                 <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
               </div>
               <div style={{ fontSize: 11, color: 'var(--g500)' }}>
-                {e.completed_at ? new Date(e.completed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                {e.completed_at ? new Date(e.completed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '--'}
               </div>
             </div>
           ))}
@@ -321,7 +321,7 @@ function HistoryTab({ rows, loading, onOpen }) {
                   <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.visits?.patients?.uhid}</span>
                 </td>
                 <td style={{ fontSize: 11 }}>{e.visits?.visit_type || '--'}</td>
-                <td style={{ fontSize: 11 }}>{e.completed_at ? new Date(e.completed_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
+                <td style={{ fontSize: 11 }}>{e.completed_at ? new Date(e.completed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
                 <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
               </tr>
             ))}

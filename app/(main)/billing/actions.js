@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 
 export async function getTodaysVisitsForBilling() {
   const supabase = await createClient();
@@ -455,6 +456,10 @@ export async function searchPatientsForPackage(q) {
 }
 
 export async function generatePackageInvoice(patientId, packageId, paymentMode, advanceAmount, surgicalCaseId) {
+  if (advanceAmount && Number(advanceAmount) > 0) {
+    const blocked = await requireDayOpen();
+    if (blocked) return blocked;
+  }
   const supabase = await createClient();
 
   const { data: visit } = await supabase

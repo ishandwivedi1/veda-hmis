@@ -48,7 +48,7 @@ export default function BiometryHistoryPage() {
               const m = eyeSets.find((s) => s.axl && s.k1 && s.k2 && s.acd) || eyeSets[0] || {};
               return (
                 <tr key={r.id} onClick={() => router.push(`/biometry/${r.id}`)} style={{ cursor: 'pointer' }}>
-                  <td style={{ fontSize: 11 }}>{new Date(r.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                  <td style={{ fontSize: 11 }}>{new Date(r.updated_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
                   <td>
                     <strong>{patient?.first_name} {patient?.last_name}</strong>
                     <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{patient?.uhid}</span>

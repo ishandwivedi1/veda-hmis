@@ -65,7 +65,7 @@ export default function AttachmentUploader({ entityType, entityId, title = 'Repo
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.file_name}</div>
             <div style={{ fontSize: 10, color: 'var(--g400)' }}>
-              {formatSize(a.file_size)} -- {a.profiles?.full_name || 'Staff'} -- {new Date(a.uploaded_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              {formatSize(a.file_size)} -- {a.profiles?.full_name || 'Staff'} -- {new Date(a.uploaded_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             </div>
           </div>
           {a.url && <a href={a.url} target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '3px 9px', fontSize: 11 }}>View</a>}

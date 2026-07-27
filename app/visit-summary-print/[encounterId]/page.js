@@ -37,7 +37,7 @@ export default async function VisitSummaryPrintPage({ params }) {
 
   const patient = encounter.visits?.patients;
   const visitNumber = encounter.visits?.visit_number;
-  const visitDate = new Date(encounter.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  const visitDate = new Date(encounter.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long', year: 'numeric' });
 
   function Section({ title, children }) {
     return (

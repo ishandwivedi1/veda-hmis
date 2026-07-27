@@ -180,7 +180,7 @@ function NotesPanel({ caseId }) {
       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
         {notes.map((n) => (
           <div key={n.id} style={{ fontSize: 11, background: 'var(--g50)', borderRadius: 'var(--r)', padding: '6px 8px' }}>
-            <span style={{ color: 'var(--g400)' }}>{new Date(n.created_at).toLocaleString('en-IN')} -- {n.profiles?.full_name || 'Staff'}: </span>
+            <span style={{ color: 'var(--g400)' }}>{new Date(n.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} -- {n.profiles?.full_name || 'Staff'}: </span>
             {n.note}
           </div>
         ))}
@@ -552,7 +552,7 @@ function CaseWorkspace({ sc, onUpdate }) {
               </div>
             )}
             {sc.fitness_referral?.status === 'Pending Review' && (
-              <span className="badge b-amber"><i className="ti ti-clock"></i> Referred to doctor -- awaiting review ({new Date(sc.fitness_referral.referred_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})</span>
+              <span className="badge b-amber"><i className="ti ti-clock"></i> Referred to doctor -- awaiting review ({new Date(sc.fitness_referral.referred_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })})</span>
             )}
             {sc.fitness_referral?.status === 'Cleared' && (
               <div>
@@ -781,7 +781,7 @@ function OTCalendar() {
         <tbody>
           {schedule.map((s) => (
             <tr key={s.id}>
-              <td>{new Date(s.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+              <td>{new Date(s.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
               <td>{s.scheduled_time?.slice(0, 5) || '--'}</td>
               <td>{s.room || '--'}</td>
               <td>{s.surgical_cases?.patients?.first_name} {s.surgical_cases?.patients?.last_name}</td>
@@ -842,7 +842,7 @@ function HistoryTab({ cases, loading, onOpen }) {
                 <td style={{ fontSize: 12 }}>{sc.profiles?.full_name || '--'}</td>
                 <td style={{ fontSize: 12 }}>{sc.decision || '--'}</td>
                 <td><span className={`badge ${STATUS_BADGE[sc.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{sc.status}</span></td>
-                <td style={{ fontSize: 11 }}>{sc.created_at ? new Date(sc.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}</td>
+                <td style={{ fontSize: 11 }}>{sc.created_at ? new Date(sc.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' }) : '--'}</td>
                 <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
               </tr>
             ))}

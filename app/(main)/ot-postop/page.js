@@ -138,7 +138,7 @@ function HistoryTab({ rows, loading, onOpen }) {
                 <td style={{ fontSize: 12 }}>{e.surgical_cases?.procedure_name} ({e.surgical_cases?.eye})</td>
                 <td><span className="badge b-purple" style={{ fontSize: 10 }}>{e.closure_status}</span></td>
                 <td style={{ fontSize: 12 }}>{e.closure_outcome}</td>
-                <td style={{ fontSize: 11 }}>{e.closed_at ? new Date(e.closed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}</td>
+                <td style={{ fontSize: 11 }}>{e.closed_at ? new Date(e.closed_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' }) : '--'}</td>
                 <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
               </tr>
             ))}

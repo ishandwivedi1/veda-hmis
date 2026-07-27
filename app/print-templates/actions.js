@@ -267,7 +267,7 @@ function inr(n) {
 }
 function fmtDate(d) {
   if (!d) return '--';
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function buildInvoiceContext(settings, { patient, invoice, visit, doctor, lineItems, payments, packageName, dischargeDate }) {

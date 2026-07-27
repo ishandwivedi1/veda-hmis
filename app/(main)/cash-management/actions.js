@@ -153,3 +153,27 @@ export async function isTodayClosed() {
   return !!data;
 }
 
+export async function isTodayOpen() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const { data } = await supabase.from('day_openings').select('id').eq('opening_date', today).maybeSingle();
+  return !!data;
+}
+
+// Server-side guard for any action that moves physical cash (collect
+// payment, refund, advance, or a package invoice that collects an
+// advance inline). Called at the top of those actions specifically --
+// not a global gate -- so clinical work (doctor, optometry, OT) is
+// never blocked by a missed Open Day. Checked here rather than only
+// in the UI so it can't be bypassed by calling the server action
+// directly. Each new IST calendar date has no day_openings row until
+// someone opens it, so this is naturally enforced fresh every day
+// without any separate "reset" step.
+export async function requireDayOpen() {
+  const open = await isTodayOpen();
+  if (!open) {
+    return { error: "Today's cash day hasn't been opened yet. Go to Cash Management and open the day before collecting or refunding payments." };
+  }
+  return null;
+}
+

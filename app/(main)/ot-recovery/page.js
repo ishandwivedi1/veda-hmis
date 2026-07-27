@@ -87,7 +87,7 @@ function HistoryTab({ rows, loading, onOpen }) {
               <tr key={e.id} onClick={() => onOpen(e.id)} style={{ cursor: 'pointer' }}>
                 <td><strong>{e.surgical_cases?.patients?.first_name} {e.surgical_cases?.patients?.last_name}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.surgical_cases?.patients?.uhid}</span></td>
                 <td style={{ fontSize: 12 }}>{e.surgical_cases?.procedure_name} ({e.surgical_cases?.eye})</td>
-                <td style={{ fontSize: 11 }}>{e.discharge_date ? new Date(e.discharge_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}</td>
+                <td style={{ fontSize: 11 }}>{e.discharge_date ? new Date(e.discharge_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' }) : '--'}</td>
                 <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
               </tr>
             ))}

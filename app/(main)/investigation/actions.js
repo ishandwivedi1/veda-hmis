@@ -387,7 +387,7 @@ export async function getInvestigationReport(reportId, fromDate, toDate) {
       title: 'Daily Investigation Register',
       headers: ['Date', 'Patient', 'Investigation', 'Eye', 'Status', 'Doctor'],
       rows: (data || []).map((o) => ({
-        cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.eye, o.status, doctorName(o)],
+        cols: [new Date(o.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' }), patientName(o), o.name, o.eye, o.status, doctorName(o)],
       })),
     };
   }
@@ -412,7 +412,7 @@ export async function getInvestigationReport(reportId, fromDate, toDate) {
       title: 'Pending Investigations',
       headers: ['Date', 'Patient', 'Investigation', 'Eye', 'Status', 'Doctor'],
       rows: pending.map((o) => ({
-        cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.eye, o.status, doctorName(o)],
+        cols: [new Date(o.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' }), patientName(o), o.name, o.eye, o.status, doctorName(o)],
       })),
     };
   }
@@ -421,7 +421,7 @@ export async function getInvestigationReport(reportId, fromDate, toDate) {
     const cancelled = (data || []).filter((o) => o.status === 'Cancelled');
     const total = (data || []).length;
     const rows = cancelled.map((o) => ({
-      cols: [new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), patientName(o), o.name, o.unable_reason || '--'],
+      cols: [new Date(o.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' }), patientName(o), o.name, o.unable_reason || '--'],
     }));
     rows.push({ cols: [`Total ordered in period: ${total}`, `Unable to perform: ${cancelled.length}`, '', ''] });
     return {

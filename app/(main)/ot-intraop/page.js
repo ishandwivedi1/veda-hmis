@@ -73,7 +73,7 @@ function DashboardTab({ cases, loading, onOpen, onRefresh }) {
                   style={{ marginLeft: 6, fontSize: 10, border: 'none', cursor: 'pointer' }}
                   disabled={busyId === c.id}
                   onClick={(e) => handleToggleReported(e, c.id, !!c.patient_reported_at)}
-                  title={c.patient_reported_at ? `Reported at ${new Date(c.patient_reported_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} -- click to undo` : 'Click to mark patient as reported'}
+                  title={c.patient_reported_at ? `Reported at ${new Date(c.patient_reported_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} -- click to undo` : 'Click to mark patient as reported'}
                 >
                   {busyId === c.id ? '...' : c.patient_reported_at ? 'Reported' : 'Mark Reported'}
                 </button>
@@ -121,7 +121,7 @@ function HistoryTab({ rows, loading, onOpen }) {
               const patient = sc?.patients;
               return (
                 <tr key={r.id} onClick={() => onOpen(r.id)} style={{ cursor: 'pointer' }}>
-                  <td style={{ fontSize: 11 }}>{new Date(r.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                  <td style={{ fontSize: 11 }}>{new Date(r.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
                   <td><strong>{patient?.first_name} {patient?.last_name}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{patient?.uhid}</span></td>
                   <td style={{ fontSize: 12 }}>{sc?.procedure_name} ({sc?.eye})</td>
                   <td><span className="badge b-green" style={{ fontSize: 10 }}>{r.intraopSummary?.surgical_outcome || '--'}</span></td>

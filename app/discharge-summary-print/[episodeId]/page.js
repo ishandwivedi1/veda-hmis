@@ -30,7 +30,7 @@ export default async function DischargeSummaryPrintPage({ params }) {
 
   function formatDate(d) {
     if (!d) return '--';
-    return new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+    return new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long', year: 'numeric' });
   }
 
   function Section({ title, children }) {

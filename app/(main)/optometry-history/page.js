@@ -56,7 +56,7 @@ export default function OptometryHistoryPage() {
               const iopReHigh = typeof r.iopRe === 'number' && r.iopRe > 21;
               const iopLeHigh = typeof r.iopLe === 'number' && r.iopLe > 21;
               const by = r.status === 'Completed' ? (r.completed_by_profile?.full_name || '--') : (r.recorded_by_profile?.full_name || '--');
-              const dt = new Date(r.completed_at || r.updated_at || r.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+              const dt = new Date(r.completed_at || r.updated_at || r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
               return (
                 <tr
                   key={r.id}
