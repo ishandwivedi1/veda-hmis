@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: bigger logo on printed invoices/receipts/case sheet"
+
+cat > "app/print-templates/actions.js" << 'PYEOF_LOGO'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -536,3 +541,6 @@ function buildOpdCaseSheetContext(settings, { patient, encounter, visit, doctor,
     followup_text: followupParts.length > 0 ? followupParts.join(' ') : null,
   };
 }
+PYEOF_LOGO
+
+echo "File written. Run: npm run build"
