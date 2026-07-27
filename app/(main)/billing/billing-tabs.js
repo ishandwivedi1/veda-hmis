@@ -27,7 +27,7 @@ export default function BillingTabs() {
           <Link href="/cash-management" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>Open Day in Cash Management</Link>
         </div>
       )}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 8, background: '#fff', padding: '8px 0' }}>
         {TABS.map((t) => (
           <Link
             key={t.href}

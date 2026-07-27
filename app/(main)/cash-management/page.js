@@ -13,6 +13,7 @@ import {
   isTodayClosed,
   getDayOpening,
   openDay,
+  getRevenueByDepartmentToday,
 } from './actions';
 import { getApprovers } from '@/app/(main)/payments/actions';
 
@@ -33,6 +34,7 @@ function fmt(n) {
 export default function CashManagementPage() {
   const [activeTab, setActiveTab] = useState('summary');
   const [summary, setSummary] = useState({ transactions: [], byMode: {}, total: 0, count: 0 });
+  const [revenueByDept, setRevenueByDept] = useState({});
   const [reconRows, setReconRows] = useState([]);
   const [readiness, setReadiness] = useState(null);
   const [history, setHistory] = useState([]);
@@ -57,6 +59,7 @@ export default function CashManagementPage() {
 
   const refresh = useCallback(async () => {
     setSummary(await getTodayCollectionSummary());
+    setRevenueByDept(await getRevenueByDepartmentToday());
     setReconRows(await getReconciliationData());
     setReadiness(await getCloseDayReadiness());
     setHistory(await getDayClosingHistory());
@@ -194,6 +197,26 @@ export default function CashManagementPage() {
                 <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(summary.byMode[m] || 0)}</div>
               </div>
             ))}
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 10 }}>
+              <i className="ti ti-chart-bar" style={{ color: 'var(--amber)' }}></i> Revenue by Department -- Today
+            </div>
+            {Object.keys(revenueByDept).length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No invoices yet today.</div>}
+            {Object.entries(revenueByDept).sort((a, b) => b[1] - a[1]).map(([dept, amount]) => {
+              const max = Math.max(...Object.values(revenueByDept));
+              return (
+                <div key={dept} style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                    <span>{dept}</span><span style={{ fontWeight: 600 }}>{fmt(amount)}</span>
+                  </div>
+                  <div style={{ height: 8, background: 'var(--g100)', borderRadius: 4 }}>
+                    <div style={{ width: `${max ? (amount / max) * 100 : 0}%`, height: '100%', background: 'var(--amber)', borderRadius: 4 }}></div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="card">

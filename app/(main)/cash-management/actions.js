@@ -20,6 +20,29 @@ function istDayBoundsUTC(dateStr) {
   };
 }
 
+// ── REVENUE BY DEPARTMENT -- moved here from the Billing Dashboard,
+// since it's a same-day revenue breakdown that belongs alongside the
+// rest of today's collection summary. ──
+export async function getRevenueByDepartmentToday() {
+  const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC();
+
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select('purpose, net')
+    .gte('created_at', startUTC)
+    .lte('created_at', endUTC)
+    .neq('status', 'Cancelled');
+
+  const byDept = {};
+  (invoices || []).forEach((i) => {
+    const dept = i.purpose || 'Other';
+    byDept[dept] = (byDept[dept] || 0) + Number(i.net);
+  });
+
+  return byDept;
+}
+
 export async function getTodayCollectionSummary() {
   const supabase = await createClient();
   const { startUTC, endUTC } = istDayBoundsUTC();

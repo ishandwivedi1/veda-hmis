@@ -15,12 +15,14 @@ function istDayBoundsUTC() {
   };
 }
 
-// ── WS-086: BILLING DASHBOARD ──
+// ── WS-086: BILLING DASHBOARD -- Recent Invoices + Outstanding Invoices.
+// (Revenue-by-department and the daily revenue/collected/cancelled
+// stats moved to the Cash Management dashboard.) ──
 export async function getBillingDashboardData() {
   const supabase = await createClient();
   const { startUTC, endUTC } = istDayBoundsUTC();
 
-  const [{ data: todaysInvoices }, { count: cancelledToday }, { data: allOutstanding }] = await Promise.all([
+  const [{ data: todaysInvoices }, { data: allOutstanding }] = await Promise.all([
     supabase
       .from('invoices')
       .select('*, patients(first_name, last_name, uhid), visits(visit_number)')
@@ -30,36 +32,16 @@ export async function getBillingDashboardData() {
       .order('created_at', { ascending: false }),
     supabase
       .from('invoices')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'Cancelled')
-      .gte('cancelled_at', startUTC)
-      .lte('cancelled_at', endUTC),
-    supabase
-      .from('invoices')
       .select('*, patients(first_name, last_name, uhid), visits(visit_number)')
       .in('status', ['Pending', 'Partial'])
       .order('created_at', { ascending: true }),
   ]);
 
-  const invoices = todaysInvoices || [];
-  const revenue = invoices.reduce((s, i) => s + Number(i.net), 0);
-  const collected = invoices.reduce((s, i) => s + Number(i.paid), 0);
-
-  const byDept = {};
-  invoices.forEach((i) => {
-    const dept = i.purpose || 'Other';
-    byDept[dept] = (byDept[dept] || 0) + Number(i.net);
-  });
-
   const outstandingInvoices = allOutstanding || [];
   const outstandingTotal = outstandingInvoices.reduce((s, i) => s + Math.max(0, Number(i.net) - Number(i.paid)), 0);
 
   return {
-    todaysInvoices: invoices,
-    revenue,
-    collected,
-    cancelledToday: cancelledToday || 0,
-    byDept,
+    todaysInvoices: todaysInvoices || [],
     outstandingInvoices,
     outstandingTotal,
   };
