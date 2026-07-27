@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: package breakup panel now appears inline under its package"
+
+cat > "app/(main)/master-data/financial/page.js" << 'PYEOF_BREAKUP'
 'use client';
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
@@ -465,3 +470,6 @@ export default function FinancialMastersPage() {
   );
 }
 
+PYEOF_BREAKUP
+
+echo "File written. Run: npm run build"
