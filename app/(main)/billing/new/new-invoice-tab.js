@@ -22,6 +22,7 @@ import {
   markProceduresBilled,
   getPackageForBilling,
   markPackageBilled,
+  addCustomLineItem,
 } from '../actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure', 'Surgery', 'Pharmacy'];
@@ -202,7 +203,8 @@ export default function NewInvoiceTab() {
         {
           tempId: nextTempId.current++,
           sourceRxIds: matched.map((i) => i.rxId),
-          serviceCode: 'OPD-CONSUM', serviceName: 'OPD Procedure Consumables', dept: 'Pharmacy',
+          isCustom: true,
+          serviceCode: null, serviceName: 'OPD Procedure Consumables', dept: 'Pharmacy',
           qty: 1, rate: totalRate, gstPct: 0,
           discType: 'none', discValue: 0, discReason: '',
           ...computed,
@@ -327,13 +329,37 @@ export default function NewInvoiceTab() {
     const dv = parseFloat(discValue) || 0;
     const computed = computeLine(svc, q, discType, dv);
 
-    setDraftLines((prev) => [...prev, {
-      tempId: nextTempId.current++,
-      serviceCode: svc.code, serviceName: svc.name, dept: svc.dept,
-      qty: q, rate: svc.rate, gstPct: svc.gst_pct,
-      discType, discValue: dv, discReason,
-      ...computed,
-    }]);
+    // No pharmacy license yet -- individual drug names/quantities can't
+    // appear on the bill. Whatever gets picked from the Pharmacy
+    // department here is folded into one running "OPD Procedure
+    // Consumables" line (qty 1, total amount only) instead of adding a
+    // separate named line per drug.
+    if (svc.dept === 'Pharmacy') {
+      setDraftLines((prev) => {
+        const existing = prev.find((l) => l.dept === 'Pharmacy' && l.isCustom);
+        const addedAmount = computed.net;
+        if (existing) {
+          const newTotal = existing.rate + addedAmount;
+          return prev.map((l) => (l === existing ? { ...l, rate: newTotal, net: newTotal, gross: newTotal } : l));
+        }
+        return [...prev, {
+          tempId: nextTempId.current++,
+          isCustom: true,
+          serviceCode: null, serviceName: 'OPD Procedure Consumables', dept: 'Pharmacy',
+          qty: 1, rate: addedAmount, gstPct: 0,
+          discType: 'none', discValue: 0, discReason: '',
+          gst: 0, net: addedAmount, disc: 0, gross: addedAmount,
+        }];
+      });
+    } else {
+      setDraftLines((prev) => [...prev, {
+        tempId: nextTempId.current++,
+        serviceCode: svc.code, serviceName: svc.name, dept: svc.dept,
+        qty: q, rate: svc.rate, gstPct: svc.gst_pct,
+        discType, discValue: dv, discReason,
+        ...computed,
+      }]);
+    }
 
     setDept(''); setSelectedServiceCode(''); setQty(1); setRate(''); setGstPct('');
     setDiscType('none'); setDiscValue(''); setDiscReason('');
@@ -354,7 +380,9 @@ export default function NewInvoiceTab() {
     if (created.error) { setSubmitting(false); setError(created.error); return null; }
 
     for (const line of draftLines) {
-      const result = await addLineItem(created.invoice.id, line.serviceCode, line.qty, line.discType, line.discValue, line.discReason);
+      const result = line.isCustom
+        ? await addCustomLineItem(created.invoice.id, line.serviceName, line.rate, line.dept)
+        : await addLineItem(created.invoice.id, line.serviceCode, line.qty, line.discType, line.discValue, line.discReason);
       if (result.error) {
         setSubmitting(false);
         setError(`Invoice created, but failed adding ${line.serviceName}: ${result.error}. Finish it from Invoice Details.`);

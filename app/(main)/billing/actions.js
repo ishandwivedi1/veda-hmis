@@ -177,6 +177,22 @@ export async function addLineItem(invoiceId, serviceCode, qty, discType, discVal
   return { success: true };
 }
 
+// For ad-hoc line items with no catalog entry behind them -- currently
+// only the consolidated "OPD Procedure Consumables" pharmacy line
+// (medicines clubbed into one line + total, since there's no pharmacy
+// license yet to itemize them). Always qty 1, no GST/discount.
+export async function addCustomLineItem(invoiceId, serviceName, amount, dept) {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('add_invoice_custom_line_item', {
+    p_invoice_id: invoiceId,
+    p_service_name: serviceName,
+    p_amount: amount,
+    p_dept: dept || 'Pharmacy',
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── NEW INVOICE (standalone, not tied to visit creation) ──
 export async function searchPatientsForInvoice(q) {
   if (!q) return [];
