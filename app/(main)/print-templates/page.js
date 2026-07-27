@@ -18,6 +18,17 @@ const PLACEHOLDER_REFERENCE = {
 };
 PLACEHOLDER_REFERENCE.invoice_surgery = [...PLACEHOLDER_REFERENCE.invoice_opd, 'package_name', 'discharge_date'];
 
+PLACEHOLDER_REFERENCE.receipt = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_name', 'patient_id', 'patient_mobile',
+  'receipt_no', 'receipt_date', 'payment_type_label', 'collected_by',
+  'amount_received', 'amount_in_words',
+  '{{#if hasAllocations}}...{{/if}}', 'allocations (loop: invoiceNumber, amount)',
+  'modes (loop: mode, amount)', '{{#if reference}}...{{/if}}', '{{#if remarks}}...{{/if}}',
+];
+PLACEHOLDER_REFERENCE.receipt_advance = PLACEHOLDER_REFERENCE.receipt;
+
 const SETTINGS_FIELDS = [
   { key: 'name', label: 'Hospital Name' },
   { key: 'unit_line', label: 'Unit Line (e.g. "A Unit of...")' },
