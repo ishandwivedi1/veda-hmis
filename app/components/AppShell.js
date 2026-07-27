@@ -36,6 +36,7 @@ const NAV_ITEMS = [
   { href: '/ot-postop', label: 'Post Op', icon: 'ti-calendar-plus', section: 'Surgical' },
   { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', section: 'Administration' },
   { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', section: 'Administration' },
+  { href: '/print-templates', label: 'Print Templates', icon: 'ti-file-invoice', section: 'Administration' },
   { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration' },
 ];
 
@@ -71,6 +72,7 @@ const PAGE_TITLES = [
   { match: /^\/ot-postop/, title: 'Post Op' },
   { match: /^\/master-data\/clinical/, title: 'Clinical Masters' },
   { match: /^\/master-data\/financial/, title: 'Financial Masters' },
+  { match: /^\/print-templates/, title: 'Print Templates' },
   { match: /^\/master-data/, title: 'Master Data' },
   { match: /^\/users/, title: 'User Management' },
 ];
