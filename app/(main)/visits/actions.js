@@ -2,6 +2,20 @@
 
 import { createClient } from '@/lib/supabase-server';
 
+// Fetches a single patient for pre-filling the New Visit form when
+// arriving via a "Create Visit" link from the Patients list, so the
+// front desk doesn't have to search for someone they already had open.
+export async function getPatientById(patientId) {
+  if (!patientId) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('patients')
+    .select('id, uhid, first_name, last_name, mobile')
+    .eq('id', patientId)
+    .single();
+  return data || null;
+}
+
 export async function getDoctorOptionsForVisit() {
   const supabase = await createClient();
   const { data } = await supabase

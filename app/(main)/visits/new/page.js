@@ -1,15 +1,28 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { searchPatientsForBooking, getDoctors } from '@/app/(main)/appointments/actions';
-import { createWalkInVisit, getSurgeryTypeOptions } from '@/app/(main)/visits/actions';
+import { createWalkInVisit, getSurgeryTypeOptions, getPatientById } from '@/app/(main)/visits/actions';
 
 export default function NewVisitPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>}>
+      <NewVisitForm />
+    </Suspense>
+  );
+}
+
+function NewVisitForm() {
+  const searchParams = useSearchParams();
+  const prefillPatientId = searchParams.get('patientId');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [searched, setSearched] = useState(false);
+  const [prefillLoading, setPrefillLoading] = useState(!!prefillPatientId);
+  const [prefillError, setPrefillError] = useState('');
 
   const [doctors, setDoctors] = useState([]);
   const [doctorId, setDoctorId] = useState('');
@@ -27,6 +40,22 @@ export default function NewVisitPage() {
     getDoctors().then(setDoctors);
     getSurgeryTypeOptions().then(setSurgeryTypes);
   }, []);
+
+  useEffect(() => {
+    if (!prefillPatientId) return;
+    let cancelled = false;
+    setPrefillLoading(true);
+    getPatientById(prefillPatientId).then((patient) => {
+      if (cancelled) return;
+      setPrefillLoading(false);
+      if (patient) {
+        setSelectedPatient(patient);
+      } else {
+        setPrefillError('Could not load that patient -- search for them below instead.');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [prefillPatientId]);
 
   async function handleSearch() {
     if (!searchQuery.trim()) return;
@@ -95,11 +124,16 @@ export default function NewVisitPage() {
         </div>
 
         {error && <div className="msg-err">{error}</div>}
+        {prefillError && <div className="msg-err">{prefillError}</div>}
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 16 }}>
             <label className="flbl">Find patient (name, UHID, or mobile) *</label>
-            {selectedPatient ? (
+            {prefillLoading ? (
+              <div style={{ padding: '8px 12px', color: 'var(--g500)', fontSize: 13 }}>
+                <i className="ti ti-loader-2"></i> Loading patient...
+              </div>
+            ) : selectedPatient ? (
               <div
                 style={{
                   display: 'flex',

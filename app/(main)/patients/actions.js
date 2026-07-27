@@ -35,6 +35,52 @@ export async function registerPatient(values) {
   return { patient: data };
 }
 
+// Edit an existing patient's demographic/contact record. UHID is
+// immutable and never touched here -- only the fields collected at
+// registration can be corrected later.
+export async function updatePatient(patientId, values) {
+  if (!patientId) return { error: 'Missing patient id.' };
+
+  const supabase = await createClient();
+
+  if (values.mobile && !/^\d{10}$/.test(values.mobile)) {
+    return { error: 'Mobile number must be 10 digits.' };
+  }
+
+  const { data, error } = await supabase
+    .from('patients')
+    .update({
+      first_name: values.firstName,
+      last_name: values.lastName,
+      age: values.age ? parseInt(values.age, 10) : null,
+      gender: values.gender,
+      mobile: values.mobile,
+      address: values.address || null,
+      blood_group: values.bloodGroup || null,
+      date_of_birth: values.dateOfBirth || null,
+      alternate_mobile: values.alternateMobile || null,
+      city: values.city || null,
+      state: values.state || null,
+      pin_code: values.pinCode || null,
+      id_type: values.idType || null,
+      id_number: values.idNumber || null,
+      insurance_scheme: values.insuranceScheme || null,
+      insurance_number: values.insuranceNumber || null,
+      referral_source: values.referralSource || null,
+      preferred_language: values.preferredLanguage || null,
+      remarks: values.remarks || null,
+    })
+    .eq('id', patientId)
+    .select()
+    .single();
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { patient: data };
+}
+
 // Real-time duplicate check as the receptionist types a mobile number --
 // matches M04's "Duplicate check" panel.
 export async function checkDuplicateMobile(mobile) {
