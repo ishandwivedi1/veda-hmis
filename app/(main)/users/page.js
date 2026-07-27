@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getUsers, createUser, toggleUserStatus, resetUserPassword, updateUserProfile } from './actions';
+import { getUsers, createUser, toggleUserStatus, resetUserPassword, updateUserProfile, updateStaffIdentity, getMyDesignation } from './actions';
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
 
-function EditProfileRow({ user, onDone }) {
+function EditProfileRow({ user, isAdmin, onDone }) {
+  const [fullName, setFullName] = useState(user.full_name || '');
+  const [username, setUsername] = useState(user.username || '');
   const [designation, setDesignation] = useState(user.designation || '');
   const [department, setDepartment] = useState(user.department || '');
   const [error, setError] = useState('');
@@ -14,6 +16,16 @@ function EditProfileRow({ user, onDone }) {
   async function handleSave() {
     setError('');
     setLoading(true);
+
+    if (isAdmin && (fullName !== user.full_name || username !== user.username)) {
+      const identityResult = await updateStaffIdentity(user.id, { fullName, username });
+      if (identityResult.error) {
+        setLoading(false);
+        setError(identityResult.error);
+        return;
+      }
+    }
+
     const result = await updateUserProfile(user.id, { designation, department });
     setLoading(false);
     if (result.error) { setError(result.error); return; }
@@ -23,19 +35,33 @@ function EditProfileRow({ user, onDone }) {
   return (
     <>
       <td>
+        {isAdmin ? (
+          <input className="fi" value={fullName} onChange={(e) => setFullName(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }} />
+        ) : (
+          <span style={{ fontWeight: 600 }}>{user.full_name}</span>
+        )}
+      </td>
+      <td>
+        {isAdmin ? (
+          <input className="fi" value={username} onChange={(e) => setUsername(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }} />
+        ) : (
+          <span>{user.username}</span>
+        )}
+      </td>
+      <td>
         <select className="fi" value={designation} onChange={(e) => setDesignation(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }}>
           <option value="">-- Select --</option>
           {DESIGNATIONS.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-        {error && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{error}</div>}
       </td>
       <td>
         <input className="fi" value={department} onChange={(e) => setDepartment(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }} />
       </td>
       <td colSpan={2}>
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
           <button className="btn btn-sm" onClick={() => onDone(false)} disabled={loading}>Cancel</button>
+          {error && <span style={{ fontSize: 11, color: 'var(--red)' }}>{error}</span>}
         </div>
       </td>
     </>
@@ -73,17 +99,23 @@ function ResetPasswordButton({ userId }) {
 
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
+  const [myDesignation, setMyDesignation] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ email: '', password: '', fullName: '', designation: '', department: '' });
+  const [form, setForm] = useState({ username: '', password: '', fullName: '', designation: '', department: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const isAdmin = myDesignation === 'Administrator';
 
   const refresh = useCallback(async () => {
     setUsers(await getUsers());
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+    getMyDesignation().then(setMyDesignation);
+  }, [refresh]);
 
   function update(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -95,7 +127,7 @@ export default function UsersPage() {
     const result = await createUser(form);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
-    setForm({ email: '', password: '', fullName: '', designation: '', department: '' });
+    setForm({ username: '', password: '', fullName: '', designation: '', department: '' });
     setShowAdd(false);
     refresh();
   }
@@ -119,11 +151,17 @@ export default function UsersPage() {
 
       {error && <div className="msg-err">{error}</div>}
 
+      {!isAdmin && myDesignation && (
+        <div className="msg-info" style={{ marginBottom: 12 }}>
+          <i className="ti ti-info-circle"></i> Only an Administrator can rename staff or change their login username. Designation and department can still be updated here.
+        </div>
+      )}
+
       {showAdd && (
         <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
             <input className="fi" placeholder="Full name" value={form.fullName} onChange={update('fullName')} />
-            <input className="fi" placeholder="Email (login)" value={form.email} onChange={update('email')} />
+            <input className="fi" placeholder="Username (email, mobile, or anything)" value={form.username} onChange={update('username')} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
             <select className="fi" value={form.designation} onChange={update('designation')}>
@@ -141,19 +179,21 @@ export default function UsersPage() {
 
       <table className="tbl">
         <thead>
-          <tr><th>Name</th><th>Designation</th><th>Department</th><th>Status</th><th></th></tr>
+          <tr><th>Name</th><th>Username</th><th>Designation</th><th>Department</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
           {users.map((u) => (
             <tr key={u.id}>
-              <td style={{ fontWeight: 600 }}>{u.full_name}</td>
               {editingId === u.id ? (
                 <EditProfileRow
                   user={u}
+                  isAdmin={isAdmin}
                   onDone={(saved) => { setEditingId(null); if (saved) refresh(); }}
                 />
               ) : (
                 <>
+                  <td style={{ fontWeight: 600 }}>{u.full_name}</td>
+                  <td>{u.username}</td>
                   <td>{u.designation}</td>
                   <td>{u.department}</td>
                   <td>
@@ -180,4 +220,3 @@ export default function UsersPage() {
     </div>
   );
 }
-

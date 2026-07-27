@@ -4,9 +4,10 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '../../lib/supabase-browser';
+import { resolveLoginEmail } from '@/app/(main)/users/actions';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,8 +19,15 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
+    const resolved = await resolveLoginEmail(username);
+    if (resolved.error) {
+      setLoading(false);
+      setError(resolved.error);
+      return;
+    }
+
     const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
+      email: resolved.email,
       password,
     });
 
@@ -57,12 +65,12 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 14 }}>
-            <label className="flbl">Email</label>
+            <label className="flbl">Username</label>
             <input
-              type="email"
+              type="text"
               className="fi"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               required
               autoFocus
             />
