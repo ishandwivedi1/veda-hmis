@@ -53,6 +53,7 @@ export default function NewInvoiceTab() {
   // Draft line items live only in this component's state until
   // Finalize or Save Draft. Nothing is persisted before that.
   const [draftLines, setDraftLines] = useState([]);
+  const [packageBreakup, setPackageBreakup] = useState(null);
   const nextTempId = useRef(1);
 
   const [catalog, setCatalog] = useState([]);
@@ -249,6 +250,7 @@ export default function NewInvoiceTab() {
       const result = await getPackageForBilling(urlPkgCaseId);
       if (!result.item) return;
       const i = result.item;
+      setPackageBreakup(i.breakup && i.breakup.length > 0 ? i.breakup : null);
       const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
       setDraftLines((prev) => [
         ...prev,
@@ -521,6 +523,20 @@ export default function NewInvoiceTab() {
             <button className="btn btn-primary btn-sm" onClick={handleAddLine} style={{ marginBottom: 16 }}>
               <i className="ti ti-plus"></i> Add line item
             </button>
+
+            {packageBreakup && (
+              <div style={{ border: '1px solid var(--g200)', borderRadius: 8, padding: '10px 12px', marginBottom: 16, background: 'var(--g50)' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 6 }}>
+                  <i className="ti ti-list-details"></i> Package Breakup <span style={{ fontWeight: 400, color: 'var(--g400)' }}>(reference only -- the invoice still bills the package as one line item; this also prints on the surgery bill)</span>
+                </div>
+                {packageBreakup.map((b, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
+                    <span style={{ color: 'var(--g600)' }}>{b.description}</span>
+                    <span style={{ fontWeight: 600 }}>Rs.{Number(b.amount).toLocaleString('en-IN')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <table className="tbl">
               <thead><tr><th>Service</th><th>Qty</th><th>Rate</th><th>Disc</th><th>GST</th><th>Net</th><th></th></tr></thead>

@@ -19,8 +19,15 @@ export default function BillingTabs() {
 
   useEffect(() => { isTodayOpen().then(setDayOpen); }, []);
 
+  // Returns a Fragment, not a wrapping <div> -- position: sticky only
+  // stays "stuck" for as long as its immediate parent's box is still in
+  // view. A wrapping div here would be barely taller than the tab bar
+  // itself, so the tabs would appear to stick for a moment then scroll
+  // away immediately. As a Fragment, the sticky div becomes a direct
+  // sibling of the page's own content below it, giving it the full
+  // page height to actually remain stuck through.
   return (
-    <div>
+    <>
       {!dayOpen && (
         <div className="msg-err" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
           <span><i className="ti ti-lock"></i> Today's cash day hasn't been opened -- Package Billing advance collection will be blocked until it is. Plain invoicing without an advance still works.</span>
@@ -39,7 +46,7 @@ export default function BillingTabs() {
           </Link>
         ))}
       </div>
-    </div>
+    </>
   );
 }
 

@@ -426,12 +426,20 @@ export async function getPendingPackageBilling() {
 
 export async function getPackageForBilling(caseId) {
   const supabase = await createClient();
-  const { data: sc } = await supabase.from('surgical_cases').select('master_packages:package_id(code, name, price)').eq('id', caseId).maybeSingle();
+  const { data: sc } = await supabase.from('surgical_cases').select('package_id, master_packages:package_id(code, name, price)').eq('id', caseId).maybeSingle();
   if (!sc?.master_packages) return { item: null };
+
+  const { data: breakupItems } = await supabase
+    .from('package_line_items')
+    .select('description, amount')
+    .eq('package_id', sc.package_id)
+    .order('sort_order');
+
   return {
     item: {
       caseId, name: sc.master_packages.name, matched: true,
       serviceCode: sc.master_packages.code, rate: sc.master_packages.price, gstPct: 0,
+      breakup: breakupItems || [],
     },
   };
 }
