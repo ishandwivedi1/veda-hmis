@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: club prescribed medicines into a single OPD Procedure Consumables line"
+
+cat > "app/(main)/billing/new/new-invoice-tab.js" << 'PYEOF_PHARM'
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -615,3 +620,6 @@ export default function NewInvoiceTab() {
 }
 
 
+PYEOF_PHARM
+
+echo "File written. Run: npm run build"
