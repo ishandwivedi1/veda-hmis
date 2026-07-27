@@ -214,7 +214,7 @@ export async function getBiometryApprovalsToday() {
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('id, surgical_eye, status, visits(id, created_at, patients(first_name, last_name, uhid))')
+    .select('id, surgical_eye, status, visits(id, visit_type, created_at, patients(first_name, last_name, uhid))')
     .eq('status', 'Calculated')
     .gte('visits.created_at', today);
   if (error) return [];

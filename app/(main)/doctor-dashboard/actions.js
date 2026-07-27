@@ -16,7 +16,7 @@ export async function getDoctorDashboardData() {
       .order('issued_at', { ascending: true }),
     supabase
       .from('queue_entries')
-      .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, visit_type, patients(first_name, last_name, uhid, age, gender))')
       .eq('department', 'Doctor')
       // .in() only matches exact values -- a patient sent out for more
       // than one thing at once gets a compound status like "Awaiting
@@ -35,7 +35,7 @@ export async function getDoctorDashboardData() {
       .order('completed_at', { ascending: false }),
     supabase
       .from('queue_entries')
-      .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, visit_type, patients(first_name, last_name, uhid, age, gender))')
       .eq('department', 'Optometry')
       .in('status', ['Waiting', 'Calling'])
       .gte('issued_at', today)

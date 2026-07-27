@@ -36,7 +36,7 @@ export async function getMedicalFitnessQueue() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('medical_fitness_referrals')
-    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
+    .select('*, visits(id, visit_number, visit_type, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
     .eq('status', 'Pending Review')
     .order('referred_at', { ascending: true });
 

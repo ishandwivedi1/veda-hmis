@@ -46,6 +46,15 @@ function TokenBadge({ token, color }) {
   );
 }
 
+function VisitTypeBadge({ type }) {
+  if (!type) return null;
+  return (
+    <span className="badge" style={{ background: `var(${VISIT_TYPE_COLOR[type] || '--g400'})20`, color: `var(${VISIT_TYPE_COLOR[type] || '--g400'})`, marginLeft: 6, fontSize: 10 }}>
+      {type}
+    </span>
+  );
+}
+
 function TabButton({ active, onClick, icon, label, disabled }) {
   return (
     <button
@@ -104,6 +113,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
                 <TokenBadge token={inConsultation.token} color="var(--blue)" />
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{patientName(inConsultation)}</span>
+                <VisitTypeBadge type={inConsultation.visits?.visit_type} />
               </div>
               <div style={{ marginBottom: 8 }}>
                 <span className={`badge ${waitBadgeClass(elapsedMin(inConsultation.called_at || inConsultation.issued_at))}`}>
@@ -122,7 +132,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 3 }}>
                   <TokenBadge token={e.token} color={e.status === 'Ready for Review' ? 'var(--green)' : 'var(--amber)'} />
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{patientName(e)}</span>
-                  {e.visits?.visit_type === 'Post-operative Review' && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 10 }}>Post-op Review</span>}
+                  <VisitTypeBadge type={e.visits?.visit_type} />
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span className={`badge ${e.status === 'Ready for Review' ? 'b-green' : 'b-amber'}`}>{e.status}</span>
@@ -153,6 +163,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
               <div>
                 <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
                 {patientName(e)}
+                <VisitTypeBadge type={e.visits?.visit_type} />
                 <div style={{ fontSize: 11, color: 'var(--g500)' }}>{e.status} -- {elapsedMin(e.sent_out_at)}m</div>
               </div>
               <button className="btn btn-sm" onClick={() => onRunAction(doctorMarkReady, e.id)}>Mark Ready</button>
@@ -205,6 +216,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
               <div>
                 <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
                 {patientName(e)}
+                <VisitTypeBadge type={e.visits?.visit_type} />
                 <div style={{ fontSize: 11, color: 'var(--g500)' }}>{elapsedMin(e.issued_at)}m waiting in Optometry</div>
               </div>
               <button className="btn btn-sm" onClick={() => onRunAction(doctorCallDirect, e.id)} disabled={!!inConsultation}>
@@ -225,6 +237,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
               <div>
                 {b.visits?.patients?.first_name} {b.visits?.patients?.last_name}
                 <span className="badge b-indigo" style={{ marginLeft: 6, fontSize: 10 }}>{b.surgical_eye}</span>
+                <VisitTypeBadge type={b.visits?.visit_type} />
                 <div style={{ fontSize: 11, color: 'var(--g500)' }}>{b.visits?.patients?.uhid}</div>
               </div>
               <button className="btn btn-sm btn-primary"><i className="ti ti-shield-check"></i> Approve</button>
@@ -242,6 +255,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
             <div key={r.id} onClick={() => onOpenMedicalFitness(r.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}>
               <div>
                 {r.visits?.patients?.first_name} {r.visits?.patients?.last_name}
+                <VisitTypeBadge type={r.visits?.visit_type} />
                 <div style={{ fontSize: 11, color: 'var(--g500)' }}>{r.visits?.patients?.uhid} -- {r.surgical_cases?.procedure_name}</div>
               </div>
               <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Review</button>
@@ -261,7 +275,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
               style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}</span>
+                <span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}<VisitTypeBadge type={e.visits?.visit_type} /></span>
                 <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
               </div>
               <div style={{ fontSize: 11, color: 'var(--g500)' }}>
@@ -297,7 +311,7 @@ function HistoryTab({ rows, loading, onOpen }) {
 
       {!loading && (
         <table className="tbl">
-          <thead><tr><th>Token</th><th>Patient</th><th>Completed</th><th></th></tr></thead>
+          <thead><tr><th>Token</th><th>Patient</th><th>Visit Type</th><th>Completed</th><th></th></tr></thead>
           <tbody>
             {filtered.map((e) => (
               <tr key={e.id} onClick={() => onOpen(e)} style={{ cursor: 'pointer' }}>
@@ -306,11 +320,12 @@ function HistoryTab({ rows, loading, onOpen }) {
                   <strong>{patientName(e)}</strong>
                   <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.visits?.patients?.uhid}</span>
                 </td>
+                <td style={{ fontSize: 11 }}>{e.visits?.visit_type || '--'}</td>
                 <td style={{ fontSize: 11 }}>{e.completed_at ? new Date(e.completed_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
                 <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No completed consultations found.</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No completed consultations found.</td></tr>}
           </tbody>
         </table>
       )}

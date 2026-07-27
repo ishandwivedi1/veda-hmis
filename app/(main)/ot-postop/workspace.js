@@ -210,7 +210,7 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
 
       {readOnly && !isClosed && (
         <div className="msg-info" style={{ marginBottom: 14 }}>
-          <i className="ti ti-eye"></i> Read-only view -- this patient doesn't have a visit today. Open them from "Turned Up Today" on the Dashboard once they've checked in to start a review.
+          <i className="ti ti-eye"></i> Read-only view -- this patient doesn't have a visit today. You can still view any past review records below. Open them from "Turned Up Today" on the Dashboard once they've checked in to start a new review.
         </div>
       )}
 
@@ -289,39 +289,58 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
                 )}
               </div>
 
-              {!isClosed && !readOnly && editingFollowupId !== f.id && (
+              {!isClosed && editingFollowupId !== f.id && (readOnly ? !!f.visit_id : true) && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 8, marginLeft: 42 }}>
-                  <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={() => handleOpenReview(f)} disabled={openingReview === f.id}>
-                    <i className="ti ti-clipboard-text"></i> {openingReview === f.id ? 'Opening...' : f.visit_id ? 'Open Review' : 'Start Review'}
-                  </button>
-                  <button className="btn btn-sm" onClick={() => startEdit(f)}><i className="ti ti-calendar-time"></i> Reschedule</button>
-                  {notesEditingId !== f.id && (
-                    <button className="btn btn-sm" onClick={() => startNotesEdit(f)}><i className="ti ti-edit"></i> {f.notes ? 'Edit Notes' : 'Add Notes'}</button>
-                  )}
-                  {f.status !== 'Completed' && (
+                  {readOnly ? (
+                    <button className="btn btn-sm" onClick={() => handleOpenReview(f)} disabled={openingReview === f.id}>
+                      <i className="ti ti-eye"></i> {openingReview === f.id ? 'Opening...' : 'View Record'}
+                    </button>
+                  ) : f.scheduled_date === todayStr ? (
+                    <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={() => handleOpenReview(f)} disabled={openingReview === f.id}>
+                      <i className="ti ti-clipboard-text"></i> {openingReview === f.id ? 'Opening...' : f.visit_id ? 'Open Review' : 'Start Review'}
+                    </button>
+                  ) : (
                     <button
                       className="btn btn-sm"
-                      style={{ background: 'var(--green)', color: '#fff', border: 'none', opacity: f.scheduled_date > todayStr ? 0.5 : 1, cursor: f.scheduled_date > todayStr ? 'not-allowed' : 'pointer' }}
-                      onClick={() => handleMarkStatus(f, 'Completed')}
-                      disabled={f.scheduled_date > todayStr}
-                      title={f.scheduled_date > todayStr ? "This visit hasn't happened yet" : ''}
+                      disabled
+                      style={{ opacity: 0.5, cursor: 'not-allowed' }}
+                      title="This review can only be opened on its scheduled date -- reschedule it to today first"
                     >
-                      Mark Completed
+                      <i className="ti ti-calendar-time"></i> {f.scheduled_date > todayStr ? 'Not due yet' : 'Reschedule to open'}
                     </button>
                   )}
-                  <button
-                    className="btn btn-sm"
-                    style={{ color: 'var(--red)' }}
-                    onClick={() => handleRemoveFollowup(f.id)}
-                    disabled={removingFollowupId === f.id}
-                    title={f.visit_id ? 'A review that already has a visit recorded cannot be removed' : 'Remove this review'}
-                  >
-                    <i className="ti ti-trash"></i> {removingFollowupId === f.id ? 'Removing...' : 'Remove'}
-                  </button>
+                  {!readOnly && (
+                    <>
+                      <button className="btn btn-sm" onClick={() => startEdit(f)}><i className="ti ti-calendar-time"></i> Reschedule</button>
+                      {notesEditingId !== f.id && (
+                        <button className="btn btn-sm" onClick={() => startNotesEdit(f)}><i className="ti ti-edit"></i> {f.notes ? 'Edit Notes' : 'Add Notes'}</button>
+                      )}
+                      {f.status !== 'Completed' && (
+                        <button
+                          className="btn btn-sm"
+                          style={{ background: 'var(--green)', color: '#fff', border: 'none', opacity: f.scheduled_date > todayStr ? 0.5 : 1, cursor: f.scheduled_date > todayStr ? 'not-allowed' : 'pointer' }}
+                          onClick={() => handleMarkStatus(f, 'Completed')}
+                          disabled={f.scheduled_date > todayStr}
+                          title={f.scheduled_date > todayStr ? "This visit hasn't happened yet" : ''}
+                        >
+                          Mark Completed
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-sm"
+                        style={{ color: 'var(--red)' }}
+                        onClick={() => handleRemoveFollowup(f.id)}
+                        disabled={removingFollowupId === f.id}
+                        title={f.visit_id ? 'A review that already has a visit recorded cannot be removed' : 'Remove this review'}
+                      >
+                        <i className="ti ti-trash"></i> {removingFollowupId === f.id ? 'Removing...' : 'Remove'}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
 
-              {editingFollowupId === f.id && (
+              {!readOnly && editingFollowupId === f.id && (
                 <div style={{ marginTop: 8, marginLeft: 42, padding: 8, background: '#fff', borderRadius: 8 }}>
                   <div style={{ marginBottom: 6 }}>
                     <label className="flbl">New date</label>
