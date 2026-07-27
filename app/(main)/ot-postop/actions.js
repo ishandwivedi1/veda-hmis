@@ -36,6 +36,26 @@ export async function getPostOpCaseList() {
   return (data || []).filter((e) => e.surgical_cases);
 }
 
+// ── DASHBOARD (Turned Up Today): same open-episode pool as above, but
+//    narrowed to patients who actually have an Open visit today -- i.e.
+//    they've genuinely checked in for their review, not just due for
+//    one. This is the only list that should open in an editable
+//    workspace; the general "pending reviews" list above is read-only
+//    since nothing there confirms the patient is actually present. ──
+export async function getPostOpTurnedUpToday() {
+  const supabase = await createClient();
+  const { data: ids, error: idsError } = await supabase.rpc('get_postop_checked_in_today');
+  if (idsError || !ids || ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('recovery_episodes')
+    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .in('id', ids.map((r) => r.episode_id))
+    .order('discharge_date', { ascending: true });
+  if (error) return [];
+  return (data || []).filter((e) => e.surgical_cases);
+}
+
 // ── HISTORY: closed episodes ──
 export async function getPostOpHistory() {
   const supabase = await createClient();
