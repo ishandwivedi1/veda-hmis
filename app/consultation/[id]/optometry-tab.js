@@ -122,7 +122,20 @@ export default function OptometryTab({ findings, iopReadings, visitId, encounter
     });
     setForm(f);
     setDirty(false);
-  }, [findings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately
+    // keyed on the assessment's id, not the findings object itself. Any
+    // parent refresh (e.g. another tab saving) creates a new findings
+    // object reference for the *same* assessment, and resetting on every
+    // such reference change was wiping out not-yet-saved edits in this
+    // tab whenever something elsewhere triggered a refresh.
+  }, [findings?.id]);
+
+  const [localIopReadings, setLocalIopReadings] = useState(iopReadings || []);
+  useEffect(() => {
+    setLocalIopReadings(iopReadings || []);
+    // Re-sync only when switching to a different assessment, same reasoning as above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findings?.id]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -152,7 +165,7 @@ export default function OptometryTab({ findings, iopReadings, visitId, encounter
     if (result.error) { setError(result.error); return; }
     setError('');
     if (eye === 'RE') setReIopInput(''); else setLeIopInput('');
-    if (onSaved) onSaved();
+    setLocalIopReadings((prev) => [...prev, result.reading]);
   }
 
   async function handleSave() {
@@ -178,8 +191,8 @@ export default function OptometryTab({ findings, iopReadings, visitId, encounter
   }
 
   const vaScaleValues = vaValuesForScale(form.va_scale);
-  const reIopSorted = (iopReadings || []).filter((r) => r.eye === 'RE');
-  const leIopSorted = (iopReadings || []).filter((r) => r.eye === 'LE');
+  const reIopSorted = (localIopReadings || []).filter((r) => r.eye === 'RE');
+  const leIopSorted = (localIopReadings || []).filter((r) => r.eye === 'LE');
 
   function iopReadingRow(r, list, i) {
     const isHigh = r.value > 21;
