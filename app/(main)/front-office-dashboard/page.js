@@ -2,11 +2,6 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
-import InvestigationsBillingWidget from './investigations-billing-widget';
-import ProceduresBillingWidget from './procedures-billing-widget';
-import PharmacyBillingWidget from './pharmacy-billing-widget';
-import BiometryBillingWidget from './biometry-billing-widget';
-import PackageBillingWidget from './package-billing-widget';
 import { isTodayOpen } from '@/app/(main)/cash-management/actions';
 
 function elapsedMin(iso) {
@@ -252,11 +247,12 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
         </div>
 
         <div>
-          <InvestigationsBillingWidget />
-          <ProceduresBillingWidget />
-          <PharmacyBillingWidget />
-          <BiometryBillingWidget />
-          <PackageBillingWidget />
+          <div className="card" style={{ marginBottom: 16, background: 'var(--g50)' }}>
+            <div style={{ fontSize: 12, color: 'var(--g500)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <span><i className="ti ti-info-circle"></i> Pending billing queues (Investigations, Procedures, Pharmacy, Biometry, Packages) have moved to the Billing Dashboard.</span>
+              <Link href="/billing" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>Go to Billing Dashboard</Link>
+            </div>
+          </div>
 
           {/* VISIT TYPE BREAKDOWN */}
           <div className="card" style={{ marginBottom: 16 }}>

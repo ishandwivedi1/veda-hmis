@@ -3,6 +3,68 @@
 import { createClient } from '@/lib/supabase-server';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 
+// Same IST-boundary approach as Cash Management -- a plain date string
+// compared against a timestamptz column is interpreted at UTC midnight
+// by Postgres, not IST midnight, so "today's revenue" would otherwise
+// drift by up to 5.5 hours depending on the time of day.
+function istDayBoundsUTC() {
+  const d = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  return {
+    startUTC: new Date(`${d}T00:00:00+05:30`).toISOString(),
+    endUTC: new Date(`${d}T23:59:59.999+05:30`).toISOString(),
+  };
+}
+
+// ── WS-086: BILLING DASHBOARD ──
+export async function getBillingDashboardData() {
+  const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC();
+
+  const [{ data: todaysInvoices }, { count: cancelledToday }, { data: allOutstanding }] = await Promise.all([
+    supabase
+      .from('invoices')
+      .select('*, patients(first_name, last_name, uhid), visits(visit_number)')
+      .gte('created_at', startUTC)
+      .lte('created_at', endUTC)
+      .neq('status', 'Cancelled')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('invoices')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'Cancelled')
+      .gte('cancelled_at', startUTC)
+      .lte('cancelled_at', endUTC),
+    supabase
+      .from('invoices')
+      .select('*, patients(first_name, last_name, uhid), visits(visit_number)')
+      .in('status', ['Pending', 'Partial'])
+      .order('created_at', { ascending: true }),
+  ]);
+
+  const invoices = todaysInvoices || [];
+  const revenue = invoices.reduce((s, i) => s + Number(i.net), 0);
+  const collected = invoices.reduce((s, i) => s + Number(i.paid), 0);
+
+  const byDept = {};
+  invoices.forEach((i) => {
+    const dept = i.purpose || 'Other';
+    byDept[dept] = (byDept[dept] || 0) + Number(i.net);
+  });
+
+  const outstandingInvoices = allOutstanding || [];
+  const outstandingTotal = outstandingInvoices.reduce((s, i) => s + Math.max(0, Number(i.net) - Number(i.paid)), 0);
+
+  return {
+    todaysInvoices: invoices,
+    revenue,
+    collected,
+    cancelledToday: cancelledToday || 0,
+    byDept,
+    outstandingInvoices,
+    outstandingTotal,
+  };
+}
+
 export async function getTodaysVisitsForBilling() {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
