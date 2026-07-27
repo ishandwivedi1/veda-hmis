@@ -1,18 +1,112 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listPrintTemplates, getPrintTemplate, savePrintTemplate, resetPrintTemplate, previewTemplateHtml } from '@/app/print-templates/actions';
+import {
+  listPrintTemplates, getPrintTemplate, savePrintTemplate, resetPrintTemplate, previewTemplateHtml,
+  getHospitalSettings, saveHospitalSettings,
+} from '@/app/print-templates/actions';
 
 const PLACEHOLDER_REFERENCE = {
-  invoice: [
+  invoice_opd: [
     'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
-    'hospital_city_state_pin', 'hospital_phone', 'hospital_email', 'terms_text',
+    'hospital_city_state_pin', 'hospital_phone', 'hospital_email', 'terms_text', '{{{logo_html}}}',
     'patient_id', 'patient_name', 'patient_mobile', 'patient_age', 'patient_gender', 'procedure',
     'bill_no', 'bill_date', 'visit_date', 'doctor_name', 'doctor_regn_no',
     'items (loop: sno, name, qty, rate, amount)', 'gross_amount', 'discount', 'net_amount',
     'payments (loop: date, ref_number, amount)', 'total_paid',
   ],
 };
+PLACEHOLDER_REFERENCE.invoice_surgery = [...PLACEHOLDER_REFERENCE.invoice_opd, 'package_name', 'discharge_date'];
+
+const SETTINGS_FIELDS = [
+  { key: 'name', label: 'Hospital Name' },
+  { key: 'unit_line', label: 'Unit Line (e.g. "A Unit of...")' },
+  { key: 'regn_no', label: 'Hospital Registration No' },
+  { key: 'address_line1', label: 'Address Line 1' },
+  { key: 'address_line2', label: 'Address Line 2' },
+  { key: 'city_state_pin', label: 'City, State - PIN' },
+  { key: 'phone', label: 'Phone Number(s)' },
+  { key: 'email', label: 'Email' },
+  { key: 'terms_text', label: 'Terms & Conditions text' },
+];
+
+function HospitalSettingsPanel() {
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+  const fileInputRef = useRef(null);
+
+  const load = useCallback(async () => { setSettings(await getHospitalSettings()); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  function update(key, value) {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    setSaveMsg('');
+  }
+
+  function handleLogoFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) { setSaveMsg('Logo image should be under 1MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => update('logo_data_url', reader.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    const result = await saveHospitalSettings(settings);
+    setSaving(false);
+    setSaveMsg(result.error || 'Saved -- applies to every template automatically.');
+  }
+
+  if (!settings) return <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div>;
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-head" style={{ marginBottom: 10 }}>
+        <div className="card-title"><i className="ti ti-building-hospital" style={{ color: 'var(--blue)' }}></i> Hospital Settings</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {saveMsg && <span style={{ fontSize: 11.5, color: saveMsg.includes('under') ? 'var(--red)' : 'var(--green)' }}>{saveMsg}</span>}
+          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 14 }}>
+        This information -- including the logo -- appears on every print template automatically. Edit it once here rather than in each template.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 14, alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <div style={{
+            width: 100, height: 100, border: '1.5px dashed var(--g300)', borderRadius: 10,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#fff',
+          }}>
+            {settings.logo_data_url
+              ? <img src={settings.logo_data_url} alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+              : <i className="ti ti-photo" style={{ fontSize: 28, color: 'var(--g300)' }}></i>}
+          </div>
+        </div>
+        <div>
+          <label className="flbl">Hospital Logo</label>
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml" onChange={handleLogoFile} className="fi fi-sm" />
+          <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>PNG, JPG, or SVG -- under 1MB. Falls back to a default mark if none is uploaded.</div>
+          {settings.logo_data_url && (
+            <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginTop: 6 }} onClick={() => update('logo_data_url', null)}>Remove logo</button>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {SETTINGS_FIELDS.map((f) => (
+          <div key={f.key} style={f.key === 'terms_text' ? { gridColumn: 'span 2' } : undefined}>
+            <label className="flbl">{f.label}</label>
+            <input className="fi fi-sm" value={settings[f.key] || ''} onChange={(e) => update(f.key, e.target.value)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function PrintTemplatesPage() {
   const [templates, setTemplates] = useState([]);
@@ -87,6 +181,8 @@ export default function PrintTemplatesPage() {
         </div>
       </div>
 
+      <HospitalSettingsPanel />
+
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20, alignItems: 'start' }}>
         <div className="card">
           <div className="card-title" style={{ marginBottom: 10 }}>Templates</div>
@@ -113,7 +209,7 @@ export default function PrintTemplatesPage() {
 
         {!activeKey && (
           <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 40 }}>
-            Select a template on the left to edit it.
+            Select a template on the left to edit its layout.
           </div>
         )}
 
@@ -134,7 +230,7 @@ export default function PrintTemplatesPage() {
               </div>
 
               <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-                Edit the HTML below -- {'{{tokens}}'} get replaced with real data when printed. Preview updates automatically as you type.
+                Hospital name, address, and logo come from Hospital Settings above automatically. Edit the layout below for anything specific to this document -- {'{{tokens}}'} get replaced with real data when printed. Preview updates automatically as you type.
               </div>
 
               <details style={{ marginBottom: 10 }}>
@@ -142,7 +238,7 @@ export default function PrintTemplatesPage() {
                 <div style={{ fontSize: 11, color: 'var(--g600)', marginTop: 6, lineHeight: 1.8 }}>
                   {(PLACEHOLDER_REFERENCE[activeKey] || []).map((p) => (
                     <code key={p} style={{ background: 'var(--g100)', padding: '2px 6px', borderRadius: 4, marginRight: 6, display: 'inline-block', marginBottom: 4 }}>
-                      {`{{${p}}}`}
+                      {p.startsWith('{{') ? p : `{{${p}}}`}
                     </code>
                   ))}
                 </div>
