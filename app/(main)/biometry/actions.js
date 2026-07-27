@@ -228,7 +228,7 @@ export async function approveIolPlan(id, plan) {
   const { data: userData } = await supabase.auth.getUser();
 
   const { data: approverProfile } = await supabase.from('profiles').select('designation').eq('id', userData?.user?.id).maybeSingle();
-  const isDoctor = /ophthalmologist|doctor/i.test(approverProfile?.designation || '');
+  const isDoctor = approverProfile?.designation === 'Doctor';
   if (!isDoctor) return { error: 'Only a doctor can approve a biometry / IOL plan.' };
 
   if (!plan.finalPower || !plan.finalCategory) return { error: 'Final IOL power and category are required.' };

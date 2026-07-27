@@ -572,7 +572,7 @@ export async function referBackToDoctor(caseId) {
 // ── Surgeons ──
 export async function getSurgeons() {
   const supabase = await createClient();
-  const { data } = await supabase.from('profiles').select('id, full_name').ilike('designation', '%ophthalmologist%').eq('status', 'Active');
+  const { data } = await supabase.from('profiles').select('id, full_name').eq('designation', 'Doctor').eq('status', 'Active');
   return data || [];
 }
 

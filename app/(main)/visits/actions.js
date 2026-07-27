@@ -21,7 +21,7 @@ export async function getDoctorOptionsForVisit() {
   const { data } = await supabase
     .from('profiles')
     .select('id, full_name')
-    .or('designation.ilike.%ophthalmologist%,designation.ilike.%doctor%')
+    .eq('designation', 'Doctor')
     .eq('status', 'Active')
     .order('full_name');
   return data || [];

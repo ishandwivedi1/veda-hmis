@@ -20,7 +20,7 @@ export async function getDoctors() {
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, designation')
-    .ilike('designation', '%ophthalmologist%')
+    .eq('designation', 'Doctor')
     .eq('status', 'Active');
 
   if (error) return [];

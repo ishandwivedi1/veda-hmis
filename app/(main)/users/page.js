@@ -1,7 +1,46 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getUsers, createUser, toggleUserStatus, resetUserPassword } from './actions';
+import { getUsers, createUser, toggleUserStatus, resetUserPassword, updateUserProfile } from './actions';
+
+const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
+
+function EditProfileRow({ user, onDone }) {
+  const [designation, setDesignation] = useState(user.designation || '');
+  const [department, setDepartment] = useState(user.department || '');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSave() {
+    setError('');
+    setLoading(true);
+    const result = await updateUserProfile(user.id, { designation, department });
+    setLoading(false);
+    if (result.error) { setError(result.error); return; }
+    onDone(true);
+  }
+
+  return (
+    <>
+      <td>
+        <select className="fi" value={designation} onChange={(e) => setDesignation(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }}>
+          <option value="">-- Select --</option>
+          {DESIGNATIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        {error && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{error}</div>}
+      </td>
+      <td>
+        <input className="fi" value={department} onChange={(e) => setDepartment(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }} />
+      </td>
+      <td colSpan={2}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
+          <button className="btn btn-sm" onClick={() => onDone(false)} disabled={loading}>Cancel</button>
+        </div>
+      </td>
+    </>
+  );
+}
 
 function ResetPasswordButton({ userId }) {
   const [open, setOpen] = useState(false);
@@ -35,6 +74,7 @@ function ResetPasswordButton({ userId }) {
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ email: '', password: '', fullName: '', designation: '', department: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -86,7 +126,10 @@ export default function UsersPage() {
             <input className="fi" placeholder="Email (login)" value={form.email} onChange={update('email')} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-            <input className="fi" placeholder="Designation (e.g. Optometrist)" value={form.designation} onChange={update('designation')} />
+            <select className="fi" value={form.designation} onChange={update('designation')}>
+              <option value="">-- Select designation --</option>
+              {DESIGNATIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
             <input className="fi" placeholder="Department" value={form.department} onChange={update('department')} />
           </div>
           <input className="fi" type="password" placeholder="Temporary password (min 6 chars)" value={form.password} onChange={update('password')} style={{ marginBottom: 8 }} />
@@ -104,18 +147,32 @@ export default function UsersPage() {
           {users.map((u) => (
             <tr key={u.id}>
               <td style={{ fontWeight: 600 }}>{u.full_name}</td>
-              <td>{u.designation}</td>
-              <td>{u.department}</td>
-              <td>
-                <button
-                  className={`badge ${u.status === 'Active' ? 'b-green' : 'b-gray'}`}
-                  style={{ border: 'none', cursor: 'pointer' }}
-                  onClick={() => handleToggle(u.id, u.status)}
-                >
-                  {u.status}
-                </button>
-              </td>
-              <td><ResetPasswordButton userId={u.id} /></td>
+              {editingId === u.id ? (
+                <EditProfileRow
+                  user={u}
+                  onDone={(saved) => { setEditingId(null); if (saved) refresh(); }}
+                />
+              ) : (
+                <>
+                  <td>{u.designation}</td>
+                  <td>{u.department}</td>
+                  <td>
+                    <button
+                      className={`badge ${u.status === 'Active' ? 'b-green' : 'b-gray'}`}
+                      style={{ border: 'none', cursor: 'pointer' }}
+                      onClick={() => handleToggle(u.id, u.status)}
+                    >
+                      {u.status}
+                    </button>
+                  </td>
+                  <td style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <button className="btn btn-sm" onClick={() => setEditingId(u.id)}>
+                      <i className="ti ti-edit"></i> Edit
+                    </button>
+                    <ResetPasswordButton userId={u.id} />
+                  </td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>

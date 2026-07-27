@@ -257,7 +257,7 @@ export async function getDoctorsMaster() {
   const { data } = await supabase
     .from('profiles')
     .select('id, code, full_name, designation, status')
-    .or('designation.ilike.%ophthalmologist%,designation.ilike.%doctor%')
+    .eq('designation', 'Doctor')
     .order('full_name');
   const doctors = data || [];
 

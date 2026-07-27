@@ -35,6 +35,28 @@ export async function createUser(values) {
   return { success: true, user: data.user };
 }
 
+const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
+
+// Designation/department can be corrected after account creation -- e.g.
+// a login was created before a role was finalized, or someone moves
+// department. Name changes and login/email changes stay out of scope
+// here since they're tied to the auth identity.
+export async function updateUserProfile(userId, values) {
+  if (values.designation && !DESIGNATIONS.includes(values.designation)) {
+    return { error: 'Invalid designation.' };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('profiles')
+    .update({
+      designation: values.designation || null,
+      department: values.department || null,
+    })
+    .eq('id', userId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function toggleUserStatus(userId, currentStatus) {
   const supabase = await createClient();
   const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
