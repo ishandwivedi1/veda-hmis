@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: report/document upload for investigations"
+
+cat > "app/(main)/investigation/[id]/workspace.js" << 'PYEOF_INV'
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -334,3 +339,6 @@ export default function InvestigationWorkspace({ orderId }) {
   );
 }
 
+PYEOF_INV
+
+echo "File written. Run: npm run build"
