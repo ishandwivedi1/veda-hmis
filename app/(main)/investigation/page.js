@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getInvestigationQueue } from './actions';
+import { getInvestigationQueue, getTodaysInvestigations } from './actions';
 import InvestigationTabs from './investigation-tabs';
 
 const PRIORITY_BADGE = { Urgent: 'b-red', Routine: 'b-gray' };
@@ -46,12 +46,14 @@ export default function InvestigationPage() {
   const [groups, setGroups] = useState([]);
   const [stats, setStats] = useState({ ordered: 0, inProgress: 0, availableToday: 0, totalToday: 0 });
   const [typeFilter, setTypeFilter] = useState('');
+  const [todaysInvestigations, setTodaysInvestigations] = useState([]);
   const router = useRouter();
 
   const refresh = useCallback(async () => {
     const result = await getInvestigationQueue();
     setGroups(result.groups);
     setStats(result.stats);
+    setTodaysInvestigations(await getTodaysInvestigations());
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -70,6 +72,50 @@ export default function InvestigationPage() {
       </div>
 
       <InvestigationTabs />
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10 }}>
+          <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> Today&apos;s Investigations
+          <span className="badge b-gray" style={{ marginLeft: 8 }}>{todaysInvestigations.length}</span>
+        </div>
+        <table className="tbl">
+          <thead>
+            <tr><th>Patient Name</th><th>Investigation</th><th>Billing Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {todaysInvestigations.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <strong>{r.patient?.first_name} {r.patient?.last_name}</strong>
+                  <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{r.patient?.uhid}</span>
+                </td>
+                <td style={{ fontWeight: 600 }}>{r.name} <span style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 400 }}>({r.eye})</span></td>
+                <td><span className={`badge ${r.payment?.badge || 'b-gray'}`}>{r.payment?.label || 'Unbilled'}</span></td>
+                <td style={{ display: 'flex', gap: 4 }}>
+                  <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(`/investigation/${r.id}`)} title="View">
+                    <i className="ti ti-eye"></i>
+                  </button>
+                  {['Completed', 'Verified', 'Available'].includes(r.status) && (
+                    <a
+                      href={`/investigation-print/${r.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn"
+                      style={{ padding: '3px 8px', fontSize: 11, textDecoration: 'none' }}
+                      title="Print / PDF"
+                    >
+                      <i className="ti ti-printer"></i>
+                    </a>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {todaysInvestigations.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No investigations today yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-head" style={{ marginBottom: 0 }}>

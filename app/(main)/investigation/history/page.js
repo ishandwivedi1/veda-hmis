@@ -131,8 +131,17 @@ export default function InvestigationHistoryPage() {
                   <td><span className={`badge ${STATUS_BADGE[r.status] || 'b-gray'}`}>{r.status}</span></td>
                   <td style={{ fontSize: 11 }}>{r.doctorName}</td>
                   <td style={{ fontSize: 11, color: 'var(--g400)' }}>{r.performedByName}</td>
-                  <td>
-                    {r.status === 'Completed' && (
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    <a
+                      href={`/investigation/${r.id}`}
+                      onClick={(e) => { e.stopPropagation(); router.push(`/investigation/${r.id}`); }}
+                      className="btn"
+                      style={{ padding: '3px 8px', fontSize: 11, textDecoration: 'none' }}
+                      title="View"
+                    >
+                      <i className="ti ti-eye"></i>
+                    </a>
+                    {['Completed', 'Verified', 'Available'].includes(r.status) && (
                       <a
                         href={`/investigation-print/${r.id}`}
                         target="_blank"

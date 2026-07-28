@@ -99,6 +99,49 @@ export async function getInvestigationQueue() {
   return { groups: Object.values(groups), stats: { ordered, inProgress, availableToday, totalToday } };
 }
 
+// ── TODAY'S INVESTIGATIONS -- for the Dashboard widget (patient, test
+// name, billing status, view/print). IST-bounded so "today" matches
+// the front desk's actual working day rather than UTC midnight. ──
+export async function getTodaysInvestigations() {
+  const supabase = await createClient();
+  const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const startUTC = new Date(`${todayIST}T00:00:00+05:30`).toISOString();
+  const endUTC = new Date(`${todayIST}T23:59:59.999+05:30`).toISOString();
+
+  const { data, error } = await supabase
+    .from('investigation_orders')
+    .select('*, encounters(visit_id, visits(patients(first_name, last_name, uhid)))')
+    .gte('created_at', startUTC)
+    .lte('created_at', endUTC)
+    .order('created_at', { ascending: false });
+  if (error) return [];
+
+  const invoiceIds = [...new Set((data || []).map((io) => io.invoice_id).filter(Boolean))];
+  let invoiceMap = {};
+  if (invoiceIds.length > 0) {
+    const { data: invoices } = await supabase.from('invoices').select('id, net, paid, status').in('id', invoiceIds);
+    (invoices || []).forEach((inv) => { invoiceMap[inv.id] = inv; });
+  }
+  function paymentInfo(io) {
+    if (io.billing_status !== 'Billed' || !io.invoice_id) return { label: 'Unbilled', badge: 'b-gray' };
+    const inv = invoiceMap[io.invoice_id];
+    if (!inv || inv.status === 'Cancelled') return { label: 'Unbilled', badge: 'b-gray' };
+    if (inv.status === 'Paid' || Number(inv.paid) >= Number(inv.net)) return { label: 'Paid', badge: 'b-green' };
+    return { label: 'Billed -- Payment Due', badge: 'b-amber' };
+  }
+
+  return (data || [])
+    .filter((io) => io.encounters?.visits?.patients)
+    .map((io) => ({
+      id: io.id,
+      name: io.name,
+      eye: io.eye,
+      status: io.status,
+      patient: io.encounters.visits.patients,
+      payment: paymentInfo(io),
+    }));
+}
+
 
 // ── WORKSPACE: single order detail, with patient/doctor context ──
 export async function getInvestigationDetail(id, viewOnly) {
