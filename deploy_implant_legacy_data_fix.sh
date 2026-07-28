@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: fix Implant Verification losing previously-entered manufacturer/model data"
+
+cat > "app/(main)/ot-intraop/workspace.js" << 'PYEOF_LEGACY'
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -775,3 +780,6 @@ export default function Workspace({ otScheduleId, onBack }) {
   );
 }
 
+PYEOF_LEGACY
+
+echo "File written. Run: npm run build"
