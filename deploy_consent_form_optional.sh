@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: make consent forms optional (not required for OT check-in)"
+
+cat > "app/(main)/ot-intraop/constants.js" << 'PYEOF_CONSENT'
 export const CONSENT_FORM_TYPES = [
   { key: 'surgical', label: 'Surgical Consent Form', required: false },
   { key: 'iol', label: 'IOL Consent Form', required: false },
@@ -12,3 +17,6 @@ export const CHECKIN_ITEMS = [
   'Approved IOL Plan reviewed', 'OT Case verified',
 ];
 
+PYEOF_CONSENT
+
+echo "File written. Run: npm run build"
