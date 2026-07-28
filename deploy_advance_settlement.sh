@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: one-click Apply Advance and Auto-fill Remaining in Collect Payment"
+
+cat > "app/(main)/payments/collect/collect-payment-tab.js" << 'PYEOF_ADV'
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -405,3 +410,6 @@ export default function CollectPaymentTab() {
 }
 
 
+PYEOF_ADV
+
+echo "File written. Run: npm run build"
