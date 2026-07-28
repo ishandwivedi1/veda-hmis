@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: fix invoice Department (purpose) always showing Consultation"
+
+cat > "app/(main)/billing/new/new-invoice-tab.js" << 'PYEOF_PURPOSE'
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -623,3 +628,6 @@ export default function NewInvoiceTab() {
 }
 
 
+PYEOF_PURPOSE
+
+echo "File written. Run: npm run build"
