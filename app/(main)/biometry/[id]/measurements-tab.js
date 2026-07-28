@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  setBiometrySurgicalDetails, saveBiometryDraft, verifyBiometryMeasurements,
+  saveBiometryDraft, verifyBiometryMeasurements,
 } from '../actions';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 
@@ -82,6 +82,8 @@ function EyeSets({ label, eyeKey, sets, onFieldChange, onRemoveSet, onAddSet, di
   );
 }
 
+const EYE_LABEL = { RE: 'Right (OD)', LE: 'Left (OS)', Both: 'Both (OU)' };
+
 export default function MeasurementsTab({ record, recordId, onSaved }) {
   const [measurements, setMeasurements] = useState({ re: [], le: [] });
   const [procedureName, setProcedureName] = useState('');
@@ -121,14 +123,8 @@ export default function MeasurementsTab({ record, recordId, onSaved }) {
     setMeasurements((prev) => ({ ...prev, [eyeKey]: (prev[eyeKey] || []).filter((_, i) => i !== idx) }));
   }
 
-  async function handleSaveSurgicalDetails() {
-    setError('');
-    await setBiometrySurgicalDetails(recordId, procedureName, surgicalEye);
-  }
-
   async function handleSaveDraft() {
     setError(''); setOkMsg(''); setSaving(true);
-    await handleSaveSurgicalDetails();
     const result = await saveBiometryDraft(recordId, measurements);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
@@ -137,9 +133,8 @@ export default function MeasurementsTab({ record, recordId, onSaved }) {
 
   async function handleVerify() {
     setError(''); setOkMsg('');
-    if (!procedureName.trim()) { setError('Enter the planned procedure before verifying.'); return; }
+    if (!procedureName.trim()) { setError('No planned procedure found -- mark this patient for surgery in Diagnosis & Plan before verifying.'); return; }
     setSaving(true);
-    await handleSaveSurgicalDetails();
     const result = await verifyBiometryMeasurements(recordId, measurements, surgicalEye, remarks);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
@@ -155,21 +150,15 @@ export default function MeasurementsTab({ record, recordId, onSaved }) {
       {error && <div className="msg-err">{error}</div>}
       {okMsg && <div className="msg-success"><i className="ti ti-circle-check"></i> {okMsg}</div>}
 
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--indigo)' }}></i> Surgical Details</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+      <div className="card" style={{ marginBottom: 12, background: 'var(--g50)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 12 }}>
           <div>
-            <label className="flbl">Planned procedure</label>
-            <input className="fi fi-sm" placeholder="e.g. Phacoemulsification + IOL" value={procedureName} onChange={(e) => setProcedureName(e.target.value)} disabled={!canEdit} onBlur={canEdit ? handleSaveSurgicalDetails : undefined} />
+            <span style={{ color: 'var(--g500)' }}>Planned procedure: </span>
+            <strong>{procedureName || 'Not set -- mark the patient for surgery in Diagnosis & Plan first'}</strong>
           </div>
           <div>
-            <label className="flbl">Surgical eye</label>
-            <select className="fi fi-sm" value={surgicalEye} onChange={(e) => setSurgicalEye(e.target.value)} disabled={!canEdit} onBlur={canEdit ? handleSaveSurgicalDetails : undefined}>
-              <option value="">-- Select --</option>
-              <option value="RE">Right Eye (RE)</option>
-              <option value="LE">Left Eye (LE)</option>
-              <option value="OU">Both Eyes (OU)</option>
-            </select>
+            <span style={{ color: 'var(--g500)' }}>Eye: </span>
+            <strong>{EYE_LABEL[surgicalEye] || surgicalEye || '--'}</strong>
           </div>
         </div>
       </div>

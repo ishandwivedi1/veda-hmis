@@ -303,7 +303,7 @@ export async function completeSurgery(otScheduleId, surgicalCaseId, values) {
 
   const { error: recError } = await supabase.from('ot_intraop_records').update({
     implant_manufacturer: values.implantManufacturer || null, implant_model: values.implantModel || null,
-    implant_power: values.implantPower || null, implant_serial: values.implantSerial || null,
+    implant_power: values.implantPower || null, implant_category: values.implantCategory || null, implant_serial: values.implantSerial || null,
     implant_expiry: values.implantExpiry || null, implant_eye: values.implantEye || null,
     variance_reason: values.varianceReason || null,
     operative_notes: values.operativeNotes || null,

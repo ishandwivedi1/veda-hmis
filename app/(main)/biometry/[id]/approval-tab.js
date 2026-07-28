@@ -6,6 +6,7 @@ import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
 
 const FORMULA_NAMES = ['Barrett Universal II', 'SRK/T', 'Haigis', 'Hoffer Q', 'Holladay 1', 'Other'];
 const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
+const EYE_LABEL = { RE: 'Right (OD)', LE: 'Left (OS)', Both: 'Both (OU)', OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
 export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) {
   const [finalPower, setFinalPower] = useState('');
@@ -76,7 +77,11 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
         <i className="ti ti-shield-check" style={{ fontSize: 26, flexShrink: 0 }}></i>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>Final IOL Plan Approval</div>
-          <div style={{ fontSize: 11, opacity: .8 }}>{record.procedure_name || 'Procedure not set'} {record.surgical_eye} -- Dr. {surgeonName}</div>
+          <div style={{ fontSize: 11, opacity: .8 }}>{record.procedure_name || 'Procedure not set'} -- Dr. {surgeonName}</div>
+        </div>
+        <div style={{ marginLeft: 16, background: 'rgba(255,255,255,.15)', borderRadius: 8, padding: '6px 12px' }}>
+          <div style={{ fontSize: 9, opacity: .8, textTransform: 'uppercase', letterSpacing: .4 }}>Eye to be Operated</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{EYE_LABEL[record.surgical_eye] || record.surgical_eye || '--'}</div>
         </div>
         <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
           <div style={{ fontSize: 10, opacity: .7 }}>Only surgeon/ophthalmologist should approve</div>

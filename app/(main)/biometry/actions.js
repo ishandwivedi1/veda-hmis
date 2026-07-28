@@ -77,9 +77,27 @@ export async function getOrCreateBiometryRecord(visitId, encounterId) {
 
   const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
 
+  // Procedure + eye come from the surgical case (set when the doctor
+  // marked the patient for surgery) rather than being re-typed by hand
+  // in Biometry -- one source of truth, no risk of the two drifting
+  // apart. Falls back to blank only if biometry is genuinely being done
+  // before any surgical case exists yet for this visit.
+  const { data: surgicalCase } = await supabase
+    .from('surgical_cases')
+    .select('procedure_name, eye')
+    .eq('visit_id', visitId)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const { data: created, error } = await supabase
     .from('biometry_records')
-    .insert({ visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null })
+    .insert({
+      visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null,
+      procedure_name: surgicalCase?.procedure_name || null,
+      surgical_eye: surgicalCase?.eye === 'OD' ? 'RE' : surgicalCase?.eye === 'OS' ? 'LE' : surgicalCase?.eye === 'OU' ? 'Both' : null,
+    })
     .select('id')
     .single();
 

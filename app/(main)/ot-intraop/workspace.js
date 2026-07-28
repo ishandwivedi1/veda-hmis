@@ -14,6 +14,7 @@ const STEPS = ['Check-In', 'Anaesthesia', 'Surgery', 'Implant', 'Recovery'];
 const EVENT_QUICK = ['Small Pupil', 'Zonular Weakness', 'Difficult Capsulorhexis', 'Iris Prolapse', 'Floppy Iris Syndrome'];
 const COMPL_QUICK = ['Posterior Capsular Rupture', 'Dropped Nucleus', 'Vitreous Loss', 'Wound Leak', 'Endothelial Trauma'];
 const CONSENT_INDEX = CHECKIN_ITEMS.indexOf('Consent availability verified');
+const EYE_LABEL = { RE: 'Right (OD)', LE: 'Left (OS)', Both: 'Both (OU)', OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
 function fmtTime(secs) {
   const m = String(Math.floor(secs / 60)).padStart(2, '0');
@@ -44,6 +45,7 @@ export default function Workspace({ otScheduleId, onBack }) {
   const [imMfr, setImMfr] = useState('');
   const [imModel, setImModel] = useState('');
   const [imPower, setImPower] = useState('');
+  const [imCategory, setImCategory] = useState('');
   const [imSerial, setImSerial] = useState('');
   const [imExpiry, setImExpiry] = useState('');
   const [imEye, setImEye] = useState('OD');
@@ -92,6 +94,7 @@ export default function Workspace({ otScheduleId, onBack }) {
       setImMfr(io.implant_manufacturer || '');
       setImModel(io.implant_model || '');
       setImPower(io.implant_power || result.biometryPlans[0]?.final_iol_power || '');
+      setImCategory(io.implant_category || result.biometryPlans[0]?.final_iol_category || '');
       setImSerial(io.implant_serial || '');
       setImExpiry(io.implant_expiry || '');
       setImEye(io.implant_eye || result.booking.surgical_cases.eye || 'OD');
@@ -105,6 +108,7 @@ export default function Workspace({ otScheduleId, onBack }) {
       setRecoveryConcerns(io.recovery_concerns || '');
     } else {
       setImPower(result.biometryPlans[0]?.final_iol_power || '');
+      setImCategory(result.biometryPlans[0]?.final_iol_category || '');
       setImEye(result.booking.surgical_cases.eye || 'OD');
     }
   }, [otScheduleId]);
@@ -219,7 +223,7 @@ export default function Workspace({ otScheduleId, onBack }) {
     setSaving(true);
     const result = await saveIntraopDraft(otScheduleId, sc.id, {
       implant_manufacturer: imMfr || null, implant_model: imModel || null,
-      implant_power: imPower || null, implant_serial: imSerial || null, implant_expiry: imExpiry || null,
+      implant_power: imPower || null, implant_category: imCategory || null, implant_serial: imSerial || null, implant_expiry: imExpiry || null,
       implant_eye: imEye, variance_reason: varianceReason || null, operative_notes: opNotes || null,
       surgical_outcome: surgicalOutcome || null, outcome_remarks: outcomeRemarks || null,
       recovery_destination: recoveryDest || null, recovery_monitoring: recoveryMonitor || null,
@@ -232,13 +236,25 @@ export default function Workspace({ otScheduleId, onBack }) {
     refresh();
   }
 
-  const plannedPower = biometryPlans[0]?.final_iol_power;
-  const variancePresent = plannedPower && imPower && String(plannedPower) !== String(imPower);
+  const plannedPlan = biometryPlans[0];
+  const plannedPower = plannedPlan?.final_iol_power;
+  const plannedCategory = plannedPlan?.final_iol_category;
+  const plannedEyeNorm = plannedPlan?.surgical_eye === 'RE' ? 'OD' : plannedPlan?.surgical_eye === 'LE' ? 'OS' : plannedPlan?.surgical_eye === 'Both' ? 'OU' : null;
+  const plannedSpecificIol = plannedPlan?.master_iol_catalog
+    ? `${plannedPlan.master_iol_catalog.manufacturer || ''} ${plannedPlan.master_iol_catalog.brand || ''} ${plannedPlan.master_iol_catalog.model || ''}`.trim().toLowerCase()
+    : '';
+  const actualSpecificIol = `${imMfr} ${imModel}`.trim().toLowerCase();
+
+  const eyeMismatch = plannedEyeNorm && imEye && plannedEyeNorm !== imEye;
+  const powerMismatch = plannedPower && imPower && String(plannedPower) !== String(imPower);
+  const categoryMismatch = plannedCategory && imCategory && plannedCategory !== imCategory;
+  const specificIolMismatch = plannedSpecificIol && actualSpecificIol && plannedSpecificIol !== actualSpecificIol;
+  const variancePresent = !!(plannedPlan && (eyeMismatch || powerMismatch || categoryMismatch || specificIolMismatch));
 
   async function handleCompleteSurgery() {
     setError(''); setOk('');
     const result = await completeSurgery(otScheduleId, sc.id, {
-      implantPower: imPower, implantSerial: imSerial, implantManufacturer: imMfr, implantModel: imModel, implantExpiry: imExpiry, implantEye: imEye,
+      implantPower: imPower, implantCategory: imCategory, implantSerial: imSerial, implantManufacturer: imMfr, implantModel: imModel, implantExpiry: imExpiry, implantEye: imEye,
       skipImplant: biometryPlans.length === 0,
       recoveryInstructions, recoveryDestination: recoveryDest, recoveryMonitoring: recoveryMonitor, recoveryConcerns,
       variancePresent, varianceReason,
@@ -420,39 +436,71 @@ export default function Workspace({ otScheduleId, onBack }) {
           {/* Implant Verification */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-disc" style={{ color: 'var(--indigo)' }}></i> Implant Verification</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 10, marginBottom: 10, alignItems: 'center' }}>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
               <div style={{ border: '1.5px solid var(--g200)', borderRadius: 12, padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 6 }}>Approved IOL Plan</div>
-                {biometryPlans.length > 0 ? biometryPlans.map((p) => (
-                  <div key={p.id} style={{ fontSize: 11, marginBottom: 4 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--g500)' }}>Power ({p.surgical_eye})</span><strong>{p.final_iol_power} D</strong></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--g500)' }}>Formula</span><strong>{p.selected_formula}</strong></div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 8 }}>Approved IOL Plan</div>
+                {plannedPlan ? (
+                  <div style={{ fontSize: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>Eye</span><strong>{EYE_LABEL[plannedPlan.surgical_eye] || plannedPlan.surgical_eye}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>IOL Power</span><strong>{plannedPower || '--'} D</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>IOL Category</span><strong>{plannedCategory || '--'}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>Specific IOL</span><strong style={{ textAlign: 'right' }}>{plannedPlan.master_iol_catalog ? `${plannedPlan.master_iol_catalog.manufacturer} ${plannedPlan.master_iol_catalog.brand || ''} ${plannedPlan.master_iol_catalog.model || ''}`.trim() : '--'}</strong></div>
                   </div>
-                )) : <div style={{ fontSize: 11, color: 'var(--g400)' }}>No IOL plan (non-IOL procedure)</div>}
+                ) : <div style={{ fontSize: 11, color: 'var(--g400)' }}>No IOL plan (non-IOL procedure)</div>}
               </div>
-              <i className="ti ti-arrow-right" style={{ color: 'var(--g400)' }}></i>
+
               <div style={{ border: '1.5px solid', borderColor: variancePresent ? 'var(--red)' : 'var(--green)', background: variancePresent ? 'var(--red-lt)' : 'var(--green-lt)', borderRadius: 12, padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 6 }}>Actual Implanted IOL</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}><span style={{ color: 'var(--g500)' }}>Power</span><strong>{imPower || '--'} D</strong></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}><span style={{ color: 'var(--g500)' }}>Match</span><strong style={{ color: variancePresent ? 'var(--red)' : 'var(--green)' }}>{variancePresent ? 'VARIANCE' : 'Matches plan'}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>Actual Implanted IOL</div>
+                  {plannedPlan && <strong style={{ fontSize: 11, color: variancePresent ? 'var(--red)' : 'var(--green)' }}>{variancePresent ? 'VARIANCE' : 'Perfect Match'}</strong>}
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <label className="flbl">Eye implanted</label>
+                  <select className="fi fi-sm" value={imEye} onChange={(e) => setImEye(e.target.value)} disabled={isCompleted} style={{ borderColor: eyeMismatch ? 'var(--red)' : undefined }}>
+                    <option value="OD">Right (OD)</option>
+                    <option value="OS">Left (OS)</option>
+                    <option value="OU">Both (OU)</option>
+                  </select>
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <label className="flbl">IOL Power (D)</label>
+                  <input className="fi fi-sm" value={imPower} onChange={(e) => setImPower(e.target.value)} disabled={isCompleted} style={{ borderColor: powerMismatch ? 'var(--red)' : undefined }} />
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <label className="flbl">IOL Category</label>
+                  <select className="fi fi-sm" value={imCategory} onChange={(e) => setImCategory(e.target.value)} disabled={isCompleted} style={{ borderColor: categoryMismatch ? 'var(--red)' : undefined }}>
+                    <option value="">-- Select --</option>
+                    <option>Monofocal</option>
+                    <option>Monofocal Toric</option>
+                    <option>Multifocal</option>
+                    <option>EDOF</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="flbl">Specific IOL (Manufacturer + Model)</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input className="fi fi-sm" placeholder="Manufacturer" value={imMfr} onChange={(e) => setImMfr(e.target.value)} disabled={isCompleted} style={{ borderColor: specificIolMismatch ? 'var(--red)' : undefined }} />
+                    <input className="fi fi-sm" placeholder="Model" value={imModel} onChange={(e) => setImModel(e.target.value)} disabled={isCompleted} style={{ borderColor: specificIolMismatch ? 'var(--red)' : undefined }} />
+                  </div>
+                </div>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <div><label className="flbl">Manufacturer</label><input className="fi fi-sm" value={imMfr} onChange={(e) => setImMfr(e.target.value)} disabled={isCompleted} /></div>
-              <div><label className="flbl">Model</label><input className="fi fi-sm" value={imModel} onChange={(e) => setImModel(e.target.value)} disabled={isCompleted} /></div>
-              <div><label className="flbl">Power (D)</label><input className="fi fi-sm" value={imPower} onChange={(e) => setImPower(e.target.value)} disabled={isCompleted} /></div>
-              <div><label className="flbl">Serial / Batch</label><input className="fi fi-sm" value={imSerial} onChange={(e) => setImSerial(e.target.value)} disabled={isCompleted} /></div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div><label className="flbl">Expiry date</label><input type="date" className="fi fi-sm" value={imExpiry} onChange={(e) => setImExpiry(e.target.value)} disabled={isCompleted} /></div>
-              <div><label className="flbl">Eye implanted</label><select className="fi fi-sm" value={imEye} onChange={(e) => setImEye(e.target.value)} disabled={isCompleted}><option>OD</option><option>OS</option></select></div>
-            </div>
+
             {variancePresent && (
-              <div style={{ marginTop: 8 }}>
-                <label className="flbl">Variance reason (mandatory)</label>
-                <input className="fi fi-sm" value={varianceReason} onChange={(e) => setVarianceReason(e.target.value)} disabled={isCompleted} placeholder="Document reason for deviation..." />
+              <div style={{ marginBottom: 10 }}>
+                <label className="flbl">Variance reason (mandatory to proceed)</label>
+                <input className="fi fi-sm" value={varianceReason} onChange={(e) => setVarianceReason(e.target.value)} disabled={isCompleted} placeholder="Document reason for deviation from the approved plan..." />
               </div>
             )}
+
+            <div style={{ borderTop: '1px dashed var(--g200)', paddingTop: 10 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 6 }}>Serial / Batch (from the implanted unit's label)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div><label className="flbl">Serial / Batch number</label><input className="fi fi-sm" value={imSerial} onChange={(e) => setImSerial(e.target.value)} disabled={isCompleted} /></div>
+                <div><label className="flbl">Expiry date</label><input type="date" className="fi fi-sm" value={imExpiry} onChange={(e) => setImExpiry(e.target.value)} disabled={isCompleted} /></div>
+              </div>
+            </div>
           </div>
 
           {/* Anaesthesia */}
