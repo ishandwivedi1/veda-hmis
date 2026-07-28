@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Re-applying: Examination tab autosave (no Save button) -- confirming latest version is live"
+
+cat > "app/consultation/[id]/examination-tab.js" << 'PYEOF_EXAM'
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -370,3 +375,6 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
   );
 }
 
+PYEOF_EXAM
+
+echo "File written. Run: npm run build"
