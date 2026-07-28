@@ -7,9 +7,29 @@ const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 const TYPE_BADGE = { invoice_payment: 'b-blue', advance: 'b-purple', advance_adjustment: 'b-amber', credit_note: 'b-teal' };
 const TYPE_LABEL = { invoice_payment: 'Payment', advance: 'Advance', advance_adjustment: 'Adjustment', credit_note: 'Credit Note' };
 
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'patient_az', label: 'Patient (A-Z)' },
+  { value: 'amount_high', label: 'Amount (High-Low)' },
+  { value: 'amount_low', label: 'Amount (Low-High)' },
+];
+
+function sortReceipts(receipts, sort) {
+  const list = [...receipts];
+  switch (sort) {
+    case 'oldest': return list.sort((a, b) => new Date(a.collected_at) - new Date(b.collected_at));
+    case 'patient_az': return list.sort((a, b) => `${a.patients?.first_name} ${a.patients?.last_name}`.localeCompare(`${b.patients?.first_name} ${b.patients?.last_name}`));
+    case 'amount_high': return list.sort((a, b) => Number(b.total_amount) - Number(a.total_amount));
+    case 'amount_low': return list.sort((a, b) => Number(a.total_amount) - Number(b.total_amount));
+    default: return list.sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at)); // newest
+  }
+}
+
 export default function ReceiptTab() {
   const [query, setQuery] = useState('');
   const [modeFilter, setModeFilter] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
   const [receipts, setReceipts] = useState([]);
 
   const [editingId, setEditingId] = useState(null);
@@ -27,6 +47,8 @@ export default function ReceiptTab() {
   }, [query, modeFilter]);
 
   useEffect(() => { runSearch(); }, [runSearch]);
+
+  const sortedReceipts = sortReceipts(receipts, sortBy);
 
   async function startEdit(r) {
     setError(''); setSuccess('');
@@ -93,6 +115,9 @@ export default function ReceiptTab() {
             <option value="">All modes</option>
             {MODE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
+          <select className="fi" style={{ flex: 1 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>Sort: {o.label}</option>)}
+          </select>
         </div>
       </div>
 
@@ -105,7 +130,7 @@ export default function ReceiptTab() {
             <tr><th>Receipt #</th><th>Date/Time</th><th>Patient</th><th>Invoice ref</th><th>Mode(s)</th><th>Amount</th><th>Type</th><th></th></tr>
           </thead>
           <tbody>
-            {receipts.map((r) => (
+            {sortedReceipts.map((r) => (
               <Fragment key={r.id}>
                 <tr>
                   <td style={{ fontFamily: 'monospace', color: 'var(--blue)' }}>{r.receipt_number}</td>
@@ -180,7 +205,7 @@ export default function ReceiptTab() {
                 )}
               </Fragment>
             ))}
-            {receipts.length === 0 && (
+            {sortedReceipts.length === 0 && (
               <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No receipts found.</td></tr>
             )}
           </tbody>

@@ -6,10 +6,30 @@ import { searchInvoices, getInvoiceById } from '../actions';
 
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
 
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'patient_az', label: 'Patient (A-Z)' },
+  { value: 'net_high', label: 'Net (High-Low)' },
+  { value: 'net_low', label: 'Net (Low-High)' },
+];
+
+function sortInvoices(invoices, sort) {
+  const list = [...invoices];
+  switch (sort) {
+    case 'oldest': return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    case 'patient_az': return list.sort((a, b) => `${a.patients?.first_name} ${a.patients?.last_name}`.localeCompare(`${b.patients?.first_name} ${b.patients?.last_name}`));
+    case 'net_high': return list.sort((a, b) => Number(b.net) - Number(a.net));
+    case 'net_low': return list.sort((a, b) => Number(a.net) - Number(b.net));
+    default: return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // newest
+  }
+}
+
 export default function InvoiceDetailsTab() {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
   const [deptFilter, setDeptFilter] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
   const [invoices, setInvoices] = useState([]);
   const [selected, setSelected] = useState(null);
   const [lineItems, setLineItems] = useState([]);
@@ -20,6 +40,8 @@ export default function InvoiceDetailsTab() {
   }, [query, deptFilter]);
 
   useEffect(() => { runSearch(); }, [runSearch]);
+
+  const sortedInvoices = sortInvoices(invoices, sortBy);
 
   async function openInvoice(inv) {
     setError('');
@@ -52,12 +74,15 @@ export default function InvoiceDetailsTab() {
             <option>Surgery</option>
             <option>Pharmacy</option>
           </select>
+          <select className="fi" style={{ flex: 1 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>Sort: {o.label}</option>)}
+          </select>
         </div>
 
         <table className="tbl">
           <thead><tr><th>Invoice #</th><th>Date</th><th>Patient</th><th>Visit</th><th>Gross</th><th>Disc</th><th>Net</th><th>Paid</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {invoices.map((inv) => (
+            {sortedInvoices.map((inv) => (
               <tr key={inv.id} onClick={() => openInvoice(inv)} style={{ cursor: 'pointer', background: selected?.id === inv.id ? 'var(--blue-lt)' : 'transparent' }}>
                 <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{inv.invoice_number || '--'}</td>
                 <td>{new Date(inv.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}</td>
@@ -83,7 +108,7 @@ export default function InvoiceDetailsTab() {
                 </td>
               </tr>
             ))}
-            {invoices.length === 0 && (
+            {sortedInvoices.length === 0 && (
               <tr><td colSpan={10} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No invoices found.</td></tr>
             )}
           </tbody>

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
 import { getDoctorOptionsForVisit } from './actions';
 import VisitActions from './visit-actions';
+import SortSelect from '@/app/components/SortSelect';
 
 const VISIT_TYPE_COLOR = {
   'New Consultation': '--blue',
@@ -14,10 +15,30 @@ const VISIT_TYPE_COLOR = {
 
 const BILLING_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', '--': 'b-gray' };
 
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'patient_az', label: 'Patient (A-Z)' },
+  { value: 'visit_number', label: 'Visit ID' },
+  { value: 'status', label: 'Status' },
+];
+
+function sortVisits(visits, sort) {
+  const list = [...visits];
+  switch (sort) {
+    case 'oldest': return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    case 'patient_az': return list.sort((a, b) => `${a.patients?.first_name} ${a.patients?.last_name}`.localeCompare(`${b.patients?.first_name} ${b.patients?.last_name}`));
+    case 'visit_number': return list.sort((a, b) => (a.visit_number || '').localeCompare(b.visit_number || ''));
+    case 'status': return list.sort((a, b) => (a.status || '').localeCompare(b.status || ''));
+    default: return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // newest
+  }
+}
+
 export default async function VisitsPage({ searchParams }) {
   const params = await searchParams;
   const justCreated = params?.created;
   const tab = params?.tab === 'all' ? 'all' : 'today';
+  const sort = params?.sort || 'newest';
 
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
@@ -33,7 +54,8 @@ export default async function VisitsPage({ searchParams }) {
     query = query.limit(100); // most recent 100 -- avoids loading the entire visit history at once
   }
 
-  const { data: visits, error } = await query;
+  const { data: rawVisits, error } = await query;
+  const visits = sortVisits(rawVisits || [], sort);
   const doctors = await getDoctorOptionsForVisit();
 
   const visitIds = (visits || []).map((v) => v.id);
@@ -55,13 +77,16 @@ export default async function VisitsPage({ searchParams }) {
         </Link>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-        <Link href="/visits?tab=today" className={tab === 'today' ? 'btn btn-primary' : 'btn'} style={{ textDecoration: 'none' }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Link href={`/visits?tab=today&sort=${sort}`} className={tab === 'today' ? 'btn btn-primary' : 'btn'} style={{ textDecoration: 'none' }}>
           Today&apos;s Visits
         </Link>
-        <Link href="/visits?tab=all" className={tab === 'all' ? 'btn btn-primary' : 'btn'} style={{ textDecoration: 'none' }}>
+        <Link href={`/visits?tab=all&sort=${sort}`} className={tab === 'all' ? 'btn btn-primary' : 'btn'} style={{ textDecoration: 'none' }}>
           All Visits
         </Link>
+        <div style={{ marginLeft: 'auto' }}>
+          <SortSelect options={SORT_OPTIONS} defaultValue="newest" />
+        </div>
       </div>
 
       {justCreated && <div className="msg-success"><i className="ti ti-circle-check"></i> Visit created successfully.</div>}

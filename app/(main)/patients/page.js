@@ -1,13 +1,34 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
+import SortSelect from '@/app/components/SortSelect';
 
 const GENDER_BADGE = { M: 'b-blue', F: 'b-purple', O: 'b-gray' };
 const GENDER_LABEL = { M: 'Male', F: 'Female', O: 'Other' };
+
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest registered' },
+  { value: 'oldest', label: 'Oldest registered' },
+  { value: 'name_az', label: 'Name (A-Z)' },
+  { value: 'name_za', label: 'Name (Z-A)' },
+  { value: 'uhid', label: 'UHID' },
+];
+
+function sortPatients(patients, sort) {
+  const list = [...patients];
+  switch (sort) {
+    case 'oldest': return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    case 'name_az': return list.sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
+    case 'name_za': return list.sort((a, b) => `${b.first_name} ${b.last_name}`.localeCompare(`${a.first_name} ${a.last_name}`));
+    case 'uhid': return list.sort((a, b) => (a.uhid || '').localeCompare(b.uhid || ''));
+    default: return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // newest
+  }
+}
 
 export default async function PatientsPage({ searchParams }) {
   const params = await searchParams;
   const justRegistered = params?.registered;
   const q = params?.q || '';
+  const sort = params?.sort || 'newest';
 
   const supabase = await createClient();
   let query = supabase.from('patients').select('*').order('created_at', { ascending: false });
@@ -18,7 +39,8 @@ export default async function PatientsPage({ searchParams }) {
     );
   }
 
-  const { data: patients, error } = await query;
+  const { data: rawPatients, error } = await query;
+  const patients = sortPatients(rawPatients || [], sort);
 
   // Richer search results, matching M20's "Find Patient" screen -- shows
   // each patient's last visit date and whether they currently have an
@@ -64,12 +86,14 @@ export default async function PatientsPage({ searchParams }) {
           className="fi"
           style={{ flex: 1 }}
         />
+        <input type="hidden" name="sort" value={sort} />
         <button type="submit" className="btn btn-primary"><i className="ti ti-search"></i> Search</button>
         {q && (
-          <Link href="/patients" className="btn" style={{ textDecoration: 'none' }}>
+          <Link href={`/patients?sort=${sort}`} className="btn" style={{ textDecoration: 'none' }}>
             Clear
           </Link>
         )}
+        <SortSelect options={SORT_OPTIONS} defaultValue="newest" />
       </form>
 
       {justRegistered && (
