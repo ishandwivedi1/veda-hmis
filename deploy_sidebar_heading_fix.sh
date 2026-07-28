@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: fix oversized sidebar headings -- compact, brighter, gold-tinted premium style"
+
+cat > "app/globals.css" << 'PYEOF_SB'
 * {
   box-sizing: border-box;
   margin: 0;
@@ -308,3 +313,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .content-area { padding: 16px; }
   .topbar { padding: 12px 16px; }
 }
+PYEOF_SB
+
+echo "File written. Run: npm run build"
