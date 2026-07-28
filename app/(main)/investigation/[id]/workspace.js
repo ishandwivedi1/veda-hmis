@@ -210,6 +210,17 @@ export default function InvestigationWorkspace({ orderId }) {
           <span className={`badge ${order.status === 'Available' ? 'b-green' : order.status === 'Cancelled' ? 'b-red' : order.status === 'Completed' ? 'b-teal' : order.status === 'In Progress' ? 'b-blue' : 'b-amber'}`} style={{ fontSize: 10, marginTop: 3 }}>
             {order.status}
           </span>
+          {['Completed', 'Verified', 'Available'].includes(order.status) && (
+            <a
+              href={`/investigation-print/${order.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-sm"
+              style={{ marginLeft: 6, textDecoration: 'none', background: 'rgba(255,255,255,.15)', color: '#fff', borderColor: 'rgba(255,255,255,.3)' }}
+            >
+              <i className="ti ti-printer"></i> Print
+            </a>
+          )}
           {viewOnly && <span className="badge b-purple" style={{ fontSize: 10, marginTop: 3, marginLeft: 4 }}><i className="ti ti-eye"></i> Read-only</span>}
           {order.started_at && (
             <div style={{ fontSize: 10, opacity: .8, marginTop: 3 }}>

@@ -112,7 +112,7 @@ export default function InvestigationHistoryPage() {
       <div className="card">
         <table className="tbl">
           <thead>
-            <tr><th>Date/Time</th><th>Patient</th><th>Investigation</th><th>Eye</th><th>Key values</th><th>Status</th><th>Doctor</th><th>Performed by</th></tr>
+            <tr><th>Date/Time</th><th>Patient</th><th>Investigation</th><th>Eye</th><th>Key values</th><th>Status</th><th>Doctor</th><th>Performed by</th><th></th></tr>
           </thead>
           <tbody>
             {filtered.map((r) => {
@@ -131,11 +131,26 @@ export default function InvestigationHistoryPage() {
                   <td><span className={`badge ${STATUS_BADGE[r.status] || 'b-gray'}`}>{r.status}</span></td>
                   <td style={{ fontSize: 11 }}>{r.doctorName}</td>
                   <td style={{ fontSize: 11, color: 'var(--g400)' }}>{r.performedByName}</td>
+                  <td>
+                    {r.status === 'Completed' && (
+                      <a
+                        href={`/investigation-print/${r.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="btn"
+                        style={{ padding: '3px 8px', fontSize: 11, textDecoration: 'none' }}
+                        title="Print / PDF"
+                      >
+                        <i className="ti ti-printer"></i>
+                      </a>
+                    )}
+                  </td>
                 </tr>
               );
             })}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No records found.</td></tr>
+              <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No records found.</td></tr>
             )}
           </tbody>
         </table>

@@ -42,6 +42,28 @@ PLACEHOLDER_REFERENCE.opd_case_sheet = [
   '{{#if advice}}...{{/if}}', '{{#if followup_text}}...{{/if}}',
 ];
 
+PLACEHOLDER_REFERENCE.discharge_summary = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'patient_mobile',
+  'surgeon_name', 'admission_date', 'surgery_date', 'discharge_date', 'procedure_name', 'eye',
+  'iol_lines (loop: eye, text)',
+  '{{#unless hasMedications}}...{{/unless}}', 'medications (loop: name, sig)',
+  '{{#if hasDischargeNotes}}...{{/if}}', 'discharge_notes', 'discharge_instructions',
+  'followups (loop: visit_label, date, status)',
+];
+
+PLACEHOLDER_REFERENCE.investigation_report = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'patient_mobile',
+  'investigation_name', 'investigation_type', 'eye', 'doctor_name', 'ordered_date', 'completed_date',
+  '{{#if isUnable}}...{{else}}...{{/if}}', 'unable_reason',
+  '{{#if hasFields}}...{{/if}}', 'fields (loop: label, value)',
+  '{{#if hasNotes}}...{{/if}}', 'result_notes',
+  'technician_name', '{{#if hasVerifiedBy}}...{{/if}}', 'verified_by_name',
+];
+
 const SETTINGS_FIELDS = [
   { key: 'name', label: 'Hospital Name' },
   { key: 'unit_line', label: 'Unit Line (e.g. "A Unit of...")' },
