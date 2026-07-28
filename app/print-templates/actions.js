@@ -319,11 +319,15 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
       .neq('status', 'Cancelled')
       .maybeSingle();
 
-    // Manual Surgery billing (New Invoice, no linked surgical_case) falls
-    // back to what was typed in at billing time.
-    surgeryName = surgicalCase?.procedure_name || invoice.manual_surgery_name || null;
-    surgeryEye = surgicalCase?.eye || invoice.manual_surgery_eye || null;
-    const surgeonId = surgicalCase?.surgeon_id || invoice.manual_surgeon_id || null;
+    // Surgery/Eye/Doctor are always editable in New Invoice now (whether
+    // prefilled from a case or entered by hand), and whatever was
+    // confirmed at billing time is saved onto the invoice itself
+    // (manual_surgery_*). That takes priority over the surgical case,
+    // which is live data that can keep changing after the bill was
+    // printed -- same reasoning as the package name/code above.
+    surgeryName = invoice.manual_surgery_name || surgicalCase?.procedure_name || null;
+    surgeryEye = invoice.manual_surgery_eye || surgicalCase?.eye || null;
+    const surgeonId = invoice.manual_surgeon_id || surgicalCase?.surgeon_id || null;
     if (surgeonId) {
       const { data: surgeon } = await supabase.from('profiles').select('full_name, registration_no').eq('id', surgeonId).maybeSingle();
       surgeonForBill = surgeon || null;

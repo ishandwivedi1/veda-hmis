@@ -43,17 +43,41 @@ export async function getOTIntraopHistory() {
 // ── CASE SELECTOR ──
 // Today's (and any overdue) bookings that haven't been completed or
 // cancelled -- the natural set of cases someone would walk in and open.
+// Also computes, per case, the package price and the patient's current
+// advance balance -- Open is gated on the advance fully covering the
+// package (surgery billing itself now happens later, at discharge, via
+// the Surgery Billing widget on the Billing Dashboard -- not here).
 export async function getOTCaseList() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('ot_schedule')
-    .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, package_billed, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+    .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
     .in('status', ['Scheduled', 'In Progress'])
     .lte('scheduled_date', new Date().toISOString().slice(0, 10))
     .order('scheduled_date', { ascending: true })
     .order('sequence_number', { ascending: true, nullsFirst: false });
   if (error) return [];
-  return (data || []).filter((b) => b.surgical_cases);
+
+  const cases = (data || []).filter((b) => b.surgical_cases);
+
+  const balanceByPatient = {};
+  const patientIds = [...new Set(cases.map((b) => b.surgical_cases.patient_id).filter(Boolean))];
+  await Promise.all(patientIds.map(async (pid) => {
+    const { data: bal } = await supabase.rpc('get_advance_balance', { p_patient_id: pid });
+    balanceByPatient[pid] = bal || 0;
+  }));
+
+  return cases.map((b) => {
+    const packagePrice = Number(b.surgical_cases.master_packages?.price || 0);
+    const advanceBalance = balanceByPatient[b.surgical_cases.patient_id] || 0;
+    return {
+      ...b,
+      packagePrice,
+      advanceBalance,
+      amountPayable: Math.max(0, packagePrice - advanceBalance),
+      advanceCleared: packagePrice <= 0 || advanceBalance >= packagePrice,
+    };
+  });
 }
 
 // ── PATIENT REPORTED TO OT -- the surgery patient doesn't route through

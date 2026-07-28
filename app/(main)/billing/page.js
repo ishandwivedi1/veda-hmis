@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import BillingTabs from './billing-tabs';
-import { getBillingDashboardData, getTodaysVisitsWithBillingStatus } from './actions';
+import { getBillingDashboardData, getTodaysVisitsWithBillingStatus, getDischargedUnbilledSurgeries } from './actions';
 import RecentInvoicesTable from './recent-invoices-table';
 import PendingBillingWidget from './pending-billing-widget';
 
@@ -16,15 +16,57 @@ const VISIT_TYPE_COLOR = {
 };
 
 export default async function BillingDashboardPage() {
-  const [data, todaysVisitsData] = await Promise.all([
+  const [data, todaysVisitsData, dischargedUnbilled] = await Promise.all([
     getBillingDashboardData(),
     getTodaysVisitsWithBillingStatus(),
+    getDischargedUnbilledSurgeries(),
   ]);
   const { visits: todaysVisits, billingByVisit } = todaysVisitsData;
 
   return (
     <div>
       <BillingTabs />
+
+      {/* SURGERY BILLING -- discharged patients whose surgery package
+          hasn't been billed yet. Advance was already collected pre-op
+          (OT Dashboard); this is where the full invoice actually gets
+          generated. */}
+      {dischargedUnbilled.length > 0 && (
+        <div className="card" style={{ marginBottom: 20, border: '1.5px solid var(--red)' }}>
+          <div className="card-title" style={{ marginBottom: 4 }}>
+            <i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery Billing
+            <span className="badge b-red" style={{ marginLeft: 8 }}>{dischargedUnbilled.length}</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+            Discharged, package not yet billed. Click a patient to open New Invoice, prefilled and editable.
+          </div>
+          <table className="tbl">
+            <thead><tr><th>Discharged</th><th>Patient</th><th>Surgery</th><th>Package</th><th>Amount</th><th></th></tr></thead>
+            <tbody>
+              {dischargedUnbilled.map((r) => {
+                const sc = r.surgical_cases;
+                return (
+                  <tr key={sc.id}>
+                    <td style={{ fontSize: 12 }}>{new Date(r.discharge_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                    <td>
+                      <strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong>
+                      <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span>
+                    </td>
+                    <td style={{ fontSize: 12 }}>{sc.procedure_name} ({sc.eye})</td>
+                    <td style={{ fontSize: 12 }}>{sc.master_packages?.name || '--'}</td>
+                    <td style={{ fontWeight: 600 }}>{RUPEE(sc.master_packages?.price)}</td>
+                    <td>
+                      <Link href={`/billing/new?pkgCaseId=${sc.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                        <i className="ti ti-receipt"></i> Bill Now
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* TODAY'S VISITS + PENDING BILLING side by side */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginBottom: 20 }}>

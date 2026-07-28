@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getPendingInvestigationBilling, markInvestigationDenied, markInvestigationDeferred, resetInvestigationBilling } from '@/app/(main)/investigation/actions';
-import { getPendingProcedureBilling, getPendingPackageBilling } from '@/app/(main)/billing/actions';
+import { getPendingProcedureBilling } from '@/app/(main)/billing/actions';
 import { getPendingPrescriptionsForFrontOffice, markPrescriptionDenied, markPrescriptionDeferred, resetPrescriptionBilling } from '@/app/(main)/pharmacy/actions';
 import { getPendingBiometryBilling, markBiometryDenied, markBiometryDeferred, resetBiometryBilling } from '@/app/(main)/biometry/actions';
 
@@ -14,7 +14,6 @@ const TYPE_META = {
   Procedure: { icon: 'ti-tool', color: 'var(--blue)' },
   Pharmacy: { icon: 'ti-pill', color: 'var(--purple)' },
   Biometry: { icon: 'ti-ruler-measure', color: 'var(--indigo)' },
-  Package: { icon: 'ti-package', color: 'var(--green)' },
 };
 
 // One row of items within a patient's card for a single pending-billing
@@ -68,24 +67,21 @@ export default function PendingBillingWidget() {
   const [procedures, setProcedures] = useState([]);
   const [pharmacy, setPharmacy] = useState([]);
   const [biometry, setBiometry] = useState([]);
-  const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const router = useRouter();
 
   const load = useCallback(async () => {
-    const [inv, proc, rx, bio, pkg] = await Promise.all([
+    const [inv, proc, rx, bio] = await Promise.all([
       getPendingInvestigationBilling(),
       getPendingProcedureBilling(),
       getPendingPrescriptionsForFrontOffice(),
       getPendingBiometryBilling(),
-      getPendingPackageBilling(),
     ]);
     setInvestigations(inv);
     setProcedures(proc);
     setPharmacy(rx);
     setBiometry(bio);
-    setPackages(pkg);
     setLoading(false);
   }, []);
 
@@ -111,12 +107,6 @@ export default function PendingBillingWidget() {
   procedures.forEach((g) => { const p = ensurePatient(g.patient); if (p) p.types.Procedure = g; });
   pharmacy.forEach((g) => { const p = ensurePatient(g.patient); if (p) p.types.Pharmacy = g; });
   biometry.forEach((g) => { const p = ensurePatient(g.patient); if (p) p.types.Biometry = g; });
-  packages.forEach((sc) => {
-    const p = ensurePatient(sc.patients);
-    if (!p) return;
-    if (!p.types.Package) p.types.Package = { visitId: null, items: [] };
-    p.types.Package.items.push(sc);
-  });
 
   const patients = Object.values(byPatient);
   const totalItems = patients.reduce((s, p) => s + Object.values(p.types).reduce((s2, g) => s2 + g.items.length, 0), 0);
@@ -191,23 +181,6 @@ export default function PendingBillingWidget() {
               onBillNow={(g) => billNowFor('Biometry', g)}
               renderItem={() => <>Biometry</>}
             />
-          )}
-          {types.Package && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--g200)' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: TYPE_META.Package.color, marginBottom: 4 }}>
-                <i className={`ti ${TYPE_META.Package.icon}`}></i> Package
-              </div>
-              {types.Package.items.map((sc) => (
-                <div key={sc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', fontSize: 12, flexWrap: 'wrap', gap: 4 }}>
-                  <div>
-                    {sc.procedure_name} <span style={{ color: 'var(--g400)' }}>({sc.eye})</span> -- <span style={{ color: 'var(--green)' }}>{sc.master_packages?.name}: Rs.{Number(sc.master_packages?.price || 0).toLocaleString('en-IN')}</span>
-                  </div>
-                  <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => router.push(`/billing/new?pkgCaseId=${sc.id}`)}>
-                    <i className="ti ti-receipt"></i> Bill Now
-                  </button>
-                </div>
-              ))}
-            </div>
           )}
         </div>
       ))}

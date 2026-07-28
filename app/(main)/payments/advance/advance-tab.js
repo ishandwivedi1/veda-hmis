@@ -1,13 +1,23 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { searchPatientsForPayment, getAdvanceBalance, collectAdvance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits } from '../actions';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { searchPatientsForPayment, getAdvanceBalance, collectAdvance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits, getPatientById } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
 
 const ADVANCE_TYPES = ['Surgery Advance', 'General Advance', 'Package Advance', 'Other'];
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 
+const RETURN_LABELS = { 'ot-intraop': 'Operation Theatre' };
+
 export default function AdvanceTab() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const urlPatientId = searchParams.get('patientId');
+  const urlAmount = searchParams.get('amount');
+  const returnTo = searchParams.get('returnTo');
+  const autofillDoneFor = useRef(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -41,6 +51,22 @@ export default function AdvanceTab() {
 
   useEffect(() => { refreshSidebar(); }, [refreshSidebar]);
   useEffect(() => { getTodaysVisits().then(setTodaysVisits); }, []);
+
+  // Arrived from OT Dashboard's "Collect Advance" button -- patient and
+  // suggested amount (package price minus whatever advance already
+  // exists) are already known, so skip the search step entirely.
+  useEffect(() => {
+    if (!urlPatientId) return;
+    if (autofillDoneFor.current === urlPatientId) return;
+    autofillDoneFor.current = urlPatientId;
+    (async () => {
+      const result = await getPatientById(urlPatientId);
+      if (result.error) { setError(result.error); return; }
+      await pickPatient(result.patient);
+      if (urlAmount) setAmount(urlAmount);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlPatientId, urlAmount]);
 
   const modesTotal = modeRows.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0);
 
@@ -102,6 +128,14 @@ export default function AdvanceTab() {
     refreshSidebar();
   }
 
+  // Collecting via a returnTo link (e.g. from OT Dashboard) means the
+  // natural next step is back there, not sitting on this form.
+  useEffect(() => {
+    if (!success || !returnTo) return;
+    const timer = setTimeout(() => router.push(`/${returnTo}`), 2500);
+    return () => clearTimeout(timer);
+  }, [success, returnTo, router]);
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 20 }}>
       <div className="card">
@@ -117,8 +151,17 @@ export default function AdvanceTab() {
         {success ? (
           <div className="msg-success">
             <i className="ti ti-circle-check"></i> Advance collected -- Receipt <strong>{success.receipt_number}</strong> -- Rs.{success.total_amount}
-            <div style={{ marginTop: 10 }}>
-              <button className="btn btn-sm" onClick={reset}>Collect another advance</button>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+              {returnTo ? (
+                <>
+                  <button className="btn btn-sm btn-primary" onClick={() => router.push(`/${returnTo}`)}>
+                    <i className="ti ti-arrow-left"></i> Back to {RETURN_LABELS[returnTo] || returnTo}
+                  </button>
+                  <span style={{ fontSize: 11, color: 'var(--g400)' }}>Returning automatically...</span>
+                </>
+              ) : (
+                <button className="btn btn-sm" onClick={reset}>Collect another advance</button>
+              )}
             </div>
           </div>
         ) : !selectedPatient ? (

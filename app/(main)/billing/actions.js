@@ -466,6 +466,22 @@ export async function setManualSurgeryDetails(invoiceId, surgeryName, surgeryEye
   return { success: true };
 }
 
+// ── SURGERY BILLING widget (Billing Dashboard) -- patients who've been
+// discharged but whose surgery package still hasn't been billed. This
+// is now the actual moment the full surgery invoice gets generated --
+// advance was already collected pre-op (OT Dashboard), so this is
+// "settle the rest." ──
+export async function getDischargedUnbilledSurgeries() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('recovery_episodes')
+    .select('discharge_date, surgical_cases!inner(id, procedure_name, eye, package_billed, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(name, price))')
+    .not('discharge_date', 'is', null)
+    .eq('surgical_cases.package_billed', false)
+    .order('discharge_date', { ascending: true });
+  if (error) return [];
+  return (data || []).filter((r) => r.surgical_cases);
+}
 export async function getPackageForBilling(caseId) {
   const supabase = await createClient();
   const { data: sc } = await supabase.from('surgical_cases').select('package_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price)').eq('id', caseId).maybeSingle();
