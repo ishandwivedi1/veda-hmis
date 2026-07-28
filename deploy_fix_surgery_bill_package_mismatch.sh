@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: fix surgery bill header showing wrong/stale package"
+
+cat > "app/print-templates/actions.js" << 'PYEOF_FIX'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -795,3 +800,6 @@ export async function renderInvestigationHtml(orderId) {
   const compiled = Handlebars.compile(template.html);
   return { html: compiled(context) };
 }
+PYEOF_FIX
+
+echo "File written. Run: npm run build"
