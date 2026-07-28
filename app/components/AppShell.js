@@ -6,9 +6,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase-browser';
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Dashboard', icon: 'ti-layout-dashboard', section: 'Overview' },
-  { href: '/reports', label: 'Reports', icon: 'ti-chart-bar', section: 'Overview' },
-  { href: '/front-office-dashboard', label: 'Front Office Dashboard', icon: 'ti-user-check', section: 'Overview' },
+  { href: '/front-office-dashboard', label: 'Front Office Dashboard', icon: 'ti-user-check', section: 'Front Office' },
   { href: '/patients', label: 'Patients', icon: 'ti-users', section: 'Front Office' },
   { href: '/appointments', label: 'Appointments', icon: 'ti-calendar-event', section: 'Front Office' },
   { href: '/visits', label: 'Visits', icon: 'ti-door-enter', section: 'Front Office' },
@@ -29,7 +27,7 @@ const NAV_ITEMS = [
   { href: '/optometry-dashboard', label: 'Optometry Queue', icon: 'ti-eye-check', section: 'Optometrist' },
   { href: '/optometry-history', label: 'Optometry History', icon: 'ti-history', section: 'Optometrist' },
   { href: '/optometry-reports', label: 'Optometry Reports', icon: 'ti-chart-bar', section: 'Optometrist' },
-  { href: '/counselling', label: 'Counselling', icon: 'ti-scalpel', section: 'Surgical' },
+  { href: '/counselling', label: 'Counselling', icon: 'ti-messages', section: 'Surgical' },
   { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', section: 'Surgical' },
   { href: '/ot-intraop', label: 'Operation Theatre', icon: 'ti-building-hospital', section: 'Surgical' },
   { href: '/ot-recovery', label: 'Recovery', icon: 'ti-bed', section: 'Surgical' },
@@ -38,6 +36,7 @@ const NAV_ITEMS = [
   { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', section: 'Administration' },
   { href: '/print-templates', label: 'Print Templates', icon: 'ti-file-invoice', section: 'Administration' },
   { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration' },
+  { href: '/reports', label: 'Reports', icon: 'ti-chart-bar', section: 'Administration' },
 ];
 
 const PAGE_TITLES = [
