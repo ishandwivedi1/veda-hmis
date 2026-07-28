@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: remove Planned Procedure from Biometry heading, keep only Eye"
+
+cat > "app/(main)/biometry/[id]/measurements-tab.js" << 'PYEOF_BIO'
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -210,3 +215,6 @@ export default function MeasurementsTab({ record, recordId, onSaved }) {
     </div>
   );
 }
+PYEOF_BIO
+
+echo "File written. Run: npm run build"
