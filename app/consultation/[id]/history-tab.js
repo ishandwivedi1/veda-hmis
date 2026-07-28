@@ -1,8 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { saveHistory } from '@/app/(main)/consultation/actions';
 import { getActiveHistoryOptions } from '@/app/(main)/master-data/actions';
+
+// Right eye = Oculus Dexter (OD), Left eye = Oculus Sinister (OS),
+// Both = Oculus Uterque (OU) -- the scientific abbreviations, paired
+// correctly (OD is right, not left).
+const LATERALITY_OPTIONS = [
+  { value: 'Right eye (OD)', label: 'Right / OD' },
+  { value: 'Left eye (OS)', label: 'Left / OS' },
+  { value: 'Both eyes (OU)', label: 'Both / OU' },
+];
+
+const AUTOSAVE_DELAY_MS = 1200;
 
 function Chip({ label, selected, onClick }) {
   return (
@@ -29,16 +40,26 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
   const [ocular, setOcular] = useState([]);
   const [medical, setMedical] = useState([]);
   const [family, setFamily] = useState([]);
+  const [drugHistory, setDrugHistory] = useState([]);
+  const [allergy, setAllergy] = useState([]);
   const [drugAllergy, setDrugAllergy] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [savedMsg, setSavedMsg] = useState('');
 
-  // Chip option lists come from Master Data (Clinical -- History
-  // Options tab): app/(main)/master-data/actions.js:getActiveHistoryOptions,
+  // 'idle' | 'pending' | 'saving' | 'saved' | 'error' -- drives the
+  // small inline status indicator that replaced the Save button.
+  const [saveState, setSaveState] = useState('idle');
+
+  // Chip option lists come from Master Data (Clinical -- Patient
+  // History tab): app/(main)/master-data/actions.js:getActiveHistoryOptions,
   // table master_history_options. No hardcoded arrays; staff add/retire
-  // options from Master Data -> Clinical -> History Options.
-  const [options, setOptions] = useState({ chief_complaint: [], ocular_history: [], medical_history: [], family_history: [] });
+  // options from Master Data -> Clinical -> Patient History.
+  const [options, setOptions] = useState({
+    chief_complaint: [], ocular_history: [], medical_history: [], family_history: [], drug_history: [], allergy: [],
+  });
   const [optionsLoading, setOptionsLoading] = useState(true);
+
+  const loadedEncounterId = useRef(null);
+  const saveTimer = useRef(null);
+  const skipNextAutosave = useRef(true);
 
   useEffect(() => {
     getActiveHistoryOptions().then((result) => {
@@ -49,6 +70,10 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
 
   useEffect(() => {
     if (!encounter) return;
+    // Loading a (possibly different) encounter's saved data shouldn't
+    // itself trigger an autosave -- only actual edits should.
+    skipNextAutosave.current = true;
+    loadedEncounterId.current = encounter.id;
     setChiefComplaint(encounter.chief_complaint || '');
     setCcChips(encounter.chief_complaint_chips || []);
     setDuration(encounter.hx_duration || '');
@@ -57,6 +82,8 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
     setOcular(encounter.ocular_history || []);
     setMedical(encounter.medical_history || []);
     setFamily(encounter.family_history || []);
+    setDrugHistory(encounter.drug_history || []);
+    setAllergy(encounter.allergy || []);
     setDrugAllergy(encounter.hx_drug_allergy || '');
   }, [encounter]);
 
@@ -64,18 +91,33 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
     setList(list.includes(val) ? list.filter((v) => v !== val) : [...list, val]);
   }
 
-  async function handleSave() {
-    setSaving(true);
-    setSavedMsg('');
-    const result = await saveHistory(encounter.id, {
-      chiefComplaint, chiefComplaintChips: ccChips, hxDuration: duration, hxLaterality: laterality,
-      hxHopi: hopi, ocularHistory: ocular, medicalHistory: medical, familyHistory: family, hxDrugAllergy: drugAllergy,
-    });
-    setSaving(false);
-    if (result.error) return;
-    setSavedMsg('History saved.');
-    if (onSaved) onSaved();
-  }
+  // Autosave: debounced ~1.2s after the last change to any field, so a
+  // doctor clicking through several chips in a row doesn't fire a save
+  // per click. No Save button -- this is the only way history gets
+  // written.
+  useEffect(() => {
+    if (!encounter) return;
+    if (skipNextAutosave.current) { skipNextAutosave.current = false; return; }
+
+    setSaveState('pending');
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    const encounterIdAtSchedule = encounter.id;
+
+    saveTimer.current = setTimeout(async () => {
+      setSaveState('saving');
+      const result = await saveHistory(encounterIdAtSchedule, {
+        chiefComplaint, chiefComplaintChips: ccChips, hxDuration: duration, hxLaterality: laterality,
+        hxHopi: hopi, ocularHistory: ocular, medicalHistory: medical, familyHistory: family,
+        drugHistory, allergy, hxDrugAllergy: drugAllergy,
+      });
+      if (loadedEncounterId.current !== encounterIdAtSchedule) return; // encounter changed mid-flight
+      setSaveState(result.error ? 'error' : 'saved');
+      if (!result.error && onSaved) onSaved();
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => clearTimeout(saveTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chiefComplaint, ccChips, duration, laterality, hopi, ocular, medical, family, drugHistory, allergy, drugAllergy]);
 
   return (
     <div>
@@ -108,7 +150,7 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
             <label className="flbl">Laterality</label>
             <select className="fi fi-sm" value={laterality} onChange={(e) => setLaterality(e.target.value)}>
               <option value="">--</option>
-              <option>Right eye</option><option>Left eye</option><option>Bilateral</option>
+              {LATERALITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
         </div>
@@ -119,7 +161,7 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
       {/* STRUCTURED HISTORY */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-forms" style={{ color: 'var(--purple)' }}></i> Structured History</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
           <div>
             <label className="flbl">Ocular history</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -133,25 +175,39 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
             </div>
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div>
-            <label className="flbl">Drug history / Allergy</label>
-            <input className="fi fi-sm" value={drugAllergy} onChange={(e) => setDrugAllergy(e.target.value)} placeholder="Current meds, allergies..." />
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
           <div>
             <label className="flbl">Family history</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {options.family_history.map((c) => <Chip key={c} label={c} selected={family.includes(c)} onClick={() => toggle(family, setFamily, c)} />)}
             </div>
           </div>
+          <div>
+            <label className="flbl">Drug history</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {options.drug_history.map((c) => <Chip key={c} label={c} selected={drugHistory.includes(c)} onClick={() => toggle(drugHistory, setDrugHistory, c)} />)}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <label className="flbl">Allergy</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {options.allergy.map((c) => <Chip key={c} label={c} selected={allergy.includes(c)} onClick={() => toggle(allergy, setAllergy, c)} />)}
+            </div>
+          </div>
+          <div>
+            <label className="flbl">Other drug / allergy notes</label>
+            <input className="fi fi-sm" value={drugAllergy} onChange={(e) => setDrugAllergy(e.target.value)} placeholder="Anything not covered above..." />
+          </div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving...' : 'Save History'}
-        </button>
-        {savedMsg && <span style={{ fontSize: 12, color: 'var(--green)' }}><i className="ti ti-check"></i> {savedMsg}</span>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--g500)' }}>
+        {saveState === 'pending' && <><i className="ti ti-clock"></i> Unsaved changes...</>}
+        {saveState === 'saving' && <><i className="ti ti-loader-2"></i> Saving...</>}
+        {saveState === 'saved' && <span style={{ color: 'var(--green)' }}><i className="ti ti-check"></i> Saved</span>}
+        {saveState === 'error' && <span style={{ color: 'var(--red)' }}><i className="ti ti-alert-triangle"></i> Couldn&apos;t save -- check your connection</span>}
       </div>
     </div>
   );

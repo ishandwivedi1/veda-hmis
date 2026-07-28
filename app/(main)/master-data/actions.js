@@ -235,7 +235,7 @@ export async function getActiveHistoryOptions() {
     .eq('status', 'Active')
     .order('name');
 
-  const grouped = { chief_complaint: [], ocular_history: [], medical_history: [], family_history: [] };
+  const grouped = { chief_complaint: [], ocular_history: [], medical_history: [], family_history: [], drug_history: [], allergy: [] };
   (data || []).forEach((row) => {
     if (grouped[row.category]) grouped[row.category].push(row.name);
   });

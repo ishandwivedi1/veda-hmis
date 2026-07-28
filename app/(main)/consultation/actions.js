@@ -323,6 +323,8 @@ export async function saveHistory(encounterId, fields) {
       ocular_history: fields.ocularHistory,
       medical_history: fields.medicalHistory,
       family_history: fields.familyHistory,
+      drug_history: fields.drugHistory,
+      allergy: fields.allergy,
       hx_drug_allergy: fields.hxDrugAllergy,
     })
     .eq('id', encounterId);

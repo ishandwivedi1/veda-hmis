@@ -19,7 +19,7 @@ const TABS = [
   { key: 'diagnoses', label: 'Diagnoses' },
   { key: 'iopMethods', label: 'IOP Methods' },
   { key: 'observations', label: 'Clinical Observations' },
-  { key: 'historyOptions', label: 'History Options' },
+  { key: 'historyOptions', label: 'Patient History' },
   { key: 'iolCatalog', label: 'IOL Catalog' },
   { key: 'surgicalConsumables', label: 'Surgical Consumables' },
 ];
@@ -31,6 +31,8 @@ const HISTORY_CATEGORY_LABELS = {
   ocular_history: 'Ocular History',
   medical_history: 'Medical History',
   family_history: 'Family History',
+  drug_history: 'Drug History',
+  allergy: 'Allergy',
 };
 
 function StatusToggle({ record, table, onUpdate, codeField = 'code' }) {
@@ -314,7 +316,7 @@ export default function ClinicalMastersPage() {
         {activeTab === 'historyOptions' && (
           <>
             <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-              <i className="ti ti-info-circle"></i> Populates the selectable chips in the doctor's Consultation History tab -- Chief Complaint, Ocular/Medical/Family History. Code is generated automatically and is unique per category, so the same chip name (e.g. "Glaucoma") can appear in more than one category.
+              <i className="ti ti-info-circle"></i> Populates the selectable chips in the doctor's Consultation History tab -- Chief Complaint, Ocular History, Medical History, Family History, Drug History, and Allergy. All six heads are managed on this one page. Code is generated automatically and is unique per category, so the same chip name (e.g. "Glaucoma") can appear in more than one category.
             </div>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
