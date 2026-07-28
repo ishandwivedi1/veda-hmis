@@ -7,6 +7,7 @@ import {
   completeInvestigation, verifyInvestigation, markUnableToPerform,
 } from '../actions';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
+import { openPrintPopup } from '@/lib/printPopup';
 
 // Maps a doctor's free-text investigation name to the closest workspace
 // template -- same heuristic as the prototype's matchInvestigationType,
@@ -212,15 +213,13 @@ export default function InvestigationWorkspace({ orderId }) {
             {order.status}
           </span>
           {['Completed', 'Verified', 'Available'].includes(order.status) && (
-            <a
-              href={`/investigation-print/${order.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => openPrintPopup(`/investigation-print/${order.id}`)}
               className="btn btn-sm"
-              style={{ marginLeft: 6, textDecoration: 'none', background: 'rgba(255,255,255,.15)', color: '#fff', borderColor: 'rgba(255,255,255,.3)' }}
+              style={{ marginLeft: 6, background: 'rgba(255,255,255,.15)', color: '#fff', borderColor: 'rgba(255,255,255,.3)' }}
             >
               <i className="ti ti-printer"></i> Print
-            </a>
+            </button>
           )}
           {viewOnly && <span className="badge b-purple" style={{ fontSize: 10, marginTop: 3, marginLeft: 4 }}><i className="ti ti-eye"></i> Read-only</span>}
           {order.started_at && (

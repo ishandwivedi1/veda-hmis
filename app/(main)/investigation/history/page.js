@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getInvestigationHistory } from '../actions';
 import { matchInvestigationType, summarizeResultData } from '../investigation-types';
 import InvestigationTabs from '../investigation-tabs';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 
@@ -142,17 +143,14 @@ export default function InvestigationHistoryPage() {
                       <i className="ti ti-eye"></i>
                     </a>
                     {['Completed', 'Verified', 'Available'].includes(r.status) && (
-                      <a
-                        href={`/investigation-print/${r.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openPrintPopup(`/investigation-print/${r.id}`); }}
                         className="btn"
-                        style={{ padding: '3px 8px', fontSize: 11, textDecoration: 'none' }}
+                        style={{ padding: '3px 8px', fontSize: 11 }}
                         title="Print / PDF"
                       >
                         <i className="ti ti-printer"></i>
-                      </a>
+                      </button>
                     )}
                   </td>
                 </tr>

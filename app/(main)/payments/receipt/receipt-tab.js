@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { searchReceipts, editPaymentClerical, getPaymentEditHistory } from '../actions';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 const TYPE_BADGE = { invoice_payment: 'b-blue', advance: 'b-purple', advance_adjustment: 'b-amber', credit_note: 'b-teal' };
@@ -141,9 +142,9 @@ export default function ReceiptTab() {
                   <td style={{ fontWeight: 600 }}>Rs.{r.total_amount}</td>
                   <td><span className={`badge ${TYPE_BADGE[r.payment_type] || 'b-gray'}`}>{TYPE_LABEL[r.payment_type] || r.payment_type || 'Payment'}</span></td>
                   <td style={{ display: 'flex', gap: 4 }}>
-                    <a href={`/receipt-print/${r.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                    <button className="btn btn-sm" onClick={() => openPrintPopup(`/receipt-print/${r.id}`)}>
                       <i className="ti ti-printer"></i>
-                    </a>
+                    </button>
                     <button className="btn btn-sm" onClick={() => (editingId === r.id ? cancelEdit() : startEdit(r))}>
                       <i className="ti ti-edit"></i> {editingId === r.id ? 'Close' : 'Edit'}
                     </button>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { searchInvoices, getInvoiceById, getServiceCatalog, addLineItem, removeLineItem, cancelInvoice, getTodaysInvoicesForModification, getInvoicesForVisit } from '../actions';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Surgery', 'Pharmacy'];
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
@@ -220,9 +221,9 @@ export default function InvoiceModificationTab() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div className="card-title" style={{ marginBottom: 0 }}>{selected.invoice_number}</div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <a href={`/invoice-print/${selected.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+              <button onClick={() => openPrintPopup(`/invoice-print/${selected.id}`)} className="btn btn-sm">
                 <i className="ti ti-printer"></i> Print / PDF
-              </a>
+              </button>
               <span className={`badge ${STATUS_BADGE[selected.status] || 'b-gray'}`}>{selected.status}</span>
             </div>
           </div>

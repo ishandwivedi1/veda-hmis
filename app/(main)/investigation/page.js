@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getInvestigationQueue, getTodaysInvestigations } from './actions';
 import InvestigationTabs from './investigation-tabs';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const PRIORITY_BADGE = { Urgent: 'b-red', Routine: 'b-gray' };
 
@@ -96,16 +97,14 @@ export default function InvestigationPage() {
                     <i className="ti ti-eye"></i>
                   </button>
                   {['Completed', 'Verified', 'Available'].includes(r.status) && (
-                    <a
-                      href={`/investigation-print/${r.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => openPrintPopup(`/investigation-print/${r.id}`)}
                       className="btn"
-                      style={{ padding: '3px 8px', fontSize: 11, textDecoration: 'none' }}
+                      style={{ padding: '3px 8px', fontSize: 11 }}
                       title="Print / PDF"
                     >
                       <i className="ti ti-printer"></i>
-                    </a>
+                    </button>
                   )}
                 </td>
               </tr>

@@ -42,6 +42,7 @@ import HistoryTab from './history-tab';
 import OptometryTab from './optometry-tab';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
 import { PatientSnapshotBar, CarryForwardDiagnoses, VisitOutcomeSelector, NewInvestigationsSinceLastVisit, ContextSidebar } from './follow-up-panel';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const WF_ITEMS = {
   Biometry: { icon: 'ti-ruler-measure', color: '#818cf8' },
@@ -1118,12 +1119,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 <i className="ti ti-tool"></i> Send for Procedure
               </button>
             )}
-            <a href={`/opd-case-sheet-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ marginLeft: 'auto' }}>
+            <button onClick={() => openPrintPopup(`/opd-case-sheet-print/${data.encounter.id}`)} className="btn" style={{ marginLeft: 'auto' }}>
               <i className="ti ti-file-description"></i> Print Case Sheet
-            </a>
-            <a href={`/visit-summary-print/${data.encounter.id}`} target="_blank" rel="noopener noreferrer" className="btn">
+            </button>
+            <button onClick={() => openPrintPopup(`/visit-summary-print/${data.encounter.id}`)} className="btn">
               <i className="ti ti-printer"></i> Print Visit Summary
-            </a>
+            </button>
           </div>
           </fieldset>
         </div>

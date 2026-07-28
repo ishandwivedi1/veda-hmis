@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { searchInvoices, getInvoiceById } from '../actions';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
 
@@ -94,17 +95,14 @@ export default function InvoiceDetailsTab() {
                 <td>Rs.{inv.paid}</td>
                 <td><span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span></td>
                 <td>
-                  <a
-                    href={`/invoice-print/${inv.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openPrintPopup(`/invoice-print/${inv.id}`); }}
                     className="btn"
-                    style={{ padding: '3px 8px', fontSize: 11, textDecoration: 'none' }}
+                    style={{ padding: '3px 8px', fontSize: 11 }}
                     title="Print / PDF"
                   >
                     <i className="ti ti-printer"></i>
-                  </a>
+                  </button>
                 </td>
               </tr>
             ))}
@@ -121,9 +119,9 @@ export default function InvoiceDetailsTab() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-receipt" style={{ color: 'var(--blue)' }}></i> {selected.invoice_number || 'Invoice Detail'}</div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <a href={`/invoice-print/${selected.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                <button onClick={() => openPrintPopup(`/invoice-print/${selected.id}`)} className="btn btn-sm">
                   <i className="ti ti-printer"></i> Print / PDF
-                </a>
+                </button>
                 <span className={`badge ${STATUS_BADGE[selected.status] || 'b-gray'}`}>{selected.status}</span>
               </div>
             </div>

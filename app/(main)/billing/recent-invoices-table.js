@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const STATUS_BADGE = { Paid: 'b-green', Pending: 'b-amber', Partial: 'b-blue', Cancelled: 'b-gray' };
 
@@ -40,9 +41,9 @@ export default function RecentInvoicesTable({ invoices }) {
                     <Link href={`/billing/details?q=${inv.patients?.uhid || ''}`} className="btn btn-sm" style={{ textDecoration: 'none' }} title="View">
                       <i className="ti ti-eye"></i>
                     </Link>
-                    <Link href={`/invoice-print/${inv.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }} title="Print">
+                    <button onClick={() => openPrintPopup(`/invoice-print/${inv.id}`)} className="btn btn-sm" title="Print">
                       <i className="ti ti-printer"></i>
-                    </Link>
+                    </button>
                   </div>
                 </td>
               </tr>
