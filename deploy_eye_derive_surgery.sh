@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Applying: Eye implanted always derives from Surgery section, not Biometry"
+
+cat > "app/(main)/ot-intraop/workspace.js" << 'PYEOF_EYE'
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -781,3 +786,6 @@ export default function Workspace({ otScheduleId, onBack }) {
   );
 }
 
+PYEOF_EYE
+
+echo "File written. Run: npm run build"
