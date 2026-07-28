@@ -36,9 +36,14 @@ export default function RecentInvoicesTable({ invoices }) {
                 <td style={{ fontWeight: 600 }}>Rs.{Number(inv.net).toLocaleString('en-IN')}</td>
                 <td><span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span></td>
                 <td>
-                  <Link href={`/billing/details?q=${inv.patients?.uhid || ''}`} className="btn btn-sm" style={{ textDecoration: 'none' }}>
-                    <i className="ti ti-eye"></i>
-                  </Link>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <Link href={`/billing/details?q=${inv.patients?.uhid || ''}`} className="btn btn-sm" style={{ textDecoration: 'none' }} title="View">
+                      <i className="ti ti-eye"></i>
+                    </Link>
+                    <Link href={`/invoice-print/${inv.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }} title="Print">
+                      <i className="ti ti-printer"></i>
+                    </Link>
+                  </div>
                 </td>
               </tr>
             ))}
