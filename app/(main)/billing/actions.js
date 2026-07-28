@@ -445,6 +445,15 @@ export async function getPackageForBilling(caseId) {
   const { data: sc } = await supabase.from('surgical_cases').select('package_id, master_packages:package_id(code, name, price)').eq('id', caseId).maybeSingle();
   if (!sc?.master_packages) return { item: null };
 
+  // Surgery bill can only be generated once the patient has actually
+  // been discharged (hospital policy). This blocks the invoice itself,
+  // not advance collection -- a pre-op advance still goes through the
+  // separate Advance tab in Payments, unaffected here.
+  const { data: episode } = await supabase.from('recovery_episodes').select('discharge_date').eq('surgical_case_id', caseId).maybeSingle();
+  if (!episode || !episode.discharge_date) {
+    return { error: 'The surgery bill can only be generated after the patient has been discharged. To collect a pre-op advance instead, use the Advance tab in Payments.' };
+  }
+
   const { data: breakupItems } = await supabase
     .from('package_line_items')
     .select('description, amount')
@@ -564,11 +573,27 @@ export async function searchPatientsForPackage(q) {
 }
 
 export async function generatePackageInvoice(patientId, packageId, paymentMode, advanceAmount, surgicalCaseId) {
+  const supabase = await createClient();
+
+  // Surgery bill can only be generated once the patient has actually
+  // been discharged (hospital policy). This blocks the invoice itself,
+  // not advance collection -- a pre-op advance still goes through the
+  // separate Advance tab in Payments (collectAdvance), unaffected here.
+  if (surgicalCaseId) {
+    const { data: episode } = await supabase
+      .from('recovery_episodes')
+      .select('discharge_date')
+      .eq('surgical_case_id', surgicalCaseId)
+      .maybeSingle();
+    if (!episode || !episode.discharge_date) {
+      return { error: 'The surgery bill can only be generated after the patient has been discharged. To collect a pre-op advance instead, use the Advance tab in Payments.' };
+    }
+  }
+
   if (advanceAmount && Number(advanceAmount) > 0) {
     const blocked = await requireDayOpen();
     if (blocked) return blocked;
   }
-  const supabase = await createClient();
 
   const { data: visit } = await supabase
     .from('visits')

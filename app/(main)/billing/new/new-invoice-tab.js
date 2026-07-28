@@ -252,6 +252,7 @@ export default function NewInvoiceTab() {
     pkgLoadedFor.current = urlPkgCaseId;
     (async () => {
       const result = await getPackageForBilling(urlPkgCaseId);
+      if (result.error) { setError(result.error); return; }
       if (!result.item) return;
       const i = result.item;
       setPackageBreakup(i.breakup && i.breakup.length > 0 ? i.breakup : null);
