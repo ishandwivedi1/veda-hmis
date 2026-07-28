@@ -22,7 +22,6 @@ import {
   markProceduresBilled,
   getPackageForBilling,
   markPackageBilled,
-  addCustomLineItem,
 } from '../actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure', 'Surgery', 'Pharmacy'];
@@ -175,11 +174,12 @@ export default function NewInvoiceTab() {
     })();
   }, [urlProcIds, contextPatient]);
 
-  // Prefill from Front Office's "Prescribed Medicines" widget. No
-  // pharmacy license yet, so individual drug names/quantities can't
-  // appear on the bill -- every matched item here is clubbed into a
-  // single "OPD Procedure Consumables" line at qty 1 for the combined
-  // total, rather than one line per drug.
+  // Prefill from Front Office's "Prescribed Medicines" widget -- same
+  // pattern as investigations above, matched against the drug catalog.
+  // Stored itemized (one line per drug) so Invoice Details still shows
+  // exactly what was billed -- the print/PDF copy is what collapses
+  // these into a single "OPD Procedure Consumables" line, since there's
+  // no pharmacy license yet to show individual drug names externally.
   useEffect(() => {
     if (!urlRxIds || !contextPatient) return;
     if (rxLoadedFor.current === urlRxIds) return;
@@ -193,22 +193,19 @@ export default function NewInvoiceTab() {
       const unmatched = (result.items || []).filter((i) => !i.matched);
       setUnmatchedPrescriptions(unmatched);
 
-      if (matched.length === 0) return;
-
-      const totalRate = matched.reduce((s, i) => s + Number(i.rate || 0), 0);
-      const computed = computeLine({ rate: totalRate, gst_pct: 0 }, 1, 'none', 0);
-
       setDraftLines((prev) => [
         ...prev,
-        {
-          tempId: nextTempId.current++,
-          sourceRxIds: matched.map((i) => i.rxId),
-          isCustom: true,
-          serviceCode: null, serviceName: 'OPD Procedure Consumables', dept: 'Pharmacy',
-          qty: 1, rate: totalRate, gstPct: 0,
-          discType: 'none', discValue: 0, discReason: '',
-          ...computed,
-        },
+        ...matched.map((i) => {
+          const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
+          return {
+            tempId: nextTempId.current++,
+            sourceRxId: i.rxId,
+            serviceCode: i.serviceCode, serviceName: `${i.name}${i.eye ? ' (' + i.eye + ')' : ''}`, dept: 'Pharmacy',
+            qty: 1, rate: i.rate, gstPct: i.gstPct,
+            discType: 'none', discValue: 0, discReason: '',
+            ...computed,
+          };
+        }),
       ]);
     })();
   }, [urlRxIds, contextPatient]);
@@ -329,37 +326,13 @@ export default function NewInvoiceTab() {
     const dv = parseFloat(discValue) || 0;
     const computed = computeLine(svc, q, discType, dv);
 
-    // No pharmacy license yet -- individual drug names/quantities can't
-    // appear on the bill. Whatever gets picked from the Pharmacy
-    // department here is folded into one running "OPD Procedure
-    // Consumables" line (qty 1, total amount only) instead of adding a
-    // separate named line per drug.
-    if (svc.dept === 'Pharmacy') {
-      setDraftLines((prev) => {
-        const existing = prev.find((l) => l.dept === 'Pharmacy' && l.isCustom);
-        const addedAmount = computed.net;
-        if (existing) {
-          const newTotal = existing.rate + addedAmount;
-          return prev.map((l) => (l === existing ? { ...l, rate: newTotal, net: newTotal, gross: newTotal } : l));
-        }
-        return [...prev, {
-          tempId: nextTempId.current++,
-          isCustom: true,
-          serviceCode: null, serviceName: 'OPD Procedure Consumables', dept: 'Pharmacy',
-          qty: 1, rate: addedAmount, gstPct: 0,
-          discType: 'none', discValue: 0, discReason: '',
-          gst: 0, net: addedAmount, disc: 0, gross: addedAmount,
-        }];
-      });
-    } else {
-      setDraftLines((prev) => [...prev, {
-        tempId: nextTempId.current++,
-        serviceCode: svc.code, serviceName: svc.name, dept: svc.dept,
-        qty: q, rate: svc.rate, gstPct: svc.gst_pct,
-        discType, discValue: dv, discReason,
-        ...computed,
-      }]);
-    }
+    setDraftLines((prev) => [...prev, {
+      tempId: nextTempId.current++,
+      serviceCode: svc.code, serviceName: svc.name, dept: svc.dept,
+      qty: q, rate: svc.rate, gstPct: svc.gst_pct,
+      discType, discValue: dv, discReason,
+      ...computed,
+    }]);
 
     setDept(''); setSelectedServiceCode(''); setQty(1); setRate(''); setGstPct('');
     setDiscType('none'); setDiscValue(''); setDiscReason('');
@@ -380,9 +353,7 @@ export default function NewInvoiceTab() {
     if (created.error) { setSubmitting(false); setError(created.error); return null; }
 
     for (const line of draftLines) {
-      const result = line.isCustom
-        ? await addCustomLineItem(created.invoice.id, line.serviceName, line.rate, line.dept)
-        : await addLineItem(created.invoice.id, line.serviceCode, line.qty, line.discType, line.discValue, line.discReason);
+      const result = await addLineItem(created.invoice.id, line.serviceCode, line.qty, line.discType, line.discValue, line.discReason);
       if (result.error) {
         setSubmitting(false);
         setError(`Invoice created, but failed adding ${line.serviceName}: ${result.error}. Finish it from Invoice Details.`);
@@ -397,7 +368,7 @@ export default function NewInvoiceTab() {
     const billedProcIds = draftLines.map((l) => l.sourceProcId).filter(Boolean);
     if (billedProcIds.length > 0) await markProceduresBilled(billedProcIds, created.invoice.id);
 
-    const billedRxIds = draftLines.flatMap((l) => l.sourceRxIds || []);
+    const billedRxIds = draftLines.map((l) => l.sourceRxId).filter(Boolean);
     if (billedRxIds.length > 0) await markPrescriptionsBilled(billedRxIds);
 
     const billedBioIds = draftLines.map((l) => l.sourceBioId).filter(Boolean);
@@ -576,7 +547,7 @@ export default function NewInvoiceTab() {
               <tbody>
                 {draftLines.map((li) => (
                   <tr key={li.tempId}>
-                    <td>{li.serviceName}{(li.sourceInvOrderId || li.sourceRxId || li.sourceRxIds?.length || li.sourceBioId || li.sourceProcId || li.sourcePkgCaseId) && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
+                    <td>{li.serviceName}{(li.sourceInvOrderId || li.sourceRxId || li.sourceBioId || li.sourceProcId || li.sourcePkgCaseId) && <span className="badge b-purple" style={{ marginLeft: 6, fontSize: 9 }}>Prescribed</span>}</td>
                     <td>{li.qty}</td>
                     <td>Rs.{li.rate}</td>
                     <td>{li.disc > 0 ? `Rs.${li.disc}` : '--'}</td>
