@@ -98,7 +98,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .sb-name { font-family: var(--font-display-stack); font-weight: 700; font-size: 14px; letter-spacing: .1px; color: #fff; }
 .sb-sub { font-size: 10.5px; color: rgba(255, 255, 255, .45); margin-top: 1px; }
-.sb-sec { padding: 16px 18px 7px; font-size: 10px; font-weight: 700; color: rgba(255, 255, 255, .35); text-transform: uppercase; letter-spacing: .6px; }
+.sb-sec { padding: 16px 18px 7px; font-size: 13.5px; font-weight: 800; color: rgba(255, 255, 255, .62); text-transform: uppercase; letter-spacing: .7px; }
 .sb-item {
   display: flex;
   align-items: center;

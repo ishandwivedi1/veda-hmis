@@ -654,6 +654,47 @@ function KpiCard({ label, value, sub, color, active, onClick }) {
   );
 }
 
+function AwaitingAcceptanceWidget({ cases }) {
+  const rows = cases
+    .filter((sc) => sc.status === 'Pending Workup' && sc.decision !== 'Accepted' && sc.decision !== 'Declined')
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--amber)' }}>
+      <div className="card-title" style={{ marginBottom: 4 }}>
+        <i className="ti ti-phone-outgoing" style={{ color: 'var(--amber)' }}></i> Awaiting Patient Acceptance
+        <span className="badge b-amber" style={{ marginLeft: 8 }}>{rows.length}</span>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+        Advised surgery but haven&apos;t accepted yet -- call to follow up.
+      </div>
+      {rows.map((sc) => {
+        const dw = daysWaiting(sc);
+        return (
+          <div key={sc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{sc.patients?.first_name} {sc.patients?.last_name}</span>
+              {sc.priority !== 'Routine' && <span className="badge b-red" style={{ marginLeft: 6, fontSize: 10 }}>{sc.priority}</span>}
+              <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+                {sc.patients?.uhid} -- {sc.procedure_name} {sc.eye}
+                {sc.decision ? ` -- ${sc.decision}` : ''}
+              </div>
+            </div>
+            <a href={`tel:${sc.patients?.mobile}`} style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--blue)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              <i className="ti ti-phone"></i> {sc.patients?.mobile || 'No number on file'}
+            </a>
+            <div style={{ textAlign: 'right', fontSize: 10, color: dw > 7 ? 'var(--red)' : dw > 3 ? 'var(--amber)' : 'var(--g400)', fontWeight: 600, width: 60 }}>
+              {dw === 0 ? 'Today' : `${dw}d`}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CounsellingDashboard({ cases, onOpen }) {
   const [stageFilter, setStageFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -683,6 +724,8 @@ function CounsellingDashboard({ cases, onOpen }) {
 
   return (
     <div>
+      <AwaitingAcceptanceWidget cases={cases} />
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
         <KpiCard label="Active cases" value={cases.filter((sc) => sc.status !== 'Ready for Scheduling').length + counts.ready} sub="All pre-op stages" color="var(--indigo)" active={!stageFilter} onClick={() => setStageFilter('')} />
         <KpiCard label="Waiting on patient" value={counts.awaiting_decision + counts.financial_constraint} sub="Decision or finance pending" color="var(--amber)" active={stageFilter === 'awaiting_decision'} onClick={() => setStageFilter('awaiting_decision')} />
