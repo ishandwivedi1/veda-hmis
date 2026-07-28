@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase-server';
 import SortSelect from '@/app/components/SortSelect';
 
@@ -93,7 +94,9 @@ export default async function PatientsPage({ searchParams }) {
             Clear
           </Link>
         )}
-        <SortSelect options={SORT_OPTIONS} defaultValue="newest" />
+        <Suspense fallback={<div style={{ width: 140 }} />}>
+          <SortSelect options={SORT_OPTIONS} defaultValue="newest" />
+        </Suspense>
       </form>
 
       {justRegistered && (

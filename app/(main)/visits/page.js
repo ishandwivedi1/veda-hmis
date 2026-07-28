@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase-server';
 import { getDoctorOptionsForVisit } from './actions';
 import VisitActions from './visit-actions';
@@ -85,7 +86,9 @@ export default async function VisitsPage({ searchParams }) {
           All Visits
         </Link>
         <div style={{ marginLeft: 'auto' }}>
-          <SortSelect options={SORT_OPTIONS} defaultValue="newest" />
+          <Suspense fallback={<div style={{ width: 140 }} />}>
+            <SortSelect options={SORT_OPTIONS} defaultValue="newest" />
+          </Suspense>
         </div>
       </div>
 
