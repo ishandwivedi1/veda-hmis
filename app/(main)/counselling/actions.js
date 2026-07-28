@@ -3,11 +3,11 @@
 import { createClient } from '@/lib/supabase-server';
 
 // This file replaces the old "Surgical Coordination" module's actions file.
-// OT Scheduling (formerly its own module at app/(main)/ot-schedule) has been
-// merged into Counselling: booking a slot is now the last step of the
-// counselling workspace (see bookOTSlot/getOTAvailability below), and the
-// OT Calendar (getOTSchedule/completeOT) is now the 3rd tab of this page
-// instead of a standalone route.
+// Booking an OT slot is the last step of the counselling workspace (see
+// bookOTSlot/getOTAvailability below). The calendar view itself, plus
+// rescheduling and OT History, now live in their own module at
+// app/(main)/ot-schedule (getScheduledOT/getOTHistory/rescheduleOTSlot/
+// completeOT), not here.
 // The following exports are used by OTHER modules and MUST keep the same
 // name + signature:
 //   markForSurgery, updateSurgicalCase
@@ -607,28 +607,5 @@ export async function bookOTSlot(caseId, date, sessionId, surgeonId, notes) {
   return { success: true };
 }
 
-// ── OT Calendar -- now the 3rd tab of the Counselling module (was the
-//    standalone /ot-schedule page). ──
-export async function getOTSchedule() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('ot_schedule')
-    .select('*, surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)')
-    .neq('status', 'Cancelled')
-    .order('scheduled_date', { ascending: true });
-  if (error) return [];
-  return data;
-}
 
-export async function completeOT(otScheduleId, surgicalCaseId) {
-  const supabase = await createClient();
-
-  const { error: otError } = await supabase.from('ot_schedule').update({ status: 'Completed' }).eq('id', otScheduleId);
-  if (otError) return { error: otError.message };
-
-  const { error: caseError } = await supabase.from('surgical_cases').update({ status: 'Completed' }).eq('id', surgicalCaseId);
-  if (caseError) return { error: caseError.message };
-
-  return { success: true };
-}
 

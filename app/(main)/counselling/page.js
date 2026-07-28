@@ -7,7 +7,7 @@ import {
   markReadyForScheduling, referBackToDoctor,
   referForMedicalFitness,
   sendForBiometry, skipBiometry, unskipBiometry,
-  getSurgeons, getOTAvailability, bookOTSlot, getOTSchedule, completeOT,
+  getSurgeons, getOTAvailability, bookOTSlot,
 } from './actions';
 
 // Biometry is satisfied either by actually being done, or by having
@@ -590,7 +590,7 @@ function CaseWorkspace({ sc, onUpdate }) {
 
       {sc.status === 'Scheduled' && (
         <div className="msg-success" style={{ marginBottom: 16 }}>
-          <i className="ti ti-circle-check"></i> Surgery slot booked -- see the OT Calendar tab.
+          <i className="ti ti-circle-check"></i> Surgery slot booked -- see the OT Schedule module.
         </div>
       )}
 
@@ -791,62 +791,6 @@ function CounsellingDashboard({ cases, onOpen }) {
   );
 }
 
-// ── OT Calendar tab -- the read-only schedule + Complete action that used
-//    to be the whole of the standalone OT Scheduling page. Booking itself
-//    now happens inline in each case's workspace (BookSurgerySlot above). ──
-function OTCalendar() {
-  const [schedule, setSchedule] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    setSchedule(await getOTSchedule());
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  async function handleComplete(otId, caseId) {
-    await completeOT(otId, caseId);
-    refresh();
-  }
-
-  if (loading) return <div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading OT calendar...</div>;
-
-  return (
-    <div className="card">
-      <div className="card-title" style={{ marginBottom: 10 }}>
-        <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> OT Calendar
-      </div>
-      <table className="tbl">
-        <thead>
-          <tr><th>Date</th><th>Session</th><th>Room</th><th>Patient</th><th>Procedure</th><th>Surgeon</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody>
-          {schedule.map((s) => (
-            <tr key={s.id}>
-              <td>{new Date(s.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
-              <td>{s.scheduled_time?.slice(0, 5) || '--'}</td>
-              <td>{s.room || '--'}</td>
-              <td>{s.surgical_cases?.patients?.first_name} {s.surgical_cases?.patients?.last_name}</td>
-              <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
-              <td>{s.profiles?.full_name || '--'}</td>
-              <td><span className={`badge ${s.status === 'Completed' ? 'b-green' : 'b-blue'}`}>{s.status}</span></td>
-              <td>
-                {s.status === 'Scheduled' && (
-                  <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id)}>Complete</button>
-                )}
-              </td>
-            </tr>
-          ))}
-          {schedule.length === 0 && (
-            <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No surgeries scheduled.</td></tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 // ── History tab -- cases that have left the active Dashboard (Scheduled,
 //    Completed, Cancelled, etc). Read-only lookup, same pattern as the
 //    History tabs elsewhere in the app (Post-op, Investigation,
@@ -946,10 +890,9 @@ export default function CounsellingPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 540 }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 400 }}>
         <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
         <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-messages" label="Workspace" disabled={!selectedCase} />
-        <TabButton active={activeTab === 'otcalendar'} onClick={() => setActiveTab('otcalendar')} icon="ti-calendar-event" label="OT Calendar" />
         <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
       </div>
 
@@ -969,8 +912,6 @@ export default function CounsellingPage() {
           Select a patient from the Dashboard tab.
         </div>
       )}
-
-      {activeTab === 'otcalendar' && <OTCalendar />}
 
       {activeTab === 'history' && <HistoryTab cases={historyCases} loading={loadingHistory} onOpen={openCase} />}
     </div>
