@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { getOTCaseList, getOTIntraopHistory, markPatientReported, unmarkPatientReported } from './actions';
 import Workspace from './workspace';
 
@@ -59,8 +60,13 @@ function DashboardTab({ cases, loading, onOpen, onRefresh }) {
         {!loading && cases.map((c) => {
           const sc = c.surgical_cases;
           const patient = sc.patients;
+          const billed = !!sc.package_billed;
           return (
-            <div key={c.id} onClick={() => onOpen(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
+            <div
+              key={c.id}
+              onClick={billed ? () => onOpen(c.id) : undefined}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: billed ? 'pointer' : 'default' }}
+            >
               <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--red)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
                 {patient?.first_name?.charAt(0)}
               </div>
@@ -77,11 +83,24 @@ function DashboardTab({ cases, loading, onOpen, onRefresh }) {
                 >
                   {busyId === c.id ? '...' : c.patient_reported_at ? 'Reported' : 'Mark Reported'}
                 </button>
+                {!billed && <span className="badge b-red" style={{ marginLeft: 6, fontSize: 10 }}>Not Billed</span>}
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                   {patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
                 </div>
               </div>
-              <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Open</button>
+              {billed ? (
+                <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Open</button>
+              ) : (
+                <Link
+                  href={`/billing/new?pkgCaseId=${sc.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="btn btn-sm"
+                  style={{ background: 'var(--amber)', color: '#fff', border: 'none', textDecoration: 'none' }}
+                  title="Bill the surgery package before this case can be opened"
+                >
+                  <i className="ti ti-receipt"></i> Billing
+                </Link>
+              )}
             </div>
           );
         })}

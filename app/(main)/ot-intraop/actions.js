@@ -47,7 +47,7 @@ export async function getOTCaseList() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('ot_schedule')
-    .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+    .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, package_billed, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
     .in('status', ['Scheduled', 'In Progress'])
     .lte('scheduled_date', new Date().toISOString().slice(0, 10))
     .order('scheduled_date', { ascending: true })

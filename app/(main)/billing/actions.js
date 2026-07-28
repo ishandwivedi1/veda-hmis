@@ -440,19 +440,36 @@ export async function getPendingPackageBilling() {
   return (data || []).filter((sc) => sc.master_packages);
 }
 
+// ── Surgery Billing panel (New Invoice) -- Surgery/Eye/Doctor fields
+// shown alongside the Package selection, whether prefilled from an
+// existing surgical_case (automatic route) or filled in by hand
+// (manual route). ──
+export async function getSurgeryBillingOptions() {
+  const supabase = await createClient();
+  const [{ data: surgeries }, { data: doctors }] = await Promise.all([
+    supabase.from('master_surgeries').select('id, name').eq('status', 'Active').order('name'),
+    supabase.from('profiles').select('id, full_name').eq('designation', 'Doctor').eq('status', 'Active').order('full_name'),
+  ]);
+  return { surgeries: surgeries || [], doctors: doctors || [] };
+}
+
+// Only used for a manually-entered Surgery bill (no linked
+// surgical_case) -- renderInvoiceHtml falls back to these when it can't
+// find a case for the invoice's visit.
+export async function setManualSurgeryDetails(invoiceId, surgeryName, surgeryEye, surgeonId) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('invoices')
+    .update({ manual_surgery_name: surgeryName || null, manual_surgery_eye: surgeryEye || null, manual_surgeon_id: surgeonId || null })
+    .eq('id', invoiceId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function getPackageForBilling(caseId) {
   const supabase = await createClient();
-  const { data: sc } = await supabase.from('surgical_cases').select('package_id, master_packages:package_id(code, name, price)').eq('id', caseId).maybeSingle();
+  const { data: sc } = await supabase.from('surgical_cases').select('package_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price)').eq('id', caseId).maybeSingle();
   if (!sc?.master_packages) return { item: null };
-
-  // Surgery bill can only be generated once the patient has actually
-  // been discharged (hospital policy). This blocks the invoice itself,
-  // not advance collection -- a pre-op advance still goes through the
-  // separate Advance tab in Payments, unaffected here.
-  const { data: episode } = await supabase.from('recovery_episodes').select('discharge_date').eq('surgical_case_id', caseId).maybeSingle();
-  if (!episode || !episode.discharge_date) {
-    return { error: 'The surgery bill can only be generated after the patient has been discharged. To collect a pre-op advance instead, use the Advance tab in Payments.' };
-  }
 
   const { data: breakupItems } = await supabase
     .from('package_line_items')
@@ -465,6 +482,7 @@ export async function getPackageForBilling(caseId) {
       caseId, name: sc.master_packages.name, matched: true,
       serviceCode: sc.master_packages.code, rate: sc.master_packages.price, gstPct: 0,
       breakup: breakupItems || [],
+      surgeryName: sc.procedure_name, surgeryEye: sc.eye, surgeonId: sc.surgeon_id, surgeonName: sc.profiles?.full_name || null,
     },
   };
 }

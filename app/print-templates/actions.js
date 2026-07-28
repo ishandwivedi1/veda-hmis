@@ -295,6 +295,7 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
   let surgeryName = null;
   let surgeryCode = null;
   let surgeryEye = null;
+  let surgeonForBill = null; // Surgery Bill shows the operating surgeon, not the visit's consulting doctor
   let packageBreakup = [];
   let breakupAvailable = false;
   let dischargeDate = null;
@@ -313,17 +314,25 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
 
     const { data: surgicalCase } = await supabase
       .from('surgical_cases')
-      .select('id, procedure_name, eye')
+      .select('id, procedure_name, eye, surgeon_id')
       .eq('visit_id', invoice.visit_id)
       .neq('status', 'Cancelled')
       .maybeSingle();
-    surgeryName = surgicalCase?.procedure_name || null;
-    surgeryEye = surgicalCase?.eye || null;
-    if (surgicalCase?.procedure_name) {
+
+    // Manual Surgery billing (New Invoice, no linked surgical_case) falls
+    // back to what was typed in at billing time.
+    surgeryName = surgicalCase?.procedure_name || invoice.manual_surgery_name || null;
+    surgeryEye = surgicalCase?.eye || invoice.manual_surgery_eye || null;
+    const surgeonId = surgicalCase?.surgeon_id || invoice.manual_surgeon_id || null;
+    if (surgeonId) {
+      const { data: surgeon } = await supabase.from('profiles').select('full_name, registration_no').eq('id', surgeonId).maybeSingle();
+      surgeonForBill = surgeon || null;
+    }
+    if (surgeryName) {
       // surgical_cases stores the surgery as free text (matched from the
       // Clinical Masters -- Surgery list at the time it was picked), not
       // a foreign key, so the code is looked up by name here.
-      const { data: surgery } = await supabase.from('master_surgeries').select('code').eq('name', surgicalCase.procedure_name).maybeSingle();
+      const { data: surgery } = await supabase.from('master_surgeries').select('code').eq('name', surgeryName).maybeSingle();
       surgeryCode = surgery?.code || null;
     }
     if (surgicalCase) {
@@ -359,7 +368,7 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
     },
     invoice,
     visit: invoice.visits,
-    doctor: invoice.visits?.profiles,
+    doctor: isSurgery ? (surgeonForBill || invoice.visits?.profiles) : invoice.visits?.profiles,
     lineItems: lineItems || [],
     payments,
     packageName,

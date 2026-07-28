@@ -22,6 +22,8 @@ import {
   markProceduresBilled,
   getPackageForBilling,
   markPackageBilled,
+  getSurgeryBillingOptions,
+  setManualSurgeryDetails,
 } from '../actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure', 'Surgery', 'Pharmacy'];
@@ -54,6 +56,18 @@ export default function NewInvoiceTab() {
   // Finalize or Save Draft. Nothing is persisted before that.
   const [draftLines, setDraftLines] = useState([]);
   const [packageBreakup, setPackageBreakup] = useState(null);
+
+  // Surgery Billing panel -- Surgery / Operated Eye / Doctor. Locked
+  // (read-only) when fetched from an existing surgical_case (the
+  // automatic route from OT/Counselling); editable when billing Surgery
+  // manually with no linked case.
+  const [surgeryLocked, setSurgeryLocked] = useState(false);
+  const [surgeryName, setSurgeryName] = useState('');
+  const [surgeryEyeField, setSurgeryEyeField] = useState('');
+  const [surgeryDoctorId, setSurgeryDoctorId] = useState('');
+  const [surgeryDoctorName, setSurgeryDoctorName] = useState('');
+  const [surgeryOptions, setSurgeryOptions] = useState([]);
+  const [surgeryDoctorOptions, setSurgeryDoctorOptions] = useState([]);
   const nextTempId = useRef(1);
 
   const [catalog, setCatalog] = useState([]);
@@ -91,6 +105,7 @@ export default function NewInvoiceTab() {
   useEffect(() => {
     getServiceCatalog().then(setCatalog);
     getTodaysVisitsForBilling().then(setTodaysVisits);
+    getSurgeryBillingOptions().then(({ surgeries, doctors }) => { setSurgeryOptions(surgeries); setSurgeryDoctorOptions(doctors); });
   }, []);
 
   useEffect(() => {
@@ -256,6 +271,11 @@ export default function NewInvoiceTab() {
       if (!result.item) return;
       const i = result.item;
       setPackageBreakup(i.breakup && i.breakup.length > 0 ? i.breakup : null);
+      setSurgeryLocked(true);
+      setSurgeryName(i.surgeryName || '');
+      setSurgeryEyeField(i.surgeryEye || '');
+      setSurgeryDoctorId(i.surgeonId || '');
+      setSurgeryDoctorName(i.surgeonName || '--');
       const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
       setDraftLines((prev) => [
         ...prev,
@@ -386,6 +406,16 @@ export default function NewInvoiceTab() {
     const billedPkgCaseId = draftLines.find((l) => l.sourcePkgCaseId)?.sourcePkgCaseId;
     if (billedPkgCaseId) await markPackageBilled(billedPkgCaseId, created.invoice.id);
 
+    // Manual Surgery billing (no linked surgical_case) -- save what was
+    // typed in so the printed bill can show it, same as the automatic
+    // route shows what's on the case. dept has already been reset by
+    // now (cleared after each Add), so this checks the actual lines
+    // added rather than current form state.
+    const hasManualSurgeryLine = draftLines.some((l) => l.dept === 'Surgery' && !l.sourcePkgCaseId);
+    if (hasManualSurgeryLine && !surgeryLocked && surgeryName) {
+      await setManualSurgeryDetails(created.invoice.id, surgeryName, surgeryEyeField, surgeryDoctorId);
+    }
+
     setSubmitting(false);
     return details.invoice;
   }
@@ -416,6 +446,11 @@ export default function NewInvoiceTab() {
     setUnmatchedInvestigations([]);
     setUnmatchedPrescriptions([]);
     setUnmatchedBiometry([]);
+    setSurgeryLocked(false);
+    setSurgeryName('');
+    setSurgeryEyeField('');
+    setSurgeryDoctorId('');
+    setSurgeryDoctorName('');
     contextLoadedFor.current = null;
     invOrdersLoadedFor.current = null;
     rxLoadedFor.current = null;
@@ -507,6 +542,55 @@ export default function NewInvoiceTab() {
                 </select>
               </div>
             </div>
+
+            {(dept === 'Surgery' || surgeryLocked || draftLines.some((l) => l.dept === 'Surgery')) && (
+              <div style={{ border: '1px solid var(--g200)', borderRadius: 8, padding: '10px 12px', marginBottom: 8, background: surgeryLocked ? 'var(--g50)' : undefined }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 8 }}>
+                  <i className="ti ti-scalpel"></i> Surgery Billing Details
+                  {surgeryLocked && <span style={{ fontWeight: 400, color: 'var(--g400)', marginLeft: 6 }}>(fetched from patient record)</span>}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <div>
+                    <label className="flbl">Surgery</label>
+                    {surgeryLocked ? (
+                      <input className="fi fi-sm" value={surgeryName || '--'} readOnly style={{ background: 'var(--g100)' }} />
+                    ) : (
+                      <select className="fi fi-sm" value={surgeryName} onChange={(e) => setSurgeryName(e.target.value)}>
+                        <option value="">-- Select surgery --</option>
+                        {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                  <div>
+                    <label className="flbl">Operated Eye</label>
+                    {surgeryLocked ? (
+                      <input className="fi fi-sm" value={surgeryEyeField === 'OD' ? 'Right (OD)' : surgeryEyeField === 'OS' ? 'Left (OS)' : surgeryEyeField === 'OU' ? 'Both (OU)' : '--'} readOnly style={{ background: 'var(--g100)' }} />
+                    ) : (
+                      <select className="fi fi-sm" value={surgeryEyeField} onChange={(e) => setSurgeryEyeField(e.target.value)}>
+                        <option value="">-- Select --</option>
+                        <option value="OD">Right (OD)</option>
+                        <option value="OS">Left (OS)</option>
+                        <option value="OU">Both (OU)</option>
+                      </select>
+                    )}
+                  </div>
+                  <div>
+                    <label className="flbl">Doctor</label>
+                    {surgeryLocked ? (
+                      <input className="fi fi-sm" value={surgeryDoctorName || '--'} readOnly style={{ background: 'var(--g100)' }} />
+                    ) : (
+                      <select className="fi fi-sm" value={surgeryDoctorId} onChange={(e) => setSurgeryDoctorId(e.target.value)}>
+                        <option value="">-- Select doctor --</option>
+                        {surgeryDoctorOptions.map((d) => <option key={d.id} value={d.id}>{d.full_name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 6 }}>
+                  Package is billed as the line item below (Service dropdown, filtered to Surgery) -- these three fields print on the Surgery Bill alongside it.
+                </div>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
               <div>
