@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { createClient } from '../../lib/supabase-browser';
 import { getMyDesignation } from '@/app/(main)/users/actions';
 
@@ -10,7 +9,6 @@ export default function ResetPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
   const supabase = createClient();
 
   async function handleSubmit(e) {
@@ -41,8 +39,7 @@ export default function ResetPasswordPage() {
     } catch {
       // fall through to the safe default above
     }
-    router.push(destination);
-    router.refresh();
+    window.location.href = destination;
   }
 
   return (
