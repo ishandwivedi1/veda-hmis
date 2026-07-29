@@ -155,7 +155,7 @@ function RegionSection({ regionKey, region, open, onToggle, status, stagedState,
         </div>
       </div>
       {open && (
-        <div style={{ padding: 16 }}>
+        <div style={{ padding: 16, background: stage === 'with' ? 'var(--purple-lt)' : '#fff', transition: 'background .15s ease' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: stage === 'with' ? 'var(--purple)' : 'var(--g500)', marginBottom: 10 }}>
             <i className="ti ti-droplet"></i> Recording: {STAGES.find((s) => s.key === stage)?.label}
           </div>
@@ -370,7 +370,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
           </div>
         </div>
         {open.glaucoma && (
-          <div style={{ padding: 16 }}>
+          <div style={{ padding: 16, background: glaucomaStage === 'with' ? 'var(--purple-lt)' : '#fff', transition: 'background .15s ease' }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: glaucomaStage === 'with' ? 'var(--purple)' : 'var(--g500)', marginBottom: 10 }}>
               <i className="ti ti-droplet"></i> Recording: {STAGES.find((s) => s.key === glaucomaStage)?.label}
             </div>
