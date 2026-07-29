@@ -41,7 +41,7 @@ PLACEHOLDER_REFERENCE.opd_case_sheet = [
   '{{#if hasRefraction}}...{{/if}}', 're_refraction', 'le_refraction',
   '{{#if hasAdditionalTests}}...{{/if}}', 'additionalTests (loop: label, value -- K1/K2, axial length, pachymetry, etc.)',
   '{{#if hasOptObservations}}...{{/if}}', 'optObservations',
-  '{{#if hasExamination}}...{{/if}}', 'examFindings (loop: structure, eye, finding -- abnormal only, normal findings omitted)', '{{#if hasExamExtra}}...{{/if}}', 'examExtra (loop: label, value -- CDR, gonioscopy, disc appearance, remarks)',
+  '{{#if hasExamination}}...{{/if}}', 'examFindings (loop: structure, eye, finding, stage -- Without/With Dilation; abnormal only, normal findings omitted)', '{{#if hasExamExtra}}...{{/if}}', 'examExtra (loop: label, value -- CDR, gonioscopy, disc appearance per stage, remarks)',
   '{{#if hasDiagnoses}}...{{/if}}', 'diagnoses (loop: name, eye, notes)',
   '{{#if hasPrescriptions}}...{{/if}}', 'prescriptions (loop: drug, eye, dosage, frequency, duration)',
   '{{#if advice}}...{{/if}}', '{{#if followup_text}}...{{/if}}',

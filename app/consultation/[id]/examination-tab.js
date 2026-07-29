@@ -35,10 +35,47 @@ const REGIONS = {
   posterior: { structs: POST_STRUCTS, templates: POST_TEMPLATES, icon: 'ti-eye', color: 'var(--purple)', title: 'Posterior Segment' },
 };
 
+const STAGES = [
+  { key: 'without', label: 'Without Dilation' },
+  { key: 'with', label: 'With Dilation' },
+];
+
 function emptyRegionState(structs) {
   const state = {};
   structs.forEach((s) => { state[s] = { re: '', le: '', re_custom: '', le_custom: '' }; });
   return state;
+}
+
+function emptyStagedRegionState(structs) {
+  return { without: emptyRegionState(structs), with: emptyRegionState(structs) };
+}
+
+function normalizeFindings(raw, structs) {
+  const out = {};
+  structs.forEach((s) => {
+    const v = raw?.[s] || {};
+    out[s] = { re: v.re || '', le: v.le || '', re_custom: v.re_custom || '', le_custom: v.le_custom || '' };
+  });
+  return out;
+}
+
+// Examination used to be one pass. Existing saved records have findings
+// as a flat {struct: {...}} object with no stage. Old data is treated
+// as the "without dilation" pass (the pass that always happens first),
+// with "with dilation" starting empty -- nothing is lost, it just now
+// has somewhere to go for the second pass.
+function normalizeStagedFindings(raw, structs) {
+  const isStaged = raw && (raw.without || raw.with);
+  if (isStaged) {
+    return {
+      without: { ...emptyRegionState(structs), ...normalizeFindings(raw.without, structs) },
+      with: { ...emptyRegionState(structs), ...normalizeFindings(raw.with, structs) },
+    };
+  }
+  return {
+    without: { ...emptyRegionState(structs), ...normalizeFindings(raw, structs) },
+    with: emptyRegionState(structs),
+  };
 }
 
 function StructRow({ struct, templates, eyeState, onSelect, onCustom }) {
@@ -74,11 +111,34 @@ function StructRow({ struct, templates, eyeState, onSelect, onCustom }) {
   );
 }
 
-function RegionSection({ regionKey, region, open, onToggle, status, state, onSelect, onCustom, onAllNormal }) {
+function StageToggle({ stage, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: 2, background: 'var(--g100)', borderRadius: 6, padding: 2 }} onClick={(e) => e.stopPropagation()}>
+      {STAGES.map((s) => (
+        <button
+          key={s.key}
+          type="button"
+          onClick={() => onChange(s.key)}
+          style={{
+            padding: '3px 9px', borderRadius: 4, fontSize: 10.5, fontWeight: 600, border: 'none', cursor: 'pointer',
+            background: stage === s.key ? '#fff' : 'transparent',
+            color: stage === s.key ? 'var(--blue)' : 'var(--g500)',
+            boxShadow: stage === s.key ? '0 1px 3px rgba(0,0,0,.1)' : 'none',
+          }}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RegionSection({ regionKey, region, open, onToggle, status, stagedState, stage, onStageChange, onSelect, onCustom, onAllNormal }) {
+  const state = stagedState[stage];
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
       <div
-        style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+        style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', flexWrap: 'wrap', gap: 8 }}
         onClick={onToggle}
       >
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -87,6 +147,7 @@ function RegionSection({ regionKey, region, open, onToggle, status, state, onSel
           <span className={`badge ${status === 'Normal' ? 'b-green' : status === 'In progress' ? 'b-amber' : 'b-gray'}`}>{status}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <StageToggle stage={stage} onChange={onStageChange} />
           <button type="button" className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={(e) => { e.stopPropagation(); onAllNormal(); }}>
             <i className="ti ti-check"></i> All Normal
           </button>
@@ -95,6 +156,9 @@ function RegionSection({ regionKey, region, open, onToggle, status, state, onSel
       </div>
       {open && (
         <div style={{ padding: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: stage === 'with' ? 'var(--purple)' : 'var(--g500)', marginBottom: 10 }}>
+            <i className="ti ti-droplet"></i> Recording: {STAGES.find((s) => s.key === stage)?.label}
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             {['re', 'le'].map((eye) => (
               <div key={eye}>
@@ -122,18 +186,25 @@ function RegionSection({ regionKey, region, open, onToggle, status, state, onSel
 
 export default function ExaminationTab({ examination, encounterId, onSaved }) {
   const [regionState, setRegionState] = useState({
-    external: emptyRegionState(EXT_STRUCTS),
-    anterior: emptyRegionState(ANT_STRUCTS),
-    posterior: emptyRegionState(POST_STRUCTS),
+    external: emptyStagedRegionState(EXT_STRUCTS),
+    anterior: emptyStagedRegionState(ANT_STRUCTS),
+    posterior: emptyStagedRegionState(POST_STRUCTS),
   });
+  const [regionStage, setRegionStage] = useState({ external: 'without', anterior: 'without', posterior: 'without' });
   const [status, setStatus] = useState({ external: 'Not started', anterior: 'Not started', posterior: 'Not started', glaucoma: 'Not started' });
-  const [open, setOpen] = useState({ external: true, anterior: false, glaucoma: false, posterior: false, remarks: false });
+  const [open, setOpen] = useState({ external: true, anterior: false, posterior: false, glaucoma: false, remarks: false });
 
+  const [glaucomaStage, setGlaucomaStage] = useState('without');
   const [cdrRe, setCdrRe] = useState('');
   const [cdrLe, setCdrLe] = useState('');
   const [gonioRe, setGonioRe] = useState('');
   const [gonioLe, setGonioLe] = useState('');
   const [discAppearance, setDiscAppearance] = useState('');
+  const [cdrReDilated, setCdrReDilated] = useState('');
+  const [cdrLeDilated, setCdrLeDilated] = useState('');
+  const [gonioReDilated, setGonioReDilated] = useState('');
+  const [gonioLeDilated, setGonioLeDilated] = useState('');
+  const [discAppearanceDilated, setDiscAppearanceDilated] = useState('');
   const [remarksRe, setRemarksRe] = useState('');
   const [remarksLe, setRemarksLe] = useState('');
 
@@ -148,9 +219,9 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
     skipNextAutosave.current = true;
     loadedExamId.current = examination.id;
     setRegionState({
-      external: { ...emptyRegionState(EXT_STRUCTS), ...normalizeFindings(examination.external_findings, EXT_STRUCTS) },
-      anterior: { ...emptyRegionState(ANT_STRUCTS), ...normalizeFindings(examination.anterior_findings, ANT_STRUCTS) },
-      posterior: { ...emptyRegionState(POST_STRUCTS), ...normalizeFindings(examination.posterior_findings, POST_STRUCTS) },
+      external: normalizeStagedFindings(examination.external_findings, EXT_STRUCTS),
+      anterior: normalizeStagedFindings(examination.anterior_findings, ANT_STRUCTS),
+      posterior: normalizeStagedFindings(examination.posterior_findings, POST_STRUCTS),
     });
     setStatus({
       external: examination.external_status || 'Not started',
@@ -163,47 +234,46 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
     setGonioRe(examination.gonio_re || '');
     setGonioLe(examination.gonio_le || '');
     setDiscAppearance(examination.disc_appearance || '');
+    setCdrReDilated(examination.cdr_re_dilated || '');
+    setCdrLeDilated(examination.cdr_le_dilated || '');
+    setGonioReDilated(examination.gonio_re_dilated || '');
+    setGonioLeDilated(examination.gonio_le_dilated || '');
+    setDiscAppearanceDilated(examination.disc_appearance_dilated || '');
     setRemarksRe(examination.remarks_re || '');
     setRemarksLe(examination.remarks_le || '');
   }, [examination]);
-
-  function normalizeFindings(raw, structs) {
-    const out = {};
-    structs.forEach((s) => {
-      const v = raw?.[s] || {};
-      out[s] = { re: v.re || '', le: v.le || '', re_custom: v.re_custom || '', le_custom: v.le_custom || '' };
-    });
-    return out;
-  }
 
   function markDirty(region) {
     setStatus((prev) => (prev[region] === 'Not started' ? { ...prev, [region]: 'In progress' } : prev));
   }
 
   function handleSelect(region, struct, eye, val) {
+    const stage = regionStage[region];
     setRegionState((prev) => ({
       ...prev,
-      [region]: { ...prev[region], [struct]: { ...prev[region][struct], [eye]: val } },
+      [region]: { ...prev[region], [stage]: { ...prev[region][stage], [struct]: { ...prev[region][stage][struct], [eye]: val } } },
     }));
     markDirty(region);
   }
 
   function handleCustom(region, struct, eye, val) {
+    const stage = regionStage[region];
     setRegionState((prev) => ({
       ...prev,
-      [region]: { ...prev[region], [struct]: { ...prev[region][struct], [`${eye}_custom`]: val } },
+      [region]: { ...prev[region], [stage]: { ...prev[region][stage], [struct]: { ...prev[region][stage][struct], [`${eye}_custom`]: val } } },
     }));
     markDirty(region);
   }
 
   function handleAllNormal(region) {
     const { structs, templates } = REGIONS[region];
+    const stage = regionStage[region];
     const next = {};
     structs.forEach((s) => {
       const normalVal = templates[s]?.[0] || '';
       next[s] = { re: normalVal, le: normalVal, re_custom: '', le_custom: '' };
     });
-    setRegionState((prev) => ({ ...prev, [region]: next }));
+    setRegionState((prev) => ({ ...prev, [region]: { ...prev[region], [stage]: next } }));
     setStatus((prev) => ({ ...prev, [region]: 'Normal' }));
   }
 
@@ -235,7 +305,8 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
         posterior_findings: regionState.posterior,
         posterior_status: status.posterior,
         cdr_re: cdrRe, cdr_le: cdrLe, gonio_re: gonioRe, gonio_le: gonioLe, disc_appearance: discAppearance,
-        glaucoma_status: (cdrRe || cdrLe || gonioRe || gonioLe || discAppearance) ? 'Done' : status.glaucoma,
+        cdr_re_dilated: cdrReDilated, cdr_le_dilated: cdrLeDilated, gonio_re_dilated: gonioReDilated, gonio_le_dilated: gonioLeDilated, disc_appearance_dilated: discAppearanceDilated,
+        glaucoma_status: (cdrRe || cdrLe || gonioRe || gonioLe || discAppearance || cdrReDilated || cdrLeDilated || gonioReDilated || gonioLeDilated || discAppearanceDilated) ? 'Done' : status.glaucoma,
         remarks_re: remarksRe, remarks_le: remarksLe,
       };
       const result = await saveExamination(examIdAtSchedule, encounterId, fields);
@@ -246,12 +317,17 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
 
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionState, status, cdrRe, cdrLe, gonioRe, gonioLe, discAppearance, remarksRe, remarksLe]);
+  }, [regionState, status, cdrRe, cdrLe, gonioRe, gonioLe, discAppearance, cdrReDilated, cdrLeDilated, gonioReDilated, gonioLeDilated, discAppearanceDilated, remarksRe, remarksLe]);
+
+  const glaucomaFieldsForStage = glaucomaStage === 'with'
+    ? { cdrReVal: cdrReDilated, cdrLeVal: cdrLeDilated, gonioReVal: gonioReDilated, gonioLeVal: gonioLeDilated, discVal: discAppearanceDilated, setCdrReVal: setCdrReDilated, setCdrLeVal: setCdrLeDilated, setGonioReVal: setGonioReDilated, setGonioLeVal: setGonioLeDilated, setDiscVal: setDiscAppearanceDilated }
+    : { cdrReVal: cdrRe, cdrLeVal: cdrLe, gonioReVal: gonioRe, gonioLeVal: gonioLe, discVal: discAppearance, setCdrReVal: setCdrRe, setCdrLeVal: setCdrLe, setGonioReVal: setGonioRe, setGonioLeVal: setGonioLe, setDiscVal: setDiscAppearance };
+  const { cdrReVal, cdrLeVal, gonioReVal, gonioLeVal, discVal, setCdrReVal, setCdrLeVal, setGonioReVal, setGonioLeVal, setDiscVal } = glaucomaFieldsForStage;
 
   return (
     <div>
       <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-        <i className="ti ti-info-circle"></i> Exception-based documentation. Click <strong>All Normal</strong> to auto-populate normal findings, then change only what&apos;s abnormal.
+        <i className="ti ti-info-circle"></i> Exception-based documentation. Click <strong>All Normal</strong> to auto-populate normal findings, then change only what&apos;s abnormal. Each section is recorded in two passes -- <strong>Without Dilation</strong> and <strong>With Dilation</strong> -- switch using the toggle in each section&apos;s header.
       </div>
 
       <div className="card" style={{ padding: '10px 14px', marginBottom: 12 }}>
@@ -264,7 +340,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
         </div>
       </div>
 
-      {['external', 'anterior'].map((key) => (
+      {['external', 'anterior', 'posterior'].map((key) => (
         <RegionSection
           key={key}
           regionKey={key}
@@ -272,30 +348,38 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
           open={open[key]}
           onToggle={() => setOpen((p) => ({ ...p, [key]: !p[key] }))}
           status={status[key]}
-          state={regionState[key]}
+          stagedState={regionState[key]}
+          stage={regionStage[key]}
+          onStageChange={(stage) => setRegionStage((p) => ({ ...p, [key]: stage }))}
           onSelect={(struct, eye, val) => handleSelect(key, struct, eye, val)}
           onCustom={(struct, eye, val) => handleCustom(key, struct, eye, val)}
           onAllNormal={() => handleAllNormal(key)}
         />
       ))}
 
-      {/* GLAUCOMA -- no "All Normal" (not exception-based) */}
+      {/* GLAUCOMA -- moved to appear after Posterior Segment. No "All Normal" (not exception-based) */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
-        <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open.glaucoma ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setOpen((p) => ({ ...p, glaucoma: !p.glaucoma }))}>
+        <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open.glaucoma ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', flexWrap: 'wrap', gap: 8 }} onClick={() => setOpen((p) => ({ ...p, glaucoma: !p.glaucoma }))}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <i className="ti ti-activity" style={{ color: 'var(--amber)' }}></i> Glaucoma Assessment
             <span className={`badge ${status.glaucoma === 'Done' ? 'b-green' : status.glaucoma === 'In progress' ? 'b-amber' : 'b-gray'}`}>{status.glaucoma}</span>
           </div>
-          <i className={`ti ti-chevron-${open.glaucoma ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <StageToggle stage={glaucomaStage} onChange={setGlaucomaStage} />
+            <i className={`ti ti-chevron-${open.glaucoma ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+          </div>
         </div>
         {open.glaucoma && (
           <div style={{ padding: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-              <div><label className="flbl">Cup-disc ratio RE</label><input className="fi fi-sm" value={cdrRe} onChange={(e) => { setCdrRe(e.target.value); markDirty('glaucoma'); }} placeholder="e.g. 0.4" /></div>
-              <div><label className="flbl">Cup-disc ratio LE</label><input className="fi fi-sm" value={cdrLe} onChange={(e) => { setCdrLe(e.target.value); markDirty('glaucoma'); }} placeholder="e.g. 0.4" /></div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: glaucomaStage === 'with' ? 'var(--purple)' : 'var(--g500)', marginBottom: 10 }}>
+              <i className="ti ti-droplet"></i> Recording: {STAGES.find((s) => s.key === glaucomaStage)?.label}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-              {[['RE', gonioRe, setGonioRe], ['LE', gonioLe, setGonioLe]].map(([eye, val, setVal]) => (
+              <div><label className="flbl">Cup-disc ratio RE</label><input className="fi fi-sm" value={cdrReVal} onChange={(e) => { setCdrReVal(e.target.value); markDirty('glaucoma'); }} placeholder="e.g. 0.4" /></div>
+              <div><label className="flbl">Cup-disc ratio LE</label><input className="fi fi-sm" value={cdrLeVal} onChange={(e) => { setCdrLeVal(e.target.value); markDirty('glaucoma'); }} placeholder="e.g. 0.4" /></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              {[['RE', gonioReVal, setGonioReVal], ['LE', gonioLeVal, setGonioLeVal]].map(([eye, val, setVal]) => (
                 <div key={eye}>
                   <label className="flbl">Gonioscopy {eye}</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -314,28 +398,13 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
             </div>
             <div>
               <label className="flbl">Disc appearance</label>
-              <input className="fi fi-sm" value={discAppearance} onChange={(e) => { setDiscAppearance(e.target.value); markDirty('glaucoma'); }} placeholder="e.g. Healthy, Pale, Cupped" />
+              <input className="fi fi-sm" value={discVal} onChange={(e) => { setDiscVal(e.target.value); markDirty('glaucoma'); }} placeholder="e.g. Healthy, Pale, Cupped" />
             </div>
           </div>
         )}
       </div>
 
-      {['posterior'].map((key) => (
-        <RegionSection
-          key={key}
-          regionKey={key}
-          region={REGIONS[key]}
-          open={open[key]}
-          onToggle={() => setOpen((p) => ({ ...p, [key]: !p[key] }))}
-          status={status[key]}
-          state={regionState[key]}
-          onSelect={(struct, eye, val) => handleSelect(key, struct, eye, val)}
-          onCustom={(struct, eye, val) => handleCustom(key, struct, eye, val)}
-          onAllNormal={() => handleAllNormal(key)}
-        />
-      ))}
-
-      {/* CLINICAL REMARKS */}
+      {/* CLINICAL REMARKS -- stays a single entry, not split by dilation stage */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
         <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open.remarks ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setOpen((p) => ({ ...p, remarks: !p.remarks }))}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -369,4 +438,3 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
     </div>
   );
 }
-
