@@ -35,7 +35,13 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    router.push(await getMyDesignation() === 'Doctor' ? '/doctor-dashboard' : '/front-office-dashboard');
+    let destination = '/front-office-dashboard';
+    try {
+      if (await getMyDesignation() === 'Doctor') destination = '/doctor-dashboard';
+    } catch {
+      // fall through to the safe default above
+    }
+    router.push(destination);
     router.refresh();
   }
 
