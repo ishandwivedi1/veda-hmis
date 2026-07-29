@@ -140,7 +140,7 @@ export async function getServiceCatalog() {
   // place to manage drug pricing.
   const drugsAsServices = (drugs || []).map((d) => ({
     code: d.code,
-    name: `${d.generic}${d.strength ? ' ' + d.strength : ''}${d.brand ? ' (' + d.brand + ')' : ''}`,
+    name: `${d.brand || d.generic}${d.strength ? ' ' + d.strength : ''}${d.brand && d.generic ? ' (' + d.generic + ')' : ''}`,
     dept: 'Pharmacy',
     rate: d.rate,
     gst_pct: d.gst_pct,

@@ -5,12 +5,15 @@ import { DISCHARGE_ITEMS } from './constants';
 import { getDrugs } from '../master-data/actions';
 
 // Same Pharmacy drug list used in Financial Masters -- so post-op
-// medication is picked from the real catalog, not free text.
+// medication is picked from the real catalog, not free text. Label
+// leads with Name (brand), not Salt Composition (generic) -- this is
+// what ends up stored as the medication name and printed on the
+// Discharge Summary.
 export async function getDrugOptions() {
   const all = await getDrugs();
   return all
-    .filter((d) => d.status === 'Active')
-    .map((d) => ({ id: d.id, label: `${d.generic}${d.strength ? ` ${d.strength}` : ''}${d.brand ? ` (${d.brand})` : ''}` }));
+    .filter((d) => d.status === 'Active' && d.brand)
+    .map((d) => ({ id: d.id, label: `${d.brand}${d.strength ? ` ${d.strength}` : ''}${d.generic ? ` (${d.generic})` : ''}` }));
 }
 
 // Called from OT Intraop's "Hand Over to Recovery" -- creates the

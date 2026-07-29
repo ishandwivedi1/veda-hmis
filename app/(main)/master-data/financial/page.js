@@ -75,7 +75,7 @@ export default function FinancialMastersPage() {
   async function handleAdd() {
     setError(''); setSuccess('');
     if (tabDef.type === 'drug') {
-      if (!form.generic) { setError('Generic name is required.'); return; }
+      if (!form.generic) { setError('Salt Composition is required.'); return; }
     } else if (tabDef.type === 'package') {
       if (!form.name) { setError('Name is required.'); return; }
     } else if (!form.name) {
@@ -215,8 +215,8 @@ export default function FinancialMastersPage() {
               )}
               {tabDef.type === 'drug' && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Brand" onChange={update('brand')} />
-                  <input className="fi" placeholder="Generic name" onChange={update('generic')} />
+                  <input className="fi" placeholder="Name" onChange={update('brand')} />
+                  <input className="fi" placeholder="Salt Composition" onChange={update('generic')} />
                   <input className="fi" placeholder="Strength (e.g. 0.5%)" onChange={update('strength')} />
                   <input className="fi" placeholder="Form (e.g. Eye Drop)" onChange={update('form')} />
                   <input type="number" className="fi" placeholder="Rate" onChange={update('rate')} />
@@ -297,7 +297,7 @@ export default function FinancialMastersPage() {
 
           {tabDef.type === 'drug' && (
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Brand</th><th>Generic</th><th>Strength</th><th>Rate</th><th>GST%</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Salt Composition</th><th>Strength</th><th>Rate</th><th>GST%</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {drugs.map((d) => (
                   editingId === d.id ? (
