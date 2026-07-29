@@ -237,7 +237,7 @@ export default function RegistrationForm() {
           <button className={returnTo ? 'btn' : 'btn btn-primary'} onClick={handleRegisterOnly} disabled={loading}>
             <i className="ti ti-user-check"></i> {loading ? 'Working...' : 'Register Patient Only'}
           </button>
-          <button className="btn" onClick={() => router.push('/dashboard')}>Cancel</button>
+          <button className="btn" onClick={() => router.push('/front-office-dashboard')}>Cancel</button>
         </div>
       </div>
 

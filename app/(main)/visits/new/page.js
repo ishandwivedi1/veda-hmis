@@ -263,7 +263,7 @@ function NewVisitForm() {
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? 'Creating...' : 'Create Visit'}
             </button>
-            <button type="button" className="btn" onClick={() => router.push('/dashboard')}>
+            <button type="button" className="btn" onClick={() => router.push('/front-office-dashboard')}>
               Cancel
             </button>
           </div>

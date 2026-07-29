@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
+import { getMyDesignation } from '@/app/(main)/users/actions';
 
-export default function Home() {
-  redirect('/dashboard');
+export default async function Home() {
+  const designation = await getMyDesignation();
+  redirect(designation === 'Doctor' ? '/doctor-dashboard' : '/front-office-dashboard');
 }
 

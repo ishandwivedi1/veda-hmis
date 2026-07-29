@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: '/payments/refund', label: 'Refund', icon: 'ti-rotate-clockwise', section: 'Patient Ledger' },
   { href: '/queue', label: 'Queue Management', icon: 'ti-list-numbers', section: 'Clinical' },
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
+  { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
   { href: '/doctor-dashboard', label: 'Doctor Dashboard', icon: 'ti-stethoscope', section: 'Ophthalmologist' },
   { href: '/medical-fitness', label: 'Medical Fitness', icon: 'ti-heart-rate-monitor', section: 'Ophthalmologist' },
@@ -28,9 +29,8 @@ const NAV_ITEMS = [
   { href: '/optometry-reports', label: 'Optometry Reports', icon: 'ti-chart-bar', section: 'Optometrist' },
   { href: '/counselling', label: 'Counselling', icon: 'ti-messages', section: 'Surgical' },
   { href: '/ot-schedule', label: 'OT Schedule', icon: 'ti-calendar-event', section: 'Surgical' },
-  { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', section: 'Surgical' },
   { href: '/ot-intraop', label: 'Operation Theatre', icon: 'ti-building-hospital', section: 'Surgical' },
-  { href: '/ot-recovery', label: 'Recovery', icon: 'ti-bed', section: 'Surgical' },
+  { href: '/ot-recovery', label: 'Recovery & Discharge', icon: 'ti-bed', section: 'Surgical' },
   { href: '/ot-postop', label: 'Post Op', icon: 'ti-calendar-plus', section: 'Surgical' },
   { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', section: 'Administration' },
   { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', section: 'Administration' },
@@ -40,7 +40,6 @@ const NAV_ITEMS = [
 ];
 
 const PAGE_TITLES = [
-  { match: /^\/dashboard/, title: 'Dashboard' },
   { match: /^\/reports/, title: 'Reports' },
   { match: /^\/front-office-dashboard/, title: 'Front Office Dashboard' },
   { match: /^\/patients\/new/, title: 'Register New Patient' },
@@ -68,7 +67,7 @@ const PAGE_TITLES = [
   { match: /^\/ot-schedule/, title: 'OT Schedule' },
   { match: /^\/biometry/, title: 'Biometry & IOL Planning' },
   { match: /^\/ot-intraop/, title: 'Operation Theatre' },
-  { match: /^\/ot-recovery/, title: 'Recovery' },
+  { match: /^\/ot-recovery/, title: 'Recovery & Discharge' },
   { match: /^\/ot-postop/, title: 'Post Op' },
   { match: /^\/master-data\/clinical/, title: 'Clinical Masters' },
   { match: /^\/master-data\/financial/, title: 'Financial Masters' },

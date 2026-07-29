@@ -225,7 +225,7 @@ export default function NewAppointmentPage() {
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? 'Booking...' : 'Book Appointment'}
             </button>
-            <button type="button" className="btn" onClick={() => router.push('/dashboard')}>
+            <button type="button" className="btn" onClick={() => router.push('/front-office-dashboard')}>
               Cancel
             </button>
           </div>

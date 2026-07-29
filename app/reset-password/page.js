@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '../../lib/supabase-browser';
+import { getMyDesignation } from '@/app/(main)/users/actions';
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState('');
@@ -34,7 +35,7 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    router.push('/dashboard');
+    router.push(await getMyDesignation() === 'Doctor' ? '/doctor-dashboard' : '/front-office-dashboard');
     router.refresh();
   }
 

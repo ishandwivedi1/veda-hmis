@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '../../lib/supabase-browser';
-import { resolveLoginEmail } from '@/app/(main)/users/actions';
+import { resolveLoginEmail, getMyDesignation } from '@/app/(main)/users/actions';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -38,7 +38,11 @@ export default function LoginPage() {
       return;
     }
 
-    router.push('/dashboard');
+    // Doctors land on their own dashboard; everyone else (Front Office,
+    // Optometry, Billing, Admin, etc.) lands on Front Office Dashboard,
+    // which is the natural shared starting point for non-clinical roles.
+    const designation = await getMyDesignation();
+    router.push(designation === 'Doctor' ? '/doctor-dashboard' : '/front-office-dashboard');
     router.refresh();
   }
 
