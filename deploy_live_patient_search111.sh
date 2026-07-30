@@ -1,4 +1,6 @@
-#!/bin/bash
+bash deploy_live_patient_search.sh
+
+npm run build#!/bin/bash
 set -e
 echo "Deploying: live patient-search-as-you-type across all patient search boxes"
 

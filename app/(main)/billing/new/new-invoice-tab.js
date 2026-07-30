@@ -295,6 +295,16 @@ export default function NewInvoiceTab() {
     setSearchResults(results);
   }
 
+  // Live search as the user types -- no need to press the Search button.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) { setSearchResults([]); return; }
+    const t = setTimeout(async () => {
+      setSearchResults(await searchPatientsForInvoice(q));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   async function pickPatient(p) {
     setError('');
     setSearchResults([]);
@@ -688,5 +698,6 @@ export default function NewInvoiceTab() {
     </div>
   );
 }
+
 
 

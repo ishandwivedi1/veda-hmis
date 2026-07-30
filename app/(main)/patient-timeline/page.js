@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { searchPatients, getPatientTimeline } from './actions';
 import { openPopup } from '@/lib/popup';
@@ -33,13 +33,25 @@ function PatientTimelineInner() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
+  const skipNextSearch = useRef(false);
 
-  async function handleSearch(val) {
+  function handleSearch(val) {
     setQuery(val);
-    if (val.trim().length < 2) { setResults([]); return; }
-    const rows = await searchPatients(val);
-    setResults(rows);
   }
+
+  // Debounced live search -- waits for a short pause in typing before
+  // querying, rather than firing a request on every keystroke. Skipped
+  // once when the query box is set programmatically (e.g. after picking
+  // a patient below), so the dropdown doesn't reopen right after selection.
+  useEffect(() => {
+    if (skipNextSearch.current) { skipNextSearch.current = false; return; }
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      setResults(await searchPatients(q));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
 
   const loadPatientById = useCallback(async (patientId) => {
     setLoading(true);
@@ -49,7 +61,10 @@ function PatientTimelineInner() {
     setLoading(false);
     setPatient(result.patient);
     setEvents(result.events || []);
-    if (result.patient) setQuery(`${result.patient.first_name} ${result.patient.last_name} -- ${result.patient.uhid}`);
+    if (result.patient) {
+      skipNextSearch.current = true;
+      setQuery(`${result.patient.first_name} ${result.patient.last_name} -- ${result.patient.uhid}`);
+    }
   }, []);
 
   async function handleSelectPatient(p) {
@@ -212,3 +227,4 @@ export default function PatientTimelinePage() {
     </Suspense>
   );
 }
+

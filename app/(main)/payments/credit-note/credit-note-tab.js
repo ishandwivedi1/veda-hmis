@@ -40,6 +40,16 @@ export default function CreditNoteTab() {
     setSearchResults(await searchPatientsForPayment(searchQuery.trim()));
   }
 
+  // Live search as the user types -- no need to press the Search button.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) { setSearchResults([]); return; }
+    const t = setTimeout(async () => {
+      setSearchResults(await searchPatientsForPayment(q));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   async function pickPatient(p) {
     setError(''); setSuccess('');
     setPatient(p);
@@ -182,4 +192,5 @@ export default function CreditNoteTab() {
     </div>
   );
 }
+
 

@@ -64,6 +64,18 @@ function NewVisitForm() {
     setSearched(true);
   }
 
+  // Live search as the user types -- no need to press the Search button.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) { setSearchResults([]); setSearched(false); return; }
+    const t = setTimeout(async () => {
+      const results = await searchPatientsForBooking(q);
+      setSearchResults(results);
+      setSearched(true);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   function goToFullRegistration() {
     const isMobile = /^\d{6,}$/.test(searchQuery.trim());
     const params = new URLSearchParams({
@@ -272,5 +284,6 @@ function NewVisitForm() {
     </div>
   );
 }
+
 
 
