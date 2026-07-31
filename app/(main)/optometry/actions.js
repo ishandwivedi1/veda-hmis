@@ -44,7 +44,7 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
 
   const { data: entry, error: entryError } = await supabase
     .from('queue_entries')
-    .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+    .select('*, visits(id, doctor_id, patients(first_name, last_name, uhid, age, gender))')
     .eq('id', queueEntryId)
     .single();
 
@@ -70,6 +70,32 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
     await addAudit(supabase, assessment.id, 'Assessment started', userData?.user?.id);
   }
 
+  // History (chief complaint, HOPI, ocular/medical/family/drug history,
+  // allergy) lives on `encounters`, same table and columns the doctor's
+  // History tab reads/writes via saveHistory. Opening it here lets the
+  // optometrist capture it before the doctor ever sees the patient --
+  // auto-created on first open, same pattern as the assessment above and
+  // as the doctor's own encounter in consultation/actions.js.
+  let { data: encounter } = await supabase
+    .from('encounters')
+    .select('*')
+    .eq('visit_id', visitId)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!encounter) {
+    const { data: newEncounter, error: encError } = await supabase
+      .from('encounters')
+      .insert({ visit_id: visitId, doctor_id: entry.visits?.doctor_id || null })
+      .select()
+      .single();
+
+    if (encError) return { error: encError.message };
+    encounter = newEncounter;
+    await supabase.from('encounter_audit_log').insert({ encounter_id: encounter.id, message: 'Encounter started (from Optometry)', created_by: userData?.user?.id || null });
+  }
+
   const [{ data: iopReadings }, { data: auditLog }] = await Promise.all([
     supabase.from('optometry_iop_readings').select('*').eq('assessment_id', assessment.id).order('recorded_at', { ascending: true }),
     supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).order('created_at', { ascending: false }),
@@ -89,7 +115,7 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
     locked = doctorEntry?.status === 'In Consultation' || doctorEntry?.status === 'Done';
   }
 
-  return { entry, assessment, iopReadings: iopReadings || [], auditLog: auditLog || [], locked };
+  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: auditLog || [], locked };
 }
 
 // "Save Draft" -- patient stays in the queue, nothing routed anywhere
@@ -193,4 +219,5 @@ export async function addIopReading(assessmentId, eye, value) {
 
   return { reading };
 }
+
 

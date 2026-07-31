@@ -31,7 +31,7 @@ function Chip({ label, selected, onClick }) {
   );
 }
 
-export default function HistoryTab({ encounter, findings, onSaved }) {
+export default function HistoryTab({ encounter, findings, onSaved, hideOptometryBanner = false }) {
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [ccChips, setCcChips] = useState([]);
   const [duration, setDuration] = useState('');
@@ -123,13 +123,15 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
     <div>
       {/* OPTOMETRY FINDINGS -- see the "Optometry" tab for the full
           sheet and to record a correction. */}
-      <div className="card" style={{ marginBottom: 12, background: 'var(--g50)' }}>
-        <div style={{ fontSize: 12, color: 'var(--g600)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <i className="ti ti-eye-check" style={{ color: 'var(--teal)' }}></i>
-          {findings ? 'Optometry assessment on file for this visit.' : 'No optometry assessment on file for this visit.'}
-          <span style={{ color: 'var(--g400)' }}>See the <strong>Optometry</strong> tab for the full sheet{findings ? ' and to record a correction' : ''}.</span>
+      {!hideOptometryBanner && (
+        <div className="card" style={{ marginBottom: 12, background: 'var(--g50)' }}>
+          <div style={{ fontSize: 12, color: 'var(--g600)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <i className="ti ti-eye-check" style={{ color: 'var(--teal)' }}></i>
+            {findings ? 'Optometry assessment on file for this visit.' : 'No optometry assessment on file for this visit.'}
+            <span style={{ color: 'var(--g400)' }}>See the <strong>Optometry</strong> tab for the full sheet{findings ? ' and to record a correction' : ''}.</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* CHIEF COMPLAINT */}
       <div className="card" style={{ marginBottom: 12 }}>
@@ -212,3 +214,4 @@ export default function HistoryTab({ encounter, findings, onSaved }) {
     </div>
   );
 }
+
