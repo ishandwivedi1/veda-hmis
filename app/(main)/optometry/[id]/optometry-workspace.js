@@ -11,6 +11,7 @@ import {
 } from '@/app/(main)/optometry/actions';
 import { getIopMethods } from '@/app/(main)/master-data/actions';
 import HistoryTab from '@/app/consultation/[id]/history-tab';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const VA_SNELLEN = ['6/6', '6/9', '6/12', '6/18', '6/24', '6/36', '6/60', '3/60', '2/60', '1/60'];
 const VA_SPECIAL = ['FC@1m', 'FC@2m', 'FC@3m', 'HM', 'PL+', 'PL-', 'NPL'];
@@ -498,8 +499,18 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
             ))}
           </div>
 
-          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
-            {refTab === 'obj' ? 'Auto-refractometer values. Review before finalizing.' : refTab === 'subj' ? 'Values obtained during subjective refraction with trial lenses.' : 'Final accepted refraction used for prescription / optical order.'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--g500)', flex: 1 }}>
+              {refTab === 'obj' ? 'Auto-refractometer values. Review before finalizing.' : refTab === 'subj' ? 'Values obtained during subjective refraction with trial lenses.' : 'Final accepted refraction used for prescription / optical order.'}
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ background: 'var(--teal)', color: '#fff', border: 'none', flexShrink: 0 }}
+              onClick={() => openPrintPopup(`/glasses-prescription-print/${assessment.id}`)}
+            >
+              <i className="ti ti-printer"></i> Print Prescription
+            </button>
           </div>
 
           <div style={{ overflowX: 'auto' }}>

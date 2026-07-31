@@ -50,6 +50,17 @@ PLACEHOLDER_REFERENCE.opd_case_sheet = [
   '{{#if advice}}...{{/if}}', '{{#if followup_text}}...{{/if}}',
 ];
 
+PLACEHOLDER_REFERENCE.glasses_prescription = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'rx_date', 'va_scale',
+  '{{#if hasDistRx}}...{{/if}}', 'dist_re_sph', 'dist_re_cyl', 'dist_re_axis', 'dist_re_va',
+  'dist_le_sph', 'dist_le_cyl', 'dist_le_axis', 'dist_le_va',
+  '{{#if hasNearRx}}...{{/if}}', 'near_re_sph', 'near_re_cyl', 'near_re_axis', 'near_re_va',
+  'near_le_sph', 'near_le_cyl', 'near_le_axis', 'near_le_va',
+  'ipd', 'optometrist_name', 'doctor_name', 'doctor_regn_no',
+];
+
 PLACEHOLDER_REFERENCE.discharge_summary = [
   'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
   'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
@@ -322,3 +333,4 @@ export default function PrintTemplatesPage() {
     </div>
   );
 }
+
