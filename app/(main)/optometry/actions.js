@@ -26,8 +26,9 @@ const ASSESSMENT_FIELDS = [
   'ref_final_le_near_va', 'ref_final_le_near_sph', 'ref_final_le_near_cyl', 'ref_final_le_near_axis',
   'ref_final_copy_re_to_le',
   'iop_method', 'iop_time',
-  'add_k1', 'add_k2', 'add_axial_length', 'add_pachymetry', 'add_white_to_white', 'add_schirmer',
-  'add_color_vision', 'add_ocular_motility', 'add_syringing',
+  'add_k1_re', 'add_k1_le', 'add_k2_re', 'add_k2_le', 'add_axial_length_re', 'add_axial_length_le',
+  'add_pachymetry_re', 'add_pachymetry_le', 'add_schirmer_re', 'add_schirmer_le',
+  'add_color_vision_re', 'add_color_vision_le', 'add_syringing_re', 'add_syringing_le',
   'section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done',
 ];
 

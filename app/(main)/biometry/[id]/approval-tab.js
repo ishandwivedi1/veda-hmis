@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { approveIolPlan, getIolVersionHistory } from '../actions';
 import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const FORMULA_NAMES = ['Barrett Universal II', 'SRK/T', 'Haigis', 'Hoffer Q', 'Holladay 1', 'Other'];
 const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
@@ -198,8 +199,13 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
         <div>
           {record.status === 'Approved' && (
             <div className="card" style={{ marginBottom: 12, background: 'var(--green-lt)', borderColor: '#86efac' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', marginBottom: 8 }}>
-                <i className="ti ti-clipboard-check"></i> IOL Planning Summary
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>
+                  <i className="ti ti-clipboard-check"></i> IOL Planning Summary
+                </div>
+                <button type="button" className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={() => openPrintPopup(`/biometry-print/${recordId}`)}>
+                  <i className="ti ti-printer"></i> Print Biometry Report
+                </button>
               </div>
               <div style={{ fontSize: 12, color: 'var(--g700)', lineHeight: 1.8 }}>
                 <div><strong>Power:</strong> {record.final_iol_power} D</div>
@@ -231,3 +237,4 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
     </div>
   );
 }
+

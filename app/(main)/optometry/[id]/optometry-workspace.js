@@ -65,8 +65,9 @@ function emptyForm() {
     va_scale: 'Snellen', va_not_assessed: false,
     ref_pd: '', ref_vd: '',
     iop_method: 'Non-Contact Tonometer (NCT)', iop_time: '',
-    add_k1: '', add_k2: '', add_axial_length: '', add_pachymetry: '', add_white_to_white: '', add_schirmer: '',
-    add_color_vision: '', add_ocular_motility: '', add_syringing: '',
+    add_k1_re: '', add_k1_le: '', add_k2_re: '', add_k2_le: '', add_axial_length_re: '', add_axial_length_le: '',
+    add_pachymetry_re: '', add_pachymetry_le: '', add_schirmer_re: '', add_schirmer_le: '',
+    add_color_vision_re: '', add_color_vision_le: '', add_syringing_re: '', add_syringing_le: '',
     section_va_done: false, section_refraction_done: false, section_iop_done: false, section_additional_done: false,
   };
   ['re', 'le'].forEach((eye) => {
@@ -227,6 +228,10 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function setAdditional(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value, section_additional_done: true }));
   }
 
   function setVa(key, value) {
@@ -685,36 +690,60 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
           num={4} color="var(--amber)" title="Additional Measurements" badge={form.section_additional_done ? 'Done' : 'Not started'} badgeCls={form.section_additional_done ? 'b-green' : 'b-gray'}
           open={openSections.additional} onToggle={() => toggleSection('additional')}
         >
-          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 12 }}>Complete only the measurements relevant to this visit.</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <div><label className="flbl">Keratometry K1</label><input className="fi fi-sm" disabled={locked} value={form.add_k1} onChange={(e) => setField('add_k1', e.target.value)} placeholder="e.g. 43.50 D" /></div>
-            <div><label className="flbl">Keratometry K2</label><input className="fi fi-sm" disabled={locked} value={form.add_k2} onChange={(e) => setField('add_k2', e.target.value)} placeholder="e.g. 44.25 D" /></div>
-            <div><label className="flbl">Axial Length</label><input className="fi fi-sm" disabled={locked} value={form.add_axial_length} onChange={(e) => setField('add_axial_length', e.target.value)} placeholder="e.g. 23.2 mm" /></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <div><label className="flbl">Pachymetry (CCT)</label><input className="fi fi-sm" disabled={locked} value={form.add_pachymetry} onChange={(e) => setField('add_pachymetry', e.target.value)} placeholder="e.g. 542 microns" /></div>
-            <div><label className="flbl">White-to-White</label><input className="fi fi-sm" disabled={locked} value={form.add_white_to_white} onChange={(e) => setField('add_white_to_white', e.target.value)} placeholder="e.g. 11.8 mm" /></div>
-            <div><label className="flbl">Schirmer test (RE/LE)</label><input className="fi fi-sm" disabled={locked} value={form.add_schirmer} onChange={(e) => setField('add_schirmer', e.target.value)} placeholder="e.g. 8/6 mm" /></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            <div>
-              <label className="flbl">Color vision</label>
-              <select className="fi fi-sm" disabled={locked} value={form.add_color_vision} onChange={(e) => setField('add_color_vision', e.target.value)}>
-                <option value="">Not tested</option><option>Normal</option><option>Deficient</option><option>Unable to test</option>
-              </select>
-            </div>
-            <div>
-              <label className="flbl">Ocular motility</label>
-              <select className="fi fi-sm" disabled={locked} value={form.add_ocular_motility} onChange={(e) => setField('add_ocular_motility', e.target.value)}>
-                <option value="">Not tested</option><option>Full in all directions</option><option>Restricted</option><option>Nystagmus present</option>
-              </select>
-            </div>
-            <div>
-              <label className="flbl">Syringing</label>
-              <select className="fi fi-sm" disabled={locked} value={form.add_syringing} onChange={(e) => setField('add_syringing', e.target.value)}>
-                <option value="">Not done</option><option>Patent RE</option><option>Patent LE</option><option>Patent bilateral</option><option>Block RE</option><option>Block LE</option>
-              </select>
-            </div>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 12 }}>Complete only the measurements relevant to this visit -- recorded per eye.</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 150 }}></th>
+                  <th style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
+                    OD (RE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Dexter</div>
+                  </th>
+                  <th style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
+                    OS (LE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Sinister</div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { key: 'k1', label: 'Keratometry K1', placeholder: 'e.g. 43.50 D' },
+                  { key: 'k2', label: 'Keratometry K2', placeholder: 'e.g. 44.25 D' },
+                  { key: 'axial_length', label: 'Axial Length', placeholder: 'e.g. 23.2 mm' },
+                  { key: 'pachymetry', label: 'Pachymetry (CCT)', placeholder: 'e.g. 542 microns' },
+                  { key: 'schirmer', label: 'Schirmer test', placeholder: 'e.g. 8 mm' },
+                ].map(({ key, label, placeholder }) => (
+                  <tr key={key} style={{ borderTop: '1px solid var(--g100)' }}>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>{label}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <input className="fi fi-sm" disabled={locked} value={form[`add_${key}_re`]} onChange={(e) => setAdditional(`add_${key}_re`, e.target.value)} placeholder={placeholder} />
+                    </td>
+                    <td style={{ padding: '6px 8px', borderLeft: '4px solid #fff' }}>
+                      <input className="fi fi-sm" disabled={locked} value={form[`add_${key}_le`]} onChange={(e) => setAdditional(`add_${key}_le`, e.target.value)} placeholder={placeholder} />
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '1px solid var(--g100)' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>Color Vision</td>
+                  {['re', 'le'].map((eye) => (
+                    <td key={eye} style={{ padding: '6px 8px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                      <select className="fi fi-sm" disabled={locked} value={form[`add_color_vision_${eye}`]} onChange={(e) => setAdditional(`add_color_vision_${eye}`, e.target.value)}>
+                        <option value="">Not tested</option><option>Normal</option><option>Deficient</option><option>Unable to test</option>
+                      </select>
+                    </td>
+                  ))}
+                </tr>
+                <tr style={{ borderTop: '1px solid var(--g100)' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>Syringing</td>
+                  {['re', 'le'].map((eye) => (
+                    <td key={eye} style={{ padding: '6px 8px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                      <select className="fi fi-sm" disabled={locked} value={form[`add_syringing_${eye}`]} onChange={(e) => setAdditional(`add_syringing_${eye}`, e.target.value)}>
+                        <option value="">Not done</option><option>Patent</option><option>Blocked</option>
+                      </select>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
           </div>
         </AsmtSection>
       </div>

@@ -1,3 +1,1032 @@
+#!/bin/bash
+set -e
+echo "Deploying: Additional Measurements RE/LE split + Biometry Report print"
+
+mkdir -p "$(dirname "app/(main)/optometry/actions.js")"
+cat > "app/(main)/optometry/actions.js" << 'VEDA_EOF_MARKER'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+
+// Fields that live directly on optometry_assessments -- everything
+// except IOP readings (own table, timestamped list) and audit entries
+// (own table, append-only).
+const ASSESSMENT_FIELDS = [
+  'va_scale', 're_dist_unaided', 're_dist_glasses', 're_dist_ph', 're_near_unaided', 're_near_glasses',
+  'le_dist_unaided', 'le_dist_glasses', 'le_dist_ph', 'le_near_unaided', 'le_near_glasses',
+  'va_not_assessed',
+  'ref_pd', 'ref_vd',
+  'ref_obj_re_dist_va', 'ref_obj_re_dist_sph', 'ref_obj_re_dist_cyl', 'ref_obj_re_dist_axis',
+  'ref_obj_re_near_va', 'ref_obj_re_near_sph', 'ref_obj_re_near_cyl', 'ref_obj_re_near_axis',
+  'ref_obj_le_dist_va', 'ref_obj_le_dist_sph', 'ref_obj_le_dist_cyl', 'ref_obj_le_dist_axis',
+  'ref_obj_le_near_va', 'ref_obj_le_near_sph', 'ref_obj_le_near_cyl', 'ref_obj_le_near_axis',
+  'ref_obj_copy_re_to_le',
+  'ref_subj_re_dist_va', 'ref_subj_re_dist_sph', 'ref_subj_re_dist_cyl', 'ref_subj_re_dist_axis',
+  'ref_subj_re_near_va', 'ref_subj_re_near_sph', 'ref_subj_re_near_cyl', 'ref_subj_re_near_axis',
+  'ref_subj_le_dist_va', 'ref_subj_le_dist_sph', 'ref_subj_le_dist_cyl', 'ref_subj_le_dist_axis',
+  'ref_subj_le_near_va', 'ref_subj_le_near_sph', 'ref_subj_le_near_cyl', 'ref_subj_le_near_axis',
+  'ref_subj_copy_re_to_le',
+  'ref_final_re_dist_va', 'ref_final_re_dist_sph', 'ref_final_re_dist_cyl', 'ref_final_re_dist_axis',
+  'ref_final_re_near_va', 'ref_final_re_near_sph', 'ref_final_re_near_cyl', 'ref_final_re_near_axis',
+  'ref_final_le_dist_va', 'ref_final_le_dist_sph', 'ref_final_le_dist_cyl', 'ref_final_le_dist_axis',
+  'ref_final_le_near_va', 'ref_final_le_near_sph', 'ref_final_le_near_cyl', 'ref_final_le_near_axis',
+  'ref_final_copy_re_to_le',
+  'iop_method', 'iop_time',
+  'add_k1_re', 'add_k1_le', 'add_k2_re', 'add_k2_le', 'add_axial_length_re', 'add_axial_length_le',
+  'add_pachymetry_re', 'add_pachymetry_le', 'add_schirmer_re', 'add_schirmer_le',
+  'add_color_vision_re', 'add_color_vision_le', 'add_syringing_re', 'add_syringing_le',
+  'section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done',
+];
+
+function pickAssessmentFields(fields) {
+  const out = {};
+  ASSESSMENT_FIELDS.forEach((key) => {
+    if (fields[key] !== undefined) out[key] = fields[key];
+  });
+  return out;
+}
+
+async function addAudit(supabase, assessmentId, message, userId) {
+  await supabase.from('optometry_audit_log').insert({ assessment_id: assessmentId, message, created_by: userId || null });
+}
+
+// Loads everything the workspace needs: the queue entry + patient, the
+// assessment row (creating an empty Draft one on first open -- same
+// pattern as encounters auto-creating on first doctor consultation),
+// IOP readings, audit log, and lock status.
+export async function getAssessmentWorkspaceData(queueEntryId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { data: entry, error: entryError } = await supabase
+    .from('queue_entries')
+    .select('*, visits(id, doctor_id, patients(first_name, last_name, uhid, age, gender))')
+    .eq('id', queueEntryId)
+    .single();
+
+  if (entryError) return { error: entryError.message };
+
+  const visitId = entry.visits?.id;
+
+  let { data: assessment } = await supabase
+    .from('optometry_assessments')
+    .select('*')
+    .eq('visit_id', visitId)
+    .maybeSingle();
+
+  if (!assessment) {
+    const { data: newAssessment, error: createError } = await supabase
+      .from('optometry_assessments')
+      .insert({ visit_id: visitId, recorded_by: userData?.user?.id || null })
+      .select()
+      .single();
+
+    if (createError) return { error: createError.message };
+    assessment = newAssessment;
+    await addAudit(supabase, assessment.id, 'Assessment started', userData?.user?.id);
+  }
+
+  // History (chief complaint, HOPI, ocular/medical/family/drug history,
+  // allergy) lives on `encounters`, same table and columns the doctor's
+  // History tab reads/writes via saveHistory. Opening it here lets the
+  // optometrist capture it before the doctor ever sees the patient --
+  // auto-created on first open, same pattern as the assessment above and
+  // as the doctor's own encounter in consultation/actions.js.
+  let { data: encounter } = await supabase
+    .from('encounters')
+    .select('*')
+    .eq('visit_id', visitId)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!encounter) {
+    const { data: newEncounter, error: encError } = await supabase
+      .from('encounters')
+      .insert({ visit_id: visitId, doctor_id: entry.visits?.doctor_id || null })
+      .select()
+      .single();
+
+    if (encError) return { error: encError.message };
+    encounter = newEncounter;
+    await supabase.from('encounter_audit_log').insert({ encounter_id: encounter.id, message: 'Encounter started (from Optometry)', created_by: userData?.user?.id || null });
+  }
+
+  const [{ data: iopReadings }, { data: auditLog }] = await Promise.all([
+    supabase.from('optometry_iop_readings').select('*').eq('assessment_id', assessment.id).order('recorded_at', { ascending: true }),
+    supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).order('created_at', { ascending: false }),
+  ]);
+
+  // Same lock rule as before: once completed, editable until the
+  // doctor's queue entry moves to "In Consultation" or "Done".
+  let locked = false;
+  if (assessment.status === 'Completed') {
+    const { data: doctorEntry } = await supabase
+      .from('queue_entries')
+      .select('status')
+      .eq('visit_id', visitId)
+      .eq('department', 'Doctor')
+      .maybeSingle();
+
+    // Viewed from the Optometry queue: lock as soon as the doctor has
+    // taken over (In Consultation) or finished (Done). Viewed from the
+    // Doctor's own queue entry (embedded in the consultation): the
+    // doctor is the one currently "In Consultation", so that status
+    // shouldn't lock them out of their own screen -- only a fully
+    // Done visit does.
+    const viewerIsDoctor = entry.department === 'Doctor';
+    locked = doctorEntry?.status === 'Done' || (!viewerIsDoctor && doctorEntry?.status === 'In Consultation');
+  }
+
+  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: auditLog || [], locked };
+}
+
+// "Save Draft" -- patient stays in the queue, nothing routed anywhere
+// (BR-OPT-003).
+export async function saveDraft(assessmentId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('optometry_assessments')
+    .update({ ...pickAssessmentFields(fields), recorded_by: userData?.user?.id || null, updated_at: new Date().toISOString() })
+    .eq('id', assessmentId);
+
+  if (error) return { error: error.message };
+
+  await addAudit(supabase, assessmentId, 'Draft saved -- patient remains in Optometry Queue', userData?.user?.id);
+  return { success: true };
+}
+
+// "Complete Assessment" -- first-time completion. Requires at least
+// one VA measurement (VAL-OPT-002). Locks the queue entry forward by
+// calling the existing optometry_complete RPC, which issues the
+// Doctor token (BR-OPT-004) -- same mechanism the rest of the app
+// already relies on.
+export async function completeAssessment(assessmentId, queueEntryId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const vaFields = ['re_dist_unaided', 're_dist_glasses', 're_dist_ph', 're_near_unaided', 'le_dist_unaided', 'le_dist_glasses', 'le_dist_ph', 'le_near_unaided'];
+  const hasVa = vaFields.some((k) => fields[k]);
+  if (!hasVa) {
+    return { error: 'At least one Visual Acuity measurement must be recorded before completion (VAL-OPT-002).' };
+  }
+
+  const { error: updateError } = await supabase
+    .from('optometry_assessments')
+    .update({
+      ...pickAssessmentFields(fields),
+      status: 'Completed',
+      completed_at: new Date().toISOString(),
+      completed_by: userData?.user?.id || null,
+      recorded_by: userData?.user?.id || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', assessmentId);
+
+  if (updateError) return { error: updateError.message };
+
+  const { error: completeError } = await supabase.rpc('optometry_complete', { p_queue_entry_id: queueEntryId });
+  if (completeError) return { error: completeError.message };
+
+  await addAudit(supabase, assessmentId, 'Assessment COMPLETED -- routed to Doctor Queue (AUTO-OPT-001)', userData?.user?.id);
+  return { success: true };
+}
+
+// Edit path -- assessment already Completed and not yet locked (doctor
+// hasn't opened the consultation). Updates fields only; queue status
+// and doctor token were already handled the first time.
+export async function updateCompletedAssessment(assessmentId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('optometry_assessments')
+    .update({ ...pickAssessmentFields(fields), recorded_by: userData?.user?.id || null, updated_at: new Date().toISOString() })
+    .eq('id', assessmentId);
+
+  if (error) return { error: error.message };
+
+  await addAudit(supabase, assessmentId, 'Assessment updated post-completion -- not yet seen by doctor', userData?.user?.id);
+  return { success: true };
+}
+
+// Add a single IOP reading -- applied immediately (not batched with
+// the rest of the form), same as the prototype's "Add reading" flow.
+// Out-of-range values still get recorded but flagged (VAL-OPT-003).
+export async function addIopReading(assessmentId, eye, value) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const numericValue = parseFloat(value);
+  if (!numericValue || numericValue <= 0 || numericValue > 80) {
+    return { error: 'Enter a valid IOP value (1-80 mmHg).' };
+  }
+
+  const { data: reading, error } = await supabase
+    .from('optometry_iop_readings')
+    .insert({ assessment_id: assessmentId, eye, value: numericValue, recorded_by: userData?.user?.id || null })
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+
+  const isHigh = numericValue > 21;
+  await addAudit(
+    supabase,
+    assessmentId,
+    `IOP ${eye} = ${numericValue} mmHg${isHigh ? ' -- ELEVATED (VAL-OPT-003)' : ''}`,
+    userData?.user?.id
+  );
+
+  return { reading };
+}
+
+
+VEDA_EOF_MARKER
+
+mkdir -p "$(dirname "app/(main)/optometry/[id]/optometry-workspace.js")"
+cat > "app/(main)/optometry/[id]/optometry-workspace.js" << 'VEDA_EOF_MARKER'
+'use client';
+
+import { useState, useEffect, Fragment } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  getAssessmentWorkspaceData,
+  saveDraft,
+  completeAssessment,
+  updateCompletedAssessment,
+  addIopReading,
+} from '@/app/(main)/optometry/actions';
+import { getIopMethods } from '@/app/(main)/master-data/actions';
+import HistoryTab from '@/app/consultation/[id]/history-tab';
+import { openPrintPopup } from '@/lib/printPopup';
+
+// "P" = partial line read -- standard Snellen convention, one P variant
+// per line from 6/6 through 6/60 (worse lines below 6/60 -- 3/60, 2/60,
+// 1/60 -- don't get a P variant).
+const VA_SNELLEN = [
+  '6/6', '6/6P', '6/9', '6/9P', '6/12', '6/12P', '6/18', '6/18P', '6/24', '6/24P',
+  '6/36', '6/36P', '6/60', '6/60P', '3/60', '2/60', '1/60',
+];
+const VA_SPECIAL = ['FC@1m', 'FC@2m', 'FC@3m', 'HM', 'PL+', 'PL-', 'NPL'];
+
+// Near vision uses its own fixed N-notation scale -- independent of the
+// Snellen/LogMAR/ETDRS distance scale toggle. This is a closed list (no
+// custom entry), unlike Distance.
+const VA_NEAR = ['N4', 'N5', 'N6', 'N8', 'N10', 'N12', 'N18', 'N24', 'N36', '<N36'];
+
+// SPH/CYL magnitude picker grid: 0.25 steps from 0.25 to 20.00, then a
+// final row for the less-common high-power values (20.25 - 30.0).
+const SPH_CYL_MAGNITUDES = [];
+for (let v = 0.25; v <= 20; v += 0.25) SPH_CYL_MAGNITUDES.push(v.toFixed(2).replace(/0$/, ''));
+SPH_CYL_MAGNITUDES.push('20.25', '20.5', '20.75', '30.0');
+
+// AXIS picker grid: 0 - 180 in steps of 5.
+const AXIS_VALUES = [];
+for (let v = 0; v <= 180; v += 5) AXIS_VALUES.push(String(v));
+
+const REF_TYPES = { obj: 'Objective (Auto-Rx)', subj: 'Subjective', final: 'Final Rx' };
+
+function refKey(type, eye, distNear, metric) {
+  return `ref_${type}_${eye}_${distNear}_${metric}`;
+}
+const VA_LOGMAR = ['0.0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.8', '1.0', '1.3'];
+const VA_ETDRS = ['85', '80', '75', '70', '65', '60', '55', '50', '45', '40'];
+
+// Rows x eyes for the Visual Acuity table. "With PH" (pinhole) is
+// Distance-only, per standard clinical practice -- no Near column for it.
+const VA_ROWS = [
+  { row: 'unaided', label: 'Unaided', dist: true, near: true },
+  { row: 'glasses', label: 'With Existing Glass', dist: true, near: true },
+  { row: 'ph', label: 'With PH', dist: true, near: false },
+];
+function vaKey(eye, distNear, row) {
+  return `${eye}_${distNear}_${row}`;
+}
+
+function vaValuesForScale(scale) {
+  return scale === 'LogMAR' ? VA_LOGMAR : scale === 'ETDRS' ? VA_ETDRS : VA_SNELLEN;
+}
+
+function emptyForm() {
+  const f = {
+    va_scale: 'Snellen', va_not_assessed: false,
+    ref_pd: '', ref_vd: '',
+    iop_method: 'Non-Contact Tonometer (NCT)', iop_time: '',
+    add_k1_re: '', add_k1_le: '', add_k2_re: '', add_k2_le: '', add_axial_length_re: '', add_axial_length_le: '',
+    add_pachymetry_re: '', add_pachymetry_le: '', add_schirmer_re: '', add_schirmer_le: '',
+    add_color_vision_re: '', add_color_vision_le: '', add_syringing_re: '', add_syringing_le: '',
+    section_va_done: false, section_refraction_done: false, section_iop_done: false, section_additional_done: false,
+  };
+  ['re', 'le'].forEach((eye) => {
+    VA_ROWS.forEach(({ row, dist, near }) => {
+      if (dist) f[vaKey(eye, 'dist', row)] = '';
+      if (near) f[vaKey(eye, 'near', row)] = '';
+    });
+  });
+  ['obj', 'subj', 'final'].forEach((type) => {
+    ['re', 'le'].forEach((eye) => {
+      ['dist', 'near'].forEach((dn) => {
+        ['va', 'sph', 'cyl', 'axis'].forEach((m) => { f[refKey(type, eye, dn, m)] = ''; });
+      });
+    });
+    f[`ref_${type}_copy_re_to_le`] = false;
+  });
+  return f;
+}
+
+// Button-styled stand-in for a text input, whose value is set via the
+// SPH/CYL/AXIS pop-up picker rather than typed directly.
+function PickerField({ value, onClick, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className="fi fi-sm"
+      style={{ textAlign: 'center', cursor: disabled ? 'default' : 'pointer', background: disabled ? 'var(--g50)' : '#fff', color: value ? 'var(--g800)' : 'var(--g400)', fontWeight: value ? 600 : 400 }}
+    >
+      {value || '--'}
+    </button>
+  );
+}
+
+// SPH/CYL magnitude + sign picker, or AXIS picker, depending on picker.kind.
+function ValuePickerModal({ picker, currentValue, onSelect, onClose }) {
+  const isAxis = picker.kind === 'axis';
+  const [negative, setNegative] = useState(!String(currentValue || '').trim().startsWith('+'));
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 16, maxWidth: 480, width: '100%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)' }}>{picker.label}</div>
+          <button type="button" className="btn btn-sm" onClick={onClose}><i className="ti ti-x"></i></button>
+        </div>
+
+        {!isAxis && (
+          <>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              <div
+                onClick={() => setNegative(false)}
+                style={{ flex: 1, textAlign: 'center', padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${!negative ? 'var(--teal)' : 'var(--g200)'}`, background: !negative ? 'var(--teal)' : '#fff', color: !negative ? '#fff' : 'var(--g600)' }}
+              >
+                +ve
+              </div>
+              <div
+                onClick={() => setNegative(true)}
+                style={{ flex: 1, textAlign: 'center', padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${negative ? 'var(--red)' : 'var(--g200)'}`, background: negative ? 'var(--red)' : '#fff', color: negative ? '#fff' : 'var(--g600)' }}
+              >
+                -ve
+              </div>
+            </div>
+            <div
+              onClick={() => { onSelect('0.00'); onClose(); }}
+              style={{ marginBottom: 10, padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, textAlign: 'center', cursor: 'pointer', border: '1.5px dashed var(--g300)', color: 'var(--g600)' }}
+            >
+              Plano (0.00)
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: isAxis ? 'repeat(4, 1fr)' : 'repeat(5, 1fr)', gap: 6 }}>
+          {(isAxis ? AXIS_VALUES : SPH_CYL_MAGNITUDES).map((v) => (
+            <div
+              key={v}
+              onClick={() => { onSelect(isAxis ? v : `${negative ? '-' : '+'}${v}`); onClose(); }}
+              style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'var(--g50)', border: '1px solid var(--g200)', color: 'var(--g700)' }}
+            >
+              {v}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AsmtSection({ id, num, color, title, badge, badgeCls, open, onToggle, children }) {
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div
+        style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+        onClick={onToggle}
+      >
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 22, height: 22, borderRadius: '50%', background: color, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{num}</span>
+          {title}
+          <span className={`badge ${badgeCls}`}>{badge}</span>
+        </div>
+        <i className={`ti ti-chevron-${open ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+      </div>
+      {open && <div style={{ padding: 16 }}>{children}</div>}
+    </div>
+  );
+}
+
+
+export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
+  const [entry, setEntry] = useState(null);
+  const [assessment, setAssessment] = useState(null);
+  const [encounter, setEncounter] = useState(null);
+  const [iopReadings, setIopReadings] = useState([]);
+  const [auditLog, setAuditLog] = useState([]);
+  const [locked, setLocked] = useState(false);
+  const [loadError, setLoadError] = useState('');
+
+  const [form, setForm] = useState(emptyForm());
+  const [openSections, setOpenSections] = useState({ history: true, va: true, refraction: false, iop: false, additional: false });
+  const [refTab, setRefTab] = useState('obj');
+  const [reIopInput, setReIopInput] = useState('');
+  const [leIopInput, setLeIopInput] = useState('');
+  const [picker, setPicker] = useState(null); // { kind: 'sphcyl'|'axis', fieldKey }
+  const [showRefInstructions, setShowRefInstructions] = useState(false);
+
+  const [error, setError] = useState('');
+  const [okMsg, setOkMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [iopMethods, setIopMethods] = useState([]);
+  const router = useRouter();
+
+  function load() {
+    getAssessmentWorkspaceData(queueEntryId).then((result) => {
+      if (result.error) { setLoadError(result.error); return; }
+      setEntry(result.entry);
+      setAssessment(result.assessment);
+      setEncounter(result.encounter);
+      setIopReadings(result.iopReadings);
+      setAuditLog(result.auditLog);
+      setLocked(result.locked);
+
+      const f = emptyForm();
+      Object.keys(f).forEach((key) => {
+        if (result.assessment[key] !== null && result.assessment[key] !== undefined) f[key] = result.assessment[key];
+      });
+      setForm(f);
+    });
+  }
+
+  useEffect(() => { load(); }, [queueEntryId]);
+
+  useEffect(() => {
+    getIopMethods().then((all) => setIopMethods(all.filter((m) => m.status === 'Active')));
+  }, []);
+
+  const isEdit = assessment?.status === 'Completed';
+
+  function setField(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function setAdditional(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value, section_additional_done: true }));
+  }
+
+  function setVa(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value, section_va_done: true }));
+  }
+
+  function setVaNotAssessed(checked) {
+    setForm((prev) => ({ ...prev, va_not_assessed: checked, section_va_done: true }));
+  }
+
+  function setRef(type, eye, distNear, metric, value) {
+    setForm((prev) => {
+      const next = { ...prev, [refKey(type, eye, distNear, metric)]: value, section_refraction_done: true };
+      // Keep LE mirroring RE live while "Copy RE Value to LE" is on for this refraction type.
+      if (eye === 're' && prev[`ref_${type}_copy_re_to_le`]) {
+        next[refKey(type, 'le', distNear, metric)] = value;
+      }
+      return next;
+    });
+  }
+
+  function toggleCopyToLE(type, checked) {
+    setForm((prev) => {
+      const next = { ...prev, [`ref_${type}_copy_re_to_le`]: checked };
+      if (checked) {
+        ['dist', 'near'].forEach((dn) => {
+          ['va', 'sph', 'cyl', 'axis'].forEach((m) => {
+            next[refKey(type, 'le', dn, m)] = prev[refKey(type, 're', dn, m)];
+          });
+        });
+      }
+      return next;
+    });
+  }
+
+  function toggleSection(key) {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  async function handleAddIop(eye) {
+    const value = eye === 'RE' ? reIopInput : leIopInput;
+    if (!value) return;
+    const result = await addIopReading(assessment.id, eye, value);
+    if (result.error) { setError(result.error); return; }
+    setError('');
+    if (eye === 'RE') setReIopInput(''); else setLeIopInput('');
+    setForm((prev) => ({ ...prev, section_iop_done: true }));
+    // Append the new reading locally rather than calling load() -- a
+    // full reload would overwrite any not-yet-saved edits sitting in
+    // other sections (VA, refraction, additional measurements) with
+    // whatever's still on the server, silently discarding them.
+    setIopReadings((prev) => [...prev, result.reading]);
+  }
+
+  async function handleSaveDraft() {
+    setSaving(true);
+    setError('');
+    setOkMsg('');
+    const result = await saveDraft(assessment.id, form);
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setOkMsg('Draft saved -- patient stays in Optometry Queue.');
+    load();
+  }
+
+  async function handleComplete() {
+    setSaving(true);
+    setError('');
+    setOkMsg('');
+    const result = await completeAssessment(assessment.id, queueEntryId, form);
+    setSaving(false);
+    if (result.error) {
+      setError(result.error);
+      if (!openSections.va) toggleSection('va');
+      return;
+    }
+    setOkMsg('Assessment completed -- routed to Doctor Queue.');
+    setTimeout(() => router.push('/optometry-dashboard'), 1200);
+  }
+
+  async function handleUpdate() {
+    setSaving(true);
+    setError('');
+    setOkMsg('');
+    const result = await updateCompletedAssessment(assessment.id, form);
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setOkMsg('Changes saved.');
+    load();
+  }
+
+  if (loadError) return <div className="msg-err">{loadError}</div>;
+  if (!entry || !assessment) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
+
+  const patient = entry.visits?.patients;
+  const doneCount = ['section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done'].filter((k) => form[k]).length;
+  const vaScaleValues = vaValuesForScale(form.va_scale);
+
+  const reIopSorted = iopReadings.filter((r) => r.eye === 'RE');
+  const leIopSorted = iopReadings.filter((r) => r.eye === 'LE');
+
+  function iopReadingRow(r, list, i) {
+    const isHigh = r.value > 21;
+    const isWarn = r.value > 18 && r.value <= 21;
+    const isLatest = i === list.length - 1;
+    const time = new Date(r.recorded_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+    return (
+      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: isHigh ? 'var(--red-lt)' : isWarn ? 'var(--amber-lt)' : 'var(--g50)', marginBottom: 6, fontSize: 12 }}>
+        <i className={`ti ti-${isHigh ? 'alert-circle' : 'circle-check'}`} style={{ color: isHigh ? 'var(--red)' : isWarn ? 'var(--amber)' : 'var(--green)', fontSize: 14 }}></i>
+        <span style={{ fontWeight: isLatest ? 700 : 400, color: isHigh ? 'var(--red)' : isWarn ? 'var(--amber)' : 'var(--g800)' }}>{r.value} mmHg</span>
+        <span style={{ fontSize: 11, color: 'var(--g500)' }}>{time}</span>
+        <span style={{ marginLeft: 'auto' }} className={`badge ${isLatest ? 'b-teal' : 'b-gray'}`}>{isLatest ? 'Latest' : 'Historical'}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* PATIENT STRIP */}
+      {!embedded && (
+        <div style={{ background: 'linear-gradient(135deg,#0e6b60,#0d9488)', borderRadius: 12, padding: '12px 16px', color: '#fff', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, flexShrink: 0, border: '2px solid rgba(255,255,255,.3)' }}>
+            {patient?.first_name?.charAt(0) || '?'}
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+            <div style={{ fontSize: 11, opacity: .8, marginTop: 2 }}>{patient?.age} -- {patient?.gender} -- {patient?.uhid}</div>
+            <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
+              <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)' }}>Token {entry.token}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WORKFLOW PANEL */}
+      <div style={{ background: '#0f172a', borderRadius: 12, padding: '12px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#5eead4', boxShadow: '0 0 6px #5eead4', flexShrink: 0 }}></div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#5eead4' }}>
+          {locked ? (embedded ? 'Locked -- Visit Closed' : 'Locked -- Doctor Reviewing') : isEdit ? 'Assessment Completed -- Editable' : 'Optometry -- In Progress'}
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.4px' }}>Assessment progress</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{doneCount} / 4 sections</div>
+            <div style={{ height: 6, borderRadius: 3, background: 'var(--g200)', width: 160, marginTop: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 3, background: 'var(--teal)', width: `${(doneCount / 4) * 100}%`, transition: 'width .3s' }}></div>
+            </div>
+          </div>
+          {!locked && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              {!isEdit && (
+                <>
+                  <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.1)', color: '#e2e8f0', borderColor: 'rgba(255,255,255,.2)' }} onClick={handleSaveDraft} disabled={saving}>
+                    <i className="ti ti-device-floppy"></i> Save Draft
+                  </button>
+                  <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleComplete} disabled={saving}>
+                    <i className="ti ti-circle-check"></i> Complete Assessment
+                  </button>
+                </>
+              )}
+              {isEdit && (
+                <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleUpdate} disabled={saving}>
+                  <i className="ti ti-device-floppy"></i> Save Changes
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {locked && (
+        <div className="msg-err" style={{ marginBottom: 12 }}>
+          <i className="ti ti-lock"></i> {embedded ? 'This visit is closed. Shown here for reference only -- no further edits.' : 'The doctor has already started this consultation. Shown here for reference only -- no further edits.'}
+        </div>
+      )}
+      {error && <div className="msg-err">{error}</div>}
+      {okMsg && <div className="msg-success">{okMsg}</div>}
+
+      {/* PATIENT HISTORY -- same HistoryTab component and encounter
+          record the doctor's History tab uses (app/consultation/[id]/history-tab.js,
+          table `encounters`). Filling it in here means it's already on
+          file by the time the doctor opens the consultation. */}
+      <div style={{ marginBottom: 12 }}>
+        <AsmtSection
+          num="H" color="var(--blue)" title="Patient History" badge={locked ? 'Locked' : 'Editable'} badgeCls={locked ? 'b-gray' : 'b-green'}
+          open={openSections.history} onToggle={() => toggleSection('history')}
+        >
+          <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
+            {encounter && <HistoryTab encounter={encounter} findings={null} onSaved={() => {}} hideOptometryBanner />}
+          </fieldset>
+        </AsmtSection>
+      </div>
+
+      {/* SECTION 1: VISUAL ACUITY */}
+      <div style={{ marginBottom: 12 }}>
+        <AsmtSection
+          num={1} color="var(--teal)" title="Visual Acuity" badge={form.section_va_done ? 'Done' : 'Not started'} badgeCls={form.section_va_done ? 'b-green' : 'b-gray'}
+          open={openSections.va} onToggle={() => toggleSection('va')}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, padding: '8px 12px', background: 'var(--g50)', borderRadius: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase' }}>Scale:</span>
+            {['Snellen', 'LogMAR', 'ETDRS'].map((s) => (
+              <div
+                key={s}
+                onClick={() => !locked && !form.va_not_assessed && setField('va_scale', s)}
+                style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: (locked || form.va_not_assessed) ? 'default' : 'pointer', border: `1.5px solid ${form.va_scale === s ? 'var(--teal)' : 'var(--g200)'}`, background: form.va_scale === s ? 'var(--teal)' : '#fff', color: form.va_scale === s ? '#fff' : 'var(--g600)' }}
+              >
+                {s}
+              </div>
+            ))}
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--g700)', marginBottom: 12, cursor: locked ? 'default' : 'pointer' }}>
+            <input type="checkbox" disabled={locked} checked={form.va_not_assessed} onChange={(e) => setVaNotAssessed(e.target.checked)} />
+            None
+          </label>
+
+          {!form.va_not_assessed && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 150 }}></th>
+                    <th colSpan={2} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
+                      OD (RE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Dexter</div>
+                    </th>
+                    <th colSpan={2} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
+                      OS (LE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Sinister</div>
+                    </th>
+                  </tr>
+                  <tr>
+                    <th></th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>Dist</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>Near</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: '4px solid #fff' }}>Dist</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700 }}>Near</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {VA_ROWS.map(({ row, label, dist, near }) => (
+                    <tr key={row} style={{ borderTop: '1px solid var(--g100)' }}>
+                      <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>{label}</td>
+                      {['re', 'le'].map((eye) => (
+                        <Fragment key={eye}>
+                          <td style={{ padding: '6px 8px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                            {dist ? (
+                              <input className="fi fi-sm" list="va-dist-options" disabled={locked} value={form[vaKey(eye, 'dist', row)]} onChange={(e) => setVa(vaKey(eye, 'dist', row), e.target.value)} placeholder="--" />
+                            ) : null}
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            {near ? (
+                              <select className="fi fi-sm" disabled={locked} value={form[vaKey(eye, 'near', row)]} onChange={(e) => setVa(vaKey(eye, 'near', row), e.target.value)}>
+                                <option value="">--</option>
+                                {VA_NEAR.map((v) => <option key={v} value={v}>{v}</option>)}
+                              </select>
+                            ) : null}
+                          </td>
+                        </Fragment>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <datalist id="va-dist-options">
+            {vaScaleValues.map((v) => <option key={v} value={v} />)}
+            {VA_SPECIAL.map((v) => <option key={v} value={v} />)}
+          </datalist>
+        </AsmtSection>
+      </div>
+      {/* SECTION 2: REFRACTION */}
+      <div style={{ marginBottom: 12 }}>
+        <AsmtSection
+          num={2} color="var(--blue)" title="Refraction" badge={form.section_refraction_done ? 'Done' : 'Not started'} badgeCls={form.section_refraction_done ? 'b-green' : 'b-gray'}
+          open={openSections.refraction} onToggle={() => toggleSection('refraction')}
+        >
+          <div style={{ display: 'flex', gap: 4, marginBottom: 14, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
+            {Object.entries(REF_TYPES).map(([key, label]) => (
+              <button key={key} type="button" className={`snbtn ${refTab === key ? 'active' : ''}`} style={{ flex: 1, padding: '7px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: 'none', background: refTab === key ? '#fff' : 'transparent', color: refTab === key ? 'var(--teal)' : 'var(--g500)', cursor: 'pointer', boxShadow: refTab === key ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }} onClick={() => setRefTab(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--g500)', flex: 1 }}>
+              {refTab === 'obj' ? 'Auto-refractometer values. Review before finalizing.' : refTab === 'subj' ? 'Values obtained during subjective refraction with trial lenses.' : 'Final accepted refraction used for prescription / optical order.'}
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ background: 'var(--teal)', color: '#fff', border: 'none', flexShrink: 0 }}
+              onClick={() => openPrintPopup(`/glasses-prescription-print/${assessment.id}`)}
+            >
+              <i className="ti ti-printer"></i> Print Prescription
+            </button>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 60 }}></th>
+                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
+                    OD (RE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Dexter</div>
+                  </th>
+                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
+                    OS (LE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Sinister</div>
+                  </th>
+                </tr>
+                <tr>
+                  <th></th>
+                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h) => (
+                    <th key={`re-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
+                  ))}
+                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h, i) => (
+                    <th key={`le-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {['dist', 'near'].map((distNear) => {
+                  const leCopying = form[`ref_${refTab}_copy_re_to_le`];
+                  return (
+                    <tr key={distNear} style={{ borderTop: '1px solid var(--g100)' }}>
+                      <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)', textTransform: 'capitalize' }}>{distNear === 'dist' ? 'Dist' : 'Near'}</td>
+                      {['re', 'le'].map((eye) => (
+                        <Fragment key={eye}>
+                          <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                            {distNear === 'dist' ? (
+                              <input className="fi fi-sm" list="va-dist-options" disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'va')]} onChange={(e) => setRef(refTab, eye, distNear, 'va', e.target.value)} placeholder="--" />
+                            ) : (
+                              <select className="fi fi-sm" disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'va')]} onChange={(e) => setRef(refTab, eye, distNear, 'va', e.target.value)}>
+                                <option value="">--</option>
+                                {VA_NEAR.map((v) => <option key={v} value={v}>{v}</option>)}
+                              </select>
+                            )}
+                          </td>
+                          <td style={{ padding: '6px 6px' }}>
+                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'sph')]} onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'sph') })} />
+                          </td>
+                          <td style={{ padding: '6px 6px' }}>
+                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'cyl')]} onClick={() => setPicker({ kind: 'sphcyl', label: `CYL -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'cyl') })} />
+                          </td>
+                          <td style={{ padding: '6px 6px' }}>
+                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'axis')]} onClick={() => setPicker({ kind: 'axis', label: `AXIS -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'axis') })} />
+                          </td>
+                        </Fragment>
+                      ))}
+                    </tr>
+                  );
+                })}
+                <tr style={{ borderTop: '1px solid var(--g100)' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>IPD</td>
+                  <td colSpan={2} style={{ padding: '6px 6px' }}>
+                    <input className="fi fi-sm" disabled={locked} style={{ width: 90 }} value={form.ref_pd} onChange={(e) => setField('ref_pd', e.target.value)} placeholder="e.g. 62mm" />
+                  </td>
+                  <td colSpan={3} style={{ padding: '6px 6px' }}>
+                    <button type="button" className="btn btn-sm" style={{ background: 'var(--indigo, #4338ca)', color: '#fff', border: 'none' }} onClick={() => setShowRefInstructions(true)}>
+                      <i className="ti ti-info-circle"></i> Instructions
+                    </button>
+                  </td>
+                  <td colSpan={3} style={{ padding: '6px 6px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--g700)', cursor: locked ? 'default' : 'pointer' }}>
+                      <input type="checkbox" disabled={locked} checked={!!form[`ref_${refTab}_copy_re_to_le`]} onChange={(e) => toggleCopyToLE(refTab, e.target.checked)} />
+                      Copy RE Value to LE
+                    </label>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <label className="flbl">Vertex Distance (optional)</label>
+            <input className="fi fi-sm" style={{ maxWidth: 200 }} disabled={locked} value={form.ref_vd} onChange={(e) => setField('ref_vd', e.target.value)} placeholder="e.g. 12mm" />
+          </div>
+
+          <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginTop: 12 }}>
+            <i className="ti ti-info-circle"></i> Device-imported values should be reviewed before finalizing. All 3 refraction types are recorded independently.
+          </div>
+        </AsmtSection>
+      </div>
+
+      {picker && (
+        <ValuePickerModal
+          picker={picker}
+          currentValue={form[picker.fieldKey]}
+          onSelect={(v) => {
+            const [, type, eye, distNear, metric] = picker.fieldKey.split('_');
+            setRef(type, eye, distNear, metric, v);
+          }}
+          onClose={() => setPicker(null)}
+        />
+      )}
+
+      {showRefInstructions && (
+        <div onClick={() => setShowRefInstructions(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 18, maxWidth: 440, width: '100%', boxShadow: '0 12px 40px rgba(0,0,0,.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)' }}>Refraction -- Instructions</div>
+              <button type="button" className="btn btn-sm" onClick={() => setShowRefInstructions(false)}><i className="ti ti-x"></i></button>
+            </div>
+            <ul style={{ fontSize: 12, color: 'var(--g600)', paddingLeft: 18, lineHeight: 1.7 }}>
+              <li>Record Distance and Near separately for each eye -- tap a field to open the value picker.</li>
+              <li>Tap SPH / CYL and choose +ve or -ve before selecting the magnitude.</li>
+              <li>Enable &quot;Copy RE Value to LE&quot; only when both eyes genuinely match -- it overwrites LE with RE and keeps them locked together until unchecked.</li>
+              <li>IPD (Interpupillary Distance) is recorded once per assessment, not per refraction type.</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 3: IOP */}
+      <div style={{ marginBottom: 12 }}>
+        <AsmtSection
+          num={3} color="var(--purple)" title="Intraocular Pressure" badge={form.section_iop_done ? 'Done' : 'Not started'} badgeCls={form.section_iop_done ? 'b-green' : 'b-gray'}
+          open={openSections.iop} onToggle={() => toggleSection('iop')}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label className="flbl">Method</label>
+              <select className="fi fi-sm" disabled={locked} value={form.iop_method} onChange={(e) => setField('iop_method', e.target.value)}>
+                {iopMethods.map((m) => <option key={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="flbl">Measurement time</label>
+              <input className="fi fi-sm" disabled={locked} value={form.iop_time} onChange={(e) => setField('iop_time', e.target.value)} placeholder="e.g. 10:30 AM" />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            {[['RE', reIopSorted, reIopInput, setReIopInput], ['LE', leIopSorted, leIopInput, setLeIopInput]].map(([eye, list, val, setVal]) => (
+              <div key={eye}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: eye === 'RE' ? 'var(--blue)' : 'var(--teal)', marginBottom: 8, padding: '5px 10px', background: eye === 'RE' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 8 }}>
+                  <i className="ti ti-eye"></i> {eye === 'RE' ? 'Right Eye (RE / OD) -- Oculus Dexter' : 'Left Eye (LE / OS) -- Oculus Sinister'}
+                </div>
+                {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No readings yet</div>}
+                {list.map((r, i) => iopReadingRow(r, list, i))}
+                {!locked && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    <input type="number" className="fi fi-sm" style={{ flex: 1 }} placeholder="mmHg" min="1" max="80" value={val} onChange={(e) => setVal(e.target.value)} />
+                    <button type="button" className="btn btn-sm btn-primary" onClick={() => handleAddIop(eye)}><i className="ti ti-plus"></i> Add reading</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </AsmtSection>
+      </div>
+
+      {/* SECTION 4: ADDITIONAL MEASUREMENTS */}
+      <div style={{ marginBottom: 12 }}>
+        <AsmtSection
+          num={4} color="var(--amber)" title="Additional Measurements" badge={form.section_additional_done ? 'Done' : 'Not started'} badgeCls={form.section_additional_done ? 'b-green' : 'b-gray'}
+          open={openSections.additional} onToggle={() => toggleSection('additional')}
+        >
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 12 }}>Complete only the measurements relevant to this visit -- recorded per eye.</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 150 }}></th>
+                  <th style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
+                    OD (RE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Dexter</div>
+                  </th>
+                  <th style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
+                    OS (LE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Sinister</div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { key: 'k1', label: 'Keratometry K1', placeholder: 'e.g. 43.50 D' },
+                  { key: 'k2', label: 'Keratometry K2', placeholder: 'e.g. 44.25 D' },
+                  { key: 'axial_length', label: 'Axial Length', placeholder: 'e.g. 23.2 mm' },
+                  { key: 'pachymetry', label: 'Pachymetry (CCT)', placeholder: 'e.g. 542 microns' },
+                  { key: 'schirmer', label: 'Schirmer test', placeholder: 'e.g. 8 mm' },
+                ].map(({ key, label, placeholder }) => (
+                  <tr key={key} style={{ borderTop: '1px solid var(--g100)' }}>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>{label}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <input className="fi fi-sm" disabled={locked} value={form[`add_${key}_re`]} onChange={(e) => setAdditional(`add_${key}_re`, e.target.value)} placeholder={placeholder} />
+                    </td>
+                    <td style={{ padding: '6px 8px', borderLeft: '4px solid #fff' }}>
+                      <input className="fi fi-sm" disabled={locked} value={form[`add_${key}_le`]} onChange={(e) => setAdditional(`add_${key}_le`, e.target.value)} placeholder={placeholder} />
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '1px solid var(--g100)' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>Color Vision</td>
+                  {['re', 'le'].map((eye) => (
+                    <td key={eye} style={{ padding: '6px 8px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                      <select className="fi fi-sm" disabled={locked} value={form[`add_color_vision_${eye}`]} onChange={(e) => setAdditional(`add_color_vision_${eye}`, e.target.value)}>
+                        <option value="">Not tested</option><option>Normal</option><option>Deficient</option><option>Unable to test</option>
+                      </select>
+                    </td>
+                  ))}
+                </tr>
+                <tr style={{ borderTop: '1px solid var(--g100)' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>Syringing</td>
+                  {['re', 'le'].map((eye) => (
+                    <td key={eye} style={{ padding: '6px 8px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                      <select className="fi fi-sm" disabled={locked} value={form[`add_syringing_${eye}`]} onChange={(e) => setAdditional(`add_syringing_${eye}`, e.target.value)}>
+                        <option value="">Not done</option><option>Patent</option><option>Blocked</option>
+                      </select>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </AsmtSection>
+      </div>
+
+      {/* AUDIT LOG */}
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
+        {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity yet.</div>}
+        {auditLog.map((a) => (
+          <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8 }}>
+            <span style={{ color: 'var(--g400)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+            <span>{a.message}</span>
+          </div>
+        ))}
+      </div>
+
+      {!embedded && (
+        <div style={{ marginTop: 16 }}>
+          <button type="button" className="btn" onClick={() => router.push('/optometry-dashboard')}>
+            <i className="ti ti-arrow-left"></i> Back to Queue
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+VEDA_EOF_MARKER
+
+mkdir -p "$(dirname "app/print-templates/actions.js")"
+cat > "app/print-templates/actions.js" << 'VEDA_EOF_MARKER'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -1470,3 +2499,637 @@ export async function renderInvestigationHtml(orderId) {
   return { html: compiled(context) };
 }
 
+VEDA_EOF_MARKER
+
+mkdir -p "$(dirname "app/(main)/print-templates/page.js")"
+cat > "app/(main)/print-templates/page.js" << 'VEDA_EOF_MARKER'
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  listPrintTemplates, getPrintTemplate, savePrintTemplate, resetPrintTemplate, previewTemplateHtml,
+  getHospitalSettings, saveHospitalSettings,
+} from '@/app/print-templates/actions';
+
+const PLACEHOLDER_REFERENCE = {
+  invoice_opd: [
+    'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+    'hospital_city_state_pin', 'hospital_phone', 'hospital_email', 'terms_text', '{{{logo_html}}}',
+    'patient_id', 'patient_name', 'patient_mobile', 'patient_age', 'patient_gender', 'procedure',
+    'bill_no', 'bill_date', 'visit_date', 'doctor_name', 'doctor_regn_no',
+    'items (loop: sno, name, qty, rate, amount)', 'gross_amount', 'discount', 'net_amount',
+    'payments (loop: date, ref_number, amount)', 'total_paid',
+  ],
+};
+PLACEHOLDER_REFERENCE.invoice_surgery = [...PLACEHOLDER_REFERENCE.invoice_opd, 'package_name', 'discharge_date'];
+
+PLACEHOLDER_REFERENCE.receipt = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_name', 'patient_id', 'patient_mobile',
+  'receipt_no', 'receipt_date', 'payment_type_label', 'collected_by',
+  'amount_received', 'amount_in_words',
+  '{{#if hasAllocations}}...{{/if}}', 'allocations (loop: invoiceNumber, amount)',
+  'modes (loop: mode, amount)', '{{#if reference}}...{{/if}}', '{{#if remarks}}...{{/if}}',
+];
+PLACEHOLDER_REFERENCE.receipt_advance = PLACEHOLDER_REFERENCE.receipt;
+
+PLACEHOLDER_REFERENCE.opd_case_sheet = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_mobile', 'patient_age', 'patient_gender',
+  'visit_date', 'visit_type', 'doctor_name', 'doctor_regn_no',
+  '{{#if chief_complaint}}...{{/if}}', 'hx_duration', 'hx_laterality', 'hx_hopi',
+  '{{#if hasHistory}}...{{/if}}', 'historyLines (loop: label, text -- Ocular/Medical/Family/Drug History, Allergy)',
+  '{{#if hasVision}}...{{/if}}', 're_vision_unaided', 'le_vision_unaided', 're_vision_glasses', 'le_vision_glasses',
+  're_vision_ph', 'le_vision_ph', 're_vision_near', 'le_vision_near', 're_iop', 'le_iop', 'iop_method',
+  '{{#if hasRefraction}}...{{/if}}', 're_refraction', 'le_refraction',
+  '{{#if hasAdditionalTests}}...{{/if}}', 'additionalTests (loop: label, value -- K1/K2, axial length, pachymetry, etc.)',
+  '{{#if hasOptObservations}}...{{/if}}', 'optObservations',
+  '{{#if hasExamination}}...{{/if}}', '{{#if hasAnyExamFindings}}...{{else}}...{{/if}}',
+  '{{#if hasExamFindingsWithout}}...{{/if}}', 'examFindingsWithout (loop: structure, eye, finding -- abnormal only)',
+  '{{#if hasExamFindingsWith}}...{{/if}}', 'examFindingsWith (loop: structure, eye, finding -- abnormal only)',
+  '{{#if hasExamExtra}}...{{/if}}', 'examExtra (loop: label, value -- CDR, gonioscopy, disc appearance per stage, remarks)',
+  '{{#if hasDiagnoses}}...{{/if}}', 'diagnoses (loop: name, eye, notes)',
+  '{{#if hasPrescriptions}}...{{/if}}', 'prescriptions (loop: drug, eye, dosage, frequency, duration)',
+  '{{#if advice}}...{{/if}}', '{{#if followup_text}}...{{/if}}',
+];
+
+PLACEHOLDER_REFERENCE.glasses_prescription = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'rx_date', 'va_scale',
+  '{{#if hasDistRx}}...{{/if}}', 'dist_re_sph', 'dist_re_cyl', 'dist_re_axis', 'dist_re_va',
+  'dist_le_sph', 'dist_le_cyl', 'dist_le_axis', 'dist_le_va',
+  '{{#if hasNearRx}}...{{/if}}', 'near_re_sph', 'near_re_cyl', 'near_re_axis', 'near_re_va',
+  'near_le_sph', 'near_le_cyl', 'near_le_axis', 'near_le_va',
+  'ipd', 'optometrist_name', 'doctor_name', 'doctor_regn_no',
+];
+
+PLACEHOLDER_REFERENCE.biometry_report = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'visit_number', 'report_date',
+  'procedure_name', 'surgical_eye', 'surgeon_name', 'surgeon_regn_no',
+  '{{#if hasReReadings}}...{{/if}}', '{{#each reSets}}...device, axl, k1, k2, acd, lt, wtw...{{/each}}',
+  '{{#if hasLeReadings}}...{{/if}}', '{{#each leSets}}...device, axl, k1, k2, acd, lt, wtw...{{/each}}',
+  '{{#if hasFormulaResults}}...{{/if}}', '{{#each formulaResults}}...name, power, refraction, isSelected...{{/each}}',
+  'final_iol_power', 'final_iol_formula', 'final_iol_category', 'final_iol_lens', 'target_refraction', 'surgeon_notes', 'approved_date',
+];
+
+PLACEHOLDER_REFERENCE.discharge_summary = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'patient_mobile',
+  'surgeon_name', 'admission_date', 'surgery_date', 'discharge_date', 'procedure_name', 'eye',
+  'iol_lines (loop: eye, text)',
+  '{{#unless hasMedications}}...{{/unless}}', 'medications (loop: name, sig)',
+  '{{#if hasDischargeNotes}}...{{/if}}', 'discharge_notes', 'discharge_instructions',
+  'followups (loop: visit_label, date, status)',
+];
+
+PLACEHOLDER_REFERENCE.investigation_report = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'patient_mobile',
+  'investigation_name', 'investigation_type', 'eye', 'doctor_name', 'ordered_date', 'completed_date',
+  '{{#if isUnable}}...{{else}}...{{/if}}', 'unable_reason',
+  '{{#if hasFields}}...{{/if}}', 'fields (loop: label, value)',
+  '{{#if hasNotes}}...{{/if}}', 'result_notes',
+  'technician_name', '{{#if hasVerifiedBy}}...{{/if}}', 'verified_by_name',
+];
+
+const SETTINGS_FIELDS = [
+  { key: 'name', label: 'Hospital Name' },
+  { key: 'unit_line', label: 'Unit Line (e.g. "A Unit of...")' },
+  { key: 'regn_no', label: 'Hospital Registration No' },
+  { key: 'address_line1', label: 'Address Line 1' },
+  { key: 'address_line2', label: 'Address Line 2' },
+  { key: 'city_state_pin', label: 'City, State - PIN' },
+  { key: 'phone', label: 'Phone Number(s)' },
+  { key: 'email', label: 'Email' },
+  { key: 'terms_text', label: 'Terms & Conditions text' },
+];
+
+function HospitalSettingsPanel() {
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+  const fileInputRef = useRef(null);
+
+  const load = useCallback(async () => { setSettings(await getHospitalSettings()); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  function update(key, value) {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    setSaveMsg('');
+  }
+
+  function handleLogoFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) { setSaveMsg('Logo image should be under 1MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => update('logo_data_url', reader.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    const result = await saveHospitalSettings(settings);
+    setSaving(false);
+    setSaveMsg(result.error || 'Saved -- applies to every template automatically.');
+  }
+
+  if (!settings) return <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div>;
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-head" style={{ marginBottom: 10 }}>
+        <div className="card-title"><i className="ti ti-building-hospital" style={{ color: 'var(--blue)' }}></i> Hospital Settings</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {saveMsg && <span style={{ fontSize: 11.5, color: saveMsg.includes('under') ? 'var(--red)' : 'var(--green)' }}>{saveMsg}</span>}
+          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 14 }}>
+        This information -- including the logo -- appears on every print template automatically. Edit it once here rather than in each template.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 14, alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <div style={{
+            width: 100, height: 100, border: '1.5px dashed var(--g300)', borderRadius: 10,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#fff',
+          }}>
+            {settings.logo_data_url
+              ? <img src={settings.logo_data_url} alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+              : <i className="ti ti-photo" style={{ fontSize: 28, color: 'var(--g300)' }}></i>}
+          </div>
+        </div>
+        <div>
+          <label className="flbl">Hospital Logo</label>
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml" onChange={handleLogoFile} className="fi fi-sm" />
+          <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>PNG, JPG, or SVG -- under 1MB. Falls back to a default mark if none is uploaded.</div>
+          {settings.logo_data_url && (
+            <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginTop: 6 }} onClick={() => update('logo_data_url', null)}>Remove logo</button>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {SETTINGS_FIELDS.map((f) => (
+          <div key={f.key} style={f.key === 'terms_text' ? { gridColumn: 'span 2' } : undefined}>
+            <label className="flbl">{f.label}</label>
+            <input className="fi fi-sm" value={settings[f.key] || ''} onChange={(e) => update(f.key, e.target.value)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function PrintTemplatesPage() {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeKey, setActiveKey] = useState(null);
+  const [html, setHtml] = useState('');
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewError, setPreviewError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+  const debounceRef = useRef(null);
+
+  const refresh = useCallback(async () => {
+    setTemplates(await listPrintTemplates());
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function openTemplate(key) {
+    setActiveKey(key);
+    setSaveMsg('');
+    const t = await getPrintTemplate(key);
+    setHtml(t.html);
+  }
+
+  // Debounced live preview -- re-renders against sample data ~500ms
+  // after typing stops, rather than on every keystroke.
+  useEffect(() => {
+    if (!activeKey) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      const result = await previewTemplateHtml(activeKey, html);
+      if (result.error) { setPreviewError(result.error); return; }
+      setPreviewError('');
+      setPreviewHtml(result.html);
+    }, 500);
+    return () => clearTimeout(debounceRef.current);
+  }, [html, activeKey]);
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveMsg('');
+    const result = await savePrintTemplate(activeKey, html);
+    setSaving(false);
+    if (result.error) { setPreviewError(result.error); return; }
+    setSaveMsg('Saved.');
+    refresh();
+  }
+
+  async function handleReset() {
+    if (!window.confirm('Reset this template to the built-in default? Any customizations will be lost.')) return;
+    setSaving(true);
+    await resetPrintTemplate(activeKey);
+    setSaving(false);
+    const t = await getPrintTemplate(activeKey);
+    setHtml(t.html);
+    setSaveMsg('Reset to default.');
+    refresh();
+  }
+
+  if (loading) return <div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading...</div>;
+
+  const activeMeta = templates.find((t) => t.key === activeKey);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}><i className="ti ti-file-invoice" style={{ color: 'var(--blue)' }}></i> Print Templates</div>
+        <div style={{ fontSize: 12.5, color: 'var(--g500)' }}>
+          Bills, receipts, reports, forms, and summaries printed across the app -- each one is an editable HTML template, not fixed layout.
+        </div>
+      </div>
+
+      <HospitalSettingsPanel />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20, alignItems: 'start' }}>
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 10 }}>Templates</div>
+          {templates.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => !t.comingSoon && openTemplate(t.key)}
+              disabled={t.comingSoon}
+              className="btn"
+              style={{
+                width: '100%', textAlign: 'left', marginBottom: 6, display: 'block',
+                background: activeKey === t.key ? 'var(--blue-lt)' : t.comingSoon ? 'var(--g50)' : '',
+                borderColor: activeKey === t.key ? 'var(--blue)' : '',
+                cursor: t.comingSoon ? 'not-allowed' : 'pointer', opacity: t.comingSoon ? .6 : 1,
+              }}
+            >
+              <div style={{ fontWeight: 600, fontSize: 12.5 }}>{t.name}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>
+                {t.comingSoon ? 'Coming soon' : t.customized ? `Customized -- ${t.updatedBy || 'someone'}` : 'Using default'}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {!activeKey && (
+          <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 40 }}>
+            Select a template on the left to edit its layout.
+          </div>
+        )}
+
+        {activeKey && (
+          <div>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                <div className="card-title">{activeMeta?.name}</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {saveMsg && <span style={{ fontSize: 11.5, color: 'var(--green)' }}>{saveMsg}</span>}
+                  {activeMeta?.customized && (
+                    <button className="btn btn-sm" onClick={handleReset} disabled={saving}>Reset to Default</button>
+                  )}
+                  <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+                Hospital name, address, and logo come from Hospital Settings above automatically. Edit the layout below for anything specific to this document -- {'{{tokens}}'} get replaced with real data when printed. Preview updates automatically as you type.
+              </div>
+
+              <details style={{ marginBottom: 10 }}>
+                <summary style={{ fontSize: 11.5, color: 'var(--blue)', cursor: 'pointer' }}>Available placeholders</summary>
+                <div style={{ fontSize: 11, color: 'var(--g600)', marginTop: 6, lineHeight: 1.8 }}>
+                  {(PLACEHOLDER_REFERENCE[activeKey] || []).map((p) => (
+                    <code key={p} style={{ background: 'var(--g100)', padding: '2px 6px', borderRadius: 4, marginRight: 6, display: 'inline-block', marginBottom: 4 }}>
+                      {p.startsWith('{{') ? p : `{{${p}}}`}
+                    </code>
+                  ))}
+                </div>
+              </details>
+
+              <textarea
+                className="fi"
+                value={html}
+                onChange={(e) => setHtml(e.target.value)}
+                spellCheck={false}
+                style={{ width: '100%', height: 400, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.5, resize: 'vertical' }}
+              />
+            </div>
+
+            <div className="card">
+              <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-eye" style={{ color: 'var(--teal)' }}></i> Preview (sample data)</div>
+              {previewError && <div className="msg-err">{previewError}</div>}
+              {!previewError && (
+                <div style={{ border: '1px solid var(--g200)', borderRadius: 8, overflow: 'hidden' }}>
+                  <iframe title="Template preview" srcDoc={previewHtml} style={{ width: '100%', height: 700, border: 'none' }} />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+VEDA_EOF_MARKER
+
+mkdir -p "$(dirname "app/biometry-print/[recordId]/page.js")"
+cat > "app/biometry-print/[recordId]/page.js" << 'VEDA_EOF_MARKER'
+import { renderBiometryReportHtml } from '@/app/print-templates/actions';
+import PrintButton from '../../invoice-print/[invoiceId]/print-button';
+
+export default async function BiometryReportPrintPage({ params }) {
+  const { recordId } = await params;
+  const result = await renderBiometryReportHtml(recordId);
+
+  if (result.error) {
+    return <div style={{ padding: 40, textAlign: 'center', color: '#b3261e' }}>{result.error}</div>;
+  }
+
+  return (
+    <div>
+      <div className="no-print" style={{ textAlign: 'right', padding: '16px 24px 0' }}>
+        <PrintButton />
+      </div>
+      {/* eslint-disable-next-line react/no-danger -- renderBiometryReportHtml
+          compiles this from the editable print_templates table via
+          Handlebars, which HTML-escapes every {{token}} by default; the
+          template's own static markup is authored by staff through the
+          admin editor, not user input. */}
+      <div dangerouslySetInnerHTML={{ __html: result.html }} />
+    </div>
+  );
+}
+
+VEDA_EOF_MARKER
+
+mkdir -p "$(dirname "app/(main)/biometry/[id]/approval-tab.js")"
+cat > "app/(main)/biometry/[id]/approval-tab.js" << 'VEDA_EOF_MARKER'
+'use client';
+
+import { useState, useEffect } from 'react';
+import { approveIolPlan, getIolVersionHistory } from '../actions';
+import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
+import { openPrintPopup } from '@/lib/printPopup';
+
+const FORMULA_NAMES = ['Barrett Universal II', 'SRK/T', 'Haigis', 'Hoffer Q', 'Holladay 1', 'Other'];
+const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
+const EYE_LABEL = { RE: 'Right (OD)', LE: 'Left (OS)', Both: 'Both (OU)', OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
+
+export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) {
+  const [finalPower, setFinalPower] = useState('');
+  const [finalFormula, setFinalFormula] = useState(FORMULA_NAMES[0]);
+  const [finalCategory, setFinalCategory] = useState(IOL_CATEGORIES[0]);
+  const [finalTarget, setFinalTarget] = useState('');
+  const [iolCatalogId, setIolCatalogId] = useState('');
+  const [surgeonNotes, setSurgeonNotes] = useState('');
+  const [catalog, setCatalog] = useState([]);
+  const [versions, setVersions] = useState([]);
+  const [error, setError] = useState('');
+  const [okMsg, setOkMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [revising, setRevising] = useState(false);
+
+  async function loadVersions() {
+    const v = await getIolVersionHistory(recordId);
+    setVersions(v);
+  }
+
+  useEffect(() => {
+    getActiveIolCatalog().then(setCatalog);
+    loadVersions();
+  }, [recordId]);
+
+  useEffect(() => {
+    const selected = (record.formula_results || []).find((r) => r.name === record.selected_formula);
+    setFinalPower(record.final_iol_power || selected?.power || '');
+    setFinalFormula(record.selected_formula || selected?.name || FORMULA_NAMES[0]);
+    setFinalCategory(record.final_iol_category || IOL_CATEGORIES[0]);
+    setFinalTarget(record.target_refraction || '');
+    setIolCatalogId(record.final_iol_catalog_id || '');
+    setSurgeonNotes(record.surgeon_notes || '');
+  }, [record]);
+
+  const notCalculated = record.status !== 'Calculated' && record.status !== 'Approved';
+  const isApproved = record.status === 'Approved' && !revising;
+  const catalogForCategory = catalog.filter((c) => c.category === finalCategory);
+
+  async function handleApprove() {
+    setError(''); setOkMsg('');
+    if (!finalPower.trim()) { setError('Final IOL power is required.'); return; }
+    setSaving(true);
+    const result = await approveIolPlan(recordId, {
+      finalPower, finalFormula, finalCategory, finalTarget, iolCatalogId: iolCatalogId || null, surgeonNotes,
+    });
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setOkMsg(`IOL Plan approved (version ${result.versionNo}).`);
+    setRevising(false);
+    loadVersions();
+    if (onSaved) onSaved();
+  }
+
+  if (notCalculated) {
+    return (
+      <div className="msg-err">
+        <i className="ti ti-lock"></i> Save at least one formula result in IOL Calculation before approval is available.
+      </div>
+    );
+  }
+
+  const selectedCatalogItem = catalog.find((c) => c.id === record.final_iol_catalog_id);
+
+  return (
+    <div>
+      <div style={{ background: 'linear-gradient(135deg,#166534,#157a4f)', borderRadius: 12, padding: '11px 16px', color: '#fff', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <i className="ti ti-shield-check" style={{ fontSize: 26, flexShrink: 0 }}></i>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>Final IOL Plan Approval</div>
+          <div style={{ fontSize: 11, opacity: .8 }}>{record.procedure_name || 'Procedure not set'} -- Dr. {surgeonName}</div>
+        </div>
+        <div style={{ marginLeft: 16, background: 'rgba(255,255,255,.15)', borderRadius: 8, padding: '6px 12px' }}>
+          <div style={{ fontSize: 9, opacity: .8, textTransform: 'uppercase', letterSpacing: .4 }}>Eye to be Operated</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{EYE_LABEL[record.surgical_eye] || record.surgical_eye || '--'}</div>
+        </div>
+        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+          <div style={{ fontSize: 10, opacity: .7 }}>Only surgeon/ophthalmologist should approve</div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{isApproved ? 'Approved' : revising ? 'Revising' : 'Approval required'}</div>
+        </div>
+      </div>
+
+      <div className="msg-warn" style={{ background: 'var(--amber-lt)', color: 'var(--amber)', padding: '8px 12px', borderRadius: 8, fontSize: 11, marginBottom: 12 }}>
+        <i className="ti ti-alert-triangle"></i> This isn't role-restricted at the database level yet -- please only approve if you're the operating surgeon or ophthalmologist for this case.
+      </div>
+
+      {error && <div className="msg-err">{error}</div>}
+      {okMsg && <div className="msg-success"><i className="ti ti-circle-check"></i> {okMsg}</div>}
+      {revising && (
+        <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+          <i className="ti ti-edit"></i> Revising the approved plan. Approving again will add a new version -- the current approved version stays in history, marked Superseded.
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div>
+          <div className="card" style={{ marginBottom: 12 }}>
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-calculator" style={{ color: 'var(--indigo)' }}></i> Calculation Review</div>
+            {record.formula_results?.length > 0 ? (
+              record.formula_results.map((r, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, fontWeight: r.name === record.selected_formula ? 700 : 400, color: r.name === record.selected_formula ? 'var(--green)' : 'var(--g700)' }}>
+                  <span>{r.name}{r.name === record.selected_formula ? ' (selected)' : ''}</span>
+                  <span style={{ fontFamily: 'monospace' }}>{r.power} D -- {r.refraction}</span>
+                </div>
+              ))
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--g400)' }}>No calculation saved yet.</div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-shield-check" style={{ color: 'var(--green)' }}></i> Final IOL Plan</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+              <div>
+                <label className="flbl">Final IOL power (D) *</label>
+                <input className="fi fi-sm" placeholder="+21.5" value={finalPower} onChange={(e) => setFinalPower(e.target.value)} disabled={isApproved} />
+              </div>
+              <div>
+                <label className="flbl">Formula used</label>
+                <select className="fi fi-sm" value={finalFormula} onChange={(e) => setFinalFormula(e.target.value)} disabled={isApproved}>
+                  {FORMULA_NAMES.map((f) => <option key={f}>{f}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+              <div>
+                <label className="flbl">IOL category *</label>
+                <select className="fi fi-sm" value={finalCategory} onChange={(e) => { setFinalCategory(e.target.value); setIolCatalogId(''); }} disabled={isApproved}>
+                  {IOL_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="flbl">Target refraction</label>
+                <input className="fi fi-sm" value={finalTarget} onChange={(e) => setFinalTarget(e.target.value)} disabled={isApproved} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <label className="flbl">Specific IOL (Master Data -- IOL Catalog)</label>
+              <select className="fi fi-sm" value={iolCatalogId} onChange={(e) => setIolCatalogId(e.target.value)} disabled={isApproved}>
+                <option value="">-- Not specified --</option>
+                {catalogForCategory.map((c) => <option key={c.id} value={c.id}>{c.brand} -- {c.model}{c.manufacturer ? ` (${c.manufacturer})` : ''}</option>)}
+              </select>
+              {catalogForCategory.length === 0 && (
+                <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 3 }}>No catalog items for {finalCategory} yet -- add them in Master Data -&gt; Clinical -&gt; IOL Catalog.</div>
+              )}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label className="flbl">Surgeon notes</label>
+              <textarea className="fi fi-sm" rows={2} value={surgeonNotes} onChange={(e) => setSurgeonNotes(e.target.value)} disabled={isApproved} placeholder="e.g. Aim for slight myopia. Avoid multifocal due to macular finding. Toric axis to be confirmed intra-op..." />
+            </div>
+
+            {!isApproved && (
+              <button className="btn" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={handleApprove} disabled={saving}>
+                <i className="ti ti-shield-check"></i> {saving ? 'Approving...' : revising ? 'Approve Revised Plan' : 'Approve Final IOL Plan'}
+              </button>
+            )}
+            {revising && (
+              <button
+                className="btn btn-sm"
+                style={{ marginLeft: 8 }}
+                onClick={() => {
+                  setRevising(false);
+                  const selected = (record.formula_results || []).find((r) => r.name === record.selected_formula);
+                  setFinalPower(record.final_iol_power || selected?.power || '');
+                  setFinalFormula(record.selected_formula || selected?.name || FORMULA_NAMES[0]);
+                  setFinalCategory(record.final_iol_category || IOL_CATEGORIES[0]);
+                  setFinalTarget(record.target_refraction || '');
+                  setIolCatalogId(record.final_iol_catalog_id || '');
+                  setSurgeonNotes(record.surgeon_notes || '');
+                  setError(''); setOkMsg('');
+                }}
+              >
+                Cancel revision
+              </button>
+            )}
+            {record.status === 'Approved' && !revising && (
+              <div style={{ fontSize: 11, color: 'var(--g500)' }}>
+                Approved{record.approved_at ? ` on ${new Date(record.approved_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. To change the plan (e.g. patient requests a different IOL), click Revise -- this creates a new version without deleting the old one.
+              </div>
+            )}
+            {record.status === 'Approved' && !revising && (
+              <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setRevising(true)}>
+                <i className="ti ti-edit"></i> Revise plan (creates new version)
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div>
+          {record.status === 'Approved' && (
+            <div className="card" style={{ marginBottom: 12, background: 'var(--green-lt)', borderColor: '#86efac' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>
+                  <i className="ti ti-clipboard-check"></i> IOL Planning Summary
+                </div>
+                <button type="button" className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={() => openPrintPopup(`/biometry-print/${recordId}`)}>
+                  <i className="ti ti-printer"></i> Print Biometry Report
+                </button>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--g700)', lineHeight: 1.8 }}>
+                <div><strong>Power:</strong> {record.final_iol_power} D</div>
+                <div><strong>Category:</strong> {record.final_iol_category}</div>
+                {selectedCatalogItem && <div><strong>Lens:</strong> {selectedCatalogItem.brand} -- {selectedCatalogItem.model}</div>}
+                <div><strong>Target:</strong> {record.target_refraction}</div>
+              </div>
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-history" style={{ color: 'var(--g400)' }}></i> Version History</div>
+            {versions.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No approved versions yet.</div>}
+            {versions.map((v) => (
+              <div key={v.id} style={{ padding: '7px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 700 }}>v{v.version_no} -- {v.power} D ({v.formula})</span>
+                  <span className={`badge ${v.status === 'Approved' ? 'b-green' : 'b-gray'}`} style={{ fontSize: 9 }}>{v.status}</span>
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>
+                  {v.profiles?.full_name || 'Staff'} -- {new Date(v.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+            ))}
+            <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 8 }}>Approval supersedes the previous plan but never deletes historical versions.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+VEDA_EOF_MARKER
+
+echo "Done. Files updated:"
+echo "  app/(main)/optometry/actions.js"
+echo "  app/(main)/optometry/[id]/optometry-workspace.js"
+echo "  app/print-templates/actions.js"
+echo "  app/(main)/print-templates/page.js"
+echo "  app/biometry-print/[recordId]/page.js"
+echo "  app/(main)/biometry/[id]/approval-tab.js"
