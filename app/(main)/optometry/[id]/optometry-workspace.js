@@ -9,7 +9,7 @@ import {
   updateCompletedAssessment,
   addIopReading,
 } from '@/app/(main)/optometry/actions';
-import { getIopMethods, getClinicalObservations } from '@/app/(main)/master-data/actions';
+import { getIopMethods } from '@/app/(main)/master-data/actions';
 import HistoryTab from '@/app/consultation/[id]/history-tab';
 
 const VA_SNELLEN = ['6/6', '6/9', '6/12', '6/18', '6/24', '6/36', '6/60', '3/60', '2/60', '1/60'];
@@ -55,8 +55,7 @@ function emptyForm() {
     iop_method: 'Non-Contact Tonometer (NCT)', iop_time: '',
     add_k1: '', add_k2: '', add_axial_length: '', add_pachymetry: '', add_white_to_white: '', add_schirmer: '',
     add_color_vision: '', add_ocular_motility: '', add_syringing: '',
-    observation_chips: [], observations_text: '',
-    section_va_done: false, section_refraction_done: false, section_iop_done: false, section_additional_done: false, section_obs_done: false,
+    section_va_done: false, section_refraction_done: false, section_iop_done: false, section_additional_done: false,
   };
   ['re', 'le'].forEach((eye) => {
     VA_ROWS.forEach(({ row, dist, near }) => {
@@ -165,7 +164,7 @@ function AsmtSection({ id, num, color, title, badge, badgeCls, open, onToggle, c
 }
 
 
-export default function OptometryWorkspace({ queueEntryId }) {
+export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
   const [entry, setEntry] = useState(null);
   const [assessment, setAssessment] = useState(null);
   const [encounter, setEncounter] = useState(null);
@@ -175,7 +174,7 @@ export default function OptometryWorkspace({ queueEntryId }) {
   const [loadError, setLoadError] = useState('');
 
   const [form, setForm] = useState(emptyForm());
-  const [openSections, setOpenSections] = useState({ history: true, va: true, refraction: false, iop: false, additional: false, obs: false });
+  const [openSections, setOpenSections] = useState({ history: true, va: true, refraction: false, iop: false, additional: false });
   const [refTab, setRefTab] = useState('obj');
   const [reIopInput, setReIopInput] = useState('');
   const [leIopInput, setLeIopInput] = useState('');
@@ -186,7 +185,6 @@ export default function OptometryWorkspace({ queueEntryId }) {
   const [okMsg, setOkMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const [iopMethods, setIopMethods] = useState([]);
-  const [obsChips, setObsChips] = useState([]);
   const router = useRouter();
 
   function load() {
@@ -211,7 +209,6 @@ export default function OptometryWorkspace({ queueEntryId }) {
 
   useEffect(() => {
     getIopMethods().then((all) => setIopMethods(all.filter((m) => m.status === 'Active')));
-    getClinicalObservations().then((all) => setObsChips(all.filter((o) => o.status === 'Active')));
   }, []);
 
   const isEdit = assessment?.status === 'Completed';
@@ -250,17 +247,6 @@ export default function OptometryWorkspace({ queueEntryId }) {
         });
       }
       return next;
-    });
-  }
-
-  function toggleObsChip(chip) {
-    setForm((prev) => {
-      const has = prev.observation_chips.includes(chip);
-      return {
-        ...prev,
-        observation_chips: has ? prev.observation_chips.filter((c) => c !== chip) : [...prev.observation_chips, chip],
-        section_obs_done: true,
-      };
     });
   }
 
@@ -324,7 +310,7 @@ export default function OptometryWorkspace({ queueEntryId }) {
   if (!entry || !assessment) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
   const patient = entry.visits?.patients;
-  const doneCount = ['section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done', 'section_obs_done'].filter((k) => form[k]).length;
+  const doneCount = ['section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done'].filter((k) => form[k]).length;
   const vaScaleValues = vaValuesForScale(form.va_scale);
 
   const reIopSorted = iopReadings.filter((r) => r.eye === 'RE');
@@ -348,31 +334,33 @@ export default function OptometryWorkspace({ queueEntryId }) {
   return (
     <div>
       {/* PATIENT STRIP */}
-      <div style={{ background: 'linear-gradient(135deg,#0e6b60,#0d9488)', borderRadius: 12, padding: '12px 16px', color: '#fff', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
-        <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, flexShrink: 0, border: '2px solid rgba(255,255,255,.3)' }}>
-          {patient?.first_name?.charAt(0) || '?'}
-        </div>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
-          <div style={{ fontSize: 11, opacity: .8, marginTop: 2 }}>{patient?.age} -- {patient?.gender} -- {patient?.uhid}</div>
-          <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
-            <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)' }}>Token {entry.token}</span>
+      {!embedded && (
+        <div style={{ background: 'linear-gradient(135deg,#0e6b60,#0d9488)', borderRadius: 12, padding: '12px 16px', color: '#fff', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, flexShrink: 0, border: '2px solid rgba(255,255,255,.3)' }}>
+            {patient?.first_name?.charAt(0) || '?'}
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+            <div style={{ fontSize: 11, opacity: .8, marginTop: 2 }}>{patient?.age} -- {patient?.gender} -- {patient?.uhid}</div>
+            <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
+              <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)' }}>Token {entry.token}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* WORKFLOW PANEL */}
       <div style={{ background: '#0f172a', borderRadius: 12, padding: '12px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#5eead4', boxShadow: '0 0 6px #5eead4', flexShrink: 0 }}></div>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#5eead4' }}>
-          {locked ? 'Locked -- Doctor Reviewing' : isEdit ? 'Assessment Completed -- Editable' : 'Optometry -- In Progress'}
+          {locked ? (embedded ? 'Locked -- Visit Closed' : 'Locked -- Doctor Reviewing') : isEdit ? 'Assessment Completed -- Editable' : 'Optometry -- In Progress'}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.4px' }}>Assessment progress</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{doneCount} / 5 sections</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{doneCount} / 4 sections</div>
             <div style={{ height: 6, borderRadius: 3, background: 'var(--g200)', width: 160, marginTop: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 3, background: 'var(--teal)', width: `${(doneCount / 5) * 100}%`, transition: 'width .3s' }}></div>
+              <div style={{ height: '100%', borderRadius: 3, background: 'var(--teal)', width: `${(doneCount / 4) * 100}%`, transition: 'width .3s' }}></div>
             </div>
           </div>
           {!locked && (
@@ -399,7 +387,7 @@ export default function OptometryWorkspace({ queueEntryId }) {
 
       {locked && (
         <div className="msg-err" style={{ marginBottom: 12 }}>
-          <i className="ti ti-lock"></i> The doctor has already started this consultation. Shown here for reference only -- no further edits.
+          <i className="ti ti-lock"></i> {embedded ? 'This visit is closed. Shown here for reference only -- no further edits.' : 'The doctor has already started this consultation. Shown here for reference only -- no further edits.'}
         </div>
       )}
       {error && <div className="msg-err">{error}</div>}
@@ -700,31 +688,6 @@ export default function OptometryWorkspace({ queueEntryId }) {
         </AsmtSection>
       </div>
 
-      {/* SECTION 5: CLINICAL OBSERVATIONS */}
-      <div style={{ marginBottom: 12 }}>
-        <AsmtSection
-          num={5} color="var(--g500)" title="Clinical Observations" badge={form.section_obs_done ? 'Done' : 'Not started'} badgeCls={form.section_obs_done ? 'b-green' : 'b-gray'}
-          open={openSections.obs} onToggle={() => toggleSection('obs')}
-        >
-          <div className="msg-warn" style={{ background: 'var(--amber-lt)', color: 'var(--amber)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-            <i className="ti ti-alert-triangle"></i> Observations shall be descriptive only. No diagnoses or interpretations permitted here.
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-            {obsChips.map((o) => (
-              <div
-                key={o.id}
-                onClick={() => !locked && toggleObsChip(o.name)}
-                style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: locked ? 'default' : 'pointer', border: `1.5px solid ${form.observation_chips.includes(o.name) ? 'var(--teal)' : 'var(--g200)'}`, background: form.observation_chips.includes(o.name) ? 'var(--teal)' : '#fff', color: form.observation_chips.includes(o.name) ? '#fff' : 'var(--g600)' }}
-              >
-                {o.name}
-              </div>
-            ))}
-          </div>
-          <label className="flbl">Additional observations (descriptive -- no diagnoses)</label>
-          <textarea className="fi" disabled={locked} rows={2} value={form.observations_text} onChange={(e) => setField('observations_text', e.target.value)} placeholder="e.g. Patient had difficulty with right eye assessment due to glare sensitivity..." />
-        </AsmtSection>
-      </div>
-
       {/* AUDIT LOG */}
       <div className="card">
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
@@ -737,11 +700,13 @@ export default function OptometryWorkspace({ queueEntryId }) {
         ))}
       </div>
 
-      <div style={{ marginTop: 16 }}>
-        <button type="button" className="btn" onClick={() => router.push('/optometry-dashboard')}>
-          <i className="ti ti-arrow-left"></i> Back to Queue
-        </button>
-      </div>
+      {!embedded && (
+        <div style={{ marginTop: 16 }}>
+          <button type="button" className="btn" onClick={() => router.push('/optometry-dashboard')}>
+            <i className="ti ti-arrow-left"></i> Back to Queue
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -28,8 +28,7 @@ const ASSESSMENT_FIELDS = [
   'iop_method', 'iop_time',
   'add_k1', 'add_k2', 'add_axial_length', 'add_pachymetry', 'add_white_to_white', 'add_schirmer',
   'add_color_vision', 'add_ocular_motility', 'add_syringing',
-  'observation_chips', 'observations_text',
-  'section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done', 'section_obs_done',
+  'section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done',
 ];
 
 function pickAssessmentFields(fields) {
@@ -122,7 +121,14 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
       .eq('department', 'Doctor')
       .maybeSingle();
 
-    locked = doctorEntry?.status === 'In Consultation' || doctorEntry?.status === 'Done';
+    // Viewed from the Optometry queue: lock as soon as the doctor has
+    // taken over (In Consultation) or finished (Done). Viewed from the
+    // Doctor's own queue entry (embedded in the consultation): the
+    // doctor is the one currently "In Consultation", so that status
+    // shouldn't lock them out of their own screen -- only a fully
+    // Done visit does.
+    const viewerIsDoctor = entry.department === 'Doctor';
+    locked = doctorEntry?.status === 'Done' || (!viewerIsDoctor && doctorEntry?.status === 'In Consultation');
   }
 
   return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: auditLog || [], locked };
