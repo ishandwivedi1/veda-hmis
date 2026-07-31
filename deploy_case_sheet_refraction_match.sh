@@ -1,3 +1,9 @@
+#!/bin/bash
+set -e
+echo "Deploying: OPD Case Sheet refraction now matches Glasses Prescription table style"
+
+mkdir -p "$(dirname "app/print-templates/actions.js")"
+cat > "app/print-templates/actions.js" << 'VEDA_EOF_MARKER'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -1190,3 +1196,7 @@ export async function renderInvestigationHtml(orderId) {
   return { html: compiled(context) };
 }
 
+VEDA_EOF_MARKER
+
+echo "Done. Files updated:"
+echo "  app/print-templates/actions.js"
