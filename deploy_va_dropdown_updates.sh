@@ -1,3 +1,9 @@
+#!/bin/bash
+set -e
+echo "Deploying: VA dropdown changes -- Distance P-variants + free-typing, Near restricted to fixed N-list"
+
+mkdir -p "$(dirname "app/(main)/optometry/[id]/optometry-workspace.js")"
+cat > "app/(main)/optometry/[id]/optometry-workspace.js" << 'VEDA_EOF_MARKER'
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
@@ -736,3 +742,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
 
 
 
+VEDA_EOF_MARKER
+
+echo "Done. Files updated:"
+echo "  app/(main)/optometry/[id]/optometry-workspace.js"
