@@ -87,6 +87,7 @@ export async function createUser(values) {
     full_name: values.fullName,
     designation: values.designation || null,
     department: values.department || null,
+    registration_no: values.registrationNo?.trim() || null,
     username,
     status: 'Active',
   });
@@ -108,6 +109,7 @@ export async function updateUserProfile(userId, values) {
     .update({
       designation: values.designation || null,
       department: values.department || null,
+      registration_no: values.registrationNo?.trim() || null,
     })
     .eq('id', userId);
   if (error) return { error: error.message };
@@ -182,3 +184,4 @@ export async function resolveLoginEmail(usernameOrEmail) {
 
   return { email: authUser.user.email };
 }
+

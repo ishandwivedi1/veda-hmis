@@ -10,6 +10,7 @@ function EditProfileRow({ user, isAdmin, onDone }) {
   const [username, setUsername] = useState(user.username || '');
   const [designation, setDesignation] = useState(user.designation || '');
   const [department, setDepartment] = useState(user.department || '');
+  const [registrationNo, setRegistrationNo] = useState(user.registration_no || '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -26,7 +27,7 @@ function EditProfileRow({ user, isAdmin, onDone }) {
       }
     }
 
-    const result = await updateUserProfile(user.id, { designation, department });
+    const result = await updateUserProfile(user.id, { designation, department, registrationNo });
     setLoading(false);
     if (result.error) { setError(result.error); return; }
     onDone(true);
@@ -49,10 +50,13 @@ function EditProfileRow({ user, isAdmin, onDone }) {
         )}
       </td>
       <td>
-        <select className="fi" value={designation} onChange={(e) => setDesignation(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }}>
+        <select className="fi" value={designation} onChange={(e) => setDesignation(e.target.value)} style={{ fontSize: 12, padding: '4px 6px', marginBottom: designation === 'Doctor' ? 4 : 0 }}>
           <option value="">-- Select --</option>
           {DESIGNATIONS.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        {designation === 'Doctor' && (
+          <input className="fi" placeholder="Regn. No." value={registrationNo} onChange={(e) => setRegistrationNo(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }} />
+        )}
       </td>
       <td>
         <input className="fi" value={department} onChange={(e) => setDepartment(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }} />
@@ -102,7 +106,7 @@ export default function UsersPage() {
   const [myDesignation, setMyDesignation] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ username: '', password: '', fullName: '', designation: '', department: '' });
+  const [form, setForm] = useState({ username: '', password: '', fullName: '', designation: '', department: '', registrationNo: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -127,7 +131,7 @@ export default function UsersPage() {
     const result = await createUser(form);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
-    setForm({ username: '', password: '', fullName: '', designation: '', department: '' });
+    setForm({ username: '', password: '', fullName: '', designation: '', department: '', registrationNo: '' });
     setShowAdd(false);
     refresh();
   }
@@ -170,6 +174,9 @@ export default function UsersPage() {
             </select>
             <input className="fi" placeholder="Department" value={form.department} onChange={update('department')} />
           </div>
+          {form.designation === 'Doctor' && (
+            <input className="fi" placeholder="Doctor Registration No. (appears on printouts)" value={form.registrationNo} onChange={update('registrationNo')} style={{ marginBottom: 8 }} />
+          )}
           <input className="fi" type="password" placeholder="Temporary password (min 6 chars)" value={form.password} onChange={update('password')} style={{ marginBottom: 8 }} />
           <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={loading}>
             {loading ? 'Creating...' : 'Create Account'}
@@ -194,7 +201,12 @@ export default function UsersPage() {
                 <>
                   <td style={{ fontWeight: 600 }}>{u.full_name}</td>
                   <td>{u.username}</td>
-                  <td>{u.designation}</td>
+                  <td>
+                    {u.designation}
+                    {u.designation === 'Doctor' && u.registration_no && (
+                      <div style={{ fontSize: 10, color: 'var(--g500)', marginTop: 2 }}>Regn: {u.registration_no}</div>
+                    )}
+                  </td>
                   <td>{u.department}</td>
                   <td>
                     <button
@@ -220,3 +232,4 @@ export default function UsersPage() {
     </div>
   );
 }
+

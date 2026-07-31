@@ -44,24 +44,6 @@ function normalizeName(s) {
     .replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 }
 
-// Derives a code from the name (upper-snake-case), and appends _2,
-// _3... if that code is already taken. Still used by Financial
-// Masters (Services, Drugs), which have no category concept to link
-// codes to -- Clinical Masters use generateCategoryCode below instead.
-async function generateUniqueCode(supabase, table, name, scopeColumn, scopeValue) {
-  const base = (name || 'ITEM').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'ITEM';
-  let code = base;
-  let n = 1;
-  for (;;) {
-    let q = supabase.from(table).select('id').eq('code', code).limit(1);
-    if (scopeColumn) q = q.eq(scopeColumn, scopeValue);
-    const { data } = await q;
-    if (!data || data.length === 0) return code;
-    n += 1;
-    code = `${base}_${n}`;
-  }
-}
-
 // Derives a short prefix from a category (or a fixed fallback for
 // tables with no category concept) -- multi-word categories become an
 // initialism ("Minor Procedure" -> MP, "chief_complaint" -> CC), single
@@ -482,11 +464,23 @@ export async function getDrugs() {
   const { data } = await supabase.from('master_drugs').select('*').order('generic');
   return data || [];
 }
+// Drugs (Pharmacy tab) -- fixed "DRG" prefix, 3-digit sequence, same
+// PREFIX+NNN shape as Services (CON001...) and Packages (PKG001...)
+// rather than the old name-derived slug codes.
+async function generateDrugCode(supabase) {
+  const { data } = await supabase.from('master_drugs').select('code').ilike('code', 'DRG%');
+  const maxSeq = (data || []).reduce((max, row) => {
+    const m = row.code && row.code.match(/^DRG(\d+)$/);
+    return m ? Math.max(max, parseInt(m[1], 10)) : max;
+  }, 0);
+  return `DRG${String(maxSeq + 1).padStart(3, '0')}`;
+}
+
 export async function addDrug(values) {
   const supabase = await createClient();
   const brand = normalizeName(values.brand);
   const generic = normalizeName(values.generic);
-  const code = await generateUniqueCode(supabase, 'master_drugs', generic || brand);
+  const code = await generateDrugCode(supabase);
   const { error } = await supabase.from('master_drugs').insert({
     code, brand, generic, strength: values.strength, form: normalizeName(values.form),
     rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
@@ -608,4 +602,5 @@ export async function getActiveIolCatalog() {
 // lives in master_services where dept = 'Investigation'. Consolidated
 // into Financial Masters (Migration 48) to avoid the same item ever
 // having two different prices in two different places.
+
 

@@ -533,10 +533,10 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                 <tr>
                   <th></th>
                   {['VA', 'SPH', 'CYL', 'AXIS'].map((h) => (
-                    <th key={`re-${h}`} style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
+                    <th key={`re-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
                   ))}
                   {['VA', 'SPH', 'CYL', 'AXIS'].map((h, i) => (
-                    <th key={`le-${h}`} style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
+                    <th key={`le-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
                   ))}
                 </tr>
               </thead>
