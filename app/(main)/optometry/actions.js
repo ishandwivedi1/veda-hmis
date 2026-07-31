@@ -6,8 +6,9 @@ import { createClient } from '@/lib/supabase-server';
 // except IOP readings (own table, timestamped list) and audit entries
 // (own table, append-only).
 const ASSESSMENT_FIELDS = [
-  'va_scale', 're_dist_unaided', 're_dist_glasses', 're_dist_ph', 're_near_unaided',
-  'le_dist_unaided', 'le_dist_glasses', 'le_dist_ph', 'le_near_unaided',
+  'va_scale', 're_dist_unaided', 're_dist_glasses', 're_dist_ph', 're_near_unaided', 're_near_glasses',
+  'le_dist_unaided', 'le_dist_glasses', 'le_dist_ph', 'le_near_unaided', 'le_near_glasses',
+  'va_not_assessed',
   'ref_pd', 'ref_vd',
   'ref_obj_re_sph', 'ref_obj_re_cyl', 'ref_obj_re_axis',
   'ref_obj_le_sph', 'ref_obj_le_cyl', 'ref_obj_le_axis',
