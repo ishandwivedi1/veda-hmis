@@ -52,7 +52,7 @@ const PTM_OPTIONS = ['+1', '+2', '+3'];
 const IRIS_CONFIG_OPTIONS = ['Concave', 'Convex', 'Regular'];
 const GONIO_FIELDS = [
   { key: 'angle', label: 'Angle Configuration', options: ANGLE_OPTIONS },
-  { key: 'ptm', label: 'PTM Configuration', options: PTM_OPTIONS },
+  { key: 'ptm', label: 'PTM Pigmentation', options: PTM_OPTIONS },
   { key: 'iris', label: 'Iris Configuration', options: IRIS_CONFIG_OPTIONS },
 ];
 function emptyGonioStage() {
@@ -132,13 +132,18 @@ function normalizeStagedFindings(raw, structsByStage) {
   };
 }
 
+// Storage key stays 'CDR' (matches the DB column/struct list), but
+// displays as "C>D Ratio" everywhere -- on screen and in print.
+const STRUCT_DISPLAY_LABEL = { CDR: 'C>D Ratio' };
+
 function StructRow({ struct, templates, eyeState, onSelect, onCustom, asSelect }) {
   const options = templates[struct] || [];
+  const displayLabel = STRUCT_DISPLAY_LABEL[struct] || struct;
 
   if (asSelect) {
     return (
       <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)' }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g700)' }}>{struct}</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g700)' }}>{displayLabel}</div>
         <select className="fi fi-sm" style={{ maxWidth: 160 }} value={eyeState.value} onChange={(e) => onSelect(e.target.value)}>
           <option value="">--</option>
           {options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
@@ -149,7 +154,7 @@ function StructRow({ struct, templates, eyeState, onSelect, onCustom, asSelect }
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)' }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g700)' }}>{struct}</div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g700)' }}>{displayLabel}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
         {options.map((opt) => (
           <div
