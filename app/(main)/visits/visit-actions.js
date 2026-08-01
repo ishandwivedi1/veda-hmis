@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { updateVisit, cancelVisit, getSurgeryTypeOptions } from './actions';
+import { updateVisit, cancelVisit, getSurgeryTypeOptions, resendVisitWhatsApp } from './actions';
 
 const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Post-operative Review', 'Emergency', 'Surgery'];
 
@@ -16,7 +16,18 @@ export default function VisitActions({ visit, doctors }) {
   const [cancelReason, setCancelReason] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [waStatus, setWaStatus] = useState(''); // '', 'sending', 'sent', 'warning', 'error'
+  const [waMsg, setWaMsg] = useState('');
   const router = useRouter();
+
+  async function handleResendWhatsApp() {
+    setWaStatus('sending');
+    setWaMsg('');
+    const result = await resendVisitWhatsApp(visit.id);
+    if (result.error) { setWaStatus('error'); setWaMsg(result.error); return; }
+    if (result.warning) { setWaStatus('warning'); setWaMsg(result.warning); return; }
+    setWaStatus('sent');
+  }
 
   function openEdit() {
     setError('');
@@ -50,16 +61,33 @@ export default function VisitActions({ visit, doctors }) {
     router.refresh();
   }
 
+  const waButton = (
+    <>
+      <button className="btn btn-sm" title="Resend WhatsApp confirmation" onClick={handleResendWhatsApp} disabled={waStatus === 'sending'}>
+        <i className="ti ti-brand-whatsapp" style={{ color: 'var(--green)' }}></i>
+      </button>
+      {waStatus === 'sent' && <span style={{ fontSize: 10, color: 'var(--green)' }}><i className="ti ti-circle-check"></i></span>}
+      {waStatus === 'warning' && <span style={{ fontSize: 10, color: 'var(--amber)' }} title={waMsg}><i className="ti ti-alert-triangle"></i></span>}
+      {waStatus === 'error' && <span style={{ fontSize: 10, color: 'var(--red)' }} title={waMsg}><i className="ti ti-alert-circle"></i></span>}
+    </>
+  );
+
   if (visit.status !== 'Open') {
-    return visit.status === 'Cancelled' && visit.cancellation_reason ? (
-      <span style={{ fontSize: 10, color: 'var(--red)' }} title={visit.cancellation_reason}>
-        <i className="ti ti-info-circle"></i> {visit.cancellation_reason.length > 24 ? `${visit.cancellation_reason.slice(0, 24)}...` : visit.cancellation_reason}
-      </span>
-    ) : null;
+    return (
+      <>
+        {waButton}
+        {visit.status === 'Cancelled' && visit.cancellation_reason ? (
+          <span style={{ fontSize: 10, color: 'var(--red)' }} title={visit.cancellation_reason}>
+            <i className="ti ti-info-circle"></i> {visit.cancellation_reason.length > 24 ? `${visit.cancellation_reason.slice(0, 24)}...` : visit.cancellation_reason}
+          </span>
+        ) : null}
+      </>
+    );
   }
 
   return (
     <>
+      {waButton}
       <button className="btn btn-sm" onClick={openEdit}><i className="ti ti-edit"></i></button>
       <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => { setError(''); setCancelReason(''); setMode('cancel'); }}><i className="ti ti-x"></i></button>
 

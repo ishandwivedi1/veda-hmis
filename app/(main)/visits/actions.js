@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { sendVisitConfirmationWhatsApp, formatVisitDateIST } from '@/lib/whatsapp';
 
 // Fetches a single patient for pre-filling the New Visit form when
 // arriving via a "Create Visit" link from the Patients list, so the
@@ -27,6 +28,30 @@ export async function getDoctorOptionsForVisit() {
   return data || [];
 }
 
+// Shared by createWalkInVisit and checkInAppointment -- fetches the
+// patient's name/mobile (not returned by the visit RPC itself) and
+// fires the "appointment" template. Fire-and-forget: never blocks or
+// fails visit creation; errors are logged in whatsapp_logs.
+async function sendVisitWhatsApp(supabase, visit, triggeredBy) {
+  const { data: patient } = await supabase
+    .from('patients')
+    .select('id, first_name, last_name, mobile')
+    .eq('id', visit.patient_id)
+    .single();
+
+  if (!patient || !patient.mobile) return { success: false, error: 'Patient has no mobile number on file.' };
+
+  return sendVisitConfirmationWhatsApp({
+    name: `${patient.first_name} ${patient.last_name}`.trim(),
+    visitNumber: visit.visit_number,
+    visitDate: formatVisitDateIST(visit.created_at),
+    mobile: patient.mobile,
+    patientDbId: patient.id,
+    visitDbId: visit.id,
+    meta: { module: 'visit', triggeredBy: triggeredBy || null },
+  });
+}
+
 export async function checkInAppointment(appointmentId) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('check_in_appointment', {
@@ -36,7 +61,11 @@ export async function checkInAppointment(appointmentId) {
   if (error) {
     return { error: error.message };
   }
-  return { visit: data };
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const whatsapp = await sendVisitWhatsApp(supabase, data, user?.id);
+
+  return { visit: data, whatsapp };
 }
 
 export async function createWalkInVisit(values) {
@@ -54,13 +83,41 @@ export async function createWalkInVisit(values) {
   if (error) {
     return { error: error.message };
   }
-  return { visit: data };
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const whatsapp = await sendVisitWhatsApp(supabase, data, user?.id);
+
+  return { visit: data, whatsapp };
 }
 
 export async function getSurgeryTypeOptions() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_surgeries').select('id, name').eq('status', 'Active').order('name');
   return data || [];
+}
+
+// Resend the visit confirmation WhatsApp message -- used by a manual
+// "Resend WhatsApp confirmation" control, e.g. if the automatic send
+// failed or the patient's mobile number was corrected since.
+export async function resendVisitWhatsApp(visitId) {
+  if (!visitId) return { error: 'Missing visit id.' };
+
+  const supabase = await createClient();
+  const { data: visit, error } = await supabase
+    .from('visits')
+    .select('id, visit_number, patient_id, created_at')
+    .eq('id', visitId)
+    .single();
+
+  if (error) return { error: error.message };
+  if (!visit) return { error: 'Visit not found.' };
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const whatsapp = await sendVisitWhatsApp(supabase, visit, user?.id);
+
+  if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
+  if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };
+  return { success: true };
 }
 
 const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Post-operative Review', 'Emergency', 'Surgery'];
