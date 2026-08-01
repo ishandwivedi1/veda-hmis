@@ -13,6 +13,7 @@ export default function InvoiceModificationTab() {
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(null);
   const [lineItems, setLineItems] = useState([]);
+  const [originalLineItemIds, setOriginalLineItemIds] = useState(new Set());
   const [catalog, setCatalog] = useState([]);
   const [visitInvoices, setVisitInvoices] = useState(null);
   const searchParams = useSearchParams();
@@ -80,6 +81,11 @@ export default function InvoiceModificationTab() {
     if (details.error) { setError(details.error); return; }
     setSelected(details.invoice);
     setLineItems(details.lineItems);
+    // Snapshot which line items already existed when this modification
+    // session started -- these are locked (part of the original bill).
+    // Anything added from here on stays removable until the invoice is
+    // reopened fresh, at which point it becomes part of the locked set.
+    setOriginalLineItemIds(new Set((details.lineItems || []).map((li) => li.id)));
     setShowCancelForm(false);
     setCancelReason('');
   }
@@ -228,6 +234,7 @@ export default function InvoiceModificationTab() {
             </div>
           </div>
           <div style={{ fontSize: 13, marginBottom: 12 }}>
+            <i className="ti ti-lock" style={{ color: 'var(--g400)', fontSize: 12 }}></i>{' '}
             <strong>{selected.patients?.first_name} {selected.patients?.last_name}</strong> -- {selected.patients?.uhid}
           </div>
 
@@ -237,22 +244,32 @@ export default function InvoiceModificationTab() {
           <table className="tbl">
             <thead><tr><th>Service</th><th>Qty</th><th>Net</th><th></th></tr></thead>
             <tbody>
-              {lineItems.map((li) => (
-                <tr key={li.id}>
-                  <td>{li.service_name}</td>
-                  <td>{li.qty}</td>
-                  <td>Rs.{li.net}</td>
-                  <td>
-                    {selected.status !== 'Cancelled' && (
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => { setRemoveReasonFor(li.id); setRemoveReason(''); setError(''); }}>
-                        Remove
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {lineItems.map((li) => {
+                const isLocked = originalLineItemIds.has(li.id);
+                return (
+                  <tr key={li.id} style={isLocked ? { color: 'var(--g600)' } : undefined}>
+                    <td>{li.service_name}</td>
+                    <td>{li.qty}</td>
+                    <td>Rs.{li.net}</td>
+                    <td>
+                      {isLocked ? (
+                        <span style={{ fontSize: 11, color: 'var(--g400)' }} title="Part of the original bill -- cannot be removed">
+                          <i className="ti ti-lock"></i> Locked
+                        </span>
+                      ) : selected.status !== 'Cancelled' ? (
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => { setRemoveReasonFor(li.id); setRemoveReason(''); setError(''); }}>
+                          Remove
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>
+            <i className="ti ti-info-circle"></i> Original line items are locked once an invoice is opened for modification -- add new items below instead of editing what was already billed.
+          </div>
 
           {removeReasonFor && (
             <div style={{ border: '1.5px solid var(--red-lt)', borderRadius: 8, padding: 12, marginTop: 10 }}>
