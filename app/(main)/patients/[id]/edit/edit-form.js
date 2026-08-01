@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { updatePatient } from '../../actions';
+import { updatePatient, resendRegistrationWhatsApp } from '../../actions';
 
 function calcAge(dob) {
   if (!dob) return '';
@@ -47,6 +47,20 @@ export default function EditForm({ patient }) {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [waStatus, setWaStatus] = useState(''); // '', 'sending', 'sent', 'error'
+  const [waError, setWaError] = useState('');
+
+  async function handleResendWhatsApp() {
+    setWaStatus('sending');
+    setWaError('');
+    const result = await resendRegistrationWhatsApp(patient.id);
+    if (result.error) {
+      setWaStatus('error');
+      setWaError(result.error);
+      return;
+    }
+    setWaStatus('sent');
+  }
 
   function update(field) {
     return (e) => {
@@ -180,11 +194,25 @@ export default function EditForm({ patient }) {
           <textarea className="fi" rows={2} value={values.remarks} onChange={update('remarks')} />
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={handleSave} disabled={loading}>
             <i className="ti ti-device-floppy"></i> {loading ? 'Saving...' : 'Save Changes'}
           </button>
           <button className="btn" onClick={() => router.push('/patients')} disabled={loading}>Cancel</button>
+          <button className="btn" onClick={handleResendWhatsApp} disabled={waStatus === 'sending'}>
+            <i className="ti ti-brand-whatsapp" style={{ color: 'var(--green)' }}></i>
+            {waStatus === 'sending' ? 'Sending...' : 'Resend WhatsApp Confirmation'}
+          </button>
+          {waStatus === 'sent' && (
+            <span style={{ fontSize: 12, color: 'var(--green)' }}>
+              <i className="ti ti-circle-check"></i> Sent
+            </span>
+          )}
+          {waStatus === 'error' && (
+            <span style={{ fontSize: 12, color: 'var(--red)' }}>
+              <i className="ti ti-alert-circle"></i> {waError}
+            </span>
+          )}
         </div>
       </div>
     </div>

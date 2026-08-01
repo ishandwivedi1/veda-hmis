@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { createWalkInVisit } from '@/app/(main)/visits/actions';
+import { sendRegistrationWhatsApp } from '@/lib/whatsapp';
 
 export async function registerPatient(values) {
   const supabase = await createClient();
@@ -32,7 +33,47 @@ export async function registerPatient(values) {
     return { error: error.message };
   }
 
-  return { patient: data };
+  // Fire-and-forget: send the WhatsApp registration confirmation.
+  // Never blocks or fails registration -- errors are logged in
+  // whatsapp_logs for follow-up, and reported back so the UI can
+  // surface a quiet notice without treating it as a hard failure.
+  const { data: { user } } = await supabase.auth.getUser();
+  const whatsapp = await sendRegistrationWhatsApp({
+    name: `${data.first_name} ${data.last_name}`.trim(),
+    patientId: data.uhid,
+    mobile: data.mobile,
+    meta: { triggeredBy: user?.id || null },
+  });
+
+  return { patient: data, whatsapp };
+}
+
+// Resend the registration WhatsApp confirmation for an existing patient --
+// used by the "Resend WhatsApp confirmation" button on the edit page, e.g.
+// if the automatic send failed or the mobile number was corrected since.
+export async function resendRegistrationWhatsApp(patientId) {
+  if (!patientId) return { error: 'Missing patient id.' };
+
+  const supabase = await createClient();
+  const { data: patient, error } = await supabase
+    .from('patients')
+    .select('id, uhid, first_name, last_name, mobile')
+    .eq('id', patientId)
+    .single();
+
+  if (error) return { error: error.message };
+  if (!patient.mobile) return { error: 'This patient has no mobile number on file.' };
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const whatsapp = await sendRegistrationWhatsApp({
+    name: `${patient.first_name} ${patient.last_name}`.trim(),
+    patientId: patient.uhid,
+    mobile: patient.mobile,
+    meta: { triggeredBy: user?.id || null },
+  });
+
+  if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
+  return { success: true };
 }
 
 // Edit an existing patient's demographic/contact record. UHID is
