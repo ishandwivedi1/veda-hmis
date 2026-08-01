@@ -274,6 +274,20 @@ export async function getMostRecentVisitForPatient(patientId) {
     .maybeSingle();
   return data || null;
 }
+
+// Full visit history for a patient, for the "Visit" dropdown on New
+// Invoice -- lets the front desk pick which visit an invoice attaches
+// to instead of always silently defaulting to the most recent one.
+export async function getVisitsForPatient(patientId) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('visits')
+    .select('id, visit_number, visit_type, status, created_at')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
 export async function getVisitWithPatient(visitId) {
   const supabase = await createClient();
   const { data, error } = await supabase

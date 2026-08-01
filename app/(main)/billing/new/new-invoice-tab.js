@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   searchPatientsForInvoice,
-  getMostRecentVisitForPatient,
+  getVisitsForPatient,
   getVisitWithPatient,
   getInvoicesForVisit,
   createInvoiceForVisit,
@@ -50,6 +50,7 @@ export default function NewInvoiceTab() {
   // itself -- picking, browsing, or changing your mind is always free.
   const [contextPatient, setContextPatient] = useState(null);
   const [contextVisit, setContextVisit] = useState(null);
+  const [patientVisits, setPatientVisits] = useState([]);
   const [existingInvoices, setExistingInvoices] = useState([]);
 
   // Draft line items live only in this component's state until
@@ -115,6 +116,8 @@ export default function NewInvoiceTab() {
       if (details.error) { setError(details.error); return; }
       setContextPatient(details.visit.patients);
       setContextVisit(details.visit);
+      const visits = await getVisitsForPatient(details.visit.patients.id);
+      setPatientVisits(visits);
       const invResult = await getInvoicesForVisit(urlVisitId);
       setExistingInvoices(invResult.invoices || []);
     })();
@@ -310,7 +313,9 @@ export default function NewInvoiceTab() {
     setSearchResults([]);
     setSearchQuery('');
     setContextPatient(p);
-    const visit = await getMostRecentVisitForPatient(p.id);
+    const visits = await getVisitsForPatient(p.id);
+    setPatientVisits(visits);
+    const visit = visits[0] || null; // already sorted newest-first
     setContextVisit(visit);
     if (visit) {
       const invResult = await getInvoicesForVisit(visit.id);
@@ -324,8 +329,28 @@ export default function NewInvoiceTab() {
     setError('');
     setContextPatient(v.patients);
     setContextVisit(v);
+    const visits = await getVisitsForPatient(v.patients.id);
+    setPatientVisits(visits);
     const invResult = await getInvoicesForVisit(v.id);
     setExistingInvoices(invResult.invoices || []);
+  }
+
+  // Fired by the "Visit" dropdown once a patient is already selected --
+  // lets the front desk attach the invoice to a different visit than
+  // whichever one was auto-picked as most recent.
+  async function handleVisitDropdownChange(visitId) {
+    setError('');
+    if (!visitId) {
+      setContextVisit(null);
+      setExistingInvoices([]);
+      return;
+    }
+    const v = patientVisits.find((pv) => pv.id === visitId);
+    setContextVisit(v || null);
+    if (v) {
+      const invResult = await getInvoicesForVisit(v.id);
+      setExistingInvoices(invResult.invoices || []);
+    }
   }
 
   function handleDeptChange(e) {
@@ -448,6 +473,7 @@ export default function NewInvoiceTab() {
   function startOver() {
     setContextPatient(null);
     setContextVisit(null);
+    setPatientVisits([]);
     setExistingInvoices([]);
     setDraftLines([]);
     setUnmatchedInvestigations([]);
@@ -523,13 +549,36 @@ export default function NewInvoiceTab() {
                 <i className="ti ti-alert-triangle"></i> No active "Biometry" service found in Financial Masters -- add the charge manually below.
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
               <span>
                 <strong>{contextPatient.first_name} {contextPatient.last_name}</strong> -- {contextPatient.uhid}
                 <span style={{ marginLeft: 8 }} className="badge b-gray">Draft -- not saved yet</span>
               </span>
-              <button className="btn btn-sm" onClick={startOver}>Change / New</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label className="flbl" style={{ margin: 0 }}>Visit</label>
+                <select
+                  className="fi fi-sm"
+                  style={{ minWidth: 220 }}
+                  value={contextVisit?.id || ''}
+                  onChange={(e) => handleVisitDropdownChange(e.target.value)}
+                >
+                  <option value="">-- No visit (walk-in charge) --</option>
+                  {patientVisits.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.visit_number || v.id.slice(0, 8)} -- {v.visit_type} -- {new Date(v.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}
+                      {v.status !== 'Open' ? ` (${v.status})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn btn-sm" onClick={startOver}>Change / New</button>
+              </div>
             </div>
+
+            {!contextVisit && (
+              <div className="msg-info" style={{ fontSize: 12, marginBottom: 12 }}>
+                <i className="ti ti-alert-triangle"></i> No visit selected -- this invoice won&apos;t be linked to a visit. Pick one above if this bill is for a specific visit.
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
               <div>
