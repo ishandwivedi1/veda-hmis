@@ -47,7 +47,7 @@ export default function EditForm({ patient }) {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [waStatus, setWaStatus] = useState(''); // '', 'sending', 'sent', 'error'
+  const [waStatus, setWaStatus] = useState(''); // '', 'sending', 'sent', 'warning', 'error'
   const [waError, setWaError] = useState('');
 
   async function handleResendWhatsApp() {
@@ -57,6 +57,11 @@ export default function EditForm({ patient }) {
     if (result.error) {
       setWaStatus('error');
       setWaError(result.error);
+      return;
+    }
+    if (result.warning) {
+      setWaStatus('warning');
+      setWaError(result.warning);
       return;
     }
     setWaStatus('sent');
@@ -206,6 +211,11 @@ export default function EditForm({ patient }) {
           {waStatus === 'sent' && (
             <span style={{ fontSize: 12, color: 'var(--green)' }}>
               <i className="ti ti-circle-check"></i> Sent
+            </span>
+          )}
+          {waStatus === 'warning' && (
+            <span style={{ fontSize: 12, color: 'var(--amber)' }}>
+              <i className="ti ti-alert-triangle"></i> {waError}
             </span>
           )}
           {waStatus === 'error' && (

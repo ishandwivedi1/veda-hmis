@@ -40,7 +40,8 @@ export async function registerPatient(values) {
   const { data: { user } } = await supabase.auth.getUser();
   const whatsapp = await sendRegistrationWhatsApp({
     name: `${data.first_name} ${data.last_name}`.trim(),
-    patientId: data.uhid,
+    patientUhid: data.uhid,
+    patientDbId: data.id,
     mobile: data.mobile,
     meta: { triggeredBy: user?.id || null },
   });
@@ -67,12 +68,14 @@ export async function resendRegistrationWhatsApp(patientId) {
   const { data: { user } } = await supabase.auth.getUser();
   const whatsapp = await sendRegistrationWhatsApp({
     name: `${patient.first_name} ${patient.last_name}`.trim(),
-    patientId: patient.uhid,
+    patientUhid: patient.uhid,
+    patientDbId: patient.id,
     mobile: patient.mobile,
     meta: { triggeredBy: user?.id || null },
   });
 
   if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
+  if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };
   return { success: true };
 }
 
