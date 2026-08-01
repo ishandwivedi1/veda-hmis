@@ -630,7 +630,7 @@ export async function markBiometryBilled(ids, invoiceId) {
 
 export async function getInvoiceById(invoiceId) {
   const supabase = await createClient();
-  const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, last_name, uhid, mobile)').eq('id', invoiceId).single();
+  const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, last_name, uhid, mobile), visits(id, visit_number, visit_type, created_at)').eq('id', invoiceId).single();
   if (error) return { error: error.message };
   const { data: lineItems } = await supabase.from('invoice_line_items').select('*').eq('invoice_id', invoiceId).order('id');
   return { invoice, lineItems: lineItems || [] };

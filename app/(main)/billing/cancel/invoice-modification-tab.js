@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { searchInvoices, getInvoiceById, getServiceCatalog, addLineItem, removeLineItem, cancelInvoice, getTodaysInvoicesForModification, getInvoicesForVisit } from '../actions';
+import {
+  searchInvoices, getInvoiceById, getServiceCatalog, addLineItem, removeLineItem, cancelInvoice,
+  getTodaysInvoicesForModification, getInvoicesForVisit, getSurgeryBillingOptions, setManualSurgeryDetails,
+} from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
-const DEPARTMENTS = ['Consultation', 'Investigation', 'Surgery', 'Pharmacy'];
+const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure', 'Surgery', 'Pharmacy'];
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
 
 export default function InvoiceModificationTab() {
@@ -29,6 +32,18 @@ export default function InvoiceModificationTab() {
   const [discValue, setDiscValue] = useState('');
   const [discReason, setDiscReason] = useState('');
 
+  // Surgery Billing Details -- same fields as New Invoice, editable here
+  // too since a surgery invoice's surgeon/eye can need correction after
+  // the fact. Saved independently via its own "Save" button rather than
+  // a single commit step, since Modification has no one save-everything
+  // action the way New Invoice does.
+  const [surgeryName, setSurgeryName] = useState('');
+  const [surgeryEyeField, setSurgeryEyeField] = useState('');
+  const [surgeryDoctorId, setSurgeryDoctorId] = useState('');
+  const [surgeryOptions, setSurgeryOptions] = useState([]);
+  const [surgeryDoctorOptions, setSurgeryDoctorOptions] = useState([]);
+  const [savingSurgery, setSavingSurgery] = useState(false);
+
   const [removeReasonFor, setRemoveReasonFor] = useState(null);
   const [removeReason, setRemoveReason] = useState('');
 
@@ -45,7 +60,11 @@ export default function InvoiceModificationTab() {
     setTodaysInvoices(await getTodaysInvoicesForModification());
   }, []);
 
-  useEffect(() => { getServiceCatalog().then(setCatalog); loadToday(); }, [loadToday]);
+  useEffect(() => {
+    getServiceCatalog().then(setCatalog);
+    loadToday();
+    getSurgeryBillingOptions().then(({ surgeries, doctors }) => { setSurgeryOptions(surgeries); setSurgeryDoctorOptions(doctors); });
+  }, [loadToday]);
 
   // Arrived via "Modify" from Front Office Dashboard or New Invoice --
   // jump straight to this visit's invoice(s) instead of a generic
@@ -67,6 +86,7 @@ export default function InvoiceModificationTab() {
   }, [urlVisitId]);
 
   const servicesForDept = catalog.filter((s) => s.dept === dept);
+  const hasSurgeryLine = lineItems.some((li) => li.dept === 'Surgery');
 
   async function handleSearch() {
     if (!searchQuery.trim()) return;
@@ -82,10 +102,14 @@ export default function InvoiceModificationTab() {
     setSelected(details.invoice);
     setLineItems(details.lineItems);
     // Snapshot which line items already existed when this modification
-    // session started -- these are locked (part of the original bill).
-    // Anything added from here on stays removable until the invoice is
-    // reopened fresh, at which point it becomes part of the locked set.
+    // session started -- these are locked (part of the original bill,
+    // exactly as filled in on New Invoice). Anything added from here on
+    // stays removable until the invoice is reopened fresh, at which
+    // point it becomes part of the locked original set.
     setOriginalLineItemIds(new Set((details.lineItems || []).map((li) => li.id)));
+    setSurgeryName(details.invoice.manual_surgery_name || '');
+    setSurgeryEyeField(details.invoice.manual_surgery_eye || '');
+    setSurgeryDoctorId(details.invoice.manual_surgeon_id || '');
     setShowCancelForm(false);
     setCancelReason('');
   }
@@ -124,6 +148,16 @@ export default function InvoiceModificationTab() {
     setRemoveReasonFor(null);
     setRemoveReason('');
     setInfo('Line item removed and logged.');
+    refresh();
+  }
+
+  async function handleSaveSurgeryDetails() {
+    setError(''); setInfo('');
+    setSavingSurgery(true);
+    const result = await setManualSurgeryDetails(selected.id, surgeryName, surgeryEyeField, surgeryDoctorId);
+    setSavingSurgery(false);
+    if (result.error) { setError(result.error); return; }
+    setInfo('Surgery billing details saved.');
     refresh();
   }
 
@@ -233,23 +267,38 @@ export default function InvoiceModificationTab() {
               <span className={`badge ${STATUS_BADGE[selected.status] || 'b-gray'}`}>{selected.status}</span>
             </div>
           </div>
-          <div style={{ fontSize: 13, marginBottom: 12 }}>
-            <i className="ti ti-lock" style={{ color: 'var(--g400)', fontSize: 12 }}></i>{' '}
-            <strong>{selected.patients?.first_name} {selected.patients?.last_name}</strong> -- {selected.patients?.uhid}
+
+          {/* Patient + visit context -- locked, exactly as filled in on
+              New Invoice. No "Change / New" here on purpose: switching
+              patient or visit isn't a modification, it's a different
+              invoice -- use Find Invoice on the left for that. */}
+          <div style={{ background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
+            <div>
+              <i className="ti ti-lock" style={{ color: 'var(--g400)', fontSize: 12 }}></i>{' '}
+              <strong>{selected.patients?.first_name} {selected.patients?.last_name}</strong> -- {selected.patients?.uhid}
+            </div>
+            {selected.visits && (
+              <div style={{ fontSize: 11.5, color: 'var(--g600)', marginTop: 2 }}>
+                Visit: {selected.visits.visit_number || '--'} -- {selected.visits.visit_type} -- {new Date(selected.visits.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
+              </div>
+            )}
           </div>
 
           {error && <div className="msg-err">{error}</div>}
           {info && <div className="msg-success"><i className="ti ti-circle-check"></i> {info}</div>}
 
           <table className="tbl">
-            <thead><tr><th>Service</th><th>Qty</th><th>Net</th><th></th></tr></thead>
+            <thead><tr><th>Dept</th><th>Service</th><th>Qty</th><th>Rate</th><th>Disc</th><th>Net</th><th></th></tr></thead>
             <tbody>
               {lineItems.map((li) => {
                 const isLocked = originalLineItemIds.has(li.id);
                 return (
                   <tr key={li.id} style={isLocked ? { color: 'var(--g600)' } : undefined}>
+                    <td style={{ fontSize: 11 }}>{li.dept}</td>
                     <td>{li.service_name}</td>
                     <td>{li.qty}</td>
+                    <td>Rs.{li.rate}</td>
+                    <td>{li.disc > 0 ? `Rs.${li.disc}` : '--'}</td>
                     <td>Rs.{li.net}</td>
                     <td>
                       {isLocked ? (
@@ -279,6 +328,43 @@ export default function InvoiceModificationTab() {
                 <button className="btn btn-primary btn-sm" onClick={confirmRemoveLine}>Confirm</button>
                 <button className="btn btn-sm" onClick={() => setRemoveReasonFor(null)}>Cancel</button>
               </div>
+            </div>
+          )}
+
+          {hasSurgeryLine && (
+            <div style={{ border: '1px solid var(--g200)', borderRadius: 8, padding: '10px 12px', margin: '16px 0 8px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 8 }}>
+                <i className="ti ti-scalpel"></i> Surgery Billing Details
+                <span style={{ fontWeight: 400, color: 'var(--g400)', marginLeft: 6 }}>(editable -- prints on the Surgery Bill)</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                <div>
+                  <label className="flbl">Surgery</label>
+                  <select className="fi fi-sm" value={surgeryName} onChange={(e) => setSurgeryName(e.target.value)}>
+                    <option value="">-- Select surgery --</option>
+                    {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="flbl">Operated Eye</label>
+                  <select className="fi fi-sm" value={surgeryEyeField} onChange={(e) => setSurgeryEyeField(e.target.value)}>
+                    <option value="">-- Select --</option>
+                    <option value="OD">Right (OD)</option>
+                    <option value="OS">Left (OS)</option>
+                    <option value="OU">Both (OU)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="flbl">Doctor</label>
+                  <select className="fi fi-sm" value={surgeryDoctorId} onChange={(e) => setSurgeryDoctorId(e.target.value)}>
+                    <option value="">-- Select doctor --</option>
+                    {surgeryDoctorOptions.map((d) => <option key={d.id} value={d.id}>{d.full_name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={handleSaveSurgeryDetails} disabled={savingSurgery}>
+                <i className="ti ti-device-floppy"></i> {savingSurgery ? 'Saving...' : 'Save Surgery Details'}
+              </button>
             </div>
           )}
 
@@ -361,5 +447,3 @@ export default function InvoiceModificationTab() {
     </div>
   );
 }
-
-
