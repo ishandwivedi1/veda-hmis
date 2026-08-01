@@ -1,3 +1,9 @@
+#!/bin/bash
+set -e
+echo "Deploying: professional multi-page print handling (A4 margins, repeating table headers, no split rows)"
+
+mkdir -p "$(dirname "app/globals.css")"
+cat > "app/globals.css" << 'VEDA_EOF_MARKER'
 * {
   box-sizing: border-box;
   margin: 0;
@@ -324,3 +330,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .topbar { padding: 12px 16px; }
 }
 
+VEDA_EOF_MARKER
+
+echo "Done. Files updated:"
+echo "  app/globals.css"
