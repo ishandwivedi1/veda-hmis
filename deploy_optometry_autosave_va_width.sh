@@ -1,3 +1,9 @@
+#!/bin/bash
+set -e
+echo "Deploying: Optometry autosave (both Optom + Doctor module) + symmetric Dist/Near VA columns"
+
+mkdir -p "$(dirname "app/(main)/optometry/[id]/optometry-workspace.js")"
+cat > "app/(main)/optometry/[id]/optometry-workspace.js" << 'VEDA_EOF_MARKER'
 'use client';
 
 import { useState, useEffect, useRef, Fragment } from 'react';
@@ -813,3 +819,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
 
 
 
+VEDA_EOF_MARKER
+
+echo "Done. Files updated:"
+echo "  app/(main)/optometry/[id]/optometry-workspace.js"
