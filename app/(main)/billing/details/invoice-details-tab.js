@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { searchInvoices, getInvoiceById } from '../actions';
+import { searchInvoices, getInvoiceById, resendInvoiceBillWhatsApp } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
@@ -35,6 +35,18 @@ export default function InvoiceDetailsTab() {
   const [selected, setSelected] = useState(null);
   const [lineItems, setLineItems] = useState([]);
   const [error, setError] = useState('');
+  const [waStatus, setWaStatus] = useState(''); // '', 'sending', 'sent', 'warning', 'error'
+  const [waMsg, setWaMsg] = useState('');
+
+  async function handleSendWhatsAppBill() {
+    if (!selected) return;
+    setWaStatus('sending');
+    setWaMsg('');
+    const result = await resendInvoiceBillWhatsApp(selected.id);
+    if (result.error) { setWaStatus('error'); setWaMsg(result.error); return; }
+    if (result.warning) { setWaStatus('warning'); setWaMsg(result.warning); return; }
+    setWaStatus('sent');
+  }
 
   const runSearch = useCallback(async () => {
     setInvoices(await searchInvoices(query, deptFilter));
@@ -46,6 +58,8 @@ export default function InvoiceDetailsTab() {
 
   async function openInvoice(inv) {
     setError('');
+    setWaStatus('');
+    setWaMsg('');
     const details = await getInvoiceById(inv.id);
     if (details.error) { setError(details.error); return; }
     setSelected(details.invoice);
@@ -122,10 +136,29 @@ export default function InvoiceDetailsTab() {
                 <button onClick={() => openPrintPopup(`/invoice-print/${selected.id}`)} className="btn btn-sm">
                   <i className="ti ti-printer"></i> Print / PDF
                 </button>
+                <button onClick={handleSendWhatsAppBill} className="btn btn-sm" disabled={waStatus === 'sending'}>
+                  <i className="ti ti-brand-whatsapp" style={{ color: 'var(--green)' }}></i>
+                  {waStatus === 'sending' ? 'Sending...' : 'Send WhatsApp Bill'}
+                </button>
                 <span className={`badge ${STATUS_BADGE[selected.status] || 'b-gray'}`}>{selected.status}</span>
               </div>
             </div>
             {error && <div className="msg-err">{error}</div>}
+            {waStatus === 'sent' && (
+              <div className="msg-success" style={{ marginBottom: 10 }}>
+                <i className="ti ti-circle-check"></i> WhatsApp bill sent.
+              </div>
+            )}
+            {waStatus === 'warning' && (
+              <div className="msg-info" style={{ marginBottom: 10, color: 'var(--amber)' }}>
+                <i className="ti ti-alert-triangle"></i> {waMsg}
+              </div>
+            )}
+            {waStatus === 'error' && (
+              <div className="msg-err" style={{ marginBottom: 10 }}>
+                <i className="ti ti-alert-circle"></i> {waMsg}
+              </div>
+            )}
             <div style={{ fontSize: 13, marginBottom: 12 }}>
               <strong>{selected.patients?.first_name} {selected.patients?.last_name}</strong> -- {selected.patients?.uhid}
             </div>

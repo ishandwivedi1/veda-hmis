@@ -2,6 +2,64 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
+import { generateInvoicePdfBuffer } from '@/lib/pdf-generator';
+import { sendInvoiceBillWhatsApp } from '@/lib/whatsapp';
+
+// Shared by the auto-send-on-full-payment trigger (collectPayment, in
+// payments/actions.js) and the manual "Resend WhatsApp Bill" button.
+// force=false (automatic) skips sending if this invoice was already
+// successfully sent before, so collect_payment being called more than
+// once doesn't spam the patient. force=true (manual) always sends.
+export async function sendInvoiceBill(invoiceId, { force = false, triggeredBy = null } = {}) {
+  const supabase = await createClient();
+
+  if (!force) {
+    const { data: existing } = await supabase
+      .from('whatsapp_logs')
+      .select('id')
+      .eq('invoice_id', invoiceId)
+      .eq('module', 'invoice_bill')
+      .eq('success', true)
+      .limit(1);
+    if (existing && existing.length > 0) return { skipped: true };
+  }
+
+  const { data: invoice, error } = await supabase
+    .from('invoices')
+    .select('id, invoice_number, net, patient_id, patients(id, first_name, last_name, mobile)')
+    .eq('id', invoiceId)
+    .single();
+  if (error || !invoice) return { error: error?.message || 'Invoice not found.' };
+  if (!invoice.patients?.mobile) return { error: 'Patient has no mobile number on file.' };
+
+  const pdfResult = await generateInvoicePdfBuffer(invoiceId);
+  if (pdfResult.error) return { success: false, error: pdfResult.error };
+
+  return sendInvoiceBillWhatsApp({
+    name: `${invoice.patients.first_name} ${invoice.patients.last_name}`.trim(),
+    invoiceNumber: invoice.invoice_number,
+    amount: invoice.net,
+    mobile: invoice.patients.mobile,
+    pdfBuffer: pdfResult.buffer,
+    filename: `${invoice.invoice_number || 'Invoice'}.pdf`,
+    patientDbId: invoice.patient_id,
+    invoiceDbId: invoice.id,
+    meta: { module: 'invoice_bill', triggeredBy },
+  });
+}
+
+// Manual resend, exposed to the "Resend WhatsApp Bill" button -- always
+// sends regardless of whether it was sent automatically before.
+export async function resendInvoiceBillWhatsApp(invoiceId) {
+  if (!invoiceId) return { error: 'Missing invoice id.' };
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const result = await sendInvoiceBill(invoiceId, { force: true, triggeredBy: user?.id || null });
+  if (!result.success) return { error: result.error || 'Failed to send WhatsApp bill.' };
+  if (result.logError) return { success: true, warning: `Message sent, but audit logging failed: ${result.logError}` };
+  return { success: true };
+}
 
 // Same IST-boundary approach as Cash Management -- a plain date string
 // compared against a timestamptz column is interpreted at UTC midnight

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
+import { sendInvoiceBill } from '@/app/(main)/billing/actions';
 
 export async function getTodaysVisits() {
   const supabase = await createClient();
@@ -550,6 +551,25 @@ export async function collectPayment(patientId, invoiceIds, amount, modes, refer
     p_remarks: remarks || null,
   });
   if (error) return { error: error.message };
+
+  // Fire the WhatsApp bill for any invoice that just became fully paid.
+  // Wrapped defensively: PDF generation / WhatsApp being slow or failing
+  // must never surface as a payment-collection failure to the front desk.
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: affectedInvoices } = await supabase
+      .from('invoices')
+      .select('id, status')
+      .in('id', invoiceIds || []);
+    for (const inv of affectedInvoices || []) {
+      if (inv.status === 'Paid') {
+        await sendInvoiceBill(inv.id, { force: false, triggeredBy: user?.id || null });
+      }
+    }
+  } catch (waErr) {
+    console.error('WhatsApp bill auto-send failed (payment already collected):', waErr.message);
+  }
+
   return { payment: data };
 }
 
