@@ -4,7 +4,8 @@ import { after } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { sendInvoiceBill } from '@/app/(main)/billing/actions';
-import { sendAdvancePaymentWhatsApp, formatDateOnlyIST } from '@/lib/whatsapp';
+import { sendAdvanceReceiptWhatsApp, sendPaymentReceiptWhatsApp, formatDateOnlyIST } from '@/lib/whatsapp';
+import { generateReceiptPdfBuffer } from '@/lib/pdf-generator';
 
 export async function getTodaysVisits() {
   const supabase = await createClient();
@@ -277,12 +278,19 @@ export async function collectAdvance(patientId, advanceType, amount, modes, refe
     if (patient?.mobile) {
       after(async () => {
         try {
-          await sendAdvancePaymentWhatsApp({
+          const pdfResult = await generateReceiptPdfBuffer(data.id);
+          if (pdfResult.error) {
+            console.error('Advance receipt PDF generation failed:', pdfResult.error);
+            return;
+          }
+          await sendAdvanceReceiptWhatsApp({
             name: `${patient.first_name} ${patient.last_name}`.trim(),
             amount: data.total_amount,
             receiptNumber: data.receipt_number,
             date: formatDateOnlyIST(data.collected_at),
             mobile: patient.mobile,
+            pdfBuffer: pdfResult.buffer,
+            filename: `${data.receipt_number || 'Receipt'}.pdf`,
             patientDbId: patient.id,
             meta: { module: 'advance_payment', triggeredBy },
           });
@@ -390,30 +398,64 @@ export async function getReceiptById(paymentId) {
   return { payment, modes: modes || [], allocations: allocations || [] };
 }
 
-// Manual "Send WhatsApp" button in Receipt -- works for any payment
-// (advance or regular), unlike the automatic trigger which only fires
-// for advance payments. Uses the same "payment" template either way.
+// Manual "Send WhatsApp" button in Receipt -- works for any payment.
+// Routes to the correct template based on payment_type: regular invoice
+// payments use "payment_receipt" (manual-send only, never automatic);
+// advance payments use "advance_receipt" (also sent automatically, but
+// this button lets it be resent on demand too). Both attach the receipt
+// PDF.
 export async function resendPaymentReceiptWhatsApp(paymentId) {
   if (!paymentId) return { error: 'Missing payment id.' };
   const supabase = await createClient();
   const { data: payment, error } = await supabase
     .from('payments')
-    .select('id, receipt_number, total_amount, collected_at, patient_id, patients(id, first_name, last_name, mobile)')
+    .select('id, receipt_number, total_amount, collected_at, patient_id, payment_type, patients(id, first_name, last_name, mobile)')
     .eq('id', paymentId)
     .single();
   if (error || !payment) return { error: error?.message || 'Receipt not found.' };
   if (!payment.patients?.mobile) return { error: 'Patient has no mobile number on file.' };
 
+  const pdfResult = await generateReceiptPdfBuffer(paymentId);
+  if (pdfResult.error) return { error: pdfResult.error };
+
   const { data: { user } } = await supabase.auth.getUser();
-  const whatsapp = await sendAdvancePaymentWhatsApp({
-    name: `${payment.patients.first_name} ${payment.patients.last_name}`.trim(),
-    amount: payment.total_amount,
-    receiptNumber: payment.receipt_number,
-    date: formatDateOnlyIST(payment.collected_at),
-    mobile: payment.patients.mobile,
-    patientDbId: payment.patient_id,
-    meta: { module: 'payment_receipt', triggeredBy: user?.id || null },
-  });
+  const name = `${payment.patients.first_name} ${payment.patients.last_name}`.trim();
+  const filename = `${payment.receipt_number || 'Receipt'}.pdf`;
+  const meta = { module: payment.payment_type === 'advance' ? 'advance_payment' : 'payment_receipt', triggeredBy: user?.id || null };
+
+  let whatsapp;
+  if (payment.payment_type === 'advance') {
+    whatsapp = await sendAdvanceReceiptWhatsApp({
+      name,
+      amount: payment.total_amount,
+      receiptNumber: payment.receipt_number,
+      date: formatDateOnlyIST(payment.collected_at),
+      mobile: payment.patients.mobile,
+      pdfBuffer: pdfResult.buffer,
+      filename,
+      patientDbId: payment.patient_id,
+      meta,
+    });
+  } else {
+    const { data: allocations } = await supabase
+      .from('payment_allocations')
+      .select('invoices(invoice_number)')
+      .eq('payment_id', paymentId);
+    const invoiceNumber = (allocations || []).map((a) => a.invoices?.invoice_number).filter(Boolean).join(', ') || '--';
+
+    whatsapp = await sendPaymentReceiptWhatsApp({
+      name,
+      amount: payment.total_amount,
+      invoiceNumber,
+      receiptNumber: payment.receipt_number,
+      date: formatDateOnlyIST(payment.collected_at),
+      mobile: payment.patients.mobile,
+      pdfBuffer: pdfResult.buffer,
+      filename,
+      patientDbId: payment.patient_id,
+      meta,
+    });
+  }
 
   if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
   if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };
