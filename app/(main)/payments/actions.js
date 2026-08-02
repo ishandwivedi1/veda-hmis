@@ -1,5 +1,6 @@
 'use server';
 
+import { after } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { sendInvoiceBill } from '@/app/(main)/billing/actions';
@@ -552,22 +553,34 @@ export async function collectPayment(patientId, invoiceIds, amount, modes, refer
   });
   if (error) return { error: error.message };
 
-  // Fire the WhatsApp bill for any invoice that just became fully paid.
-  // Wrapped defensively: PDF generation / WhatsApp being slow or failing
-  // must never surface as a payment-collection failure to the front desk.
+  // Fire the WhatsApp bill for any invoice that just became fully paid --
+  // but NOT inline. PDF generation (headless Chrome) + Meta's media
+  // upload + template send together take several seconds, and awaiting
+  // that here was adding 4-5s to every payment confirmation. after()
+  // returns the response to the front desk immediately, then keeps this
+  // function alive just long enough to finish the send in the background.
   try {
     const { data: { user } } = await supabase.auth.getUser();
     const { data: affectedInvoices } = await supabase
       .from('invoices')
       .select('id, status')
       .in('id', invoiceIds || []);
-    for (const inv of affectedInvoices || []) {
-      if (inv.status === 'Paid') {
-        await sendInvoiceBill(inv.id, { force: false, triggeredBy: user?.id || null });
-      }
+    const paidInvoiceIds = (affectedInvoices || []).filter((inv) => inv.status === 'Paid').map((inv) => inv.id);
+    const triggeredBy = user?.id || null;
+
+    if (paidInvoiceIds.length > 0) {
+      after(async () => {
+        for (const invoiceId of paidInvoiceIds) {
+          try {
+            await sendInvoiceBill(invoiceId, { force: false, triggeredBy });
+          } catch (waErr) {
+            console.error('WhatsApp bill auto-send failed:', waErr.message);
+          }
+        }
+      });
     }
   } catch (waErr) {
-    console.error('WhatsApp bill auto-send failed (payment already collected):', waErr.message);
+    console.error('WhatsApp bill auto-send setup failed (payment already collected):', waErr.message);
   }
 
   return { payment: data };
