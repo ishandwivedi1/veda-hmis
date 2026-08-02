@@ -4,6 +4,7 @@ import { after } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { sendInvoiceBill } from '@/app/(main)/billing/actions';
+import { sendAdvancePaymentWhatsApp, formatDateOnlyIST } from '@/lib/whatsapp';
 
 export async function getTodaysVisits() {
   const supabase = await createClient();
@@ -259,6 +260,41 @@ export async function collectAdvance(patientId, advanceType, amount, modes, refe
     p_remarks: remarks || null,
   });
   if (error) return { error: error.message };
+
+  // Auto-send WhatsApp confirmation for advance payments only (regular
+  // invoice payments are not auto-sent -- only via the manual Receipt
+  // button). Deferred with after() so this never adds latency to the
+  // collection response, same fix as applied to collectPayment.
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: patient } = await supabase
+      .from('patients')
+      .select('id, first_name, last_name, mobile')
+      .eq('id', patientId)
+      .single();
+    const triggeredBy = user?.id || null;
+
+    if (patient?.mobile) {
+      after(async () => {
+        try {
+          await sendAdvancePaymentWhatsApp({
+            name: `${patient.first_name} ${patient.last_name}`.trim(),
+            amount: data.total_amount,
+            receiptNumber: data.receipt_number,
+            date: formatDateOnlyIST(data.collected_at),
+            mobile: patient.mobile,
+            patientDbId: patient.id,
+            meta: { module: 'advance_payment', triggeredBy },
+          });
+        } catch (waErr) {
+          console.error('WhatsApp advance payment send failed:', waErr.message);
+        }
+      });
+    }
+  } catch (waErr) {
+    console.error('WhatsApp advance payment setup failed (advance already collected):', waErr.message);
+  }
+
   return { payment: data };
 }
 
@@ -316,7 +352,7 @@ export async function searchReceipts(query, modeFilter) {
 
   let q = supabase
     .from('payments')
-    .select('*, patients(id, first_name, last_name, uhid), payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number))')
+    .select('*, patients(id, first_name, last_name, uhid, mobile), payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number))')
     .order('collected_at', { ascending: false })
     .limit(50);
 
@@ -352,6 +388,36 @@ export async function getReceiptById(paymentId) {
     .eq('payment_id', paymentId);
 
   return { payment, modes: modes || [], allocations: allocations || [] };
+}
+
+// Manual "Send WhatsApp" button in Receipt -- works for any payment
+// (advance or regular), unlike the automatic trigger which only fires
+// for advance payments. Uses the same "payment" template either way.
+export async function resendPaymentReceiptWhatsApp(paymentId) {
+  if (!paymentId) return { error: 'Missing payment id.' };
+  const supabase = await createClient();
+  const { data: payment, error } = await supabase
+    .from('payments')
+    .select('id, receipt_number, total_amount, collected_at, patient_id, patients(id, first_name, last_name, mobile)')
+    .eq('id', paymentId)
+    .single();
+  if (error || !payment) return { error: error?.message || 'Receipt not found.' };
+  if (!payment.patients?.mobile) return { error: 'Patient has no mobile number on file.' };
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const whatsapp = await sendAdvancePaymentWhatsApp({
+    name: `${payment.patients.first_name} ${payment.patients.last_name}`.trim(),
+    amount: payment.total_amount,
+    receiptNumber: payment.receipt_number,
+    date: formatDateOnlyIST(payment.collected_at),
+    mobile: payment.patients.mobile,
+    patientDbId: payment.patient_id,
+    meta: { module: 'payment_receipt', triggeredBy: user?.id || null },
+  });
+
+  if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
+  if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };
+  return { success: true };
 }
 
 // ── REFUND / MODIFICATION ──

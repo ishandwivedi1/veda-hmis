@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
-import { searchReceipts, editPaymentClerical, getPaymentEditHistory } from '../actions';
+import { searchReceipts, editPaymentClerical, getPaymentEditHistory, resendPaymentReceiptWhatsApp } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
 const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -42,6 +42,25 @@ export default function ReceiptTab() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+  const [waStatus, setWaStatus] = useState({}); // { [receiptId]: 'sending'|'sent'|'warning'|'error' }
+  const [waMsg, setWaMsg] = useState({});
+
+  async function handleSendWhatsApp(receiptId) {
+    setWaStatus((s) => ({ ...s, [receiptId]: 'sending' }));
+    setWaMsg((s) => ({ ...s, [receiptId]: '' }));
+    const result = await resendPaymentReceiptWhatsApp(receiptId);
+    if (result.error) {
+      setWaStatus((s) => ({ ...s, [receiptId]: 'error' }));
+      setWaMsg((s) => ({ ...s, [receiptId]: result.error }));
+      return;
+    }
+    if (result.warning) {
+      setWaStatus((s) => ({ ...s, [receiptId]: 'warning' }));
+      setWaMsg((s) => ({ ...s, [receiptId]: result.warning }));
+      return;
+    }
+    setWaStatus((s) => ({ ...s, [receiptId]: 'sent' }));
+  }
 
   const runSearch = useCallback(async () => {
     setReceipts(await searchReceipts(query, modeFilter));
@@ -141,13 +160,19 @@ export default function ReceiptTab() {
                   <td style={{ fontSize: 11 }}>{(r.payment_modes || []).map((m) => `${m.mode} Rs.${m.amount}`).join(', ')}</td>
                   <td style={{ fontWeight: 600 }}>Rs.{r.total_amount}</td>
                   <td><span className={`badge ${TYPE_BADGE[r.payment_type] || 'b-gray'}`}>{TYPE_LABEL[r.payment_type] || r.payment_type || 'Payment'}</span></td>
-                  <td style={{ display: 'flex', gap: 4 }}>
+                  <td style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button className="btn btn-sm" onClick={() => openPrintPopup(`/receipt-print/${r.id}`)}>
                       <i className="ti ti-printer"></i>
                     </button>
                     <button className="btn btn-sm" onClick={() => (editingId === r.id ? cancelEdit() : startEdit(r))}>
                       <i className="ti ti-edit"></i> {editingId === r.id ? 'Close' : 'Edit'}
                     </button>
+                    <button className="btn btn-sm" onClick={() => handleSendWhatsApp(r.id)} disabled={waStatus[r.id] === 'sending'} title="Send WhatsApp confirmation">
+                      <i className="ti ti-brand-whatsapp" style={{ color: 'var(--green)' }}></i>
+                    </button>
+                    {waStatus[r.id] === 'sent' && <span style={{ fontSize: 10, color: 'var(--green)' }}><i className="ti ti-circle-check"></i></span>}
+                    {waStatus[r.id] === 'warning' && <span style={{ fontSize: 10, color: 'var(--amber)' }} title={waMsg[r.id]}><i className="ti ti-alert-triangle"></i></span>}
+                    {waStatus[r.id] === 'error' && <span style={{ fontSize: 10, color: 'var(--red)' }} title={waMsg[r.id]}><i className="ti ti-alert-circle"></i></span>}
                   </td>
                 </tr>
                 {editingId === r.id && (
