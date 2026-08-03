@@ -60,24 +60,15 @@ function emptyGonioStage() {
   GONIO_FIELDS.forEach((f) => { s[`${f.key}_re`] = ''; s[`${f.key}_le`] = ''; });
   return s;
 }
-function emptyGonioState() {
-  return { without: emptyGonioStage(), with: emptyGonioStage() };
-}
-function normalizeGonioStage(raw) {
-  const s = emptyGonioStage();
-  if (!raw) return s;
-  s.copy_re_to_le = !!raw.copy_re_to_le;
-  GONIO_FIELDS.forEach((f) => {
-    s[`${f.key}_re`] = raw[`${f.key}_re`] || '';
-    s[`${f.key}_le`] = raw[`${f.key}_le`] || '';
-  });
-  return s;
-}
+// Gonioscopy used to be recorded in two passes (without/with dilation),
+// same as Posterior Segment -- but a single angle assessment is all
+// that's actually needed, so it's now one flat pass.
 function normalizeGonioFindings(raw) {
-  const isStaged = raw && (raw.without || raw.with);
-  if (isStaged) return { without: normalizeGonioStage(raw.without), with: normalizeGonioStage(raw.with) };
-  // Nothing staged yet (brand new record) -- both passes start empty.
-  return emptyGonioState();
+  // Legacy staged records: read "without" first (it was always the
+  // primary/first pass), falling back to "with" so nothing already
+  // recorded is lost. New saves are written flat going forward.
+  const source = raw && (raw.without || raw.with) ? (raw.without || raw.with) : raw;
+  return { ...emptyGonioStage(), ...(source || {}) };
 }
 
 const STAGES = [
@@ -134,7 +125,7 @@ function normalizeStagedFindings(raw, structsByStage) {
 
 // Storage key stays 'CDR' (matches the DB column/struct list), but
 // displays as "C>D Ratio" everywhere -- on screen and in print.
-const STRUCT_DISPLAY_LABEL = { CDR: 'C>D Ratio' };
+const STRUCT_DISPLAY_LABEL = { CDR: 'C.D Ratio' };
 
 function StructRow({ struct, templates, eyeState, onSelect, onCustom, asSelect }) {
   const options = templates[struct] || [];
@@ -276,15 +267,16 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
   });
   const [regionStage, setRegionStage] = useState({ posterior: 'without' });
   const [status, setStatus] = useState({ external: 'Not started', anterior: 'Not started', posterior: 'Not started', gonioscopy: 'Not started' });
-  const [open, setOpen] = useState({ external: true, anterior: false, posterior: false, gonioscopy: false, remarks: false });
+  const [open, setOpen] = useState({ external: true, anterior: false, posterior: false, applanation: false, gonioscopy: false, remarks: false });
   // Tracks whether "All Normal" is currently toggled on, so it can be
   // unticked (reverts fields to empty) instead of being a one-way action.
   // External/Anterior: one flag. Posterior: one per stage, since Without
   // and With Dilation are recorded and toggled independently.
   const [allNormalOn, setAllNormalOn] = useState({ external: false, anterior: false, posterior: { without: false, with: false } });
 
-  const [gonioStage, setGonioStage] = useState('without');
-  const [gonioState, setGonioState] = useState(emptyGonioState());
+  const [gonioState, setGonioState] = useState(emptyGonioStage());
+  const [applanationRe, setApplanationRe] = useState('');
+  const [applanationLe, setApplanationLe] = useState('');
   const [remarksRe, setRemarksRe] = useState('');
   const [remarksLe, setRemarksLe] = useState('');
 
@@ -310,6 +302,8 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
       gonioscopy: examination.glaucoma_status || 'Not started',
     });
     setGonioState(normalizeGonioFindings(examination.gonioscopy_findings));
+    setApplanationRe(examination.applanation_re || '');
+    setApplanationLe(examination.applanation_le || '');
     setRemarksRe(examination.remarks_re || '');
     setRemarksLe(examination.remarks_le || '');
   }, [examination]);
@@ -390,7 +384,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
 
     saveTimer.current = setTimeout(async () => {
       setSaveState('saving');
-      const gonioHasData = ['without', 'with'].some((st) => GONIO_FIELDS.some((f) => gonioState[st][`${f.key}_re`] || gonioState[st][`${f.key}_le`]));
+      const gonioHasData = GONIO_FIELDS.some((f) => gonioState[`${f.key}_re`] || gonioState[`${f.key}_le`]);
       const fields = {
         external_findings: regionState.external,
         external_status: status.external,
@@ -398,6 +392,8 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
         anterior_status: status.anterior,
         posterior_findings: regionState.posterior,
         posterior_status: status.posterior,
+        applanation_re: applanationRe || null,
+        applanation_le: applanationLe || null,
         gonioscopy_findings: gonioState,
         glaucoma_status: gonioHasData ? 'Done' : status.gonioscopy,
         remarks_re: remarksRe, remarks_le: remarksLe,
@@ -410,27 +406,27 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
 
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionState, status, gonioState, remarksRe, remarksLe]);
+  }, [regionState, status, gonioState, applanationRe, applanationLe, remarksRe, remarksLe]);
 
   // Live-mirrors RE into LE for all 3 fields at once while "Copy RE
   // Value to LE" is checked -- same pattern as the Optometry Refraction
   // section, but one switch for the whole section instead of per-field.
   function setGonioField(fieldKey, eye, val) {
     setGonioState((prev) => {
-      const stageState = { ...prev[gonioStage], [`${fieldKey}_${eye}`]: val };
-      if (eye === 're' && prev[gonioStage].copy_re_to_le) {
-        stageState[`${fieldKey}_le`] = val;
+      const next = { ...prev, [`${fieldKey}_${eye}`]: val };
+      if (eye === 're' && prev.copy_re_to_le) {
+        next[`${fieldKey}_le`] = val;
       }
-      return { ...prev, [gonioStage]: stageState };
+      return next;
     });
     markDirty('gonioscopy');
   }
 
   function toggleGonioCopy(checked) {
     setGonioState((prev) => {
-      const stageState = { ...prev[gonioStage], copy_re_to_le: checked };
-      if (checked) GONIO_FIELDS.forEach((f) => { stageState[`${f.key}_le`] = prev[gonioStage][`${f.key}_re`]; });
-      return { ...prev, [gonioStage]: stageState };
+      const next = { ...prev, copy_re_to_le: checked };
+      if (checked) GONIO_FIELDS.forEach((f) => { next[`${f.key}_le`] = prev[`${f.key}_re`]; });
+      return next;
     });
   }
 
@@ -468,35 +464,59 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
         />
       ))}
 
+      {/* APPLANATION TONOMETRY -- eye pressure (IOP), one reading per eye. */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
+        <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open.applanation ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setOpen((p) => ({ ...p, applanation: !p.applanation }))}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <i className="ti ti-gauge" style={{ color: 'var(--blue)' }}></i> Applanation Tonometry
+          </div>
+          <i className={`ti ti-chevron-${open.applanation ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
+        </div>
+        {open.applanation && (
+          <div style={{ padding: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue)', marginBottom: 8, padding: '4px 8px', background: 'var(--blue-lt)', borderRadius: 6, display: 'inline-block' }}>
+                  <i className="ti ti-eye" style={{ fontSize: 11 }}></i> Right Eye (OD)
+                </div>
+                <label className="flbl">Eye Pressure (mmHg)</label>
+                <input type="number" className="fi fi-sm" value={applanationRe} onChange={(e) => setApplanationRe(e.target.value)} placeholder="e.g. 16" />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--teal)', marginBottom: 8, padding: '4px 8px', background: 'var(--teal-lt)', borderRadius: 6, display: 'inline-block' }}>
+                  <i className="ti ti-eye" style={{ fontSize: 11 }}></i> Left Eye (OS)
+                </div>
+                <label className="flbl">Eye Pressure (mmHg)</label>
+                <input type="number" className="fi fi-sm" value={applanationLe} onChange={(e) => setApplanationLe(e.target.value)} placeholder="e.g. 16" />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* GONIOSCOPY (formerly "Glaucoma Assessment") -- Angle / PTM / Iris
           Configuration, each split RE and LE with a Copy RE to LE option.
-          No "All Normal" (not exception-based). */}
+          Single pass (no dilation staging); No "All Normal" (not
+          exception-based). */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
         <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open.gonioscopy ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', flexWrap: 'wrap', gap: 8 }} onClick={() => setOpen((p) => ({ ...p, gonioscopy: !p.gonioscopy }))}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <i className="ti ti-activity" style={{ color: 'var(--amber)' }}></i> Gonioscopy
             <span className={`badge ${status.gonioscopy === 'Done' ? 'b-green' : status.gonioscopy === 'In progress' ? 'b-amber' : 'b-gray'}`}>{status.gonioscopy}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <StageToggle stage={gonioStage} onChange={setGonioStage} />
-            <i className={`ti ti-chevron-${open.gonioscopy ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
-          </div>
+          <i className={`ti ti-chevron-${open.gonioscopy ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
         </div>
         {open.gonioscopy && (
-          <div style={{ padding: 16, background: gonioStage === 'with' ? 'var(--purple-lt)' : '#fff', transition: 'background .15s ease' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: gonioStage === 'with' ? 'var(--purple)' : 'var(--g500)', marginBottom: 10 }}>
-              <i className="ti ti-droplet"></i> Recording: {STAGES.find((s) => s.key === gonioStage)?.label}
-            </div>
+          <div style={{ padding: 16 }}>
             {(() => {
-              const stageState = gonioState[gonioStage];
-              const copying = stageState.copy_re_to_le;
+              const copying = gonioState.copy_re_to_le;
               return (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 12 }}>
                     {['re', 'le'].map((eye) => (
                       <div key={eye}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: eye === 're' ? 'var(--blue)' : 'var(--teal)', marginBottom: 8, padding: '4px 8px', background: eye === 're' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 6, display: 'inline-block' }}>
-                          <i className="ti ti-eye" style={{ fontSize: 11 }}></i> {eye === 're' ? 'Right Eye (RE / OD) -- Oculus Dexter' : 'Left Eye (LE / OS) -- Oculus Sinister'}
+                          <i className="ti ti-eye" style={{ fontSize: 11 }}></i> {eye === 're' ? 'Right Eye (OD)' : 'Left Eye (OS)'}
                         </div>
                         {GONIO_FIELDS.map((f) => (
                           <div key={f.key} style={{ marginBottom: 10 }}>
@@ -504,7 +524,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
                             <select
                               className="fi fi-sm"
                               disabled={eye === 'le' && copying}
-                              value={stageState[`${f.key}_${eye}`]}
+                              value={gonioState[`${f.key}_${eye}`]}
                               onChange={(e) => setGonioField(f.key, eye, e.target.value)}
                             >
                               <option value="">--</option>

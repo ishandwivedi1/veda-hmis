@@ -496,10 +496,10 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                   <tr>
                     <th style={{ width: 150 }}></th>
                     <th colSpan={2} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
-                      OD (RE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Dexter</div>
+                      OD (RE)
                     </th>
                     <th colSpan={2} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
-                      OS (LE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Sinister</div>
+                      OS (LE)
                     </th>
                   </tr>
                   <tr>
@@ -577,10 +577,10 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                 <tr>
                   <th style={{ width: 60 }}></th>
                   <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
-                    OD (RE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Dexter</div>
+                    OD (RE)
                   </th>
                   <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
-                    OS (LE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Sinister</div>
+                    OS (LE)
                   </th>
                 </tr>
                 <tr>
@@ -708,7 +708,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
             {[['RE', reIopSorted, reIopInput, setReIopInput], ['LE', leIopSorted, leIopInput, setLeIopInput]].map(([eye, list, val, setVal]) => (
               <div key={eye}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: eye === 'RE' ? 'var(--blue)' : 'var(--teal)', marginBottom: 8, padding: '5px 10px', background: eye === 'RE' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 8 }}>
-                  <i className="ti ti-eye"></i> {eye === 'RE' ? 'Right Eye (RE / OD) -- Oculus Dexter' : 'Left Eye (LE / OS) -- Oculus Sinister'}
+                  <i className="ti ti-eye"></i> {eye === 'RE' ? 'Right Eye (OD)' : 'Left Eye (OS)'}
                 </div>
                 {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No readings yet</div>}
                 {list.map((r, i) => iopReadingRow(r, list, i))}
@@ -737,10 +737,10 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                 <tr>
                   <th style={{ width: 150 }}></th>
                   <th style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
-                    OD (RE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Dexter</div>
+                    OD (RE)
                   </th>
                   <th style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
-                    OS (LE)<div style={{ fontSize: 9, fontWeight: 500, color: 'var(--g500)' }}>Oculus Sinister</div>
+                    OS (LE)
                   </th>
                 </tr>
               </thead>
