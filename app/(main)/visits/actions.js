@@ -1,5 +1,6 @@
 'use server';
 
+import { after } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { sendVisitConfirmationWhatsApp, formatVisitDateIST } from '@/lib/whatsapp';
 
@@ -28,11 +29,12 @@ export async function getDoctorOptionsForVisit() {
   return data || [];
 }
 
-// Shared by createWalkInVisit and checkInAppointment -- fetches the
-// patient's name/mobile (not returned by the visit RPC itself) and
-// fires the "appointment" template. Fire-and-forget: never blocks or
-// fails visit creation; errors are logged in whatsapp_logs.
-async function sendVisitWhatsApp(supabase, visit, triggeredBy) {
+// Core send logic -- always synchronous, always returns a real result.
+// Used directly by resendVisitWhatsApp (manual button, needs real
+// success/error feedback) and wrapped by deferVisitWhatsApp below for
+// the automatic triggers (visit creation), which must never block.
+async function sendVisitWhatsAppCore(visit, triggeredBy) {
+  const supabase = await createClient();
   const { data: patient } = await supabase
     .from('patients')
     .select('id, first_name, last_name, mobile')
@@ -52,6 +54,19 @@ async function sendVisitWhatsApp(supabase, visit, triggeredBy) {
   });
 }
 
+// Deferred wrapper for createWalkInVisit / checkInAppointment -- schedules
+// the send to run after the response via after(), so visit creation
+// returns immediately and is never blocked or failed by the WhatsApp send.
+function deferVisitWhatsApp(visit, triggeredBy) {
+  after(async () => {
+    try {
+      await sendVisitWhatsAppCore(visit, triggeredBy);
+    } catch (waErr) {
+      console.error('WhatsApp visit confirmation send failed:', waErr.message);
+    }
+  });
+}
+
 export async function checkInAppointment(appointmentId) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('check_in_appointment', {
@@ -63,9 +78,9 @@ export async function checkInAppointment(appointmentId) {
   }
 
   const { data: { user } } = await supabase.auth.getUser();
-  const whatsapp = await sendVisitWhatsApp(supabase, data, user?.id);
+  deferVisitWhatsApp(data, user?.id);
 
-  return { visit: data, whatsapp };
+  return { visit: data };
 }
 
 export async function createWalkInVisit(values) {
@@ -85,9 +100,9 @@ export async function createWalkInVisit(values) {
   }
 
   const { data: { user } } = await supabase.auth.getUser();
-  const whatsapp = await sendVisitWhatsApp(supabase, data, user?.id);
+  deferVisitWhatsApp(data, user?.id);
 
-  return { visit: data, whatsapp };
+  return { visit: data };
 }
 
 export async function getSurgeryTypeOptions() {
@@ -113,7 +128,7 @@ export async function resendVisitWhatsApp(visitId) {
   if (!visit) return { error: 'Visit not found.' };
 
   const { data: { user } } = await supabase.auth.getUser();
-  const whatsapp = await sendVisitWhatsApp(supabase, visit, user?.id);
+  const whatsapp = await sendVisitWhatsAppCore(visit, user?.id);
 
   if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
   if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };

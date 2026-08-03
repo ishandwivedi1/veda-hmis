@@ -1,5 +1,6 @@
 'use server';
 
+import { after } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createWalkInVisit } from '@/app/(main)/visits/actions';
 import { sendRegistrationWhatsApp } from '@/lib/whatsapp';
@@ -33,20 +34,27 @@ export async function registerPatient(values) {
     return { error: error.message };
   }
 
-  // Fire-and-forget: send the WhatsApp registration confirmation.
-  // Never blocks or fails registration -- errors are logged in
-  // whatsapp_logs for follow-up, and reported back so the UI can
-  // surface a quiet notice without treating it as a hard failure.
+  // Deferred: the WhatsApp registration confirmation never blocks or
+  // fails registration. Previously this was awaited inline (comment said
+  // "fire-and-forget" but it wasn't) -- after() makes that true, so
+  // registration returns immediately and the message sends afterward.
   const { data: { user } } = await supabase.auth.getUser();
-  const whatsapp = await sendRegistrationWhatsApp({
-    name: `${data.first_name} ${data.last_name}`.trim(),
-    patientUhid: data.uhid,
-    patientDbId: data.id,
-    mobile: data.mobile,
-    meta: { triggeredBy: user?.id || null },
+  const triggeredBy = user?.id || null;
+  after(async () => {
+    try {
+      await sendRegistrationWhatsApp({
+        name: `${data.first_name} ${data.last_name}`.trim(),
+        patientUhid: data.uhid,
+        patientDbId: data.id,
+        mobile: data.mobile,
+        meta: { triggeredBy },
+      });
+    } catch (waErr) {
+      console.error('WhatsApp registration send failed:', waErr.message);
+    }
   });
 
-  return { patient: data, whatsapp };
+  return { patient: data };
 }
 
 // Resend the registration WhatsApp confirmation for an existing patient --
