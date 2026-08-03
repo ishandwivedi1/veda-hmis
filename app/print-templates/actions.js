@@ -1184,11 +1184,11 @@ const EXAM_STRUCT_LABEL = { CDR: 'C.D Ratio' };
 // record regardless of whether they happen to be normal.
 //
 // Handles both the current staged shape ({without:{...}, with:{...}})
-// and the legacy flat shape from before dilation staging existed.
+// and the legacy flat shape from before dilatation staging existed.
 function summarizeExamRegionPivoted(findingsJson, structs, mode) {
   const isStaged = findingsJson && (findingsJson.without || findingsJson.with);
   const stages = isStaged
-    ? [['without', 'Without Dilation'], ['with', 'With Dilation']]
+    ? [['without', 'Without Dilatation'], ['with', 'With Dilatation']]
     : [[null, null]];
 
   const rows = [];
@@ -1237,7 +1237,7 @@ const GONIO_ROW_DEFS = [
 function buildGonioscopyRows(gonioFindings) {
   const rows = [];
   if (!gonioFindings) return rows;
-  // Gonioscopy used to be recorded in two passes (without/with dilation);
+  // Gonioscopy used to be recorded in two passes (without/with dilatation);
   // it's now a single flat pass. Legacy staged records: read "without"
   // first (it was always the primary pass), falling back to "with" so
   // nothing already recorded is lost.

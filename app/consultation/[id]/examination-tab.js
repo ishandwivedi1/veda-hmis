@@ -20,16 +20,16 @@ const ANT_TEMPLATES = {
   Lens: ['Clear', 'NS1', 'NS2', 'NS3', 'NS4', 'PSC', 'Cortical', 'Mature', 'Hypermature', 'PCIOL', 'Aphakia'],
 };
 
-// Posterior Segment struct list differs by dilation stage: a full exam
-// under dilation, but only Disc (+ a CDR estimate) makes sense to
-// record without dilation.
+// Posterior Segment struct list differs by dilatation stage: a full exam
+// under dilatation, but only Disc (+ a CDR estimate) makes sense to
+// record without dilatation.
 const POST_STRUCTS_WITH = ['Vitreous', 'Disc', 'CDR', 'Macula', 'Vessels', 'Peripheral Retina'];
 const POST_STRUCTS_WITHOUT = ['Disc', 'CDR'];
 const POST_TEMPLATES = {
   Vitreous: ['Clear', 'Haze', 'Haemorrhage', 'PVD'],
   Disc: ['Healthy', 'Pale', 'Cupped', 'Swollen', 'Tilted'],
   Macula: ['Normal', 'ARMD', 'CSME', 'Macular Hole', 'Epiretinal Membrane', 'Scar'],
-  Vessels: ['Normal', 'Arteriovenous nipping', 'Disc collaterals'],
+  Vessels: ['Normal', 'Arteriovenous nipping', 'Disc collaterals', 'Arteriolar Attenuation'],
   'Peripheral Retina': ['Attached', 'Lattice', 'Tear', 'Detachment', 'Laser Marks'],
   CDR: ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', 'GOA'],
 };
@@ -60,7 +60,7 @@ function emptyGonioStage() {
   GONIO_FIELDS.forEach((f) => { s[`${f.key}_re`] = ''; s[`${f.key}_le`] = ''; });
   return s;
 }
-// Gonioscopy used to be recorded in two passes (without/with dilation),
+// Gonioscopy used to be recorded in two passes (without/with dilatation),
 // same as Posterior Segment -- but a single angle assessment is all
 // that's actually needed, so it's now one flat pass.
 function normalizeGonioFindings(raw) {
@@ -72,8 +72,8 @@ function normalizeGonioFindings(raw) {
 }
 
 const STAGES = [
-  { key: 'without', label: 'Without Dilation' },
-  { key: 'with', label: 'With Dilation' },
+  { key: 'without', label: 'Without Dilatation' },
+  { key: 'with', label: 'With Dilatation' },
 ];
 
 function emptyRegionState(structs) {
@@ -91,7 +91,7 @@ function normalizeFindings(raw, structs) {
   return out;
 }
 
-// External & Anterior are a single pass now (no dilation stage). Some
+// External & Anterior are a single pass now (no dilatation stage). Some
 // records saved while this was still staged have {without, with} --
 // read "without" first (it was always the primary/first pass), and
 // otherwise fall back to "with" so nothing already recorded is lost.
@@ -101,10 +101,10 @@ function normalizeFlatFindings(raw, structs) {
   return { ...emptyRegionState(structs), ...normalizeFindings(source, structs) };
 }
 
-// Posterior Segment keeps the two-pass without/with dilation split, but
+// Posterior Segment keeps the two-pass without/with dilatation split, but
 // the struct list differs per stage (see structsByStage). Legacy flat
 // data (from before staging existed) used the full struct set, so it's
-// treated as the "with dilation" pass -- mapping it to "without"
+// treated as the "with dilatation" pass -- mapping it to "without"
 // (Disc/CDR only) would silently drop Vitreous/Macula/Vessels/Periphery.
 function emptyStagedRegionState(structsByStage) {
   return { without: emptyRegionState(structsByStage.without), with: emptyRegionState(structsByStage.with) };
@@ -271,7 +271,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
   // Tracks whether "All Normal" is currently toggled on, so it can be
   // unticked (reverts fields to empty) instead of being a one-way action.
   // External/Anterior: one flag. Posterior: one per stage, since Without
-  // and With Dilation are recorded and toggled independently.
+  // and With Dilatation are recorded and toggled independently.
   const [allNormalOn, setAllNormalOn] = useState({ external: false, anterior: false, posterior: { without: false, with: false } });
 
   const [gonioState, setGonioState] = useState(emptyGonioStage());
@@ -433,7 +433,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
   return (
     <div>
       <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-        <i className="ti ti-info-circle"></i> Exception-based documentation. Click <strong>All Normal</strong> to auto-populate normal findings, then change only what&apos;s abnormal (click it again to untick and clear back to empty). Posterior Segment is recorded in two passes -- <strong>Without Dilation</strong> (Disc + CDR only) and <strong>With Dilation</strong> (full segment) -- switch using the toggle in its header.
+        <i className="ti ti-info-circle"></i> Exception-based documentation. Click <strong>All Normal</strong> to auto-populate normal findings, then change only what&apos;s abnormal (click it again to untick and clear back to empty). Posterior Segment is recorded in two passes -- <strong>Without Dilatation</strong> (Disc + CDR only) and <strong>With Dilatation</strong> (full segment) -- switch using the toggle in its header.
       </div>
 
       <div className="card" style={{ padding: '10px 14px', marginBottom: 12 }}>
@@ -496,7 +496,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
 
       {/* GONIOSCOPY (formerly "Glaucoma Assessment") -- Angle / PTM / Iris
           Configuration, each split RE and LE with a Copy RE to LE option.
-          Single pass (no dilation staging); No "All Normal" (not
+          Single pass (no dilatation staging); No "All Normal" (not
           exception-based). */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
         <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open.gonioscopy ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', flexWrap: 'wrap', gap: 8 }} onClick={() => setOpen((p) => ({ ...p, gonioscopy: !p.gonioscopy }))}>
@@ -546,7 +546,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
         )}
       </div>
 
-      {/* CLINICAL REMARKS -- stays a single entry, not split by dilation stage */}
+      {/* CLINICAL REMARKS -- stays a single entry, not split by dilatation stage */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}>
         <div style={{ padding: '12px 16px', background: 'var(--g50)', borderBottom: open.remarks ? '1px solid var(--g200)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setOpen((p) => ({ ...p, remarks: !p.remarks }))}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--g800)', display: 'flex', alignItems: 'center', gap: 8 }}>
