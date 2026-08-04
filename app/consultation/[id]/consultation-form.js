@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
 import {
   getConsultationData,
   addDiagnosis,
@@ -121,6 +122,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForceClose, setShowForceClose] = useState(false);
+  const [forceCloseReason, setForceCloseReason] = useState('');
+  const [forceClosing, setForceClosing] = useState(false);
   const [showSurgery, setShowSurgery] = useState(false);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
@@ -376,6 +380,20 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setLoading(true);
     const result = await completeConsultation(data.encounter.id, queueEntryId);
     setLoading(false);
+    if (result.error) { setError(result.error); return; }
+    finishAndClose();
+  }
+
+  // Escape hatch for a visit that genuinely can't go through the normal
+  // completion path -- patient left before being seen, token called but
+  // nobody responded, etc. Doesn't touch the diagnosis requirement for
+  // any other visit; just closes this one with a reason on record.
+  async function handleForceClose() {
+    setError('');
+    if (!forceCloseReason.trim()) { setError('A reason is required to close this visit without a diagnosis.'); return; }
+    setForceClosing(true);
+    const result = await forceCloseQueueEntry(queueEntryId, forceCloseReason);
+    setForceClosing(false);
     if (result.error) { setError(result.error); return; }
     finishAndClose();
   }
@@ -1110,6 +1128,31 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
               <i className="ti ti-printer"></i> Print Visit Summary
             </button>
           </div>
+
+          {/* Escape hatch -- for a visit that genuinely can't reach the
+              diagnosis requirement above (patient left, no-show after
+              being called, etc). Kept visually separate from the main
+              actions so it isn't a tempting shortcut for normal visits. */}
+          {!isReadOnly && (
+            <div className="card" style={{ marginTop: 8 }}>
+              {!showForceClose ? (
+                <button className="btn" style={{ fontSize: 12, color: 'var(--g500)' }} onClick={() => setShowForceClose(true)}>
+                  <i className="ti ti-player-skip-forward"></i> Unable to Complete This Visit
+                </button>
+              ) : (
+                <div>
+                  <label className="flbl">Why can&apos;t this visit be completed normally? *</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input className="fi" value={forceCloseReason} onChange={(e) => setForceCloseReason(e.target.value)} placeholder="e.g. Patient left before being seen" />
+                    <button className="btn" style={{ background: 'var(--amber)', color: '#fff', borderColor: 'transparent' }} onClick={handleForceClose} disabled={forceClosing}>
+                      {forceClosing ? 'Closing...' : 'Confirm'}
+                    </button>
+                    <button className="btn" onClick={() => { setShowForceClose(false); setForceCloseReason(''); }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           </fieldset>
         </div>
       </div>

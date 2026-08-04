@@ -6,13 +6,37 @@ function tokenNum(token) {
   return parseInt(token.split('-')[1], 10);
 }
 
+// Same IST-boundary approach used in Cash Management / Billing -- a
+// plain date string compared against a timestamptz column is
+// interpreted at UTC midnight by Postgres, not IST midnight.
+function todayIST() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+function istDayBoundsUTC(dateStr) {
+  const d = dateStr || todayIST();
+  return {
+    startUTC: new Date(`${d}T00:00:00+05:30`).toISOString(),
+    endUTC: new Date(`${d}T23:59:59.999+05:30`).toISOString(),
+  };
+}
+
 export async function getQueues() {
   const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC();
 
+  // Excludes every terminal status (not just 'Done') AND scopes to
+  // today only -- belt-and-suspenders against anything from a prior
+  // day lingering in the live queue view. The real fix for that is
+  // Day Closing catching and resolving open entries before the day
+  // ends (see getOpenQueueEntriesToday below), but this filter means
+  // even a skipped Day Closing can't leak yesterday's patients into
+  // today's list.
   const { data: entries, error } = await supabase
     .from('queue_entries')
     .select('*, visits(patients(first_name, last_name, uhid))')
-    .neq('status', 'Done')
+    .not('status', 'in', '(Done,Cancelled,Incomplete)')
+    .gte('issued_at', startUTC)
+    .lte('issued_at', endUTC)
     .order('issued_at', { ascending: true });
 
   if (error) return { optometry: [], doctor: [] };
@@ -21,6 +45,71 @@ export async function getQueues() {
   const doctor = entries.filter((e) => e.department === 'Doctor').sort((a, b) => tokenNum(a.token) - tokenNum(b.token));
 
   return { optometry, doctor };
+}
+
+// Closes a queue entry that can't go through the normal completion path
+// (missing diagnosis, missing VA, patient left before being seen, etc.)
+// without bypassing those documentation requirements for anyone else.
+// Requires a reason -- same audit-trail pattern as cancellations and
+// discounts elsewhere in the app.
+export async function forceCloseQueueEntry(id, reason) {
+  if (!reason || !reason.trim()) return { error: 'A reason is required to force-close a visit.' };
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('queue_entries')
+    .update({
+      status: 'Incomplete',
+      force_close_reason: reason,
+      force_closed_by: user?.id || null,
+      force_closed_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// For Day Closing's soft warning -- anything from today (Doctor or
+// Optometry) that never reached a terminal status.
+export async function getOpenQueueEntriesToday() {
+  const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC();
+
+  const { data } = await supabase
+    .from('queue_entries')
+    .select('id, department, token, status, issued_at, visits(patients(first_name, last_name, uhid))')
+    .not('status', 'in', '(Done,Cancelled,Incomplete)')
+    .gte('issued_at', startUTC)
+    .lte('issued_at', endUTC)
+    .order('issued_at', { ascending: true });
+
+  return data || [];
+}
+
+// Bulk version for Day Closing -- one shared reason applied to every
+// still-open entry from today, so the day can close cleanly.
+export async function bulkForceCloseQueueEntries(ids, reason) {
+  if (!ids || ids.length === 0) return { error: 'No entries to close.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required.' };
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('queue_entries')
+    .update({
+      status: 'Incomplete',
+      force_close_reason: reason,
+      force_closed_by: user?.id || null,
+      force_closed_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+    })
+    .in('id', ids);
+
+  if (error) return { error: error.message };
+  return { success: true, count: ids.length };
 }
 
 // ── OPTOMETRY ──

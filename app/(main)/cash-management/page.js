@@ -16,6 +16,7 @@ import {
   getRevenueByDepartmentToday,
 } from './actions';
 import { getApprovers } from '@/app/(main)/payments/actions';
+import { getOpenQueueEntriesToday, bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
 
 const TABS = [
   { key: 'summary', label: "Today's Collection", icon: 'ti-chart-bar' },
@@ -44,6 +45,9 @@ export default function CashManagementPage() {
   const [openingBalance, setOpeningBalance] = useState('');
   const [openingRemarks, setOpeningRemarks] = useState('');
   const [todayClosingInfo, setTodayClosingInfo] = useState(null);
+  const [openQueueEntries, setOpenQueueEntries] = useState([]);
+  const [bulkCloseReason, setBulkCloseReason] = useState('');
+  const [bulkClosing, setBulkClosing] = useState(false);
 
   const [reconEdits, setReconEdits] = useState({});
   const [reconApprover, setReconApprover] = useState('');
@@ -66,6 +70,7 @@ export default function CashManagementPage() {
     const isClosed = await isTodayClosed();
     setClosedToday(isClosed);
     setOpening(await getDayOpening());
+    setOpenQueueEntries(await getOpenQueueEntriesToday());
     if (isClosed) {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
       setTodayClosingInfo(await getDailyReport(todayStr));
@@ -109,6 +114,23 @@ export default function CashManagementPage() {
     if (result.error) { setError(result.error); return; }
     setSuccess('Day opened.');
     setOpeningBalance(''); setOpeningRemarks('');
+    refresh();
+  }
+
+  // Soft warning, not a hard block -- Close Day can still proceed with
+  // patients left open in Doctor/Optometry queues. This just makes it a
+  // deliberate choice with a reason on record, instead of those visits
+  // silently rolling into tomorrow's queue view.
+  async function handleBulkForceClose() {
+    setError(''); setSuccess('');
+    if (!bulkCloseReason.trim()) { setError('A reason is required to close these visits.'); return; }
+    setBulkClosing(true);
+    const ids = openQueueEntries.map((e) => e.id);
+    const result = await bulkForceCloseQueueEntries(ids, bulkCloseReason);
+    setBulkClosing(false);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`Closed ${result.count} visit(s).`);
+    setBulkCloseReason('');
     refresh();
   }
 
@@ -335,6 +357,38 @@ export default function CashManagementPage() {
               </div>
             </div>
           </div>
+
+          {openQueueEntries.length > 0 && (
+            <div className="card" style={{ gridColumn: '1 / -1' }}>
+              <div className="card-title" style={{ marginBottom: 10 }}>
+                <i className="ti ti-alert-triangle" style={{ color: 'var(--amber)' }}></i> {openQueueEntries.length} visit(s) still open in Doctor/Optometry queues
+              </div>
+              <div className="msg-info" style={{ marginBottom: 10 }}>
+                <i className="ti ti-info-circle"></i> These won&apos;t block closing the day, but if left as-is they&apos;ll keep showing as pending tomorrow. Close them now with a shared reason, or leave them and resolve individually later from the Queue.
+              </div>
+              <table className="tbl" style={{ marginBottom: 12 }}>
+                <thead><tr><th>Patient</th><th>Dept</th><th>Token</th><th>Status</th><th>Since</th></tr></thead>
+                <tbody>
+                  {openQueueEntries.map((e) => (
+                    <tr key={e.id}>
+                      <td>{e.visits?.patients?.first_name} {e.visits?.patients?.last_name} <span style={{ color: 'var(--g400)', fontSize: 11 }}>({e.visits?.patients?.uhid})</span></td>
+                      <td>{e.department}</td>
+                      <td>{e.token}</td>
+                      <td>{e.status}</td>
+                      <td>{new Date(e.issued_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <label className="flbl">Reason (applied to all {openQueueEntries.length} visits above) *</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="fi" value={bulkCloseReason} onChange={(e) => setBulkCloseReason(e.target.value)} placeholder="e.g. End of day -- unresolved at closing time" />
+                <button className="btn" style={{ background: 'var(--amber)', color: '#fff', borderColor: 'transparent' }} onClick={handleBulkForceClose} disabled={bulkClosing}>
+                  {bulkClosing ? 'Closing...' : `Close All ${openQueueEntries.length}`}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

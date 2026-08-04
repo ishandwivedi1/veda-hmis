@@ -10,6 +10,7 @@ import {
   addIopReading,
 } from '@/app/(main)/optometry/actions';
 import { getIopMethods } from '@/app/(main)/master-data/actions';
+import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
 import HistoryTab from '@/app/consultation/[id]/history-tab';
 import { openPrintPopup } from '@/lib/printPopup';
 
@@ -197,6 +198,9 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
   const [error, setError] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showForceClose, setShowForceClose] = useState(false);
+  const [forceCloseReason, setForceCloseReason] = useState('');
+  const [forceClosing, setForceClosing] = useState(false);
   const [iopMethods, setIopMethods] = useState([]);
   const router = useRouter();
 
@@ -344,6 +348,21 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
     setTimeout(() => router.push('/optometry-dashboard'), 1200);
   }
 
+  // Escape hatch for a visit that can't reach the Visual Acuity
+  // requirement above (patient left before being seen, etc). Doesn't
+  // bypass VAL-OPT-002 for anyone else -- just closes this one entry
+  // with a reason on record.
+  async function handleForceClose() {
+    setError('');
+    if (!forceCloseReason.trim()) { setError('A reason is required to close this visit without a VA measurement.'); return; }
+    setForceClosing(true);
+    const result = await forceCloseQueueEntry(queueEntryId, forceCloseReason);
+    setForceClosing(false);
+    if (result.error) { setError(result.error); return; }
+    setOkMsg('Visit closed.');
+    setTimeout(() => router.push('/optometry-dashboard'), 1000);
+  }
+
   async function handleUpdate() {
     setSaving(true);
     setError('');
@@ -449,6 +468,31 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
       )}
       {error && <div className="msg-err">{error}</div>}
       {okMsg && <div className="msg-success">{okMsg}</div>}
+
+      {/* Escape hatch -- for a visit that can't reach the VA requirement
+          above (patient left, no-show after being called, etc). Kept
+          visually separate from the main actions so it isn't a tempting
+          shortcut for normal visits. */}
+      {!locked && !isEdit && (
+        <div style={{ marginBottom: 12 }}>
+          {!showForceClose ? (
+            <button className="btn btn-sm" style={{ fontSize: 11.5, background: 'rgba(255,255,255,.06)', color: '#94a3b8', borderColor: 'rgba(255,255,255,.15)' }} onClick={() => setShowForceClose(true)}>
+              <i className="ti ti-player-skip-forward"></i> Unable to Complete This Visit
+            </button>
+          ) : (
+            <div style={{ background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.15)', borderRadius: 8, padding: 10 }}>
+              <label className="flbl" style={{ color: '#cbd5e1' }}>Why can&apos;t this visit be completed normally? *</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="fi fi-sm" value={forceCloseReason} onChange={(e) => setForceCloseReason(e.target.value)} placeholder="e.g. Patient left before being seen" />
+                <button className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', borderColor: 'transparent' }} onClick={handleForceClose} disabled={forceClosing}>
+                  {forceClosing ? 'Closing...' : 'Confirm'}
+                </button>
+                <button className="btn btn-sm" onClick={() => { setShowForceClose(false); setForceCloseReason(''); }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* PATIENT HISTORY -- same HistoryTab component and encounter
           record the doctor's History tab uses (app/consultation/[id]/history-tab.js,
