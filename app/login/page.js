@@ -45,6 +45,18 @@ function LoginForm() {
         return;
       }
 
+      // Set immediately, not left to the first client-side heartbeat
+      // (up to 60s away) -- the middleware idle check runs on the very
+      // next page load, and without this, a stale last_active_at from
+      // days ago (or null, for a first-ever login) would immediately
+      // look "idle" and bounce someone right after they just signed in.
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) await supabase.from('profiles').update({ last_active_at: new Date().toISOString() }).eq('id', user.id);
+      } catch {
+        // Non-critical -- the client-side heartbeat will catch up shortly.
+      }
+
       // Doctors land on their own dashboard; everyone else (Front
       // Office, Optometry, Billing, Admin, etc.) lands on Front Office
       // Dashboard. Wrapped defensively -- the session cookie

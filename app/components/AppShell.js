@@ -131,6 +131,8 @@ export default function AppShell({ children }) {
     const onVisible = () => { if (document.visibilityState === 'visible') checkIdle(); };
     document.addEventListener('visibilitychange', onVisible);
 
+    updateHeartbeat(); // immediately on mount, not just on the first interval tick -- extra safety net beyond the login-page write
+
     const interval = setInterval(checkIdle, CHECK_INTERVAL_MS);
 
     return () => {
