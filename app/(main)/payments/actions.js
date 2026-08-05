@@ -2,10 +2,45 @@
 
 import { after } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { requireDayOpen } from '@/app/(main)/cash-management/actions';
+import { requireDayOpen, getTodayCollectionSummary, getRevenueByDepartmentToday, getDayOpening, isTodayOpen } from '@/app/(main)/cash-management/actions';
 import { sendInvoiceBill } from '@/app/(main)/billing/actions';
 import { sendAdvanceReceiptWhatsApp, sendPaymentReceiptWhatsApp, formatDateOnlyIST } from '@/lib/whatsapp';
 import { generateReceiptPdfBuffer } from '@/lib/pdf-generator';
+
+// Everything the Payments Dashboard needs, fetched in parallel -- one
+// round trip per query, not sequential, since this loads on every visit
+// to the dashboard.
+export async function getPaymentsDashboardData() {
+  const [
+    summary, revenueByDept, unpaidInvoices, advanceBalances,
+    recentReceipts, dayOpening, dayOpen,
+  ] = await Promise.all([
+    getTodayCollectionSummary(),
+    getRevenueByDepartmentToday(),
+    getAllUnpaidInvoices(),
+    getCurrentBalancesByPatient(),
+    searchReceipts(),
+    getDayOpening(),
+    isTodayOpen(),
+  ]);
+
+  const outstandingTotal = unpaidInvoices.reduce((s, inv) => s + (Number(inv.net) - Number(inv.paid)), 0);
+  const advanceTotal = advanceBalances.reduce((s, p) => s + p.balance, 0);
+
+  return {
+    summary,
+    revenueByDept,
+    outstandingTotal,
+    outstandingCount: unpaidInvoices.length,
+    topOutstanding: [...unpaidInvoices].sort((a, b) => (b.net - b.paid) - (a.net - a.paid)).slice(0, 5),
+    advanceTotal,
+    advanceCount: advanceBalances.length,
+    topAdvances: [...advanceBalances].sort((a, b) => b.balance - a.balance).slice(0, 5),
+    recentReceipts: recentReceipts.slice(0, 8),
+    dayOpening,
+    dayOpen,
+  };
+}
 
 export async function getTodaysVisits() {
   const supabase = await createClient();
