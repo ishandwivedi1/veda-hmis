@@ -351,15 +351,19 @@ export default function DoctorDashboardPage() {
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
-    const result = await getDoctorDashboardData();
+    const [result, biometryApprovals, medicalFitness] = await Promise.all([
+      getDoctorDashboardData(),
+      getBiometryApprovalsToday(),
+      getMedicalFitnessToday(),
+    ]);
     setActive(result.active);
     setIntermediate(result.intermediate);
     setCompleted(result.completed);
     setOptometryWaiting(result.optometryWaiting);
     setVisitTypeCounts(result.visitTypeCounts);
     setTotalVisitsToday(result.totalVisitsToday);
-    setBiometryApprovals(await getBiometryApprovalsToday());
-    setMedicalFitnessToday(await getMedicalFitnessToday());
+    setBiometryApprovals(biometryApprovals);
+    setMedicalFitnessToday(medicalFitness);
   }, []);
 
   const refreshHistory = useCallback(async () => {

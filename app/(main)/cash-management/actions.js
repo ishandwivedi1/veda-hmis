@@ -103,22 +103,15 @@ export async function getCloseDayReadiness(date) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
 
-  const [{ count: unreconciledModes }, recon, { data: alreadyClosed }] = await Promise.all([
-    (async () => {
-      const summary = await getTodayCollectionSummary(targetDate);
-      const { data: saved } = await supabase.from('day_reconciliation').select('mode').eq('closing_date', targetDate);
-      const savedModes = new Set((saved || []).map((r) => r.mode));
-      const missing = Object.keys(summary.byMode).filter((m) => !savedModes.has(m));
-      return { count: missing.length };
-    })(),
+  const [reconciliation, { data: alreadyClosed }] = await Promise.all([
     getReconciliationData(targetDate),
     supabase.from('day_closings').select('id').eq('closing_date', targetDate).maybeSingle(),
   ]);
 
   return {
-    reconciliationComplete: unreconciledModes === 0,
+    reconciliationComplete: reconciliation.every((r) => r.saved),
     alreadyClosed: !!alreadyClosed,
-    reconciliation: recon,
+    reconciliation,
   };
 }
 

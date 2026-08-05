@@ -70,16 +70,28 @@ export default function CashManagementPage() {
   const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
-    setSummary(await getTodayCollectionSummary());
-    setRevenueByDept(await getRevenueByDepartmentToday());
-    setReconRows(await getReconciliationData());
-    setReadiness(await getCloseDayReadiness());
-    setHistory(await getDayClosingHistory());
-    const isClosed = await isTodayClosed();
+    const [
+      summaryData, revenueByDeptData, readinessData, historyData,
+      isClosed, openingData, openQueueData, unclosedPastDaysData,
+    ] = await Promise.all([
+      getTodayCollectionSummary(),
+      getRevenueByDepartmentToday(),
+      getCloseDayReadiness(),
+      getDayClosingHistory(),
+      isTodayClosed(),
+      getDayOpening(),
+      getOpenQueueEntriesToday(),
+      getUnclosedPastDays(),
+    ]);
+    setSummary(summaryData);
+    setRevenueByDept(revenueByDeptData);
+    setReadiness(readinessData);
+    setReconRows(readinessData.reconciliation); // already computed inside getCloseDayReadiness -- no need to fetch again
+    setHistory(historyData);
     setClosedToday(isClosed);
-    setOpening(await getDayOpening());
-    setOpenQueueEntries(await getOpenQueueEntriesToday());
-    setUnclosedPastDays(await getUnclosedPastDays());
+    setOpening(openingData);
+    setOpenQueueEntries(openQueueData);
+    setUnclosedPastDays(unclosedPastDaysData);
     if (isClosed) {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
       setTodayClosingInfo(await getDailyReport(todayStr));
