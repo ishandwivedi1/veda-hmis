@@ -31,6 +31,24 @@ export async function registerPatient(values) {
   });
 
   if (error) {
+    // Logged as a separate, independent write -- persists regardless
+    // of the RPC's own transaction rolling back. Gives every failed
+    // attempt a record on file, so any future UHID gap (the advisory
+    // lock in register_patient prevents most, but not literally every
+    // possible failure mode, e.g. a mid-transaction server crash) has
+    // an explanation instead of being a mystery.
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from('registration_attempt_log').insert({
+        error_message: error.message,
+        input_first_name: values.firstName || null,
+        input_last_name: values.lastName || null,
+        input_mobile: values.mobile || null,
+        attempted_by: user?.id || null,
+      });
+    } catch (logErr) {
+      console.error('Failed to log registration attempt:', logErr.message);
+    }
     return { error: error.message };
   }
 
