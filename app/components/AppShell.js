@@ -102,17 +102,22 @@ export default function AppShell({ children }) {
     });
   }, []);
 
-  // Idle auto-logout + "who's online" heartbeat. Checked on the same
-  // interval: each tick either signs out (if idle past the timeout) or
-  // sends a heartbeat (if still active) -- never both, since once
-  // signed out there's no session left to send a heartbeat for.
+  // Idle auto-logout + "who's online" heartbeat. Checked on an interval,
+  // AND immediately whenever the tab becomes visible again -- browsers
+  // (Chrome especially) heavily throttle setInterval in backgrounded
+  // tabs, sometimes to firing only once every several minutes or less,
+  // so the interval alone can miss the 30-minute mark while the tab
+  // sits unfocused. visibilitychange isn't subject to that throttling
+  // and fires exactly when someone switches back to the tab, so it
+  // catches what the interval missed. It doesn't count as "activity"
+  // itself -- only real mouse/keyboard/touch input resets the clock.
   const lastActivityRef = useRef(Date.now());
   useEffect(() => {
     const markActive = () => { lastActivityRef.current = Date.now(); };
     const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'];
     events.forEach((e) => window.addEventListener(e, markActive, { passive: true }));
 
-    const interval = setInterval(async () => {
+    const checkIdle = async () => {
       const idleMs = Date.now() - lastActivityRef.current;
       if (idleMs >= IDLE_TIMEOUT_MS) {
         await supabase.auth.signOut();
@@ -121,10 +126,16 @@ export default function AppShell({ children }) {
       } else {
         updateHeartbeat();
       }
-    }, CHECK_INTERVAL_MS);
+    };
+
+    const onVisible = () => { if (document.visibilityState === 'visible') checkIdle(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    const interval = setInterval(checkIdle, CHECK_INTERVAL_MS);
 
     return () => {
       events.forEach((e) => window.removeEventListener(e, markActive));
+      document.removeEventListener('visibilitychange', onVisible);
       clearInterval(interval);
     };
   }, []);
