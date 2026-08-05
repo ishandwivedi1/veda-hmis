@@ -43,9 +43,9 @@ export async function getRevenueByDepartmentToday() {
   return byDept;
 }
 
-export async function getTodayCollectionSummary() {
+export async function getTodayCollectionSummary(date) {
   const supabase = await createClient();
-  const { startUTC, endUTC } = istDayBoundsUTC();
+  const { startUTC, endUTC } = istDayBoundsUTC(date);
 
   const { data: payments } = await supabase
     .from('payments')
@@ -69,12 +69,12 @@ export async function getTodayCollectionSummary() {
   return { transactions: rows, byMode, total, count: rows.length };
 }
 
-export async function getReconciliationData() {
+export async function getReconciliationData(date) {
   const supabase = await createClient();
-  const today = todayIST();
+  const targetDate = date || todayIST();
 
-  const summary = await getTodayCollectionSummary();
-  const { data: saved } = await supabase.from('day_reconciliation').select('*').eq('closing_date', today);
+  const summary = await getTodayCollectionSummary(targetDate);
+  const { data: saved } = await supabase.from('day_reconciliation').select('*').eq('closing_date', targetDate);
   const savedByMode = {};
   (saved || []).forEach((r) => { savedByMode[r.mode] = r; });
 
@@ -88,31 +88,31 @@ export async function getReconciliationData() {
   }));
 }
 
-export async function saveReconciliation(mode, expected, actual, reason, approvedBy) {
+export async function saveReconciliation(mode, expected, actual, reason, approvedBy, date) {
   const supabase = await createClient();
-  const today = todayIST();
+  const targetDate = date || todayIST();
   const { error } = await supabase.rpc('save_reconciliation', {
-    p_closing_date: today, p_mode: mode, p_expected: expected, p_actual: actual,
+    p_closing_date: targetDate, p_mode: mode, p_expected: expected, p_actual: actual,
     p_reason: reason || null, p_approved_by: approvedBy || null,
   });
   if (error) return { error: error.message };
   return { success: true };
 }
 
-export async function getCloseDayReadiness() {
+export async function getCloseDayReadiness(date) {
   const supabase = await createClient();
-  const today = todayIST();
+  const targetDate = date || todayIST();
 
   const [{ count: unreconciledModes }, recon, { data: alreadyClosed }] = await Promise.all([
     (async () => {
-      const summary = await getTodayCollectionSummary();
-      const { data: saved } = await supabase.from('day_reconciliation').select('mode').eq('closing_date', today);
+      const summary = await getTodayCollectionSummary(targetDate);
+      const { data: saved } = await supabase.from('day_reconciliation').select('mode').eq('closing_date', targetDate);
       const savedModes = new Set((saved || []).map((r) => r.mode));
       const missing = Object.keys(summary.byMode).filter((m) => !savedModes.has(m));
       return { count: missing.length };
     })(),
-    getReconciliationData(),
-    supabase.from('day_closings').select('id').eq('closing_date', today).maybeSingle(),
+    getReconciliationData(targetDate),
+    supabase.from('day_closings').select('id').eq('closing_date', targetDate).maybeSingle(),
   ]);
 
   return {
@@ -122,11 +122,34 @@ export async function getCloseDayReadiness() {
   };
 }
 
-export async function closeDay(notes) {
+export async function closeDay(notes, date) {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('close_day', { p_date: null, p_notes: notes || null });
+  const { data, error } = await supabase.rpc('close_day', { p_date: date || null, p_notes: notes || null });
   if (error) return { error: error.message };
   return { closing: data };
+}
+
+// Any day that was opened but never closed, before today. The "Close
+// a Past Day" flow works through this list -- and open_day itself now
+// refuses to open a new day while any of these exist.
+export async function getUnclosedPastDays() {
+  const supabase = await createClient();
+  const today = todayIST();
+
+  const { data: openings } = await supabase
+    .from('day_openings')
+    .select('opening_date')
+    .lt('opening_date', today)
+    .order('opening_date', { ascending: true });
+  if (!openings || openings.length === 0) return [];
+
+  const { data: closings } = await supabase
+    .from('day_closings')
+    .select('closing_date')
+    .lt('closing_date', today);
+  const closedSet = new Set((closings || []).map((c) => c.closing_date));
+
+  return openings.map((o) => o.opening_date).filter((d) => !closedSet.has(d));
 }
 
 export async function getDayClosingHistory() {

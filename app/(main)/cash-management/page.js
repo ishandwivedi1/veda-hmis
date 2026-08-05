@@ -14,6 +14,7 @@ import {
   getDayOpening,
   openDay,
   getRevenueByDepartmentToday,
+  getUnclosedPastDays,
 } from './actions';
 import { getApprovers } from '@/app/(main)/payments/actions';
 import { getOpenQueueEntriesToday, bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
@@ -48,6 +49,13 @@ export default function CashManagementPage() {
   const [openQueueEntries, setOpenQueueEntries] = useState([]);
   const [bulkCloseReason, setBulkCloseReason] = useState('');
   const [bulkClosing, setBulkClosing] = useState(false);
+  const [unclosedPastDays, setUnclosedPastDays] = useState([]);
+  const [closingPastDate, setClosingPastDate] = useState(null);
+  const [pastReconRows, setPastReconRows] = useState([]);
+  const [pastReconEdits, setPastReconEdits] = useState({});
+  const [pastReconApprover, setPastReconApprover] = useState('');
+  const [pastCloseNotes, setPastCloseNotes] = useState('');
+  const [pastLoading, setPastLoading] = useState(false);
 
   const [reconEdits, setReconEdits] = useState({});
   const [reconApprover, setReconApprover] = useState('');
@@ -71,6 +79,7 @@ export default function CashManagementPage() {
     setClosedToday(isClosed);
     setOpening(await getDayOpening());
     setOpenQueueEntries(await getOpenQueueEntriesToday());
+    setUnclosedPastDays(await getUnclosedPastDays());
     if (isClosed) {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
       setTodayClosingInfo(await getDailyReport(todayStr));
@@ -131,6 +140,57 @@ export default function CashManagementPage() {
     if (result.error) { setError(result.error); return; }
     setSuccess(`Closed ${result.count} visit(s).`);
     setBulkCloseReason('');
+    refresh();
+  }
+
+  // ── CLOSE A PAST DAY -- self-contained, mirrors the main
+  // Reconciliation/Close Day flow but scoped to a specific backdated
+  // date instead of today, with its own state so it can't collide with
+  // whatever's happening on today's tabs at the same time. ──
+  async function openPastDayClosing(date) {
+    setError(''); setSuccess('');
+    setClosingPastDate(date);
+    setPastReconEdits({});
+    setPastCloseNotes('');
+    setPastReconRows(await getReconciliationData(date));
+  }
+
+  function updatePastReconField(mode, field, value) {
+    setPastReconEdits((prev) => ({ ...prev, [mode]: { ...prev[mode], [field]: value } }));
+  }
+
+  async function handleSavePastRecon(row) {
+    setError(''); setSuccess('');
+    const edit = pastReconEdits[row.mode] || {};
+    const actual = edit.actual !== undefined ? parseFloat(edit.actual) : row.actual;
+    const reason = edit.reason !== undefined ? edit.reason : row.reason;
+    const variance = actual - row.expected;
+
+    if (Math.abs(variance) > 0.01 && !reason) {
+      setError(`A variance reason is required for ${row.mode} (variance: ${fmt(variance)}).`);
+      return;
+    }
+    if (Math.abs(variance) > 0.01 && !pastReconApprover) {
+      setError('Select a supervisor to approve this variance.');
+      return;
+    }
+
+    const result = await saveReconciliation(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? pastReconApprover : null, closingPastDate);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`${row.mode} reconciled for ${closingPastDate}.`);
+    setPastReconRows(await getReconciliationData(closingPastDate));
+  }
+
+  async function handleClosePastDay() {
+    setError(''); setSuccess('');
+    const allSaved = pastReconRows.every((r) => r.saved);
+    if (!allSaved) { setError('Complete reconciliation for every payment mode before closing this day.'); return; }
+    setPastLoading(true);
+    const result = await closeDay(pastCloseNotes, closingPastDate);
+    setPastLoading(false);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`${closingPastDate} closed successfully.`);
+    setClosingPastDate(null);
     refresh();
   }
 
@@ -325,6 +385,84 @@ export default function CashManagementPage() {
       )}
 
       {activeTab === 'close' && (
+        <>
+        {unclosedPastDays.length > 0 && (
+          <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--red)' }}>
+            <div className="card-title" style={{ marginBottom: 10 }}>
+              <i className="ti ti-alert-triangle" style={{ color: 'var(--red)' }}></i> {unclosedPastDays.length} day(s) were opened but never closed
+            </div>
+            <div className="msg-err" style={{ marginBottom: 12 }}>
+              <i className="ti ti-lock"></i> A new day can&apos;t be opened until these are resolved. Close them here, oldest first.
+            </div>
+
+            {!closingPastDate ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {unclosedPastDays.map((d) => (
+                  <button key={d} className="btn" style={{ borderColor: 'var(--red)', color: 'var(--red)' }} onClick={() => openPastDayClosing(d)}>
+                    <i className="ti ti-calendar-exclamation"></i> Close {d}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <strong style={{ fontSize: 14 }}>Closing {closingPastDate}</strong>
+                  <button className="btn btn-sm" onClick={() => setClosingPastDate(null)}>Back to list</button>
+                </div>
+
+                <div style={{ display: 'flex', padding: '8px 12px', background: 'var(--g50)', borderRadius: 8, marginBottom: 6, fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>
+                  <span style={{ minWidth: 140 }}>Mode</span>
+                  <span style={{ minWidth: 130, textAlign: 'right' }}>Expected</span>
+                  <span style={{ flex: 1, textAlign: 'center' }}>Actual</span>
+                  <span style={{ minWidth: 130, textAlign: 'right' }}>Variance</span>
+                  <span style={{ minWidth: 90 }}></span>
+                </div>
+                {pastReconRows.map((row) => {
+                  const editedActual = pastReconEdits[row.mode]?.actual !== undefined ? pastReconEdits[row.mode].actual : row.actual;
+                  const variance = parseFloat(editedActual || 0) - row.expected;
+                  const hasVariance = Math.abs(variance) > 0.01;
+                  return (
+                    <div key={row.mode} style={{ padding: '10px 12px', borderBottom: '1px solid var(--g100)', background: hasVariance ? 'var(--amber-lt)' : 'transparent', borderRadius: 8, marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{ minWidth: 140, fontWeight: 600, fontSize: 13 }}>{row.mode}</span>
+                        <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>{fmt(row.expected)}</span>
+                        <span style={{ flex: 1, textAlign: 'center' }}>
+                          <input type="number" className="fi fi-sm" style={{ maxWidth: 140, textAlign: 'right', display: 'inline-block' }} value={editedActual}
+                            onChange={(e) => updatePastReconField(row.mode, 'actual', e.target.value)} />
+                        </span>
+                        <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: hasVariance ? 'var(--red)' : 'var(--g400)' }}>
+                          {hasVariance ? (variance > 0 ? '+' : '') + fmt(variance) : fmt(0)}
+                        </span>
+                        <span style={{ minWidth: 90, textAlign: 'right' }}>
+                          <button className="btn btn-sm btn-primary" onClick={() => handleSavePastRecon(row)}>Save</button>
+                          {row.saved && <span className="badge b-green" style={{ marginLeft: 6 }}>Saved</span>}
+                        </span>
+                      </div>
+                      {hasVariance && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <input className="fi fi-sm" placeholder="Variance reason" value={pastReconEdits[row.mode]?.reason !== undefined ? pastReconEdits[row.mode].reason : row.reason}
+                            onChange={(e) => updatePastReconField(row.mode, 'reason', e.target.value)} />
+                          <select className="fi fi-sm" value={pastReconApprover} onChange={(e) => setPastReconApprover(e.target.value)}>
+                            <option value="">-- Approving supervisor --</option>
+                            {approvers.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {pastReconRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No collections recorded for this date -- nothing to reconcile.</div>}
+
+                <label className="flbl" style={{ marginTop: 14 }}>Closing notes</label>
+                <textarea className="fi" rows={2} style={{ marginBottom: 10 }} value={pastCloseNotes} onChange={(e) => setPastCloseNotes(e.target.value)} placeholder="e.g. Closed late -- internet outage on this date" />
+                <button className="btn btn-danger" onClick={handleClosePastDay} disabled={pastLoading || (pastReconRows.length > 0 && !pastReconRows.every((r) => r.saved))}>
+                  <i className="ti ti-lock"></i> {pastLoading ? 'Closing...' : `Close ${closingPastDate}`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 20 }}>
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-lock" style={{ color: 'var(--red)' }}></i> Close Day</div>
@@ -390,6 +528,7 @@ export default function CashManagementPage() {
             </div>
           )}
         </div>
+        </>
       )}
 
       {activeTab === 'report' && (
