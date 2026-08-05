@@ -5,6 +5,21 @@ import { createAdminClient } from '@/lib/supabase-admin';
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
 
+// Called periodically by AppShell while someone has the app open --
+// powers the Online/Away/Last seen status in User Management. Silently
+// no-ops on failure (a missed heartbeat should never surface as an
+// error to the person using the app).
+export async function updateHeartbeat() {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from('profiles').update({ last_active_at: new Date().toISOString() }).eq('id', user.id);
+  } catch {
+    // Non-critical -- deliberately swallowed.
+  }
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // The technical login credential Supabase Auth actually stores is always

@@ -2,8 +2,15 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase-browser';
+import { updateHeartbeat } from '@/app/(main)/users/actions';
+
+// 30 minutes of no mouse/keyboard/touch activity -> automatic sign-out.
+// Balances security (unattended shared terminals in a hospital) against
+// not interrupting a doctor mid-consultation for a shorter window.
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const CHECK_INTERVAL_MS = 60 * 1000;
 
 const NAV_ITEMS = [
   { href: '/front-office-dashboard', label: 'Front Office Dashboard', icon: 'ti-user-check', section: 'Front Office' },
@@ -93,6 +100,33 @@ export default function AppShell({ children }) {
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       setProfile(data);
     });
+  }, []);
+
+  // Idle auto-logout + "who's online" heartbeat. Checked on the same
+  // interval: each tick either signs out (if idle past the timeout) or
+  // sends a heartbeat (if still active) -- never both, since once
+  // signed out there's no session left to send a heartbeat for.
+  const lastActivityRef = useRef(Date.now());
+  useEffect(() => {
+    const markActive = () => { lastActivityRef.current = Date.now(); };
+    const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, markActive, { passive: true }));
+
+    const interval = setInterval(async () => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      if (idleMs >= IDLE_TIMEOUT_MS) {
+        await supabase.auth.signOut();
+        router.push('/login?reason=idle');
+        router.refresh();
+      } else {
+        updateHeartbeat();
+      }
+    }, CHECK_INTERVAL_MS);
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, markActive));
+      clearInterval(interval);
+    };
   }, []);
 
   async function handleSignOut() {

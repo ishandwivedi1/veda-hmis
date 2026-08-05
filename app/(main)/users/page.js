@@ -5,6 +5,21 @@ import { getUsers, createUser, toggleUserStatus, resetUserPassword, updateUserPr
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
 
+// Heartbeat updates every ~60s while the app is open (see AppShell.js).
+// A few minutes' grace covers normal timing/network gaps without
+// flip-flopping between Online/Away on every tick.
+function onlineStatus(lastActiveAt) {
+  if (!lastActiveAt) return { label: 'Never logged in', color: 'var(--g400)' };
+  const minutesAgo = (Date.now() - new Date(lastActiveAt).getTime()) / 60000;
+  if (minutesAgo < 3) return { label: 'Online', color: 'var(--green)' };
+  if (minutesAgo < 30) return { label: `Away (${Math.round(minutesAgo)}m)`, color: 'var(--amber)' };
+  const d = new Date(lastActiveAt);
+  const label = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+    ? `Last seen ${d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}`
+    : `Last seen ${d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}`;
+  return { label, color: 'var(--g400)' };
+}
+
 function EditProfileRow({ user, isAdmin, onDone }) {
   const [fullName, setFullName] = useState(user.full_name || '');
   const [username, setUsername] = useState(user.username || '');
@@ -61,6 +76,7 @@ function EditProfileRow({ user, isAdmin, onDone }) {
       <td>
         <input className="fi" value={department} onChange={(e) => setDepartment(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }} />
       </td>
+      <td></td>
       <td colSpan={2}>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
@@ -186,7 +202,7 @@ export default function UsersPage() {
 
       <table className="tbl">
         <thead>
-          <tr><th>Name</th><th>Username</th><th>Designation</th><th>Department</th><th>Status</th><th></th></tr>
+          <tr><th>Name</th><th>Username</th><th>Designation</th><th>Department</th><th>Online</th><th>Status</th><th></th></tr>
         </thead>
         <tbody>
           {users.map((u) => (
@@ -208,6 +224,17 @@ export default function UsersPage() {
                     )}
                   </td>
                   <td>{u.department}</td>
+                  <td>
+                    {(() => {
+                      const s = onlineStatus(u.last_active_at);
+                      return (
+                        <span style={{ fontSize: 12, color: s.color, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: s.color, display: 'inline-block' }}></span>
+                          {s.label}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td>
                     <button
                       className={`badge ${u.status === 'Active' ? 'b-green' : 'b-gray'}`}

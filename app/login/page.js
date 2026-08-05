@@ -1,11 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '../../lib/supabase-browser';
 import { resolveLoginEmail, getMyDesignation } from '@/app/(main)/users/actions';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
+  const searchParams = useSearchParams();
+  const idleLogout = searchParams.get('reason') === 'idle';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -82,6 +93,11 @@ export default function LoginPage() {
           </div>
         </div>
 
+        {idleLogout && !error && (
+          <div className="msg-info" style={{ marginBottom: 12 }}>
+            <i className="ti ti-clock"></i> You were signed out after 30 minutes of inactivity.
+          </div>
+        )}
         {error && <div className="msg-err">{error}</div>}
 
         <form onSubmit={handleSubmit}>
