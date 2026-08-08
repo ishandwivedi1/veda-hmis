@@ -9,6 +9,7 @@ import BiometryWorkspace from '@/app/(main)/biometry/[id]/workspace';
 import { getBiometryApprovalsToday } from '@/app/(main)/biometry/actions';
 import { WorkspaceTab as MedicalFitnessWorkspace } from '@/app/(main)/medical-fitness/page';
 import { getMedicalFitnessToday } from '@/app/(main)/medical-fitness/actions';
+import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
 
 function elapsedMin(isoString) {
   if (!isoString) return 0;
@@ -26,14 +27,7 @@ function patientName(entry) {
   return p ? `${p.first_name} ${p.last_name}` : 'Unknown';
 }
 
-const VISIT_TYPE_COLOR = {
-  'New Consultation': '--blue',
-  'Follow-up': '--green',
-  'Investigation Only': '--purple',
-  'Post-operative Review': '--amber',
-  'Emergency': '--red',
-  'Procedure': '--teal',
-};
+
 
 function TokenBadge({ token, color }) {
   return (

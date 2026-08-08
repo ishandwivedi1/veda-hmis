@@ -3,19 +3,11 @@ import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
 import { isTodayOpen } from '@/app/(main)/cash-management/actions';
+import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
 
 function elapsedMin(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
 }
-
-const VISIT_TYPE_COLOR = {
-  'New Consultation': '--blue',
-  'Follow-up': '--green',
-  'Investigation Only': '--purple',
-  'Post-operative Review': '--amber',
-  'Emergency': '--red',
-  'Procedure': '--teal',
-};
 
 const APPT_STATUS_BADGE = { Booked: 'b-amber', 'Checked-in': 'b-green', Cancelled: 'b-red', 'No-show': 'b-gray' };
 

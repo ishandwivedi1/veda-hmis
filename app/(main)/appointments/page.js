@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
+import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
 
 const STATUS_BADGE = { Booked: 'b-amber', 'Checked-in': 'b-green', Cancelled: 'b-red', 'No-show': 'b-gray' };
 
@@ -60,7 +61,7 @@ export default async function AppointmentsPage({ searchParams }) {
                 <td style={{ fontWeight: 600 }}>{a.appointment_time?.slice(0, 5)}</td>
                 <td>{name}</td>
                 <td>{mobile}</td>
-                <td>{a.visit_type}</td>
+                <td><span className="badge" style={{ background: `var(${VISIT_TYPE_COLOR[a.visit_type] || '--g100'})`, color: '#fff' }}>{a.visit_type}</span></td>
                 <td>{a.profiles?.full_name || '--'}</td>
                 <td><span className={`badge ${STATUS_BADGE[a.status] || 'b-gray'}`}>{a.status}</span></td>
                 <td style={{ position: 'relative' }}>

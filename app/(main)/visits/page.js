@@ -4,15 +4,7 @@ import { createClient } from '@/lib/supabase-server';
 import { getDoctorOptionsForVisit } from './actions';
 import VisitActions from './visit-actions';
 import SortSelect from '@/app/components/SortSelect';
-
-const VISIT_TYPE_COLOR = {
-  'New Consultation': '--blue',
-  'Follow-up': '--green',
-  'Investigation Only': '--purple',
-  'Post-operative Review': '--amber',
-  'Emergency': '--red',
-  'Surgery': '--teal',
-};
+import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
 
 const BILLING_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', '--': 'b-gray' };
 
