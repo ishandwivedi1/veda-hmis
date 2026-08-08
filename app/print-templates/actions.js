@@ -1251,6 +1251,25 @@ function buildGonioscopyRows(gonioFindings) {
   return rows;
 }
 
+// Doctors enter frequency as the medical shorthand (fast to pick from a
+// dropdown) but that shorthand means nothing to a patient reading their
+// printed prescription at home -- translated to plain language here,
+// on the print path only. The on-screen Prescription entry in the
+// doctor module is untouched; this doesn't affect what's stored in the
+// database, only how it's displayed on paper.
+const FREQUENCY_LABELS = {
+  OD: 'Once a day',
+  BD: 'Twice a day',
+  TDS: 'Three times a day',
+  QID: 'Four times a day',
+  HS: 'At bedtime',
+  SOS: 'As needed',
+};
+function plainFrequency(freq) {
+  const label = FREQUENCY_LABELS[freq];
+  return label ? `${label} (${freq})` : freq;
+}
+
 // Groups prescription rows sharing a taper_group_id into one entry with
 // a combined frequency string (e.g. "QID x1 week -> TDS x1 week -> BD
 // x1 week -> OD x1 week, then stop") so a tapering schedule prints as
@@ -1268,11 +1287,11 @@ function groupPrescriptionsForPrint(prescriptions) {
       out.push({
         drug: r.drug, eye: r.eye, dosage: r.dosage,
         isTaper: true,
-        frequency: steps.map((s) => `${s.frequency} x${s.duration}`).join(' -> ') + ', then stop',
+        frequency: steps.map((s) => `${plainFrequency(s.frequency)} x${s.duration}`).join(' -> ') + ', then stop',
         duration: '',
       });
     } else {
-      out.push({ drug: r.drug, eye: r.eye, dosage: r.dosage, frequency: r.frequency, duration: r.duration, isTaper: false });
+      out.push({ drug: r.drug, eye: r.eye, dosage: r.dosage, frequency: plainFrequency(r.frequency), duration: r.duration, isTaper: false });
     }
   });
   return out;

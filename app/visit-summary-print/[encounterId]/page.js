@@ -1,6 +1,37 @@
 import { createClient } from '@/lib/supabase-server';
 import PrintButton from './print-button';
 
+// Same mapping and grouping logic as print-templates/actions.js's
+// Handlebars version -- kept in sync deliberately since this page
+// renders prescriptions independently (React, not Handlebars).
+const FREQUENCY_LABELS = { OD: 'Once a day', BD: 'Twice a day', TDS: 'Three times a day', QID: 'Four times a day', HS: 'At bedtime', SOS: 'As needed' };
+function plainFrequency(freq) {
+  const label = FREQUENCY_LABELS[freq];
+  return label ? `${label} (${freq})` : freq;
+}
+function groupPrescriptionsForPrint(prescriptions) {
+  const seen = new Set();
+  const out = [];
+  (prescriptions || []).forEach((r) => {
+    if (r.taper_group_id) {
+      if (seen.has(r.taper_group_id)) return;
+      seen.add(r.taper_group_id);
+      const steps = prescriptions
+        .filter((x) => x.taper_group_id === r.taper_group_id)
+        .sort((a, b) => (a.taper_step || 0) - (b.taper_step || 0));
+      out.push({
+        id: r.taper_group_id, drug_name: r.drug_name, eye: r.eye, dosage: r.dosage,
+        isTaper: true,
+        frequency: steps.map((s) => `${plainFrequency(s.frequency)} x${s.duration}`).join(' -> ') + ', then stop',
+        duration: '',
+      });
+    } else {
+      out.push({ ...r, frequency: plainFrequency(r.frequency), isTaper: false });
+    }
+  });
+  return out;
+}
+
 export default async function VisitSummaryPrintPage({ params }) {
   const { encounterId } = await params;
   const supabase = await createClient();
@@ -108,12 +139,15 @@ export default async function VisitSummaryPrintPage({ params }) {
               </tr>
             </thead>
             <tbody>
-              {prescriptions.map((r) => (
+              {groupPrescriptionsForPrint(prescriptions).map((r) => (
                 <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '4px 4px', fontWeight: 600 }}>{r.drug_name}</td>
+                  <td style={{ padding: '4px 4px', fontWeight: 600 }}>
+                    {r.drug_name}
+                    {r.isTaper && <span style={{ fontSize: 9, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', marginLeft: 4 }}>(Taper)</span>}
+                  </td>
                   <td style={{ padding: '4px 4px' }}>{r.dosage}</td>
-                  <td style={{ padding: '4px 4px' }}>{r.frequency}</td>
-                  <td style={{ padding: '4px 4px' }}>{r.duration}</td>
+                  <td style={{ padding: '4px 4px' }} colSpan={r.isTaper ? 2 : 1}>{r.frequency}</td>
+                  {!r.isTaper && <td style={{ padding: '4px 4px' }}>{r.duration}</td>}
                   <td style={{ padding: '4px 4px' }}>{r.eye}</td>
                 </tr>
               ))}
