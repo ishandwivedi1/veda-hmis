@@ -37,7 +37,7 @@ import {
 } from '@/app/(main)/consultation/actions';
 import { openPopup } from '@/lib/popup';
 import { markForSurgery, updateSurgicalCase } from '@/app/(main)/counselling/actions';
-import { getDiagnosesMaster, getDrugs, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
+import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import OptometryWorkspace from '@/app/(main)/optometry/[id]/optometry-workspace';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
@@ -180,15 +180,18 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   // dropdowns -- fetched once on mount, not re-fetched on every add/remove.
   const [diagnosisOptions, setDiagnosisOptions] = useState([]);
   const [drugOptions, setDrugOptions] = useState([]);
+  const [dosageOptions, setDosageOptions] = useState([]);
+  const [rxDrugTypeId, setRxDrugTypeId] = useState(null);
   const [investigationOptions, setInvestigationOptions] = useState([]);
   const [procedureOptions, setProcedureOptions] = useState([]);
   const [surgeryOptions, setSurgeryOptions] = useState([]);
 
   useEffect(() => {
     (async () => {
-      const [dx, dr, sv, sg] = await Promise.all([getDiagnosesMaster(), getDrugs(), getServices(), getSurgeries()]);
+      const [dx, dr, sv, sg, dg] = await Promise.all([getDiagnosesMaster(), getDrugs(), getServices(), getSurgeries(), getDosageOptions()]);
       setDiagnosisOptions(dx.filter((d) => d.status === 'Active'));
       setDrugOptions(dr.filter((d) => d.status === 'Active'));
+      setDosageOptions(dg);
       // Biometry stays in Financial Masters for billing purposes only --
       // excluded here since clinical biometry has its own dedicated
       // workflow, now triggered from Counselling (M22) rather than here.
@@ -841,7 +844,13 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   </div>
                 ))}
                 {data.prescriptions.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No prescriptions added yet.</div>}
-                <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setRxDrug(e.target.value); }}>
+                <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => {
+                  if (!e.target.value) return;
+                  const picked = drugOptions.find((d) => d.brand === e.target.value);
+                  setRxDrug(e.target.value);
+                  setRxDrugTypeId(picked?.drug_type_id || null);
+                  setRxDosage('');
+                }}>
                   <option value="">-- Pick from Pharmacy master (or type below) --</option>
                   {drugOptions.filter((d) => d.brand).map((d) => <option key={d.id} value={d.brand}>{d.brand}{d.generic ? ` (${d.generic})` : ''}{d.strength ? ` -- ${d.strength}` : ''}</option>)}
                 </select>
@@ -849,9 +858,18 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   <span>Drug</span><span>Dosage</span><span>Frequency</span><span>Duration</span><span>Eye</span><span></span>
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                  <input className="fi" placeholder="Drug name" value={rxDrug} onChange={(e) => setRxDrug(e.target.value)} style={{ flex: '2 1 160px' }} />
+                  <input className="fi" placeholder="Drug name" value={rxDrug} onChange={(e) => { setRxDrug(e.target.value); setRxDrugTypeId(null); }} style={{ flex: '2 1 160px' }} />
                   <select className="fi" value={rxDosage} onChange={(e) => setRxDosage(e.target.value)} style={{ flex: '1 1 90px' }}>
-                    <option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option>
+                    <option value="">-- Dosage --</option>
+                    {(rxDrugTypeId ? dosageOptions.filter((o) => o.drug_type_id === rxDrugTypeId) : []).map((o) => (
+                      <option key={o.id} value={o.dosage_text}>{o.dosage_text}</option>
+                    ))}
+                    {/* Generic fallback -- shown when the drug has no type assigned yet (free-typed name, or a master drug still missing its Type in Financial Masters) so the field never comes up empty. */}
+                    {!rxDrugTypeId && (
+                      <>
+                        <option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option>
+                      </>
+                    )}
                   </select>
                   <select className="fi" value={rxFrequency} onChange={(e) => setRxFrequency(e.target.value)} style={{ flex: '1 1 90px' }}>
                     <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>

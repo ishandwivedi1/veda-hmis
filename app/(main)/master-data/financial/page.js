@@ -7,6 +7,8 @@ import {
   getPackages, addPackage, updatePackage, deletePackage,
   getPackageLineItems, addPackageLineItem, removePackageLineItem,
   getDrugs, addDrug, updateDrug, deleteDrug,
+  getDrugTypes, addDrugType, updateDrugType, deleteDrugType,
+  getDosageOptions, addDosageOption, removeDosageOption,
   getSurgeries,
   getMasterAuditLog,
 } from '../actions';
@@ -36,6 +38,12 @@ export default function FinancialMastersPage() {
   const [services, setServices] = useState([]);
   const [packages, setPackages] = useState([]);
   const [drugs, setDrugs] = useState([]);
+  const [drugTypes, setDrugTypes] = useState([]);
+  const [dosageOptions, setDosageOptions] = useState([]);
+  const [showTypesPanel, setShowTypesPanel] = useState(false);
+  const [expandedTypeId, setExpandedTypeId] = useState(null);
+  const [newTypeName, setNewTypeName] = useState('');
+  const [newDosageText, setNewDosageText] = useState('');
   const [surgeries, setSurgeries] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -57,6 +65,8 @@ export default function FinancialMastersPage() {
     setServices(await getServices());
     setPackages(await getPackages());
     setDrugs(await getDrugs());
+    setDrugTypes(await getDrugTypes());
+    setDosageOptions(await getDosageOptions());
     setSurgeries(await getSurgeries());
     setAuditLog(await getMasterAuditLog(auditTable));
   }, [auditTable]);
@@ -102,13 +112,42 @@ export default function FinancialMastersPage() {
     setError(''); setSuccess('');
     setEditingId(record.id);
     if (tabDef.type === 'package') setEditForm({ name: record.name || '', includes: record.includes || '', surgeryId: record.surgery_id || '', iolCategory: record.iol_category || '', origin: record.origin || '' });
-    else if (tabDef.type === 'drug') setEditForm({ brand: record.brand || '', generic: record.generic || '', strength: record.strength || '', form: record.form || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
+    else if (tabDef.type === 'drug') setEditForm({ brand: record.brand || '', generic: record.generic || '', strength: record.strength || '', form: record.form || '', drugTypeId: record.drug_type_id || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
     else setEditForm({ name: record.name || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '', investigationPackage: record.investigation_package || '' });
   }
 
   function cancelEdit() {
     setEditingId(null);
     setError('');
+  }
+
+  async function handleAddType() {
+    setError(''); setSuccess('');
+    if (!newTypeName.trim()) return;
+    const result = await addDrugType({ name: newTypeName });
+    if (result?.error) { setError(result.error); return; }
+    setNewTypeName('');
+    refresh();
+  }
+
+  async function handleRenameType(t, name) {
+    if (!name.trim() || name === t.name) return;
+    await updateDrugType(t.id, t, { name });
+    refresh();
+  }
+
+  async function handleAddDosage(typeId) {
+    setError(''); setSuccess('');
+    if (!newDosageText.trim()) return;
+    const result = await addDosageOption(typeId, newDosageText);
+    if (result?.error) { setError(result.error); return; }
+    setNewDosageText('');
+    refresh();
+  }
+
+  async function handleRemoveDosage(id) {
+    await removeDosageOption(id);
+    refresh();
   }
 
   async function saveEdit(record) {
@@ -218,7 +257,10 @@ export default function FinancialMastersPage() {
                   <input className="fi" placeholder="Name" onChange={update('brand')} />
                   <input className="fi" placeholder="Salt Composition" onChange={update('generic')} />
                   <input className="fi" placeholder="Strength (e.g. 0.5%)" onChange={update('strength')} />
-                  <input className="fi" placeholder="Form (e.g. Eye Drop)" onChange={update('form')} />
+                  <select className="fi" onChange={update('drugTypeId')} defaultValue="">
+                    <option value="">-- Type (e.g. Eye Drop) --</option>
+                    {drugTypes.filter((t) => t.status === 'Active').map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
                   <input type="number" className="fi" placeholder="Rate" onChange={update('rate')} />
                   <input type="number" className="fi" placeholder="GST %" onChange={update('gstPct')} />
                 </div>
@@ -297,7 +339,7 @@ export default function FinancialMastersPage() {
 
           {tabDef.type === 'drug' && (
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Name</th><th>Salt Composition</th><th>Strength</th><th>Rate</th><th>GST%</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Salt Composition</th><th>Strength</th><th>Type</th><th>Rate</th><th>GST%</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {drugs.map((d) => (
                   editingId === d.id ? (
@@ -306,6 +348,12 @@ export default function FinancialMastersPage() {
                       <td><input className="fi fi-sm" value={editForm.brand} onChange={updateEdit('brand')} /></td>
                       <td><input className="fi fi-sm" value={editForm.generic} onChange={updateEdit('generic')} /></td>
                       <td><input className="fi fi-sm" style={{ width: 80 }} value={editForm.strength} onChange={updateEdit('strength')} /></td>
+                      <td>
+                        <select className="fi fi-sm" value={editForm.drugTypeId || ''} onChange={updateEdit('drugTypeId')}>
+                          <option value="">-- Type --</option>
+                          {drugTypes.filter((t) => t.status === 'Active').map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      </td>
                       <td><input type="number" className="fi fi-sm" style={{ width: 70 }} value={editForm.rate} onChange={updateEdit('rate')} /></td>
                       <td><input type="number" className="fi fi-sm" style={{ width: 55 }} value={editForm.gstPct} onChange={updateEdit('gstPct')} /></td>
                       <td><span className={`badge ${d.status === 'Active' ? 'b-green' : 'b-gray'}`}>{d.status}</span></td>
@@ -317,6 +365,7 @@ export default function FinancialMastersPage() {
                   ) : (
                     <tr key={d.id}>
                       <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.brand}</td><td>{d.generic}</td><td>{d.strength}</td>
+                      <td>{d.master_drug_types?.name || <span style={{ color: 'var(--g400)' }}>-- unset --</span>}</td>
                       <td>Rs.{d.rate}</td><td>{d.gst_pct}%</td>
                       <td><StatusToggle record={d} table="master_drugs" onUpdate={refresh} /></td>
                       <td style={{ display: 'flex', gap: 4 }}>
@@ -328,6 +377,61 @@ export default function FinancialMastersPage() {
                 ))}
               </tbody>
             </table>
+          )}
+
+          {tabDef.type === 'drug' && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-head" style={{ cursor: 'pointer' }} onClick={() => setShowTypesPanel((p) => !p)}>
+                <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-category-2" style={{ color: 'var(--purple)' }}></i> Manage Drug Types &amp; Dosage Options</div>
+                <i className={`ti ti-chevron-${showTypesPanel ? 'up' : 'down'}`}></i>
+              </div>
+              {showTypesPanel && (
+                <div style={{ marginTop: 12 }}>
+                  <div className="msg-info" style={{ marginBottom: 12 }}>
+                    <i className="ti ti-info-circle"></i> Each type&apos;s dosage options are what shows up in the doctor&apos;s Prescription dosage dropdown when a drug of that type is selected -- e.g. &quot;Apply thin layer&quot; for Eye Ointment instead of &quot;1 drop&quot;.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                    <input className="fi" style={{ maxWidth: 260 }} placeholder="New type name (e.g. Suspension)" value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} />
+                    <button className="btn btn-primary" onClick={handleAddType}>Add Type</button>
+                  </div>
+                  {drugTypes.map((t) => (
+                    <div key={t.id} style={{ border: '1px solid var(--g100)', borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--g50)' }}>
+                        <button className="btn btn-sm" onClick={() => setExpandedTypeId((id) => (id === t.id ? null : t.id))}>
+                          <i className={`ti ti-chevron-${expandedTypeId === t.id ? 'up' : 'down'}`}></i>
+                        </button>
+                        <input
+                          className="fi fi-sm" style={{ maxWidth: 220, fontWeight: 600 }}
+                          defaultValue={t.name}
+                          onBlur={(e) => handleRenameType(t, e.target.value)}
+                        />
+                        <span style={{ fontSize: 11, color: 'var(--g400)', fontFamily: 'monospace' }}>{t.code}</span>
+                        <span style={{ marginLeft: 'auto' }}><StatusToggle record={t} table="master_drug_types" onUpdate={refresh} /></span>
+                      </div>
+                      {expandedTypeId === t.id && (
+                        <div style={{ padding: 12 }}>
+                          {dosageOptions.filter((o) => o.drug_type_id === t.id).map((o) => (
+                            <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                              <span style={{ fontSize: 13 }}>{o.dosage_text}</span>
+                              <button className="btn btn-sm" style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: 11 }} onClick={() => handleRemoveDosage(o.id)}>
+                                <i className="ti ti-trash" style={{ color: 'var(--red)' }}></i>
+                              </button>
+                            </div>
+                          ))}
+                          {dosageOptions.filter((o) => o.drug_type_id === t.id).length === 0 && (
+                            <div style={{ fontSize: 12, color: 'var(--g400)', padding: '4px 0' }}>No dosage options yet for this type.</div>
+                          )}
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                            <input className="fi fi-sm" placeholder="e.g. Apply thin layer" value={newDosageText} onChange={(e) => setNewDosageText(e.target.value)} />
+                            <button className="btn btn-sm btn-primary" onClick={() => handleAddDosage(t.id)}>Add</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {tabDef.type === 'package' && (

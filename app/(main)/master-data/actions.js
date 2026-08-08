@@ -116,6 +116,60 @@ export async function deleteIopMethod(id, code) {
   return deleteMasterRecord(supabase, 'master_iop_methods', id, code);
 }
 
+// ── DRUG TYPES (Financial Master -- Pharmacy tab, drives what dosage
+// phrasing options the doctor's Prescription picker shows) ──
+export async function getDrugTypes() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_drug_types').select('*').order('name');
+  return data || [];
+}
+export async function addDrugType(values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const code = await generateCategoryCode(supabase, 'master_drug_types', 'TYP');
+  const { error } = await supabase.from('master_drug_types').insert({ code, name, status: 'Active' });
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_drug_types', code, 'Create', `${name} created`);
+  return { success: true };
+}
+export async function updateDrugType(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const { error } = await supabase.from('master_drug_types').update({ name }).eq('id', id);
+  if (error) return { error: error.message };
+  if (oldValues.name !== name) await logMasterAudit(supabase, 'master_drug_types', oldValues.code, 'Edit', `Name ${oldValues.name} -> ${name}`);
+  return { success: true };
+}
+export async function deleteDrugType(id, code) {
+  const supabase = await createClient();
+  return deleteMasterRecord(supabase, 'master_drug_types', id, code);
+}
+
+// Dosage phrasing options nested under a drug type -- e.g. "Apply thin
+// layer" under Eye Ointment, "1 drop" under Eye Drop. Simple list items
+// (like Package line items), not full master records, so no audit code.
+export async function getDosageOptions() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_dosage_options').select('*').eq('status', 'Active').order('display_order');
+  return data || [];
+}
+export async function addDosageOption(drugTypeId, dosageText) {
+  const supabase = await createClient();
+  const text = (dosageText || '').trim();
+  if (!text) return { error: 'Dosage text is required.' };
+  const { data: existing } = await supabase.from('master_dosage_options').select('display_order').eq('drug_type_id', drugTypeId).order('display_order', { ascending: false }).limit(1);
+  const nextOrder = (existing?.[0]?.display_order ?? 0) + 1;
+  const { error } = await supabase.from('master_dosage_options').insert({ drug_type_id: drugTypeId, dosage_text: text, display_order: nextOrder });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+export async function removeDosageOption(id) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_dosage_options').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── SURGICAL CONSUMABLES (Clinical Master -- Patient Check-In dropdown
 // and Intraoperative Management quick-pick, both in OT Intraop) ──
 export async function getSurgicalConsumablesMaster() {
@@ -461,7 +515,7 @@ export async function deleteSurgery(id, code) {
 // ── DRUGS ──
 export async function getDrugs() {
   const supabase = await createClient();
-  const { data } = await supabase.from('master_drugs').select('*').order('generic');
+  const { data } = await supabase.from('master_drugs').select('*, master_drug_types(id, name)').order('generic');
   return data || [];
 }
 // Drugs (Pharmacy tab) -- fixed "DRG" prefix, 3-digit sequence, same
@@ -483,6 +537,7 @@ export async function addDrug(values) {
   const code = await generateDrugCode(supabase);
   const { error } = await supabase.from('master_drugs').insert({
     code, brand, generic, strength: values.strength, form: normalizeName(values.form),
+    drug_type_id: values.drugTypeId || null,
     rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
   });
   if (error) return { error: error.message };
@@ -496,6 +551,7 @@ export async function updateDrug(id, oldValues, values) {
   const form = normalizeName(values.form);
   const { error } = await supabase.from('master_drugs').update({
     brand, generic, strength: values.strength, form,
+    drug_type_id: values.drugTypeId || null,
     rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0,
   }).eq('id', id);
   if (error) return { error: error.message };
