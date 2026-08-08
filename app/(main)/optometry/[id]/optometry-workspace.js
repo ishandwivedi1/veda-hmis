@@ -338,12 +338,16 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
     setError('');
     setOkMsg('');
     const result = await completeAssessment(assessment.id, queueEntryId, form);
-    setSaving(false);
     if (result.error) {
+      setSaving(false);
       setError(result.error);
       if (!openSections.va) toggleSection('va');
       return;
     }
+    // Deliberately NOT resetting saving to false here -- stays disabled
+    // through the navigation delay below, so a second click in that
+    // window can't re-run completion (this is exactly how a duplicate
+    // Doctor queue token got created previously).
     setOkMsg('Assessment completed -- routed to Doctor Queue.');
     setTimeout(() => router.push('/optometry-dashboard'), 1200);
   }
