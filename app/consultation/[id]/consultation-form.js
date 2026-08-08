@@ -10,6 +10,8 @@ import {
   updateDiagnosisNotes,
   addPrescription,
   removePrescription,
+  addTaperedPrescription,
+  removeTaperGroup,
   addInvestigation,
   removeInvestigation,
   completeConsultation,
@@ -149,6 +151,13 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [rxDrug, setRxDrug] = useState('');
   const [showRxSuggestions, setShowRxSuggestions] = useState(false);
   const [showRxBrowseAll, setShowRxBrowseAll] = useState(false);
+  const [showTaperBuilder, setShowTaperBuilder] = useState(false);
+  const [taperSteps, setTaperSteps] = useState([
+    { frequency: 'QID', duration: '1 week' },
+    { frequency: 'TDS', duration: '1 week' },
+    { frequency: 'BD', duration: '1 week' },
+    { frequency: 'OD', duration: '1 week' },
+  ]);
   const [rxDosage, setRxDosage] = useState('1 drop');
   const [rxFrequency, setRxFrequency] = useState('BD');
   const [rxDuration, setRxDuration] = useState('1 week');
@@ -303,6 +312,25 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setRxDrugTypeId(d.drug_type_id || null);
     setRxDosage('');
     setShowRxSuggestions(false);
+  }
+
+  function updateTaperStep(index, field, value) {
+    setTaperSteps((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
+  }
+  function addTaperStep() {
+    setTaperSteps((prev) => [...prev, { frequency: 'OD', duration: '1 week' }]);
+  }
+  function removeTaperStep(index) {
+    setTaperSteps((prev) => prev.filter((_, i) => i !== index));
+  }
+  async function handleAddTaperSchedule() {
+    setError('');
+    if (!rxDrug.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
+    if (!rxDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
+    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, dosage: rxDosage, eye: rxEye, steps: taperSteps });
+    if (result.error) { setError(result.error); return; }
+    setRxDrug(''); setRxDosage(''); setRxDrugTypeId(null); setShowTaperBuilder(false);
+    refresh();
   }
 
   async function handleAddPrescription() {
@@ -856,14 +884,52 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                     </div>
                   </div>
                 )}
-                {data.prescriptions.map((r) => (
-                  <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <span>
-                      <strong>{r.drug_name}</strong> -- {r.dosage} {r.frequency} x {r.duration} -- {r.eye}
-                    </span>
-                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(r.id, data.encounter.id); refresh(); }}>Remove</button>
-                  </div>
-                ))}
+                {(() => {
+                  // Group rows sharing a taper_group_id into one block
+                  // (ordered by taper_step); everything else renders as
+                  // a normal single-line prescription, same as before.
+                  const seen = new Set();
+                  const items = [];
+                  data.prescriptions.forEach((r) => {
+                    if (r.taper_group_id) {
+                      if (seen.has(r.taper_group_id)) return;
+                      seen.add(r.taper_group_id);
+                      const steps = data.prescriptions
+                        .filter((x) => x.taper_group_id === r.taper_group_id)
+                        .sort((a, b) => (a.taper_step || 0) - (b.taper_step || 0));
+                      items.push({ type: 'taper', key: r.taper_group_id, steps });
+                    } else {
+                      items.push({ type: 'single', key: r.id, row: r });
+                    }
+                  });
+                  return items.map((item) => item.type === 'single' ? (
+                    <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                      <span>
+                        <strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye}
+                      </span>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(item.row.id, data.encounter.id); refresh(); }}>Remove</button>
+                    </div>
+                  ) : (
+                    <div key={item.key} style={{ padding: '8px 10px', margin: '6px 0', background: 'var(--purple-lt)', borderRadius: 8, borderBottom: '1px solid var(--g100)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: 13 }}>
+                          <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye}
+                          <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering Schedule</span>
+                        </span>
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeTaperGroup(item.key, data.encounter.id); refresh(); }}>Remove Schedule</button>
+                      </div>
+                      <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--g700)' }}>
+                        {item.steps.map((s, i) => (
+                          <span key={s.id}>
+                            {i > 0 && <i className="ti ti-arrow-right" style={{ margin: '0 4px', color: 'var(--g400)' }}></i>}
+                            {s.frequency} <span style={{ color: 'var(--g500)' }}>x {s.duration}</span>
+                          </span>
+                        ))}
+                        <span style={{ marginLeft: 6, color: 'var(--g500)' }}>, then stop</span>
+                      </div>
+                    </div>
+                  ));
+                })()}
                 {data.prescriptions.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No prescriptions added yet.</div>}
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr auto', gap: 6, marginTop: 10, fontSize: 10.5, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>
                   <span>Drug</span><span>Dosage</span><span>Frequency</span><span>Duration</span><span>Eye</span><span></span>
@@ -930,6 +996,37 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   </select>
                   <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddPrescription}>Add</button>
                 </div>
+
+                {!showTaperBuilder ? (
+                  <button className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginTop: 8 }} onClick={() => setShowTaperBuilder(true)}>
+                    <i className="ti ti-chart-line"></i> Add as Tapering Schedule instead
+                  </button>
+                ) : (
+                  <div style={{ marginTop: 10, padding: 12, background: 'var(--purple-lt)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--purple)', marginBottom: 8 }}>
+                      <i className="ti ti-chart-line"></i> Tapering Schedule -- uses the Drug, Dosage &amp; Eye entered above; frequency reduces step by step below
+                    </div>
+                    {taperSteps.map((s, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, color: 'var(--g500)', width: 16 }}>{i + 1}.</span>
+                        <select className="fi fi-sm" value={s.frequency} onChange={(e) => updateTaperStep(i, 'frequency', e.target.value)} style={{ maxWidth: 100 }}>
+                          <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
+                        </select>
+                        <select className="fi fi-sm" value={s.duration} onChange={(e) => updateTaperStep(i, 'duration', e.target.value)} style={{ maxWidth: 110 }}>
+                          <option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option>
+                        </select>
+                        {taperSteps.length > 2 && (
+                          <button className="btn btn-sm" style={{ padding: '1px 6px' }} onClick={() => removeTaperStep(i)}><i className="ti ti-x" style={{ color: 'var(--red)' }}></i></button>
+                        )}
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button className="btn btn-sm" onClick={addTaperStep}><i className="ti ti-plus"></i> Add Step</button>
+                      <button className="btn btn-sm btn-primary" onClick={handleAddTaperSchedule}>Save Tapering Schedule</button>
+                      <button className="btn btn-sm" onClick={() => setShowTaperBuilder(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>

@@ -492,6 +492,47 @@ export async function addPrescription(encounterId, values) {
   return { success: true };
 }
 
+// Tapering schedule -- same drug and dosage-per-administration across
+// steps (that's how tapering actually works clinically: the amount per
+// dose stays the same, e.g. 1 drop, only the frequency reduces over
+// time), each step a separate row sharing one taper_group_id so they
+// render and print as a single continuous instruction, not N unrelated
+// prescriptions.
+export async function addTaperedPrescription(encounterId, values) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const steps = (values.steps || []).filter((s) => s.frequency && s.duration);
+  if (steps.length < 2) return { error: 'A tapering schedule needs at least 2 steps.' };
+
+  const taperGroupId = crypto.randomUUID();
+  const rows = steps.map((s, i) => ({
+    encounter_id: encounterId,
+    drug_name: values.drugName,
+    dosage: values.dosage,
+    frequency: s.frequency,
+    duration: s.duration,
+    eye: values.eye,
+    taper_group_id: taperGroupId,
+    taper_step: i + 1,
+  }));
+
+  const { error } = await supabase.from('prescriptions').insert(rows);
+  if (error) return { error: error.message };
+  const summary = steps.map((s) => `${s.frequency} x${s.duration}`).join(' -> ');
+  await addAudit(supabase, encounterId, `Tapering schedule added: ${values.drugName} (${values.eye}) -- ${summary}`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removeTaperGroup(taperGroupId, encounterId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { data: rows } = await supabase.from('prescriptions').select('drug_name, eye').eq('taper_group_id', taperGroupId).limit(1);
+  const { error } = await supabase.from('prescriptions').delete().eq('taper_group_id', taperGroupId);
+  if (error) return { error: error.message };
+  if (rows?.[0]) await addAudit(supabase, encounterId, `Tapering schedule removed: ${rows[0].drug_name} (${rows[0].eye})`, userData?.user?.id);
+  return { success: true };
+}
+
 export async function removePrescription(id, encounterId) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
