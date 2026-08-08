@@ -147,6 +147,8 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   // Prescription form
   const [rxDrug, setRxDrug] = useState('');
+  const [showRxSuggestions, setShowRxSuggestions] = useState(false);
+  const [showRxBrowseAll, setShowRxBrowseAll] = useState(false);
   const [rxDosage, setRxDosage] = useState('1 drop');
   const [rxFrequency, setRxFrequency] = useState('BD');
   const [rxDuration, setRxDuration] = useState('1 week');
@@ -282,6 +284,25 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     if (result.error) { setError(result.error); return; }
     setDxName('');
     refresh();
+  }
+
+  // Type-ahead for the Prescription drug field -- matches on brand or
+  // generic name, case-insensitive substring, capped to keep the list
+  // scannable. Falls back to free-text (rxDrug itself) when nothing
+  // matches, or to the full Browse dropdown if the doctor wants to look
+  // rather than type.
+  const rxSuggestions = rxDrug.trim().length > 0
+    ? drugOptions.filter((d) => d.brand && (
+        d.brand.toLowerCase().includes(rxDrug.toLowerCase()) ||
+        (d.generic && d.generic.toLowerCase().includes(rxDrug.toLowerCase()))
+      )).slice(0, 8)
+    : [];
+
+  function selectRxDrug(d) {
+    setRxDrug(d.brand);
+    setRxDrugTypeId(d.drug_type_id || null);
+    setRxDosage('');
+    setShowRxSuggestions(false);
   }
 
   async function handleAddPrescription() {
@@ -844,21 +865,48 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   </div>
                 ))}
                 {data.prescriptions.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No prescriptions added yet.</div>}
-                <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => {
-                  if (!e.target.value) return;
-                  const picked = drugOptions.find((d) => d.brand === e.target.value);
-                  setRxDrug(e.target.value);
-                  setRxDrugTypeId(picked?.drug_type_id || null);
-                  setRxDosage('');
-                }}>
-                  <option value="">-- Pick from Pharmacy master (or type below) --</option>
-                  {drugOptions.filter((d) => d.brand).map((d) => <option key={d.id} value={d.brand}>{d.brand}{d.generic ? ` (${d.generic})` : ''}{d.strength ? ` -- ${d.strength}` : ''}</option>)}
-                </select>
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr auto', gap: 6, marginTop: 10, fontSize: 10.5, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>
                   <span>Drug</span><span>Dosage</span><span>Frequency</span><span>Duration</span><span>Eye</span><span></span>
                 </div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                  <input className="fi" placeholder="Drug name" value={rxDrug} onChange={(e) => { setRxDrug(e.target.value); setRxDrugTypeId(null); }} style={{ flex: '2 1 160px' }} />
+                <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  <div style={{ position: 'relative', flex: '2 1 160px' }}>
+                    <input
+                      className="fi"
+                      placeholder="Type to search medicines, or enter a new name"
+                      value={rxDrug}
+                      onChange={(e) => { setRxDrug(e.target.value); setRxDrugTypeId(null); setShowRxSuggestions(true); }}
+                      onFocus={() => setShowRxSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowRxSuggestions(false), 150)}
+                      style={{ width: '100%' }}
+                    />
+                    {showRxSuggestions && rxDrug.trim().length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: '#fff', border: '1px solid var(--g200)', borderRadius: 8, boxShadow: '0 6px 16px rgba(0,0,0,.12)', maxHeight: 230, overflowY: 'auto', marginTop: 3 }}>
+                        {rxSuggestions.length > 0 ? rxSuggestions.map((d) => (
+                          <div key={d.id} onMouseDown={() => selectRxDrug(d)} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12.5, borderBottom: '1px solid var(--g100)' }}>
+                            <strong>{d.brand}</strong>{d.generic ? ` (${d.generic})` : ''}{d.strength ? ` -- ${d.strength}` : ''}
+                            {d.master_drug_types?.name && <span style={{ marginLeft: 6, fontSize: 10.5, color: 'var(--purple)' }}>{d.master_drug_types.name}</span>}
+                          </div>
+                        )) : (
+                          <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--g500)' }}>
+                            No match in Pharmacy master.{' '}
+                            <button className="btn btn-sm" style={{ padding: '1px 6px', fontSize: 11 }} onMouseDown={() => { setShowRxBrowseAll(true); setShowRxSuggestions(false); }}>Browse full list</button>
+                            {' '}or keep typing to prescribe as free text.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {showRxBrowseAll && (
+                      <select className="fi" style={{ marginTop: 6, width: '100%' }} value="" onChange={(e) => {
+                        if (!e.target.value) return;
+                        const picked = drugOptions.find((d) => d.brand === e.target.value);
+                        if (picked) selectRxDrug(picked);
+                        setShowRxBrowseAll(false);
+                      }}>
+                        <option value="">-- Browse full Pharmacy master --</option>
+                        {drugOptions.filter((d) => d.brand).map((d) => <option key={d.id} value={d.brand}>{d.brand}{d.generic ? ` (${d.generic})` : ''}{d.strength ? ` -- ${d.strength}` : ''}</option>)}
+                      </select>
+                    )}
+                  </div>
                   <select className="fi" value={rxDosage} onChange={(e) => setRxDosage(e.target.value)} style={{ flex: '1 1 90px' }}>
                     <option value="">-- Dosage --</option>
                     {(rxDrugTypeId ? dosageOptions.filter((o) => o.drug_type_id === rxDrugTypeId) : []).map((o) => (
