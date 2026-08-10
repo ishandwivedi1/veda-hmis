@@ -379,13 +379,13 @@ export default function QueuePage() {
       )}
 
       {/* PATIENT FLOW BOARD */}
-      <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
         {flow.columns.map((col) => {
           const items = flow.byColumn[col] || [];
           const meta = COLUMN_META[col] || {};
           if (col === 'Checked Out' && items.length === 0) return null;
           return (
-            <div key={col} style={{ minWidth: 220, flex: '1 0 220px' }}>
+            <div key={col}>
               <div className="card" style={{ padding: 10, minHeight: 120 }}>
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
