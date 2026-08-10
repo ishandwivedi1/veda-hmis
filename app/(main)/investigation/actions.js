@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { logJourneyEvent } from '@/lib/journey-events';
 
 // ── QUEUE (Ordered + In Progress, grouped by visit) plus today's KPI
 // stats for the Queue screen's summary cards. ──
@@ -185,8 +186,14 @@ export async function getInvestigationDetail(id, viewOnly) {
 
 export async function startInvestigation(id) {
   const supabase = await createClient();
-  const { error } = await supabase.from('investigation_orders').update({ status: 'In Progress' }).eq('id', id);
+  const { data: order, error } = await supabase
+    .from('investigation_orders')
+    .update({ status: 'In Progress' })
+    .eq('id', id)
+    .select('name, encounters(visit_id)')
+    .single();
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, order?.encounters?.visit_id, 'investigation_started', { name: order?.name });
   return { success: true };
 }
 
@@ -247,7 +254,7 @@ export async function verifyInvestigation(id, checklist) {
   const allChecked = Object.values(checklist).every(Boolean) && Object.keys(checklist).length > 0;
   if (!allChecked) return { error: 'All verification items must be checked before verifying.' };
 
-  const { data: order } = await supabase.from('investigation_orders').select('encounter_id, encounters(visit_id)').eq('id', id).maybeSingle();
+  const { data: order } = await supabase.from('investigation_orders').select('name, encounter_id, encounters(visit_id)').eq('id', id).maybeSingle();
 
   const { error } = await supabase
     .from('investigation_orders')
@@ -261,6 +268,7 @@ export async function verifyInvestigation(id, checklist) {
   if (error) return { error: error.message };
 
   await resolveAwaitingPart(supabase, order?.encounters?.visit_id, 'Investigation');
+  await logJourneyEvent(supabase, order?.encounters?.visit_id, 'investigation_completed', { name: order?.name });
 
   return { success: true };
 }

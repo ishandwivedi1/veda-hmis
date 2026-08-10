@@ -6,6 +6,7 @@ import { requireDayOpen, getTodayCollectionSummary, getRevenueByDepartmentToday,
 import { sendInvoiceBill } from '@/app/(main)/billing/actions';
 import { sendAdvanceReceiptWhatsApp, sendPaymentReceiptWhatsApp, formatDateOnlyIST } from '@/lib/whatsapp';
 import { generateReceiptPdfBuffer } from '@/lib/pdf-generator';
+import { logJourneyEvent } from '@/lib/journey-events';
 
 // Everything the Payments Dashboard needs, fetched in parallel -- one
 // round trip per query, not sequential, since this loads on every visit
@@ -695,6 +696,20 @@ export async function collectPayment(patientId, invoiceIds, amount, modes, refer
     p_remarks: remarks || null,
   });
   if (error) return { error: error.message };
+
+  // Log a journey event for whichever visit(s) this payment was
+  // against -- one payment can span invoices from the same visit
+  // (e.g. consultation + investigation billed separately), so dedupe
+  // to one event per visit rather than one per invoice.
+  try {
+    const { data: paidVisits } = await supabase.from('invoices').select('visit_id').in('id', invoiceIds || []);
+    const distinctVisitIds = [...new Set((paidVisits || []).map((i) => i.visit_id).filter(Boolean))];
+    for (const vId of distinctVisitIds) {
+      await logJourneyEvent(supabase, vId, 'payment_collected', { amount });
+    }
+  } catch (logErr) {
+    console.error('payment_collected journey log failed:', logErr.message);
+  }
 
   // Fire the WhatsApp bill for any invoice that just became fully paid --
   // but NOT inline. PDF generation (headless Chrome) + Meta's media

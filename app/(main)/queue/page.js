@@ -151,26 +151,50 @@ function TimelineModal({ visitId, onClose }) {
         {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading timeline...</div>}
 
         {!loading && data && (
-          <div style={{ position: 'relative', paddingLeft: 22 }}>
-            <div style={{ position: 'absolute', left: 7, top: 6, bottom: 6, width: 2, background: 'var(--g100)' }}></div>
-            {data.events.map((ev, i) => (
-              <div key={i} style={{ position: 'relative', marginBottom: 18 }}>
-                <div style={{
-                  position: 'absolute', left: -22, top: 2, width: 14, height: 14, borderRadius: '50%',
-                  background: '#fff', border: `2.5px solid ${ev.color}`,
-                }}></div>
-                <div style={{ fontSize: 11, color: 'var(--g400)', marginBottom: 2 }}>
-                  {new Date(ev.time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+          <>
+            {data.breakdown && data.breakdown.length > 0 && (
+              <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--g100)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 8 }}>
+                  Time Breakdown
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <i className={`ti ${ev.icon}`} style={{ color: ev.color }}></i> {ev.label}
-                </div>
+                {(() => {
+                  const maxMins = Math.max(...data.breakdown.map((b) => b.minutes));
+                  return data.breakdown.map((b) => (
+                    <div key={b.label} style={{ marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                        <span>{b.label}</span>
+                        <span style={{ fontWeight: 700 }}>{formatDuration(b.minutes)}</span>
+                      </div>
+                      <div style={{ background: 'var(--g100)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--blue)', height: '100%', width: `${Math.max(4, (b.minutes / maxMins) * 100)}%` }}></div>
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
-            ))}
-            {data.events.length === 0 && (
-              <div style={{ color: 'var(--g400)', fontSize: 13 }}>No recorded events yet.</div>
             )}
-          </div>
+
+            <div style={{ position: 'relative', paddingLeft: 22 }}>
+              <div style={{ position: 'absolute', left: 7, top: 6, bottom: 6, width: 2, background: 'var(--g100)' }}></div>
+              {data.events.map((ev, i) => (
+                <div key={i} style={{ position: 'relative', marginBottom: 18 }}>
+                  <div style={{
+                    position: 'absolute', left: -22, top: 2, width: 14, height: 14, borderRadius: '50%',
+                    background: '#fff', border: `2.5px solid ${ev.color}`,
+                  }}></div>
+                  <div style={{ fontSize: 11, color: 'var(--g400)', marginBottom: 2 }}>
+                    {new Date(ev.time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className={`ti ${ev.icon}`} style={{ color: ev.color }}></i> {ev.label}
+                  </div>
+                </div>
+              ))}
+              {data.events.length === 0 && (
+                <div style={{ color: 'var(--g400)', fontSize: 13 }}>No recorded events yet.</div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -389,4 +413,3 @@ export default function QueuePage() {
     </div>
   );
 }
-

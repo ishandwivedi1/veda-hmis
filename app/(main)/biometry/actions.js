@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { logJourneyEvent } from '@/lib/journey-events';
 
 const MEAS_FIELDS = ['axl', 'k1', 'k2', 'acd', 'lt', 'wtw'];
 const REQUIRED_FIELDS = ['axl', 'k1', 'k2', 'acd'];
@@ -180,7 +181,7 @@ export async function verifyBiometryMeasurements(id, measurements, surgicalEye, 
     eyeSets.filter((set) => REQUIRED_FIELDS.every((f) => set[f] && String(set[f]).trim())).map((set) => set.device)
   )];
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('biometry_records')
     .update({
       status: 'Calculated',
@@ -191,9 +192,12 @@ export async function verifyBiometryMeasurements(id, measurements, surgicalEye, 
       verified_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', id);
+    .eq('id', id)
+    .select('visit_id')
+    .single();
 
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, data?.visit_id, 'biometry_completed');
   return { success: true };
 }
 

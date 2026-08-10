@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { logJourneyEvent } from '@/lib/journey-events';
 
 function tokenNum(token) {
   return parseInt(token.split('-')[1], 10);
@@ -265,61 +266,168 @@ export async function getPatientFlow() {
 }
 
 // ── PATIENT TIMELINE ──
-// The chronological story for one visit, built from whatever
-// timestamp columns each stage already keeps. Worth knowing: Doctor's
-// queue_entries row is a single record updated in place, so if a
-// patient bounces back to the doctor more than once (e.g. sent for
-// Investigation, reviewed, sent again for Biometry), only the latest
-// send-out/return is preserved -- this reconstructs the best
-// available history, not a full audit trail of every back-and-forth.
+// The chronological story for one visit. Registration, token issue,
+// and invoice-raised moments come from their existing single-row
+// timestamps (fine, since those only ever happen once per visit).
+// Everything that can legitimately happen MORE than once in one visit
+// -- being called to the doctor, being sent out, coming back -- is
+// read from visit_journey_events instead, so a second or third round
+// through the same stage shows up as its own entry rather than
+// overwriting the first.
+//
+// One honest limitation: events only exist from the point this
+// logging was added onward. A visit already in progress when this
+// deployed will show granular detail only for whatever happens next,
+// not for steps that already occurred before the deploy.
+const STAGE_LABELS = {
+  optometry_called: { label: 'Called in to Optometry', icon: 'ti-eye-check', color: 'var(--teal)' },
+  optometry_completed: { label: 'Optometry completed', icon: 'ti-circle-check', color: 'var(--teal)' },
+  doctor_called: { label: 'Called in to Doctor', icon: 'ti-stethoscope', color: 'var(--blue)' },
+  doctor_completed: { label: 'Doctor consultation completed', icon: 'ti-circle-check', color: 'var(--blue)' },
+  sent_for_investigation: { label: 'Sent for Investigation', icon: 'ti-route', color: 'var(--amber)' },
+  sent_for_biometry: { label: 'Sent for Biometry', icon: 'ti-route', color: 'var(--purple)' },
+  sent_for_dilation: { label: 'Sent for Dilation (drops given)', icon: 'ti-droplet', color: 'var(--amber)' },
+  investigation_started: { label: 'Investigation started', icon: 'ti-player-play', color: 'var(--amber)' },
+  investigation_completed: { label: 'Investigation completed', icon: 'ti-circle-check', color: 'var(--amber)' },
+  biometry_completed: { label: 'Biometry completed', icon: 'ti-circle-check', color: 'var(--purple)' },
+  ready_for_doctor_review: { label: 'Back and ready for doctor review', icon: 'ti-corner-down-left', color: 'var(--blue)' },
+  payment_collected: { label: 'Payment collected', icon: 'ti-cash', color: 'var(--red)' },
+  pharmacy_dispensed: { label: 'Medicine dispensed', icon: 'ti-pill', color: 'var(--teal)' },
+};
+
+function minutesBetween(a, b) {
+  return Math.max(0, Math.round((new Date(b) - new Date(a)) / 60000));
+}
+
+// Walks the sorted event list and buckets elapsed time into named
+// stages, summing across repeats (e.g. two separate trips to the
+// doctor both count toward "With Doctor"). "now" is used as the open
+// end for whichever stage the patient is currently sitting in.
+function computeStageBreakdown(events, nowIso) {
+  const buckets = {};
+  const add = (label, mins) => { buckets[label] = (buckets[label] || 0) + mins; };
+
+  // Pending starts: the last time we entered a stage that's waiting
+  // to be closed off by its matching end event.
+  let pending = {};
+
+  for (const ev of events) {
+    switch (ev.type) {
+      case 'opto_issued': pending.waitingOptometry = ev.time; break;
+      case 'optometry_called':
+        if (pending.waitingOptometry) { add('Waiting for Optometry', minutesBetween(pending.waitingOptometry, ev.time)); pending.waitingOptometry = null; }
+        pending.withOptometrist = ev.time;
+        break;
+      case 'optometry_completed':
+        if (pending.withOptometrist) { add('With Optometrist', minutesBetween(pending.withOptometrist, ev.time)); pending.withOptometrist = null; }
+        pending.waitingDoctor = ev.time;
+        break;
+      case 'doctor_called':
+        if (pending.waitingDoctor) { add('Waiting for Doctor', minutesBetween(pending.waitingDoctor, ev.time)); pending.waitingDoctor = null; }
+        pending.withDoctor = ev.time;
+        break;
+      case 'sent_for_investigation':
+        if (pending.withDoctor) { add('With Doctor', minutesBetween(pending.withDoctor, ev.time)); pending.withDoctor = null; }
+        pending.waitingInvestigation = ev.time;
+        break;
+      case 'investigation_started':
+        if (pending.waitingInvestigation) { add('Waiting for Investigation', minutesBetween(pending.waitingInvestigation, ev.time)); pending.waitingInvestigation = null; }
+        pending.inInvestigation = ev.time;
+        break;
+      case 'investigation_completed':
+        if (pending.inInvestigation) { add('In Investigation', minutesBetween(pending.inInvestigation, ev.time)); pending.inInvestigation = null; }
+        else if (pending.waitingInvestigation) { add('Waiting for Investigation', minutesBetween(pending.waitingInvestigation, ev.time)); pending.waitingInvestigation = null; }
+        pending.waitingDoctor = ev.time;
+        break;
+      case 'sent_for_biometry':
+        if (pending.withDoctor) { add('With Doctor', minutesBetween(pending.withDoctor, ev.time)); pending.withDoctor = null; }
+        pending.inBiometry = ev.time;
+        break;
+      case 'biometry_completed':
+        if (pending.inBiometry) { add('Biometry (wait + procedure)', minutesBetween(pending.inBiometry, ev.time)); pending.inBiometry = null; }
+        pending.waitingDoctor = ev.time;
+        break;
+      case 'sent_for_dilation':
+        // Counter starts the instant the doctor marks it -- this IS
+        // that moment, no separate "started" signal exists for
+        // dilation (it's drops administered on the spot, not a
+        // tracked procedure with its own module).
+        if (pending.withDoctor) { add('With Doctor', minutesBetween(pending.withDoctor, ev.time)); pending.withDoctor = null; }
+        pending.inDilation = ev.time;
+        break;
+      case 'ready_for_doctor_review':
+        if (pending.inDilation) { add('Dilation wait', minutesBetween(pending.inDilation, ev.time)); pending.inDilation = null; }
+        if (pending.waitingInvestigation) { add('Waiting for Investigation', minutesBetween(pending.waitingInvestigation, ev.time)); pending.waitingInvestigation = null; }
+        if (pending.inBiometry) { add('Biometry (wait + procedure)', minutesBetween(pending.inBiometry, ev.time)); pending.inBiometry = null; }
+        pending.waitingDoctor = ev.time;
+        break;
+      case 'doctor_completed':
+        if (pending.withDoctor) { add('With Doctor', minutesBetween(pending.withDoctor, ev.time)); pending.withDoctor = null; }
+        pending.waitingBilling = ev.time;
+        pending.waitingPharmacy = ev.time;
+        break;
+      case 'payment_collected':
+        if (pending.waitingBilling) { add('Billing', minutesBetween(pending.waitingBilling, ev.time)); pending.waitingBilling = null; }
+        break;
+      case 'pharmacy_dispensed':
+        if (pending.waitingPharmacy) { add('Pharmacy', minutesBetween(pending.waitingPharmacy, ev.time)); pending.waitingPharmacy = null; }
+        break;
+      default: break;
+    }
+  }
+
+  // Close out whatever's still open using "now" as the end -- this is
+  // what makes a currently-waiting patient's bucket grow live rather
+  // than only appearing once the stage finishes.
+  const openLabels = {
+    waitingOptometry: 'Waiting for Optometry', withOptometrist: 'With Optometrist',
+    waitingDoctor: 'Waiting for Doctor', withDoctor: 'With Doctor',
+    waitingInvestigation: 'Waiting for Investigation', inInvestigation: 'In Investigation',
+    inBiometry: 'Biometry (wait + procedure)', inDilation: 'Dilation wait',
+    waitingBilling: 'Billing', waitingPharmacy: 'Pharmacy',
+  };
+  Object.entries(pending).forEach(([key, startTime]) => {
+    if (startTime) add(openLabels[key], minutesBetween(startTime, nowIso));
+  });
+
+  return Object.entries(buckets)
+    .map(([label, minutes]) => ({ label, minutes }))
+    .filter((b) => b.minutes > 0)
+    .sort((a, b) => b.minutes - a.minutes);
+}
+
 export async function getPatientTimeline(visitId) {
   const supabase = await createClient();
 
   const [
     { data: visit },
     { data: queueEntries },
-    { data: investigations },
-    { data: biometry },
+    { data: journeyEvents },
     { data: invoices },
     { data: prescriptions },
   ] = await Promise.all([
     supabase.from('visits').select('created_at, closed_at, patients(first_name, last_name, uhid)').eq('id', visitId).single(),
-    supabase.from('queue_entries').select('department, status, token, issued_at, called_at, sent_out_at, completed_at').eq('visit_id', visitId),
-    supabase.from('investigation_orders').select('name, status, created_at, started_at, completed_at, encounters!inner(visit_id)').eq('encounters.visit_id', visitId),
-    supabase.from('biometry_records').select('procedure_name, status, created_at, approved_at').eq('visit_id', visitId),
+    supabase.from('queue_entries').select('department, status, token, issued_at').eq('visit_id', visitId),
+    supabase.from('visit_journey_events').select('event_type, event_time, meta').eq('visit_id', visitId).order('event_time', { ascending: true }),
     supabase.from('invoices').select('net, purpose, status, created_at').eq('visit_id', visitId).neq('status', 'Cancelled'),
     supabase.from('prescriptions').select('drug_name, status, sent_at, encounters!inner(visit_id)').eq('encounters.visit_id', visitId),
   ]);
 
-  if (!visit) return { patientName: '', uhid: '', events: [] };
+  if (!visit) return { patientName: '', uhid: '', events: [], breakdown: [] };
 
-  const events = [];
-  const push = (time, label, icon, color) => { if (time) events.push({ time, label, icon, color }); };
+  const displayEvents = [];
+  const push = (time, label, icon, color) => { if (time) displayEvents.push({ time, label, icon, color }); };
 
   push(visit.created_at, 'Registered / visit opened', 'ti-door-enter', 'var(--g500)');
 
-  (queueEntries || []).forEach((e) => {
-    if (e.department === 'Optometry') {
-      push(e.issued_at, `Optometry token issued (${e.token})`, 'ti-ticket', 'var(--g500)');
-      push(e.called_at, 'Called in to Optometry', 'ti-eye-check', 'var(--teal)');
-      push(e.completed_at, 'Optometry completed', 'ti-circle-check', 'var(--teal)');
-    } else {
-      push(e.issued_at, `Doctor token issued (${e.token})`, 'ti-ticket', 'var(--g500)');
-      push(e.called_at, 'Called in to Doctor', 'ti-stethoscope', 'var(--blue)');
-      if (e.sent_out_at) push(e.sent_out_at, `Sent out: ${e.status?.replace('Awaiting ', '') || ''}`, 'ti-route', 'var(--amber)');
-      if (e.status === 'Done') push(e.completed_at, 'Doctor consultation completed', 'ti-circle-check', 'var(--blue)');
-    }
-  });
+  const opto = (queueEntries || []).find((e) => e.department === 'Optometry');
+  const doc = (queueEntries || []).find((e) => e.department === 'Doctor');
+  if (opto) push(opto.issued_at, `Optometry token issued (${opto.token})`, 'ti-ticket', 'var(--g500)');
+  if (doc) push(doc.issued_at, `Doctor token issued (${doc.token})`, 'ti-ticket', 'var(--g500)');
 
-  (investigations || []).forEach((i) => {
-    push(i.created_at, `Investigation ordered: ${i.name}`, 'ti-clipboard-list', 'var(--amber)');
-    push(i.started_at, `Investigation started: ${i.name}`, 'ti-player-play', 'var(--amber)');
-    push(i.completed_at, `Investigation completed: ${i.name}`, 'ti-circle-check', 'var(--amber)');
-  });
-
-  (biometry || []).forEach((b) => {
-    push(b.created_at, `Biometry ordered${b.procedure_name ? `: ${b.procedure_name}` : ''}`, 'ti-ruler-2', 'var(--purple)');
-    push(b.approved_at, 'Biometry approved', 'ti-circle-check', 'var(--purple)');
+  (journeyEvents || []).forEach((ev) => {
+    const meta = STAGE_LABELS[ev.event_type];
+    if (meta) push(ev.event_time, meta.label, meta.icon, meta.color);
   });
 
   (invoices || []).forEach((i) => {
@@ -332,13 +440,23 @@ export async function getPatientTimeline(visitId) {
 
   push(visit.closed_at, 'Visit closed', 'ti-door-exit', 'var(--green)');
 
-  events.sort((a, b) => new Date(a.time) - new Date(b.time));
+  displayEvents.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+  // Feed the breakdown calculator the raw typed sequence (token
+  // issue + journey events only -- invoices/prescriptions are inputs
+  // to Billing/Pharmacy timing, not separate stage markers).
+  const breakdownInput = [];
+  if (opto) breakdownInput.push({ type: 'opto_issued', time: opto.issued_at });
+  (journeyEvents || []).forEach((ev) => breakdownInput.push({ type: ev.event_type, time: ev.event_time }));
+  breakdownInput.sort((a, b) => new Date(a.time) - new Date(b.time));
+  const breakdown = computeStageBreakdown(breakdownInput, visit.closed_at || new Date().toISOString());
 
   const p = visit.patients;
   return {
     patientName: p ? `${p.first_name} ${p.last_name}` : 'Unknown',
     uhid: p?.uhid,
-    events,
+    events: displayEvents,
+    breakdown,
   };
 }
 
@@ -368,19 +486,24 @@ export async function optometryCallSpecific(id) {
     .eq('department', 'Optometry')
     .eq('status', 'Calling');
 
-  const { error } = await supabase
+  const { data: entry, error } = await supabase
     .from('queue_entries')
     .update({ status: 'Calling', called_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .select('visit_id')
+    .single();
 
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, entry?.visit_id, 'optometry_called');
   return { success: true };
 }
 
 export async function optometryComplete(id) {
   const supabase = await createClient();
+  const { data: entryBefore } = await supabase.from('queue_entries').select('visit_id').eq('id', id).single();
   const { error } = await supabase.rpc('optometry_complete', { p_queue_entry_id: id });
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, entryBefore?.visit_id, 'optometry_completed');
   return { success: true };
 }
 
@@ -401,12 +524,15 @@ export async function doctorCallNext() {
 
 export async function doctorCallSpecific(id) {
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: entry, error } = await supabase
     .from('queue_entries')
     .update({ status: 'In Consultation', called_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .select('visit_id')
+    .single();
 
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, entry?.visit_id, 'doctor_called');
   return { success: true };
 }
 
@@ -422,6 +548,7 @@ export async function doctorCallDirect(optometryEntryId) {
 
   const { error: rpcError } = await supabase.rpc('optometry_complete', { p_queue_entry_id: optometryEntryId });
   if (rpcError) return { error: rpcError.message };
+  await logJourneyEvent(supabase, entry.visit_id, 'optometry_completed');
 
   const { data: doctorEntry } = await supabase
     .from('queue_entries').select('id')
@@ -434,18 +561,22 @@ export async function doctorCallDirect(optometryEntryId) {
 
 export async function doctorComplete(id) {
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: entry, error } = await supabase
     .from('queue_entries')
     .update({ status: 'Done', completed_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .select('visit_id')
+    .single();
 
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, entry?.visit_id, 'doctor_completed');
   return { success: true };
 }
 
 // Order matters for a stable, predictable compound string regardless
 // of which button the doctor clicked first/second.
 const SENDOUT_ORDER = ['Dilation', 'Investigation', 'Biometry'];
+const SENDOUT_EVENT = { Dilation: 'sent_for_dilation', Investigation: 'sent_for_investigation', Biometry: 'sent_for_biometry' };
 
 export async function doctorSendOut(id, kind) {
   const supabase = await createClient();
@@ -462,7 +593,15 @@ export async function doctorSendOut(id, kind) {
   // "who's out and where" tracker and Front Office's availability flag,
   // so a compound label there is enough; nothing needs to parse it back
   // into a single value.
-  const { data: current } = await supabase.from('queue_entries').select('status').eq('id', id).single();
+  //
+  // The compound status/sent_out_at column can only ever hold ONE
+  // timestamp though, so if Investigation and Biometry are sent
+  // separately a few minutes apart, the column silently loses the
+  // first one. The journey log below is what actually gives each
+  // destination its own accurate timer -- e.g. Dilation's clock
+  // starts the exact moment THIS call happens, not whenever the last
+  // of a compound send-out was recorded.
+  const { data: current } = await supabase.from('queue_entries').select('visit_id, status').eq('id', id).single();
   const existingLabels = (current?.status || '').startsWith('Awaiting')
     ? current.status.replace('Awaiting ', '').split(' & ')
     : [];
@@ -476,19 +615,22 @@ export async function doctorSendOut(id, kind) {
     .eq('id', id);
 
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, current?.visit_id, SENDOUT_EVENT[newLabel]);
   return { success: true };
 }
 
 export async function doctorMarkReady(id) {
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: entry, error } = await supabase
     .from('queue_entries')
     .update({ status: 'Ready for Review' })
-    .eq('id', id);
+    .eq('id', id)
+    .select('visit_id')
+    .single();
 
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, entry?.visit_id, 'ready_for_doctor_review');
   return { success: true };
 }
-
 
 

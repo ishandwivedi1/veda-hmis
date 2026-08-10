@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { logJourneyEvent } from '@/lib/journey-events';
 
 export async function getPendingPrescriptions() {
   const supabase = await createClient();
@@ -34,17 +35,22 @@ export async function getPendingPrescriptions() {
 
 export async function dispensePrescription(id) {
   const supabase = await createClient();
+  const { data: rx } = await supabase.from('prescriptions').select('drug_name, encounters(visit_id)').eq('id', id).maybeSingle();
   const { error } = await supabase.rpc('dispense_prescription_and_bill', { p_prescription_id: id });
   if (error) return { error: error.message };
+  await logJourneyEvent(supabase, rx?.encounters?.visit_id, 'pharmacy_dispensed', { drug_name: rx?.drug_name });
   return { success: true };
 }
 
 export async function dispenseAllForVisit(prescriptionIds) {
   const supabase = await createClient();
+  const { data: rxList } = await supabase.from('prescriptions').select('id, drug_name, encounters(visit_id)').in('id', prescriptionIds);
   for (const id of prescriptionIds) {
     const { error } = await supabase.rpc('dispense_prescription_and_bill', { p_prescription_id: id });
     if (error) return { error: error.message };
   }
+  const visitId = rxList?.[0]?.encounters?.visit_id;
+  await logJourneyEvent(supabase, visitId, 'pharmacy_dispensed', { count: prescriptionIds.length });
   return { success: true };
 }
 
