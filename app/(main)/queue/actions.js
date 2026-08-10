@@ -112,6 +112,119 @@ export async function bulkForceCloseQueueEntries(ids, reason) {
   return { success: true, count: ids.length };
 }
 
+// ── PATIENT FLOW BOARD ──
+// A hospital-wide, live "where is everyone right now" view -- unlike
+// getQueues() above (which only drives the Optometry/Doctor call-next
+// operator tools), this pulls from every stage a patient passes
+// through today and assigns each active visit to a single column so
+// staff/doctor can see the whole day's flow and any bottleneck at a
+// glance. Reuses status fields each module already maintains rather
+// than adding new tracking -- Investigation/Biometry/Dilation status
+// for a sent-out patient already lives on the Doctor's own
+// queue_entries row (e.g. "Awaiting Investigation & Biometry"), same
+// data the old Doctor Queue panel already displayed.
+const FLOW_COLUMNS = [
+  'Front Office', 'Optometry', 'Doctor Queue', 'With Doctor',
+  'Sent Out', 'Counselling', 'Billing', 'Pharmacy', 'Checked Out',
+];
+
+function computeFlowStage(visit, queueByVisit, surgicalCases, invoices, prescriptions) {
+  if (visit.status === 'Closed') {
+    return { column: 'Checked Out', detail: '', since: visit.created_at };
+  }
+
+  const entries = queueByVisit[visit.id] || [];
+  const opto = entries.find((e) => e.department === 'Optometry');
+  const doc = entries.find((e) => e.department === 'Doctor');
+
+  if (!doc) {
+    if (!opto) return { column: 'Front Office', detail: '', since: visit.created_at };
+    if (opto.status === 'Calling') return { column: 'Optometry', detail: 'Called in', since: opto.called_at || opto.issued_at };
+    return { column: 'Optometry', detail: 'Waiting', since: opto.issued_at };
+  }
+
+  if (doc.status === 'Waiting') return { column: 'Doctor Queue', detail: 'Waiting', since: doc.issued_at };
+  if (doc.status === 'Ready for Review') return { column: 'Doctor Queue', detail: 'Ready for review', since: doc.sent_out_at || doc.issued_at };
+  if (doc.status === 'In Consultation') return { column: 'With Doctor', detail: '', since: doc.called_at || doc.issued_at };
+  if (doc.status?.startsWith('Awaiting')) {
+    return { column: 'Sent Out', detail: doc.status.replace('Awaiting ', ''), since: doc.sent_out_at || doc.issued_at };
+  }
+
+  if (doc.status === 'Done') {
+    const invPending = invoices.some((i) => i.visit_id === visit.id && (i.status === 'Pending' || i.status === 'Partial'));
+    if (invPending) return { column: 'Billing', detail: '', since: doc.completed_at || doc.issued_at };
+
+    const rxPending = prescriptions.some((r) => r.visit_id === visit.id && r.status === 'Sent');
+    if (rxPending) return { column: 'Pharmacy', detail: '', since: doc.completed_at || doc.issued_at };
+
+    const inCounselling = surgicalCases.some((s) => s.visit_id === visit.id && s.status === 'Pending Workup');
+    if (inCounselling) return { column: 'Counselling', detail: '', since: doc.completed_at || doc.issued_at };
+
+    return { column: 'Checked Out', detail: '', since: doc.completed_at || doc.issued_at };
+  }
+
+  return { column: 'Doctor Queue', detail: doc.status, since: doc.issued_at };
+}
+
+export async function getPatientFlow() {
+  const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC();
+
+  const [
+    { data: visits },
+    { data: queueEntries },
+    { data: surgicalCases },
+    { data: invoices },
+    { data: prescriptionsRaw },
+  ] = await Promise.all([
+    supabase.from('visits')
+      .select('id, visit_type, priority, status, created_at, closed_at, patients(first_name, last_name, uhid), profiles:doctor_id(full_name)')
+      .neq('status', 'Cancelled')
+      .gte('created_at', startUTC).lte('created_at', endUTC)
+      .order('created_at', { ascending: true }),
+    supabase.from('queue_entries')
+      .select('visit_id, department, status, token, issued_at, called_at, sent_out_at, completed_at')
+      .gte('issued_at', startUTC).lte('issued_at', endUTC),
+    supabase.from('surgical_cases').select('visit_id, status')
+      .gte('created_at', startUTC).lte('created_at', endUTC),
+    supabase.from('invoices').select('visit_id, status')
+      .neq('status', 'Cancelled')
+      .gte('created_at', startUTC).lte('created_at', endUTC),
+    supabase.from('prescriptions').select('status, encounters(visit_id)')
+      .gte('created_at', startUTC).lte('created_at', endUTC),
+  ]);
+
+  if (!visits) return { columns: FLOW_COLUMNS, byColumn: {} };
+
+  const queueByVisit = {};
+  (queueEntries || []).forEach((e) => {
+    if (!queueByVisit[e.visit_id]) queueByVisit[e.visit_id] = [];
+    queueByVisit[e.visit_id].push(e);
+  });
+
+  const prescriptions = (prescriptionsRaw || []).map((r) => ({ status: r.status, visit_id: r.encounters?.visit_id }));
+
+  const byColumn = {};
+  FLOW_COLUMNS.forEach((c) => { byColumn[c] = []; });
+
+  visits.forEach((v) => {
+    const stage = computeFlowStage(v, queueByVisit, surgicalCases || [], invoices || [], prescriptions);
+    const p = v.patients;
+    byColumn[stage.column].push({
+      visitId: v.id,
+      patientName: p ? `${p.first_name} ${p.last_name}` : 'Unknown',
+      uhid: p?.uhid,
+      doctorName: v.profiles?.full_name,
+      priority: v.priority,
+      visitType: v.visit_type,
+      detail: stage.detail,
+      since: stage.since,
+    });
+  });
+
+  return { columns: FLOW_COLUMNS, byColumn };
+}
+
 // ── OPTOMETRY ──
 export async function optometryCallNext() {
   const supabase = await createClient();
@@ -259,5 +372,6 @@ export async function doctorMarkReady(id) {
   if (error) return { error: error.message };
   return { success: true };
 }
+
 
 

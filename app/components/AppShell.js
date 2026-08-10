@@ -24,7 +24,7 @@ const NAV_ITEMS = [
   { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', section: 'Patient Ledger' },
   { href: '/payments/credit-note', label: 'Credit Note', icon: 'ti-file-minus', section: 'Patient Ledger' },
   { href: '/payments/refund', label: 'Refund', icon: 'ti-rotate-clockwise', section: 'Patient Ledger' },
-  { href: '/queue', label: 'Queue Management', icon: 'ti-list-numbers', section: 'Clinical' },
+  { href: '/queue', label: 'Patient Flow', icon: 'ti-list-numbers', section: 'Clinical' },
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
@@ -55,7 +55,7 @@ const PAGE_TITLES = [
   { match: /^\/appointments/, title: 'Appointments' },
   { match: /^\/visits\/new/, title: 'Create Walk-in Visit' },
   { match: /^\/visits/, title: 'Visits' },
-  { match: /^\/queue/, title: 'Queue Management' },
+  { match: /^\/queue/, title: 'Patient Flow' },
   { match: /^\/doctor-dashboard/, title: 'Doctor Dashboard' },
   { match: /^\/medical-fitness/, title: 'Medical Fitness' },
   { match: /^\/patient-timeline/, title: 'Patient Timeline' },
@@ -219,6 +219,7 @@ export default function AppShell({ children }) {
     </div>
   );
 }
+
 
 
 
