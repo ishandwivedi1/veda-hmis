@@ -40,12 +40,11 @@ function TokenBadge({ token }) {
 }
 
 const COLUMN_META = {
-  'Front Office': { icon: 'ti-door-enter', color: 'var(--g500)' },
-  'Optometry': { icon: 'ti-eye-check', color: 'var(--teal)' },
-  'Doctor Queue': { icon: 'ti-clock', color: 'var(--g500)' },
+  'Waiting for Optometry': { icon: 'ti-eye-check', color: 'var(--g500)' },
+  'With Optometrist': { icon: 'ti-eye-check', color: 'var(--teal)' },
+  'Waiting for Doctor': { icon: 'ti-clock', color: 'var(--g500)' },
   'With Doctor': { icon: 'ti-stethoscope', color: 'var(--blue)' },
   'Sent Out': { icon: 'ti-route', color: 'var(--amber)' },
-  'Counselling': { icon: 'ti-message-circle', color: 'var(--purple)' },
   'Billing': { icon: 'ti-receipt', color: 'var(--red)' },
   'Pharmacy': { icon: 'ti-pill', color: 'var(--teal)' },
   'Checked Out': { icon: 'ti-circle-check', color: 'var(--green)' },
