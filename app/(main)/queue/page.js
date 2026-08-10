@@ -68,6 +68,7 @@ function FlowCard({ item }) {
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
         {item.detail && <span className="badge b-gray" style={{ fontSize: 10 }}>{item.detail}</span>}
+        {item.unpaid && <span className="badge b-red" style={{ fontSize: 10 }}><i className="ti ti-currency-rupee"></i> Unpaid</span>}
         {item.doctorName && <span className="badge b-gray" style={{ fontSize: 10 }}><i className="ti ti-stethoscope"></i> {item.doctorName}</span>}
         <span className={`badge ${waitBadgeClass(mins)}`} style={{ fontSize: 10 }}>
           <i className="ti ti-clock"></i> {mins}m
