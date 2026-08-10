@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getQueues,
   getPatientFlow,
+  getPatientTimeline,
   optometryCallNext,
   optometryCallSpecific,
   doctorCallNext,
@@ -68,14 +69,17 @@ const COLUMN_META = {
   'Checked Out': { icon: 'ti-circle-check', color: 'var(--green)' },
 };
 
-function FlowCard({ item }) {
+function FlowCard({ item, onOpenTimeline }) {
   const stageMins = elapsedMin(item.since);
   const totalMins = elapsedMin(item.visitSince);
   return (
-    <div style={{
-      background: '#fff', border: '1px solid var(--g100)', borderRadius: 8,
-      padding: '9px 10px', marginBottom: 8,
-    }}>
+    <div
+      onClick={() => onOpenTimeline(item)}
+      style={{
+        background: '#fff', border: '1px solid var(--g100)', borderRadius: 8,
+        padding: '9px 10px', marginBottom: 8, cursor: 'pointer',
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 13 }}>{item.patientName}</div>
@@ -108,12 +112,78 @@ function FlowCard({ item }) {
   );
 }
 
+function TimelineModal({ visitId, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getPatientTimeline(visitId).then((res) => {
+      if (!cancelled) { setData(res); setLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [visitId]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000,
+        display: 'flex', justifyContent: 'flex-end',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#fff', width: 380, maxWidth: '90vw', height: '100%',
+          padding: 20, overflowY: 'auto', boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{data?.patientName || 'Loading...'}</div>
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>{data?.uhid}</div>
+          </div>
+          <button className="btn btn-sm" onClick={onClose}><i className="ti ti-x"></i></button>
+        </div>
+
+        {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading timeline...</div>}
+
+        {!loading && data && (
+          <div style={{ position: 'relative', paddingLeft: 22 }}>
+            <div style={{ position: 'absolute', left: 7, top: 6, bottom: 6, width: 2, background: 'var(--g100)' }}></div>
+            {data.events.map((ev, i) => (
+              <div key={i} style={{ position: 'relative', marginBottom: 18 }}>
+                <div style={{
+                  position: 'absolute', left: -22, top: 2, width: 14, height: 14, borderRadius: '50%',
+                  background: '#fff', border: `2.5px solid ${ev.color}`,
+                }}></div>
+                <div style={{ fontSize: 11, color: 'var(--g400)', marginBottom: 2 }}>
+                  {new Date(ev.time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <i className={`ti ${ev.icon}`} style={{ color: ev.color }}></i> {ev.label}
+                </div>
+              </div>
+            ))}
+            {data.events.length === 0 && (
+              <div style={{ color: 'var(--g400)', fontSize: 13 }}>No recorded events yet.</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function QueuePage() {
   const [flow, setFlow] = useState({ columns: [], byColumn: {} });
   const [optometry, setOptometry] = useState([]);
   const [doctor, setDoctor] = useState([]);
   const [error, setError] = useState('');
   const [showControls, setShowControls] = useState(false);
+  const [timelineVisitId, setTimelineVisitId] = useState(null);
 
   const refresh = useCallback(async () => {
     const [flowData, queues] = await Promise.all([getPatientFlow(), getQueues()]);
@@ -303,7 +373,7 @@ export default function QueuePage() {
                   </div>
                   <span className="badge b-gray">{items.length}</span>
                 </div>
-                {items.map((item) => <FlowCard key={item.visitId} item={item} />)}
+                {items.map((item) => <FlowCard key={item.visitId} item={item} onOpenTimeline={(it) => setTimelineVisitId(it.visitId)} />)}
                 {items.length === 0 && (
                   <div style={{ textAlign: 'center', color: 'var(--g300)', fontSize: 11, padding: 12 }}>--</div>
                 )}
@@ -312,6 +382,10 @@ export default function QueuePage() {
           );
         })}
       </div>
+
+      {timelineVisitId && (
+        <TimelineModal visitId={timelineVisitId} onClose={() => setTimelineVisitId(null)} />
+      )}
     </div>
   );
 }
