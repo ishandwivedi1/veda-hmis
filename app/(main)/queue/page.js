@@ -17,9 +17,27 @@ function elapsedMin(isoString) {
   return Math.floor((Date.now() - new Date(isoString).getTime()) / 60000);
 }
 
+function formatDuration(mins) {
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m}m`;
+}
+
 function waitBadgeClass(mins) {
   if (mins >= 30) return 'b-red';
   if (mins >= 15) return 'b-amber';
+  return 'b-green';
+}
+
+// Total-in-hospital gets more generous thresholds than per-stage
+// wait -- a patient can legitimately be in the building 45+ minutes
+// across a normal visit without anything being wrong, so flagging
+// that the same way as "15 minutes stuck in one queue" would just
+// make everything look red by lunchtime.
+function totalBadgeClass(mins) {
+  if (mins >= 90) return 'b-red';
+  if (mins >= 45) return 'b-amber';
   return 'b-green';
 }
 
@@ -51,7 +69,8 @@ const COLUMN_META = {
 };
 
 function FlowCard({ item }) {
-  const mins = elapsedMin(item.since);
+  const stageMins = elapsedMin(item.since);
+  const totalMins = elapsedMin(item.visitSince);
   return (
     <div style={{
       background: '#fff', border: '1px solid var(--g100)', borderRadius: 8,
@@ -66,13 +85,24 @@ function FlowCard({ item }) {
           <span className={`badge ${item.priority === 'Emergency' ? 'b-red' : 'b-amber'}`} style={{ fontSize: 10 }}>{item.priority}</span>
         )}
       </div>
+
+      {/* Total time in hospital -- the headline figure, shown the
+          same prominent way regardless of which column the patient
+          is in, so it's the one number that's always easy to scan
+          for across the whole board. */}
+      <div style={{ marginTop: 7, display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span className={`badge ${totalBadgeClass(totalMins)}`} style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px' }}>
+          <i className="ti ti-hourglass"></i> {formatDuration(totalMins)} in hospital
+        </span>
+      </div>
+
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
         {item.detail && <span className="badge b-gray" style={{ fontSize: 10 }}>{item.detail}</span>}
         {item.unpaid && <span className="badge b-red" style={{ fontSize: 10 }}><i className="ti ti-currency-rupee"></i> Unpaid</span>}
         {item.doctorName && <span className="badge b-gray" style={{ fontSize: 10 }}><i className="ti ti-stethoscope"></i> {item.doctorName}</span>}
-        <span className={`badge ${waitBadgeClass(mins)}`} style={{ fontSize: 10 }}>
-          <i className="ti ti-clock"></i> {mins}m
-        </span>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 4 }}>
+        In this stage: <span style={{ fontWeight: 600, color: waitBadgeClass(stageMins) === 'b-red' ? 'var(--red)' : 'var(--g500)' }}>{formatDuration(stageMins)}</span>
       </div>
     </div>
   );
