@@ -1,3 +1,13 @@
+#!/bin/bash
+set -e
+
+# Run this from your veda-hmis repo root in Codespaces.
+# UI-only change -- no DB migration needed this time.
+
+cd ~/veda-hmis 2>/dev/null || true
+
+mkdir -p "app/(main)/cash-management"
+cat > "app/(main)/cash-management/page.js" << 'FILEEOF_page_js'
 'use client';
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
@@ -834,3 +844,12 @@ export default function CashManagementPage() {
 }
 
 
+FILEEOF_page_js
+
+echo "File written."
+
+git add -A
+git commit -m "Petty Cash form: rename Paid To -> Remarks, tighten column widths, optional bill upload at entry"
+git push
+
+echo "Pushed. Vercel will redeploy portal.vedaeyehospital.com and training.vedaeyehospital.com automatically."
