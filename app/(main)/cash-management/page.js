@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
   getTodayCollectionSummary,
   getReconciliationData,
@@ -15,12 +15,20 @@ import {
   openDay,
   getRevenueByDepartmentToday,
   getUnclosedPastDays,
+  getExpenseCategoriesActive,
+  getExpensesForDate,
+  getPettyCashTotal,
+  addExpense,
+  deleteExpense,
 } from './actions';
+import { addExpenseCategory } from '@/app/(main)/master-data/actions';
 import { getApprovers } from '@/app/(main)/payments/actions';
 import { getOpenQueueEntriesToday, bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
+import AttachmentUploader from '@/app/components/AttachmentUploader';
 
 const TABS = [
   { key: 'summary', label: "Today's Collection", icon: 'ti-chart-bar' },
+  { key: 'pettycash', label: 'Petty Cash', icon: 'ti-cash-banknote' },
   { key: 'reconciliation', label: 'Reconciliation', icon: 'ti-calculator' },
   { key: 'close', label: 'Close Day', icon: 'ti-lock' },
   { key: 'report', label: 'Daily Report', icon: 'ti-file-text' },
@@ -68,6 +76,65 @@ export default function CashManagementPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const [expenseCategories, setExpenseCategories] = useState([]);
+  const [todayExpenses, setTodayExpenses] = useState([]);
+  const [pettyCashTotal, setPettyCashTotal] = useState(0);
+  const [newExpenseCategory, setNewExpenseCategory] = useState('');
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [newExpensePaidTo, setNewExpensePaidTo] = useState('');
+  const [newExpenseNote, setNewExpenseNote] = useState('');
+  const [expenseSaving, setExpenseSaving] = useState(false);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [expandedExpenseId, setExpandedExpenseId] = useState(null);
+
+  const refreshPettyCash = useCallback(async () => {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const [cats, expenses, total] = await Promise.all([
+      getExpenseCategoriesActive(),
+      getExpensesForDate(today),
+      getPettyCashTotal(today),
+    ]);
+    setExpenseCategories(cats);
+    setTodayExpenses(expenses);
+    setPettyCashTotal(total);
+  }, []);
+
+  useEffect(() => { refreshPettyCash(); }, [refreshPettyCash]);
+
+  async function handleAddExpense() {
+    setError(''); setSuccess('');
+    if (!newExpenseCategory) { setError('Select an expense category.'); return; }
+    if (!newExpenseAmount || parseFloat(newExpenseAmount) <= 0) { setError('Enter a valid amount.'); return; }
+    setExpenseSaving(true);
+    const result = await addExpense(newExpenseCategory, parseFloat(newExpenseAmount), newExpensePaidTo, newExpenseNote);
+    setExpenseSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setNewExpenseCategory(''); setNewExpenseAmount(''); setNewExpensePaidTo(''); setNewExpenseNote('');
+    setSuccess('Expense recorded.');
+    refreshPettyCash();
+    refresh();
+  }
+
+  async function handleDeleteExpense(exp) {
+    if (!window.confirm(`Delete this ${fmt(exp.amount)} expense?`)) return;
+    setError(''); setSuccess('');
+    const result = await deleteExpense(exp.id, exp.expense_date);
+    if (result.error) { setError(result.error); return; }
+    refreshPettyCash();
+    refresh();
+  }
+
+  async function handleAddCategory() {
+    setError('');
+    if (!newCategoryName.trim()) return;
+    const result = await addExpenseCategory({ name: newCategoryName });
+    if (result.error) { setError(result.error); return; }
+    setNewCategoryName('');
+    setShowAddCategory(false);
+    refreshPettyCash();
+  }
 
   const refresh = useCallback(async () => {
     const [
@@ -338,6 +405,102 @@ export default function CashManagementPage() {
         </div>
       )}
 
+      {activeTab === 'pettycash' && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 16 }}>
+            <div className="card" style={{ borderTop: '3px solid var(--red)' }}>
+              <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Today's Petty Cash Spend</div>
+              <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(pettyCashTotal)}</div>
+              <div style={{ fontSize: 11, color: 'var(--g400)' }}>{todayExpenses.length} entries</div>
+            </div>
+            <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
+              <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Net Cash Expected</div>
+              <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt((summary.byMode['Cash'] || 0) - pettyCashTotal)}</div>
+              <div style={{ fontSize: 11, color: 'var(--g400)' }}>Cash collected minus petty cash</div>
+            </div>
+          </div>
+
+          {!opening && (
+            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-alert-triangle"></i> Today's cash day hasn't been opened yet. Open it from the "Today's Collection" tab before recording expenses.</div>
+          )}
+          {closedToday && (
+            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-lock"></i> Today is already closed -- petty cash entries are locked. See the Daily Report tab.</div>
+          )}
+
+          {!closedToday && opening && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-plus" style={{ color: 'var(--green)' }}></i> Record an Expense</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px 1fr', gap: 10, marginBottom: 10 }}>
+                <select className="fi" value={newExpenseCategory} onChange={(e) => setNewExpenseCategory(e.target.value)}>
+                  <option value="">-- Category --</option>
+                  {expenseCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <input type="number" className="fi" placeholder="Amount" value={newExpenseAmount} onChange={(e) => setNewExpenseAmount(e.target.value)} />
+                <input type="text" className="fi" placeholder="Paid to (optional)" value={newExpensePaidTo} onChange={(e) => setNewExpensePaidTo(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <input type="text" className="fi" style={{ flex: 1 }} placeholder="Note (optional)" value={newExpenseNote} onChange={(e) => setNewExpenseNote(e.target.value)} />
+                <button className="btn btn-primary" disabled={expenseSaving} onClick={handleAddExpense}>{expenseSaving ? 'Saving...' : 'Add Expense'}</button>
+              </div>
+
+              {!showAddCategory && (
+                <div style={{ marginTop: 10 }}>
+                  <button className="btn btn-sm" onClick={() => setShowAddCategory(true)}><i className="ti ti-plus"></i> New category</button>
+                </div>
+              )}
+              {showAddCategory && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <input type="text" className="fi fi-sm" style={{ maxWidth: 220 }} placeholder="Category name" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
+                  <button className="btn btn-sm btn-primary" onClick={handleAddCategory}>Save</button>
+                  <button className="btn btn-sm" onClick={() => { setShowAddCategory(false); setNewCategoryName(''); }}>Cancel</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-receipt" style={{ color: 'var(--red)' }}></i> Today's Expenses</div>
+            <table className="tbl">
+              <thead><tr><th>Time</th><th>Category</th><th>Paid To</th><th>Note</th><th>Entered By</th><th style={{ textAlign: 'right' }}>Amount</th><th></th></tr></thead>
+              <tbody>
+                {todayExpenses.map((exp) => (
+                  <Fragment key={exp.id}>
+                    <tr>
+                      <td>{new Date(exp.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td>{exp.master_expense_categories?.name}</td>
+                      <td>{exp.paid_to || '--'}</td>
+                      <td>{exp.note || '--'}</td>
+                      <td>{exp.profiles?.full_name || 'Staff'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(exp.amount)}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button className="btn" style={{ padding: '3px 9px', fontSize: 11 }} onClick={() => setExpandedExpenseId(expandedExpenseId === exp.id ? null : exp.id)}>
+                          <i className="ti ti-paperclip"></i>
+                        </button>
+                        {!closedToday && (
+                          <button className="btn" style={{ padding: '3px 9px', fontSize: 11, marginLeft: 4 }} onClick={() => handleDeleteExpense(exp)}>
+                            <i className="ti ti-trash" style={{ color: 'var(--red)' }}></i>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {expandedExpenseId === exp.id && (
+                      <tr>
+                        <td colSpan={7} style={{ background: 'var(--g50)' }}>
+                          <AttachmentUploader entityType="petty_cash_expense" entityId={exp.id} title="Receipt" />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+                {todayExpenses.length === 0 && (
+                  <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No petty cash expenses recorded today.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'reconciliation' && (
         <div className="card">
           <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-calculator" style={{ color: 'var(--amber)' }}></i> Cash Reconciliation</div>
@@ -580,11 +743,32 @@ export default function CashManagementPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Revenue (billed)</span><strong>{fmt(report.closing.total_revenue)}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Collected</span><strong style={{ color: 'var(--green)' }}>{fmt(report.closing.total_collected)}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outstanding</span><strong style={{ color: 'var(--amber)' }}>{fmt(report.closing.total_outstanding)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Petty Cash Spent</span><strong style={{ color: 'var(--red)' }}>{fmt(report.closing.total_petty_cash_expenses)}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoices</span><strong>{report.closing.total_invoices}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Visits</span><strong>{report.closing.total_visits}</strong></div>
                   </div>
                 </div>
               </div>
+
+              {report.expenses.length > 0 && (
+                <div className="card" style={{ marginTop: 16 }}>
+                  <div className="card-title" style={{ marginBottom: 10 }}>Petty Cash Expenses</div>
+                  <table className="tbl">
+                    <thead><tr><th>Category</th><th>Paid To</th><th>Note</th><th>Entered By</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                    <tbody>
+                      {report.expenses.map((exp) => (
+                        <tr key={exp.id}>
+                          <td>{exp.master_expense_categories?.name}</td>
+                          <td>{exp.paid_to || '--'}</td>
+                          <td>{exp.note || '--'}</td>
+                          <td>{exp.profiles?.full_name || 'Staff'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(exp.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -628,4 +812,5 @@ export default function CashManagementPage() {
     </div>
   );
 }
+
 

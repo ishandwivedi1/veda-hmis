@@ -88,6 +88,30 @@ async function deleteMasterRecord(supabase, table, id, code) {
   return { success: true };
 }
 
+// ── EXPENSE CATEGORIES (Financial Master -- used in Cash Management > Petty Cash) ──
+export async function getExpenseCategories() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_expense_categories').select('*').order('name');
+  return data || [];
+}
+export async function addExpenseCategory(values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const code = await generateCategoryCode(supabase, 'master_expense_categories', 'EXP');
+  const { error } = await supabase.from('master_expense_categories').insert({ code, name, status: 'Active' });
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_expense_categories', code, 'Create', `${name} created`);
+  return { success: true };
+}
+export async function updateExpenseCategory(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const { error } = await supabase.from('master_expense_categories').update({ name }).eq('id', id);
+  if (error) return { error: error.message };
+  if (oldValues.name !== name) await logMasterAudit(supabase, 'master_expense_categories', oldValues.code, 'Edit', `Name ${oldValues.name} -> ${name}`);
+  return { success: true };
+}
+
 // ── IOP METHODS (Clinical Master -- used in Optometry Assessment) ──
 export async function getIopMethods() {
   const supabase = await createClient();
@@ -658,5 +682,6 @@ export async function getActiveIolCatalog() {
 // lives in master_services where dept = 'Investigation'. Consolidated
 // into Financial Masters (Migration 48) to avoid the same item ever
 // having two different prices in two different places.
+
 
 

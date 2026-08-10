@@ -20,6 +20,75 @@ function istDayBoundsUTC(dateStr) {
   };
 }
 
+// ── PETTY CASH -- day-to-day hospital cash outgoings (stationery,
+// transport, refreshments, minor repairs). Entered by any staff on a
+// day that's open; no approval step. Folds into Cash reconciliation
+// and Close Day so the drawer count ties out. ──
+export async function getExpenseCategoriesActive() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_expense_categories').select('*').eq('status', 'Active').order('name');
+  return data || [];
+}
+
+export async function getExpensesForDate(date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const { data } = await supabase
+    .from('petty_cash_expenses')
+    .select('*, master_expense_categories(name), profiles(full_name)')
+    .eq('expense_date', targetDate)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+export async function getPettyCashTotal(date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const { data } = await supabase.from('petty_cash_expenses').select('amount').eq('expense_date', targetDate);
+  return (data || []).reduce((sum, r) => sum + Number(r.amount), 0);
+}
+
+export async function addExpense(categoryId, amount, paidTo, note) {
+  const dayGuard = await requireDayOpen();
+  if (dayGuard) return dayGuard;
+
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const amt = Number(amount);
+  if (!categoryId) return { error: 'Select a category.' };
+  if (!amt || amt <= 0) return { error: 'Enter a valid amount.' };
+
+  const { data, error } = await supabase
+    .from('petty_cash_expenses')
+    .insert({
+      expense_date: todayIST(),
+      category_id: categoryId,
+      amount: amt,
+      paid_to: paidTo || null,
+      note: note || null,
+      entered_by: userData?.user?.id || null,
+    })
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { success: true, expense: data };
+}
+
+// Deletion is only allowed on today's un-closed entries -- once the
+// day is closed, its petty cash total is locked into that closing
+// record, same as reconciliation becomes read-only.
+export async function deleteExpense(id, expenseDate) {
+  if (expenseDate !== todayIST()) return { error: "Only today's entries can be deleted." };
+  const closed = await isTodayClosed();
+  if (closed) return { error: 'Today is already closed -- petty cash entries are locked.' };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from('petty_cash_expenses').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── REVENUE BY DEPARTMENT -- moved here from the Billing Dashboard,
 // since it's a same-day revenue breakdown that belongs alongside the
 // rest of today's collection summary. ──
@@ -73,19 +142,32 @@ export async function getReconciliationData(date) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
 
-  const summary = await getTodayCollectionSummary(targetDate);
+  const [summary, pettyCashTotal] = await Promise.all([
+    getTodayCollectionSummary(targetDate),
+    getPettyCashTotal(targetDate),
+  ]);
   const { data: saved } = await supabase.from('day_reconciliation').select('*').eq('closing_date', targetDate);
   const savedByMode = {};
   (saved || []).forEach((r) => { savedByMode[r.mode] = r; });
 
-  const modes = Object.keys(summary.byMode);
-  return modes.map((mode) => ({
-    mode,
-    expected: summary.byMode[mode],
-    actual: savedByMode[mode] ? Number(savedByMode[mode].actual) : summary.byMode[mode],
-    saved: !!savedByMode[mode],
-    reason: savedByMode[mode]?.reason || '',
-  }));
+  // Petty cash is a physical cash outflow, so it only touches the Cash
+  // mode's expected figure -- Card/UPI/Cheque/Bank Transfer are
+  // untouched. Make sure a Cash row shows up even on a day with
+  // expenses but zero cash collections, so it isn't silently skipped.
+  const modes = new Set(Object.keys(summary.byMode));
+  if (pettyCashTotal > 0) modes.add('Cash');
+
+  return [...modes].map((mode) => {
+    const rawExpected = summary.byMode[mode] || 0;
+    const expected = mode === 'Cash' ? rawExpected - pettyCashTotal : rawExpected;
+    return {
+      mode,
+      expected,
+      actual: savedByMode[mode] ? Number(savedByMode[mode].actual) : expected,
+      saved: !!savedByMode[mode],
+      reason: savedByMode[mode]?.reason || '',
+    };
+  });
 }
 
 export async function saveReconciliation(mode, expected, actual, reason, approvedBy, date) {
@@ -157,11 +239,12 @@ export async function getDayClosingHistory() {
 
 export async function getDailyReport(date) {
   const supabase = await createClient();
-  const [{ data: closing }, { data: reconciliation }] = await Promise.all([
+  const [{ data: closing }, { data: reconciliation }, expenses] = await Promise.all([
     supabase.from('day_closings').select('*, profiles(full_name)').eq('closing_date', date).maybeSingle(),
     supabase.from('day_reconciliation').select('*, profiles(full_name)').eq('closing_date', date),
+    getExpensesForDate(date),
   ]);
-  return { closing, reconciliation: reconciliation || [] };
+  return { closing, reconciliation: reconciliation || [], expenses };
 }
 
 export async function reopenDay(date, reason) {
@@ -215,4 +298,5 @@ export async function requireDayOpen() {
   }
   return null;
 }
+
 
