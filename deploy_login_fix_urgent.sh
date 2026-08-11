@@ -1,3 +1,13 @@
+#!/bin/bash
+set -e
+
+# URGENT FIX -- run this immediately from your veda-hmis repo root in
+# Codespaces. No DB changes needed.
+
+cd ~/veda-hmis 2>/dev/null || true
+
+mkdir -p "app/(main)/users"
+cat > "app/(main)/users/actions.js" << 'FILEEOF_app__main__users_actions_js'
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
@@ -329,3 +339,13 @@ export async function getLoginHistory(limit = 200) {
   return data || [];
 }
 
+FILEEOF_app__main__users_actions_js
+
+
+echo "File written."
+
+git add -A
+git commit -m "URGENT: fix login breaking -- recordLoginSuccess/Failure now fully defensive, can never surface as a fake login error"
+git push
+
+echo "Pushed. Vercel will redeploy automatically -- login should work normally again within a minute or two."
