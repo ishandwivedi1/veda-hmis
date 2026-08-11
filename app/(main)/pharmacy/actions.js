@@ -3,6 +3,181 @@
 import { createClient } from '@/lib/supabase-server';
 import { logJourneyEvent } from '@/lib/journey-events';
 
+function todayIST() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+function istDayBoundsUTC(dateStr) {
+  const d = dateStr || todayIST();
+  return {
+    startUTC: new Date(`${d}T00:00:00+05:30`).toISOString(),
+    endUTC: new Date(`${d}T23:59:59.999+05:30`).toISOString(),
+  };
+}
+
+// ── DASHBOARD ──
+// Today's prescriptions grouped by visit, with a purchase-status read
+// on each item -- some patients buy elsewhere or just don't come
+// back, and front office/pharmacy need to see that at a glance rather
+// than everything looking like an open, forgotten queue forever.
+function purchaseStatus(rx) {
+  if (rx.status === 'Dispensed') return 'Purchased';
+  if (rx.billing_status === 'Denied') return 'Declined / Bought Elsewhere';
+  if (rx.billing_status === 'Deferred') return 'Deferred';
+  return 'Pending';
+}
+
+export async function getPharmacyDashboard() {
+  const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC();
+
+  const { data, error } = await supabase
+    .from('prescriptions')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, last_name, uhid, mobile)))')
+    .gte('created_at', startUTC).lte('created_at', endUTC)
+    .order('created_at', { ascending: true });
+
+  if (error) return [];
+
+  const groups = {};
+  (data || []).forEach((rx) => {
+    const visitId = rx.encounters?.visit_id;
+    const visit = rx.encounters?.visits;
+    if (!visitId || !visit) return;
+    if (!groups[visitId]) {
+      groups[visitId] = { visitId, visitNumber: visit.visit_number, patient: visit.patients, items: [] };
+    }
+    groups[visitId].items.push({ ...rx, purchaseStatus: purchaseStatus(rx) });
+  });
+
+  return Object.values(groups).map((g) => ({
+    ...g,
+    allPurchased: g.items.every((i) => i.purchaseStatus === 'Purchased'),
+    anyPending: g.items.some((i) => i.purchaseStatus === 'Pending'),
+  }));
+}
+
+// ── WORKSPACE ──
+export async function getPharmacyWorkspace(visitId) {
+  const supabase = await createClient();
+
+  const [{ data: visit }, { data: prescriptions }, { data: drugCatalog }] = await Promise.all([
+    supabase.from('visits').select('id, visit_number, patients(first_name, last_name, uhid, mobile)').eq('id', visitId).single(),
+    supabase
+      .from('prescriptions')
+      .select('*, encounters!inner(visit_id)')
+      .eq('encounters.visit_id', visitId)
+      .order('created_at', { ascending: true }),
+    supabase.from('master_drugs').select('*').eq('status', 'Active').order('generic'),
+  ]);
+
+  // Suggest the closest catalog match per prescription so the
+  // pharmacist isn't hunting through the whole drug list for every
+  // line -- same ilike logic the auto-bill RPC already uses, just
+  // surfaced here before billing instead of silently applied after.
+  const items = (prescriptions || []).map((rx) => {
+    const match = (drugCatalog || []).find(
+      (d) => rx.drug_name?.toLowerCase().includes(d.generic?.toLowerCase()) ||
+             (d.brand && rx.drug_name?.toLowerCase().includes(d.brand.toLowerCase()))
+    );
+    return { ...rx, suggestedDrugId: match?.id || null };
+  });
+
+  return {
+    visit,
+    items,
+    drugCatalog: drugCatalog || [],
+  };
+}
+
+// Bills a chosen set of prescriptions in one go -- one invoice for
+// this batch, purpose 'Pharmacy', matching the app's existing
+// convention that every invoice creation is deliberate (see
+// billing/actions.js createInvoiceForVisit) rather than trying to
+// merge into whatever invoice might already exist on the visit.
+export async function billPharmacyItems(visitId, items) {
+  const supabase = await createClient();
+  if (!items || items.length === 0) return { error: 'No items to bill.' };
+
+  const { data: visit } = await supabase.from('visits').select('patient_id').eq('id', visitId).single();
+  if (!visit) return { error: 'Visit not found.' };
+
+  const { data: invoice, error: invError } = await supabase.rpc('create_invoice_for_visit', {
+    p_patient_id: visit.patient_id,
+    p_visit_id: visitId,
+    p_purpose: 'Pharmacy',
+  });
+  if (invError) return { error: invError.message };
+
+  for (const item of items) {
+    const gross = item.rate * item.qty;
+    const gstAmount = Math.round((gross * item.gstPct / 100) * 100) / 100;
+    const net = Math.round((gross + gstAmount) * 100) / 100;
+
+    const { data: line, error: lineError } = await supabase
+      .from('invoice_line_items')
+      .insert({
+        invoice_id: invoice.id,
+        service_code: item.serviceCode || null,
+        service_name: item.drugName,
+        dept: 'Pharmacy',
+        qty: item.qty,
+        rate: item.rate,
+        gst_pct: item.gstPct,
+        disc: 0,
+        gross,
+        gst_amount: gstAmount,
+        net,
+      })
+      .select()
+      .single();
+    if (lineError) return { error: lineError.message };
+
+    await supabase
+      .from('prescriptions')
+      .update({
+        billing_status: 'Billed',
+        qty: item.qty,
+        invoice_id: invoice.id,
+        invoice_line_item_id: line.id,
+        billing_updated_at: new Date().toISOString(),
+      })
+      .eq('id', item.prescriptionId);
+  }
+
+  await supabase.rpc('recompute_invoice_totals', { p_invoice_id: invoice.id });
+
+  return { success: true, invoiceId: invoice.id };
+}
+
+// ── HISTORY ──
+export async function getPharmacyHistory(date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const { startUTC, endUTC } = istDayBoundsUTC(targetDate);
+
+  const { data, error } = await supabase
+    .from('prescriptions')
+    .select('*, encounters(visit_id, visits(visit_number, patients(first_name, last_name, uhid)))')
+    .eq('status', 'Dispensed')
+    .gte('dispensed_at', startUTC).lte('dispensed_at', endUTC)
+    .order('dispensed_at', { ascending: false });
+
+  if (error) return [];
+
+  const groups = {};
+  (data || []).forEach((rx) => {
+    const visitId = rx.encounters?.visit_id;
+    const visit = rx.encounters?.visits;
+    if (!visitId || !visit) return;
+    if (!groups[visitId]) {
+      groups[visitId] = { visitId, visitNumber: visit.visit_number, patient: visit.patients, items: [], invoiceId: rx.invoice_id };
+    }
+    groups[visitId].items.push(rx);
+  });
+
+  return Object.values(groups);
+}
+
 export async function getPendingPrescriptions() {
   const supabase = await createClient();
 
