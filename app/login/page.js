@@ -4,7 +4,7 @@ import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '../../lib/supabase-browser';
-import { resolveLoginEmail, getMyDesignation, checkLoginAllowed, recordLoginFailure, recordLoginSuccess } from '@/app/(main)/users/actions';
+import { precheckLogin, getMyDesignation, recordLoginFailure, recordLoginSuccess } from '@/app/(main)/users/actions';
 
 export default function LoginPage() {
   return (
@@ -29,25 +29,16 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      let lockCheck = { allowed: true };
-      try {
-        lockCheck = await checkLoginAllowed(username);
-      } catch (err) {
-        console.error('checkLoginAllowed failed:', err);
-        // Never block login over this check failing -- treat as allowed.
-      }
-      if (!lockCheck.allowed) {
-        setError(lockCheck.error);
-        return;
-      }
-
-      const resolved = await resolveLoginEmail(username);
+      // One round trip instead of two -- lockout check and email
+      // resolution are both just profile lookups on the same
+      // username, no reason to make them separate requests.
+      const resolved = await precheckLogin(username);
       if (resolved.error) {
         setError(resolved.error);
         return;
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: resolved.email,
         password,
       });
@@ -61,40 +52,41 @@ function LoginForm() {
         return;
       }
 
-      // Must be awaited: the hard navigation via window.location.href
-      // a few lines below causes the browser to cancel any still-
-      // in-flight request, including this one if it isn't finished
-      // yet. An unawaited call here silently never completed --
-      // which is exactly why Login History was staying empty despite
-      // real logins happening.
-      await recordLoginSuccess(username);
+      // signInWithPassword already returns the user object -- no need
+      // for a separate getUser() call just to fetch the same id again.
+      const user = signInData?.user;
 
-      // Set immediately, not left to the first client-side heartbeat
-      // (up to 60s away) -- the middleware idle check runs on the very
-      // next page load, and without this, a stale last_active_at from
-      // days ago (or null, for a first-ever login) would immediately
-      // look "idle" and bounce someone right after they just signed in.
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) await supabase.from('profiles').update({ last_active_at: new Date().toISOString() }).eq('id', user.id);
-      } catch {
-        // Non-critical -- the client-side heartbeat will catch up shortly.
-      }
+      // These three don't depend on each other's results, so they run
+      // concurrently instead of one-after-another -- the previous
+      // sequential version was the main reason login felt slow.
+      // recordLoginSuccess still MUST be awaited here (as part of this
+      // group) since the hard navigation below cancels anything still
+      // in flight -- an unawaited call was exactly why Login History
+      // stayed empty despite real logins happening. Each is wrapped
+      // defensively; none of them should be able to block getting in.
+      const [, , designationOutcome] = await Promise.allSettled([
+        recordLoginSuccess(username),
+        // Set immediately, not left to the first client-side heartbeat
+        // (up to 60s away) -- the middleware idle check runs on the
+        // very next page load, and without this, a stale
+        // last_active_at from days ago (or null, for a first-ever
+        // login) would immediately look "idle" and bounce someone
+        // right after they just signed in.
+        user ? supabase.from('profiles').update({ last_active_at: new Date().toISOString() }).eq('id', user.id) : Promise.resolve(),
+        // Doctors land on their own dashboard; everyone else (Front
+        // Office, Optometry, Billing, Admin, etc.) lands on Front
+        // Office Dashboard.
+        getMyDesignation(),
+      ]);
 
-      // Doctors land on their own dashboard; everyone else (Front
-      // Office, Optometry, Billing, Admin, etc.) lands on Front Office
-      // Dashboard. Wrapped defensively -- the session cookie
-      // signInWithPassword just set can take a beat to propagate to a
-      // server action call, so this lookup failing must never block
-      // login itself. Falls back to Front Office Dashboard, which is
-      // safe to land on for any role.
       let destination = '/front-office-dashboard';
-      try {
-        const designation = await getMyDesignation();
-        if (designation === 'Doctor') destination = '/doctor-dashboard';
-      } catch {
-        // fall through to the safe default above
+      if (designationOutcome.status === 'fulfilled' && designationOutcome.value === 'Doctor') {
+        destination = '/doctor-dashboard';
       }
+      // A failed designation lookup falls through to the safe default
+      // above -- the session cookie signInWithPassword just set can
+      // take a beat to propagate to a server action call, so this
+      // must never block login itself.
 
       // A hard navigation here (not router.push) is deliberate -- right
       // after signInWithPassword, a client-side route change can outrun
