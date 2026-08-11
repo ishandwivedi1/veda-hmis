@@ -42,7 +42,7 @@ const NAV_ITEMS = [
   { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', section: 'Administration' },
   { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', section: 'Administration' },
   { href: '/print-templates', label: 'Print Templates', icon: 'ti-file-invoice', section: 'Administration' },
-  { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration' },
+  { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration', adminOnly: true },
   { href: '/reports', label: 'Reports', icon: 'ti-chart-bar', section: 'Administration' },
 ];
 
@@ -148,12 +148,13 @@ export default function AppShell({ children }) {
     router.refresh();
   }
 
-  const sections = [...new Set(NAV_ITEMS.map((i) => i.section))];
+  const visibleNavItems = NAV_ITEMS.filter((i) => !i.adminOnly || profile?.designation === 'Administrator');
+  const sections = [...new Set(visibleNavItems.map((i) => i.section))];
 
   // Pick the single longest matching href across all items, so nested
   // routes (e.g. /payments and /payments/advance both being valid nav
   // targets) never highlight more than one item at once.
-  const activeHref = NAV_ITEMS
+  const activeHref = visibleNavItems
     .map((i) => i.href)
     .filter((href) => pathname.startsWith(href))
     .sort((a, b) => b.length - a.length)[0];
@@ -171,7 +172,7 @@ export default function AppShell({ children }) {
         {sections.map((section) => (
           <div key={section}>
             <div className="sb-sec">{section}</div>
-            {NAV_ITEMS.filter((i) => i.section === section).map((item) => (
+            {visibleNavItems.filter((i) => i.section === section).map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -219,7 +220,6 @@ export default function AppShell({ children }) {
     </div>
   );
 }
-
 
 
 

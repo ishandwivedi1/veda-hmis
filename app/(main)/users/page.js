@@ -133,9 +133,32 @@ export default function UsersPage() {
   }, []);
 
   useEffect(() => {
-    refresh();
-    getMyDesignation().then(setMyDesignation);
+    getMyDesignation().then((d) => {
+      setMyDesignation(d);
+      if (d === 'Administrator') refresh();
+    });
   }, [refresh]);
+
+  // Server actions (getUsers, createUser, etc.) already enforce this
+  // independently -- this is just so a non-admin sees a clean message
+  // instead of a confusingly empty table with buttons that silently
+  // fail when clicked. Placed after all hooks so hook call order
+  // stays identical across renders (React requires this).
+  if (myDesignation && !isAdmin) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+        <i className="ti ti-lock" style={{ fontSize: 28, color: 'var(--g400)' }}></i>
+        <div style={{ fontWeight: 700, marginTop: 10 }}>Administrator access only</div>
+        <div style={{ fontSize: 13, color: 'var(--g500)', marginTop: 4 }}>
+          User Management is restricted to Administrator accounts. Contact your administrator if you need a staff login created or updated.
+        </div>
+      </div>
+    );
+  }
+
+  if (!myDesignation) {
+    return <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 40 }}>Loading...</div>;
+  }
 
   function update(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));

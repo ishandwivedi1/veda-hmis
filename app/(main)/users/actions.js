@@ -50,6 +50,8 @@ async function requireAdministrator() {
 }
 
 export async function getUsers() {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return [];
   const supabase = await createClient();
   const { data, error } = await supabase.from('profiles').select('*').order('full_name');
   if (error) return [];
@@ -67,6 +69,9 @@ export async function getMyDesignation() {
 }
 
 export async function createUser(values) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: gate.error };
+
   if (!values.username || !values.password || !values.fullName) {
     return { error: 'Username, password, and name are required.' };
   }
@@ -115,6 +120,9 @@ export async function createUser(values) {
 // a login was created before a role was finalized, or someone moves
 // department.
 export async function updateUserProfile(userId, values) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: gate.error };
+
   if (values.designation && !DESIGNATIONS.includes(values.designation)) {
     return { error: 'Invalid designation.' };
   }
@@ -162,6 +170,9 @@ export async function updateStaffIdentity(userId, values) {
 }
 
 export async function toggleUserStatus(userId, currentStatus) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: gate.error };
+
   const supabase = await createClient();
   const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
   const { error } = await supabase.from('profiles').update({ status: newStatus }).eq('id', userId);
@@ -170,6 +181,9 @@ export async function toggleUserStatus(userId, currentStatus) {
 }
 
 export async function resetUserPassword(userId, newPassword) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: gate.error };
+
   if (!newPassword || newPassword.length < 6) {
     return { error: 'New password must be at least 6 characters.' };
   }
