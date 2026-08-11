@@ -1,3 +1,15 @@
+#!/bin/bash
+set -e
+
+# Run this from your veda-hmis repo root in Codespaces.
+# Adds temporary error-message visibility on the login screen so we
+# can see exactly what's failing, plus defensively wraps
+# checkLoginAllowed. No DB changes.
+
+cd ~/veda-hmis 2>/dev/null || true
+
+mkdir -p "app/login"
+cat > "app/login/page.js" << 'FILEEOF_app_login_page_js'
 'use client';
 
 import { useState, Suspense } from 'react';
@@ -183,3 +195,13 @@ function LoginForm() {
   );
 }
 
+FILEEOF_app_login_page_js
+
+
+echo "File written."
+
+git add -A
+git commit -m "TEMP: surface real error message on login failure to diagnose the recurring issue"
+git push
+
+echo "Pushed. Once Vercel redeploys, try logging in again -- whatever error shows will tell us exactly what's wrong."
