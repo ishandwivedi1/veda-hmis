@@ -1,9 +1,66 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getUsers, createUser, toggleUserStatus, resetUserPassword, updateUserProfile, updateStaffIdentity, getMyDesignation } from './actions';
+import { getUsers, createUser, toggleUserStatus, resetUserPassword, updateUserProfile, updateStaffIdentity, getMyDesignation, getLoginHistory } from './actions';
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
+
+// Rough, presentation-only parse -- not meant to be exhaustive, just
+// enough for an admin scanning the list to tell "phone" from
+// "desktop browser" at a glance without reading a raw UA string.
+function parseDevice(ua) {
+  if (!ua) return 'Unknown device';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${browser} on ${os}` : browser;
+}
+
+function LoginHistoryTable() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getLoginHistory().then((data) => { setRows(data); setLoading(false); });
+  }, []);
+
+  if (loading) return <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>;
+
+  return (
+    <div className="card">
+      <div className="card-title" style={{ marginBottom: 10 }}>
+        <i className="ti ti-history" style={{ color: 'var(--blue)' }}></i> Login History
+        <span className="badge b-gray" style={{ marginLeft: 8 }}>{rows.length}</span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--g400)', marginBottom: 10 }}>
+        Location is approximate (IP-based) -- a VPN or mobile network will show that network's location, not necessarily the person's actual location.
+      </div>
+      <table className="tbl">
+        <thead><tr><th>Staff</th><th>When</th><th>Location</th><th>IP Address</th><th>Device</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td>
+                <strong>{r.profiles?.full_name || 'Unknown'}</strong>
+                <div style={{ fontSize: 11, color: 'var(--g400)' }}>{r.profiles?.designation}</div>
+              </td>
+              <td style={{ fontSize: 12 }}>
+                {new Date(r.logged_in_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </td>
+              <td style={{ fontSize: 12 }}>
+                {[r.city, r.region, r.country].filter(Boolean).join(', ') || '--'}
+              </td>
+              <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.ip_address || '--'}</td>
+              <td style={{ fontSize: 12 }}>{parseDevice(r.user_agent)}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>No logins recorded yet.</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 // Heartbeat updates every ~60s while the app is open (see AppShell.js).
 // A few minutes' grace covers normal timing/network gaps without
@@ -125,6 +182,7 @@ export default function UsersPage() {
   const [form, setForm] = useState({ username: '', password: '', fullName: '', designation: '', department: '', registrationNo: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState('accounts');
 
   const isAdmin = myDesignation === 'Administrator';
 
@@ -181,7 +239,20 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="card">
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        <button className={tab === 'accounts' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('accounts')}>
+          <i className="ti ti-users-group"></i> Staff Accounts
+        </button>
+        <button className={tab === 'history' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('history')}>
+          <i className="ti ti-history"></i> Login History
+        </button>
+      </div>
+
+      {tab === 'history' && <LoginHistoryTable />}
+
+      {tab === 'accounts' && (
+        <div className="card">
       <div className="card-head">
         <div className="card-title">
           <i className="ti ti-users-group" style={{ color: 'var(--blue)' }}></i> Staff Accounts
@@ -216,7 +287,7 @@ export default function UsersPage() {
           {form.designation === 'Doctor' && (
             <input className="fi" placeholder="Doctor Registration No. (appears on printouts)" value={form.registrationNo} onChange={update('registrationNo')} style={{ marginBottom: 8 }} />
           )}
-          <input className="fi" type="password" placeholder="Temporary password (min 6 chars)" value={form.password} onChange={update('password')} style={{ marginBottom: 8 }} />
+          <input className="fi" type="password" placeholder="Temporary password (min 8 chars)" value={form.password} onChange={update('password')} style={{ marginBottom: 8 }} />
           <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={loading}>
             {loading ? 'Creating...' : 'Create Account'}
           </button>
@@ -279,6 +350,8 @@ export default function UsersPage() {
           ))}
         </tbody>
       </table>
+        </div>
+      )}
     </div>
   );
 }

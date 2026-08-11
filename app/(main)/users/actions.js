@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { headers } from 'next/headers';
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
 
@@ -75,8 +76,8 @@ export async function createUser(values) {
   if (!values.username || !values.password || !values.fullName) {
     return { error: 'Username, password, and name are required.' };
   }
-  if (values.password.length < 6) {
-    return { error: 'Password must be at least 6 characters.' };
+  if (values.password.length < 8) {
+    return { error: 'Password must be at least 8 characters.' };
   }
 
   const admin = createAdminClient();
@@ -184,8 +185,8 @@ export async function resetUserPassword(userId, newPassword) {
   const gate = await requireAdministrator();
   if (!gate.ok) return { error: gate.error };
 
-  if (!newPassword || newPassword.length < 6) {
-    return { error: 'New password must be at least 6 characters.' };
+  if (!newPassword || newPassword.length < 8) {
+    return { error: 'New password must be at least 8 characters.' };
   }
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword });
@@ -212,5 +213,103 @@ export async function resolveLoginEmail(usernameOrEmail) {
   if (!authUser?.user?.email) return { error: 'Invalid username or password.' };
 
   return { email: authUser.user.email };
+}
+
+// ── LOGIN LOCKOUT ──
+// Brute-force protection: 5 failed attempts locks the account out for
+// 15 minutes. All three of these run pre-authentication (checked
+// before, and recorded right after, the actual signInWithPassword
+// call the login page makes directly against Supabase Auth) -- so
+// they use the admin client throughout rather than the RLS-bound one,
+// since there's no session to attach to yet on a failed attempt, and
+// avoiding any dependency on session-cookie timing on a fresh success
+// keeps this simple and reliable either way.
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
+
+export async function checkLoginAllowed(usernameOrEmail) {
+  const trimmed = (usernameOrEmail || '').trim();
+  if (!trimmed) return { allowed: true };
+
+  const admin = createAdminClient();
+  const { data } = await admin.from('profiles').select('locked_until').ilike('username', trimmed).maybeSingle();
+  if (!data?.locked_until) return { allowed: true };
+
+  const remainingMs = new Date(data.locked_until).getTime() - Date.now();
+  if (remainingMs <= 0) return { allowed: true };
+
+  const minutes = Math.max(1, Math.ceil(remainingMs / 60000));
+  return { allowed: false, error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` };
+}
+
+export async function recordLoginFailure(usernameOrEmail) {
+  const trimmed = (usernameOrEmail || '').trim();
+  if (!trimmed) return;
+
+  const admin = createAdminClient();
+  const { data } = await admin.from('profiles').select('id, failed_login_attempts').ilike('username', trimmed).maybeSingle();
+  if (!data) return; // Unknown username -- nothing to track, and this stays silent so it can't be used to enumerate valid usernames.
+
+  const attempts = (data.failed_login_attempts || 0) + 1;
+  if (attempts >= MAX_FAILED_ATTEMPTS) {
+    await admin.from('profiles').update({
+      failed_login_attempts: 0,
+      locked_until: new Date(Date.now() + LOCKOUT_MINUTES * 60000).toISOString(),
+    }).eq('id', data.id);
+  } else {
+    await admin.from('profiles').update({ failed_login_attempts: attempts }).eq('id', data.id);
+  }
+}
+
+export async function recordLoginSuccess(usernameOrEmail) {
+  const trimmed = (usernameOrEmail || '').trim();
+  if (!trimmed) return;
+
+  const admin = createAdminClient();
+  const { data: profile } = await admin.from('profiles').select('id').ilike('username', trimmed).maybeSingle();
+
+  await admin.from('profiles').update({ failed_login_attempts: 0, locked_until: null }).ilike('username', trimmed);
+
+  // Best-effort -- a failed history write should never block someone
+  // from actually getting into the app they just successfully signed
+  // into. Location comes from Vercel's own geo headers (populated
+  // automatically per-request, no external API), so it's approximate
+  // and reflects the edge location that served the request -- exact
+  // in most cases, off by a city or region on a VPN/mobile network.
+  if (profile) {
+    try {
+      const h = await headers();
+      const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || null;
+      const city = h.get('x-vercel-ip-city') ? decodeURIComponent(h.get('x-vercel-ip-city')) : null;
+      const region = h.get('x-vercel-ip-country-region') || null;
+      const country = h.get('x-vercel-ip-country') || null;
+      const userAgent = h.get('user-agent') || null;
+
+      await admin.from('login_history').insert({
+        profile_id: profile.id,
+        ip_address: ip,
+        city,
+        region,
+        country,
+        user_agent: userAgent,
+      });
+    } catch (err) {
+      console.error('login_history insert failed:', err.message);
+    }
+  }
+}
+
+// ── LOGIN HISTORY (Administrator only) ──
+export async function getLoginHistory(limit = 200) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return [];
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('login_history')
+    .select('*, profiles(full_name, designation, username)')
+    .order('logged_in_at', { ascending: false })
+    .limit(limit);
+  return data || [];
 }
 
