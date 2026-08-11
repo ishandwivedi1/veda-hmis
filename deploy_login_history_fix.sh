@@ -1,3 +1,13 @@
+#!/bin/bash
+set -e
+
+# Run this from your veda-hmis repo root in Codespaces.
+# Bug fix only -- no DB changes needed.
+
+cd ~/veda-hmis 2>/dev/null || true
+
+mkdir -p "app/login"
+cat > "app/login/page.js" << 'FILEEOF_app_login_page_js'
 'use client';
 
 import { useState, Suspense } from 'react';
@@ -172,3 +182,13 @@ function LoginForm() {
   );
 }
 
+FILEEOF_app_login_page_js
+
+
+echo "File written."
+
+git add -A
+git commit -m "Fix login history race condition: await recordLoginSuccess/Failure before the hard navigation cancels the in-flight request"
+git push
+
+echo "Pushed. Vercel will redeploy portal.vedaeyehospital.com and training.vedaeyehospital.com automatically."
