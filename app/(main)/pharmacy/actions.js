@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { logJourneyEvent } from '@/lib/journey-events';
+import { plainFrequency } from '@/app/print-templates/actions';
 
 function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -84,12 +85,16 @@ export async function getPharmacyWorkspace(visitId) {
   // pharmacist isn't hunting through the whole drug list for every
   // line -- same ilike logic the auto-bill RPC already uses, just
   // surfaced here before billing instead of silently applied after.
+  // Also carries the doctor's exact instructions in plain language
+  // (same translation used on patient-facing prints) so the
+  // pharmacist sees precisely what to explain at the counter, not
+  // just the medical shorthand.
   const items = (prescriptions || []).map((rx) => {
     const match = (drugCatalog || []).find(
       (d) => rx.drug_name?.toLowerCase().includes(d.generic?.toLowerCase()) ||
              (d.brand && rx.drug_name?.toLowerCase().includes(d.brand.toLowerCase()))
     );
-    return { ...rx, suggestedDrugId: match?.id || null };
+    return { ...rx, suggestedDrugId: match?.id || null, plainFrequency: plainFrequency(rx.frequency) };
   });
 
   return {

@@ -142,8 +142,17 @@ export default function Workspace({ visitId }) {
       </button>
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>{visit.patients?.first_name} {visit.patients?.last_name}</div>
-        <div style={{ fontSize: 12, color: 'var(--g400)' }}>{visit.patients?.uhid} &middot; Visit {visit.visit_number} &middot; {visit.patients?.mobile}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{visit.patients?.first_name} {visit.patients?.last_name}</div>
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>{visit.patients?.uhid} &middot; Visit {visit.visit_number} &middot; {visit.patients?.mobile}</div>
+          </div>
+          {items.length > 0 && (
+            <button className="btn btn-sm" onClick={() => window.open(`/prescription-print/${visitId}`, '_blank')}>
+              <i className="ti ti-printer"></i> Print Prescription
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="msg-err">{error}</div>}
@@ -151,31 +160,50 @@ export default function Workspace({ visitId }) {
       {billableItems.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-title" style={{ marginBottom: 10 }}>Prescribed -- Not Yet Billed</div>
-          {billableItems.map((rx) => {
-            const t = lineTotal(rx);
-            return (
-              <div key={rx.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <input
-                    type="checkbox"
-                    checked={!!checked[rx.id]}
-                    onChange={(e) => setChecked((prev) => ({ ...prev, [rx.id]: e.target.checked }))}
-                    style={{ marginTop: 4 }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{rx.drug_name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--g400)' }}>{rx.dosage} {rx.frequency} x {rx.duration} -- {rx.eye}</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 90px 1fr', gap: 8, marginTop: 8 }}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th style={{ width: 26 }}></th>
+                <th>Medicine</th>
+                <th>Doctor's Instructions</th>
+                <th style={{ width: 200 }}>Catalog Match</th>
+                <th style={{ width: 70 }}>Qty</th>
+                <th style={{ textAlign: 'right', width: 90 }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {billableItems.map((rx) => {
+                const t = lineTotal(rx);
+                return (
+                  <tr key={rx.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={!!checked[rx.id]}
+                        onChange={(e) => setChecked((prev) => ({ ...prev, [rx.id]: e.target.checked }))}
+                      />
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{rx.drug_name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--g400)' }}>{rx.eye}</div>
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 12.5 }}>{rx.dosage} &middot; {rx.plainFrequency}</div>
+                      <div style={{ fontSize: 11, color: 'var(--g400)' }}>for {rx.duration}</div>
+                    </td>
+                    <td>
                       <select
                         className="fi fi-sm"
                         value={selections[rx.id]?.drugId || ''}
                         onChange={(e) => updateSelection(rx.id, 'drugId', e.target.value)}
                       >
-                        <option value="">-- Match catalog item --</option>
+                        <option value="">-- Select --</option>
                         {drugCatalog.map((d) => (
                           <option key={d.id} value={d.id}>{d.brand ? `${d.brand} (${d.generic})` : d.generic} -- {fmt(d.rate)}</option>
                         ))}
                       </select>
+                    </td>
+                    <td>
                       <input
                         type="number"
                         className="fi fi-sm"
@@ -183,31 +211,33 @@ export default function Workspace({ visitId }) {
                         value={selections[rx.id]?.qty || 1}
                         onChange={(e) => updateSelection(rx.id, 'qty', parseInt(e.target.value, 10) || 1)}
                       />
-                      <div style={{ fontSize: 13, fontWeight: 700, alignSelf: 'center', textAlign: 'right' }}>
-                        {t ? fmt(t.net) : '--'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 8, marginLeft: 26 }}>
-                  <input
-                    type="text"
-                    className="fi fi-sm"
-                    placeholder="Note (why declined/deferred)"
-                    style={{ maxWidth: 220, fontSize: 11 }}
-                    value={noteDraft[rx.id] || ''}
-                    onChange={(e) => setNoteDraft((prev) => ({ ...prev, [rx.id]: e.target.value }))}
-                  />
-                  <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={() => handleAction(markPrescriptionDenied, rx.id)}>
-                    Declined / Bought Elsewhere
-                  </button>
-                  <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={() => handleAction(markPrescriptionDeferred, rx.id)}>
-                    Deferred
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{t ? fmt(t.net) : '--'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {billableItems.map((rx) => (
+            <div key={`actions-${rx.id}`} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '4px 0', fontSize: 11 }}>
+              <span style={{ color: 'var(--g400)', minWidth: 130 }}>{rx.drug_name}:</span>
+              <input
+                type="text"
+                className="fi fi-sm"
+                placeholder="Note (why declined/deferred)"
+                style={{ maxWidth: 200, fontSize: 11 }}
+                value={noteDraft[rx.id] || ''}
+                onChange={(e) => setNoteDraft((prev) => ({ ...prev, [rx.id]: e.target.value }))}
+              />
+              <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={() => handleAction(markPrescriptionDenied, rx.id)}>
+                Declined / Bought Elsewhere
+              </button>
+              <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={() => handleAction(markPrescriptionDeferred, rx.id)}>
+                Deferred
+              </button>
+            </div>
+          ))}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
             <div style={{ fontSize: 15, fontWeight: 800 }}>Total: {fmt(grandTotal)}</div>

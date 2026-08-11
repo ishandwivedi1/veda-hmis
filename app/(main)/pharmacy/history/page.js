@@ -51,11 +51,16 @@ export default function PharmacyHistoryPage() {
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 15, fontWeight: 800 }}>Rs {g.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
-              {g.invoiceId && (
-                <Link href={`/billing/details?invoiceId=${g.invoiceId}`} style={{ fontSize: 12 }}>
-                  View Invoice <i className="ti ti-external-link"></i>
-                </Link>
-              )}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 2 }}>
+                {g.invoiceId && (
+                  <Link href={`/billing/details?invoiceId=${g.invoiceId}`} style={{ fontSize: 12 }}>
+                    View Invoice <i className="ti ti-external-link"></i>
+                  </Link>
+                )}
+                <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => window.open(`/prescription-print/${g.visitId}`, '_blank')}>
+                  <i className="ti ti-printer"></i> Print
+                </button>
+              </div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
