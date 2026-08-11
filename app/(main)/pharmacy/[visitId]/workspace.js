@@ -45,6 +45,15 @@ export default function Workspace({ visitId }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // The payment tab closes itself after a successful receipt (see
+  // collect-payment-tab.js) -- refreshing on focus means the moment
+  // that happens and this tab regains attention, the just-billed item
+  // already shows its updated status without a manual reload.
+  useEffect(() => {
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [refresh]);
+
   function updateSelection(rxId, field, value) {
     setSelections((prev) => ({ ...prev, [rxId]: { ...prev[rxId], [field]: value } }));
   }
@@ -95,7 +104,16 @@ export default function Workspace({ visitId }) {
     const result = await billPharmacyItems(visitId, payload);
     setBilling(false);
     if (result.error) { setError(result.error); return; }
-    router.push(`/payments/collect?invoiceId=${result.invoiceId}`);
+
+    // Opens as a real new tab rather than navigating away from the
+    // Workspace, since the pharmacist typically wants to keep working
+    // through the queue -- the payment tab closes itself once the
+    // receipt is confirmed there (see collect-payment-tab.js), which
+    // naturally drops focus back here.
+    const patientId = visit?.patients?.id;
+    const url = `/payments/collect?patientId=${patientId}&invoiceId=${result.invoiceId}&popup=1`;
+    window.open(url, '_blank');
+    refresh();
   }
 
   async function handleDispense(rxId) {

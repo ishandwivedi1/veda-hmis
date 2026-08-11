@@ -31,6 +31,8 @@ export default function CollectPaymentTab() {
   const router = useRouter();
   const urlPatientId = searchParams.get('patientId');
   const urlInvoiceId = searchParams.get('invoiceId');
+  const isPopup = searchParams.get('popup') === '1';
+  const returnTo = searchParams.get('returnTo');
   const autofillDoneFor = useRef(null);
 
   useEffect(() => {
@@ -203,15 +205,22 @@ export default function CollectPaymentTab() {
   }
 
   // Collecting from a specific invoice means this was reached via a
-  // link from the Billing Dashboard (Outstanding Invoices, Today's
-  // Visits, or Recent Invoices) -- once paid, the natural next step is
+  // link from elsewhere (Billing Dashboard, or another module's own
+  // billing flow like Pharmacy) -- once paid, the natural next step is
   // back there rather than sitting on this form. A short delay keeps
   // the receipt confirmation visible instead of yanking it away.
+  //
+  // Opened as a popup (from Pharmacy's own bill-and-pay flow): just
+  // close the tab so the person lands back on the page they were
+  // already on, instead of navigating that popup somewhere new.
   useEffect(() => {
     if (!receipt || !urlInvoiceId) return;
-    const timer = setTimeout(() => router.push('/billing'), 2500);
+    const timer = setTimeout(() => {
+      if (isPopup) { window.close(); return; }
+      router.push(returnTo || '/billing');
+    }, 2500);
     return () => clearTimeout(timer);
-  }, [receipt, urlInvoiceId, router]);
+  }, [receipt, urlInvoiceId, router, isPopup, returnTo]);
 
   if (receipt) {
     return (

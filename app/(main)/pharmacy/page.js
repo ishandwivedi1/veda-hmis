@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { getPharmacyDashboard } from './actions';
 import PharmacyTabs from './pharmacy-tabs';
 
@@ -12,13 +12,32 @@ const STATUS_BADGE = {
   'Declined / Bought Elsewhere': 'b-red',
 };
 
+function KpiCard({ label, value, sub, color }) {
+  return (
+    <div className="card" style={{ borderLeft: `3px solid ${color}`, marginBottom: 0 }}>
+      <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 500, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700 }}>{value}</div>
+      <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>{sub}</div>
+    </div>
+  );
+}
+
+function VisitStatusBadge({ g }) {
+  if (g.allPurchased) return <span className="badge b-green">All Purchased</span>;
+  if (g.anyPending) return <span className="badge b-amber">Action Needed</span>;
+  return <span className="badge b-gray">Closed Out</span>;
+}
+
 export default function PharmacyDashboard() {
   const [groups, setGroups] = useState([]);
+  const [stats, setStats] = useState({ totalPatients: 0, pendingItems: 0, purchasedItems: 0, declinedOrDeferred: 0 });
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   const refresh = useCallback(async () => {
     const data = await getPharmacyDashboard();
-    setGroups(data);
+    setGroups(data.groups);
+    setStats(data.stats);
     setLoading(false);
   }, []);
 
@@ -28,51 +47,67 @@ export default function PharmacyDashboard() {
     return () => clearInterval(interval);
   }, [refresh]);
 
-  const pendingCount = groups.reduce((sum, g) => sum + g.items.filter((i) => i.purchaseStatus === 'Pending').length, 0);
-
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
-        <i className="ti ti-pill" style={{ color: 'var(--blue)', marginRight: 6 }}></i>Pharmacy
+    <div>
+      <div className="g4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+        <KpiCard label="Patients today" value={stats.totalPatients} sub="With a prescription written" color="var(--blue)" />
+        <KpiCard label="Pending action" value={stats.pendingItems} sub="Not yet billed or dispensed" color="var(--amber)" />
+        <KpiCard label="Purchased" value={stats.purchasedItems} sub="Dispensed today" color="var(--green)" />
+        <KpiCard label="Declined / deferred" value={stats.declinedOrDeferred} sub="Not collecting from here" color="var(--red)" />
       </div>
-      <div style={{ fontSize: 13, color: 'var(--g500)', marginBottom: 12 }}>
-        {pendingCount} item(s) still pending today &middot; auto-refreshes every 20s
-      </div>
+
       <PharmacyTabs />
 
-      {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>}
-
-      {!loading && groups.map((g) => (
-        <Link key={g.visitId} href={`/pharmacy/${g.visitId}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className="card" style={{ marginBottom: 12, cursor: 'pointer' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700 }}>
-                  {g.patient?.first_name} {g.patient?.last_name}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--g400)' }}>{g.patient?.uhid} &middot; Visit {g.visitNumber}</div>
-              </div>
-              {g.allPurchased && <span className="badge b-green" style={{ fontSize: 11 }}>All Purchased</span>}
-              {!g.allPurchased && g.anyPending && <span className="badge b-amber" style={{ fontSize: 11 }}>Action Needed</span>}
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {g.items.map((rx) => (
-                <span key={rx.id} className={`badge ${STATUS_BADGE[rx.purchaseStatus] || 'b-gray'}`} style={{ fontSize: 10 }}>
-                  {rx.drug_name}: {rx.purchaseStatus}
-                </span>
-              ))}
-            </div>
-          </div>
-        </Link>
-      ))}
-
-      {!loading && groups.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>
-          No prescriptions written today yet.
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10 }}>
+          <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> Today&apos;s Prescriptions
+          <span className="badge b-gray" style={{ marginLeft: 8 }}>{groups.length}</span>
         </div>
-      )}
 
-      <div className="card" style={{ marginTop: 20, textAlign: 'center', color: 'var(--g400)', fontSize: 12, padding: 14 }}>
+        {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>}
+
+        {!loading && groups.length > 0 && (
+          <table className="tbl">
+            <thead>
+              <tr><th>Patient</th><th>Visit</th><th>Medicines</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => (
+                <tr key={g.visitId}>
+                  <td>
+                    <strong>{g.patient?.first_name} {g.patient?.last_name}</strong>
+                    <div style={{ fontSize: 11, color: 'var(--g400)' }}>{g.patient?.uhid}</div>
+                  </td>
+                  <td style={{ fontSize: 12, color: 'var(--g500)' }}>{g.visitNumber}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 320 }}>
+                      {g.items.map((rx) => (
+                        <span key={rx.id} className={`badge ${STATUS_BADGE[rx.purchaseStatus] || 'b-gray'}`} style={{ fontSize: 10 }}>
+                          {rx.drug_name}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td><VisitStatusBadge g={g} /></td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button className="btn btn-sm" onClick={() => router.push(`/pharmacy/${g.visitId}`)}>
+                      Open <i className="ti ti-arrow-right"></i>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {!loading && groups.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>
+            No prescriptions written today yet.
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', fontSize: 12, padding: 14 }}>
         <i className="ti ti-boxes"></i> Stock tracking is planned for a future update -- current inventory levels aren't shown here yet.
       </div>
     </div>

@@ -36,7 +36,7 @@ export async function getPharmacyDashboard() {
     .gte('created_at', startUTC).lte('created_at', endUTC)
     .order('created_at', { ascending: true });
 
-  if (error) return [];
+  if (error) return { groups: [], stats: { totalPatients: 0, pendingItems: 0, purchasedItems: 0, declinedOrDeferred: 0 } };
 
   const groups = {};
   (data || []).forEach((rx) => {
@@ -49,11 +49,21 @@ export async function getPharmacyDashboard() {
     groups[visitId].items.push({ ...rx, purchaseStatus: purchaseStatus(rx) });
   });
 
-  return Object.values(groups).map((g) => ({
+  const groupList = Object.values(groups).map((g) => ({
     ...g,
     allPurchased: g.items.every((i) => i.purchaseStatus === 'Purchased'),
     anyPending: g.items.some((i) => i.purchaseStatus === 'Pending'),
   }));
+
+  const allItems = groupList.flatMap((g) => g.items);
+  const stats = {
+    totalPatients: groupList.length,
+    pendingItems: allItems.filter((i) => i.purchaseStatus === 'Pending').length,
+    purchasedItems: allItems.filter((i) => i.purchaseStatus === 'Purchased').length,
+    declinedOrDeferred: allItems.filter((i) => i.purchaseStatus === 'Deferred' || i.purchaseStatus === 'Declined / Bought Elsewhere').length,
+  };
+
+  return { groups: groupList, stats };
 }
 
 // ── WORKSPACE ──
@@ -61,7 +71,7 @@ export async function getPharmacyWorkspace(visitId) {
   const supabase = await createClient();
 
   const [{ data: visit }, { data: prescriptions }, { data: drugCatalog }] = await Promise.all([
-    supabase.from('visits').select('id, visit_number, patients(first_name, last_name, uhid, mobile)').eq('id', visitId).single(),
+    supabase.from('visits').select('id, visit_number, patients(id, first_name, last_name, uhid, mobile)').eq('id', visitId).single(),
     supabase
       .from('prescriptions')
       .select('*, encounters!inner(visit_id)')
