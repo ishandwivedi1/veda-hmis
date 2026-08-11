@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { logJourneyEvent } from '@/lib/journey-events';
-import { plainFrequency } from '@/app/print-templates/actions';
+import { plainFrequency } from '@/lib/prescriptionFormatting';
 
 function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
