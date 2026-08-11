@@ -89,8 +89,13 @@ export default function AppShell({ children }) {
   const supabase = createClient();
   const [profile, setProfile] = useState(null);
   const [today, setToday] = useState('');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const pageTitle = PAGE_TITLES.find((t) => t.match.test(pathname))?.title || 'VEDA HMIS';
+
+  // Every navigation should close the drawer -- without this, tapping
+  // a link would leave it sitting open over the new page underneath.
+  useEffect(() => { setMobileNavOpen(false); }, [pathname]);
 
   useEffect(() => {
     setToday(new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }));
@@ -161,7 +166,9 @@ export default function AppShell({ children }) {
 
   return (
     <div className="app-layout">
-      <div className="sidebar">
+      {mobileNavOpen && <div className="mobile-nav-backdrop" onClick={() => setMobileNavOpen(false)}></div>}
+
+      <div className={`sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
         <div className="sb-logo">
           <div className="sb-logo-icon"><i className="ti ti-eye"></i></div>
           <div>
@@ -188,12 +195,22 @@ export default function AppShell({ children }) {
 
       <div className="main-area">
         <div className="topbar">
-          <div>
-            <div className="top-title">{pageTitle}</div>
-            <div className="top-sub">Veda Eye Hospital</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              className="mobile-menu-btn btn"
+              style={{ padding: '7px 10px', flexShrink: 0 }}
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+            >
+              <i className="ti ti-menu-2"></i>
+            </button>
+            <div>
+              <div className="top-title">{pageTitle}</div>
+              <div className="top-sub">Veda Eye Hospital</div>
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ textAlign: 'right' }}>
+            <div className="topbar-userinfo" style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 11.5, color: 'var(--g500)', fontWeight: 500 }}>{today}</div>
               {profile && (
                 <div style={{ fontSize: 11, color: 'var(--g400)' }}>

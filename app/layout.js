@@ -5,6 +5,17 @@ export const metadata = {
   description: 'Veda Eye Hospital -- Hospital Management System',
 };
 
+// Without this, phones render the page at a virtual desktop width
+// (~980px) and shrink the whole thing to fit -- every phone visitor
+// was seeing tiny, pinch-to-zoom-required text and a layout that
+// never actually triggered the app's own mobile CSS, since the
+// browser never reported a narrow enough width for those rules to
+// match in the first place.
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">

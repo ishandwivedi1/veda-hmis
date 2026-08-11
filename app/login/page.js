@@ -110,9 +110,10 @@ function LoginForm() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        padding: 16,
       }}
     >
-      <div className="card" style={{ width: 380 }}>
+      <div className="card" style={{ width: 380, maxWidth: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--blue-dk)' }}>
             VEDA HMIS
