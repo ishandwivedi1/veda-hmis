@@ -66,6 +66,15 @@ export default function InvoiceDetailsTab() {
     setLineItems(details.lineItems);
   }
 
+  // Deep-linked from elsewhere (e.g. Pharmacy History's "View
+  // Invoice") -- open that exact invoice directly instead of
+  // requiring a text search first.
+  const urlInvoiceId = searchParams.get('invoiceId');
+  useEffect(() => {
+    if (urlInvoiceId) openInvoice({ id: urlInvoiceId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlInvoiceId]);
+
   const balanceDue = selected ? Number(selected.net) - Number(selected.paid) : 0;
 
   return (

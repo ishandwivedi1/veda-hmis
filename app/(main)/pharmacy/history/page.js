@@ -30,9 +30,14 @@ export default function PharmacyHistoryPage() {
       </div>
       <PharmacyTabs />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
         <label style={{ fontSize: 13, color: 'var(--g500)' }}>Date:</label>
         <input type="date" className="fi fi-sm" value={date} max={todayIST()} onChange={(e) => setDate(e.target.value)} style={{ maxWidth: 170 }} />
+        {!loading && groups.length > 0 && (
+          <span className="badge b-blue" style={{ fontSize: 12 }}>
+            Day total: Rs {groups.reduce((s, g) => s + g.total, 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          </span>
+        )}
       </div>
 
       {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>}
@@ -44,16 +49,19 @@ export default function PharmacyHistoryPage() {
               <div style={{ fontSize: 14, fontWeight: 700 }}>{g.patient?.first_name} {g.patient?.last_name}</div>
               <div style={{ fontSize: 11, color: 'var(--g400)' }}>{g.patient?.uhid} &middot; Visit {g.visitNumber}</div>
             </div>
-            {g.invoiceId && (
-              <Link href={`/payments/collect?invoiceId=${g.invoiceId}`} style={{ fontSize: 12 }}>
-                View Invoice <i className="ti ti-external-link"></i>
-              </Link>
-            )}
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 15, fontWeight: 800 }}>Rs {g.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
+              {g.invoiceId && (
+                <Link href={`/billing/details?invoiceId=${g.invoiceId}`} style={{ fontSize: 12 }}>
+                  View Invoice <i className="ti ti-external-link"></i>
+                </Link>
+              )}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {g.items.map((rx) => (
               <span key={rx.id} className="badge b-gray" style={{ fontSize: 11 }}>
-                {rx.drug_name} x{rx.qty} &middot; {new Date(rx.dispensed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+                {rx.drug_name} x{rx.qty} {rx.net > 0 && `-- Rs ${rx.net.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`} &middot; {new Date(rx.dispensed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
               </span>
             ))}
           </div>

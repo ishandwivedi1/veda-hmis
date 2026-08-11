@@ -167,7 +167,7 @@ export async function getPharmacyHistory(date) {
 
   const { data, error } = await supabase
     .from('prescriptions')
-    .select('*, encounters(visit_id, visits(visit_number, patients(first_name, last_name, uhid)))')
+    .select('*, invoice_line_items(net), encounters(visit_id, visits(visit_number, patients(first_name, last_name, uhid)))')
     .eq('status', 'Dispensed')
     .gte('dispensed_at', startUTC).lte('dispensed_at', endUTC)
     .order('dispensed_at', { ascending: false });
@@ -180,9 +180,11 @@ export async function getPharmacyHistory(date) {
     const visit = rx.encounters?.visits;
     if (!visitId || !visit) return;
     if (!groups[visitId]) {
-      groups[visitId] = { visitId, visitNumber: visit.visit_number, patient: visit.patients, items: [], invoiceId: rx.invoice_id };
+      groups[visitId] = { visitId, visitNumber: visit.visit_number, patient: visit.patients, items: [], invoiceId: rx.invoice_id, total: 0 };
     }
-    groups[visitId].items.push(rx);
+    const net = Number(rx.invoice_line_items?.net || 0);
+    groups[visitId].items.push({ ...rx, net });
+    groups[visitId].total += net;
   });
 
   return Object.values(groups);
