@@ -75,7 +75,7 @@ export async function getPharmacyWorkspace(visitId) {
     supabase.from('visits').select('id, visit_number, patients(id, first_name, last_name, uhid, mobile)').eq('id', visitId).single(),
     supabase
       .from('prescriptions')
-      .select('*, encounters!inner(visit_id)')
+      .select('*, invoice_line_items(qty, rate, disc, gst_pct, net), encounters!inner(visit_id)')
       .eq('encounters.visit_id', visitId)
       .order('created_at', { ascending: true }),
     supabase.from('master_drugs').select('*').eq('status', 'Active').order('generic'),
@@ -125,8 +125,16 @@ export async function billPharmacyItems(visitId, items) {
 
   for (const item of items) {
     const gross = item.rate * item.qty;
-    const gstAmount = Math.round((gross * item.gstPct / 100) * 100) / 100;
-    const net = Math.round((gross + gstAmount) * 100) / 100;
+    // Same math as billing/new/new-invoice-tab.js's computeLine(): GST
+    // is computed on the post-discount (taxable) amount, not the raw
+    // gross -- keeping this identical to the rest of the app so a
+    // pharmacy-billed line behaves exactly like one entered from the
+    // main Billing screen.
+    const discPct = Math.min(100, Math.max(0, item.discPct || 0));
+    const disc = Math.round((gross * discPct / 100) * 100) / 100;
+    const taxable = gross - disc;
+    const gstAmount = Math.round((taxable * item.gstPct / 100) * 100) / 100;
+    const net = Math.round((taxable + gstAmount) * 100) / 100;
 
     const { data: line, error: lineError } = await supabase
       .from('invoice_line_items')
@@ -138,7 +146,7 @@ export async function billPharmacyItems(visitId, items) {
         qty: item.qty,
         rate: item.rate,
         gst_pct: item.gstPct,
-        disc: 0,
+        disc,
         gross,
         gst_amount: gstAmount,
         net,
