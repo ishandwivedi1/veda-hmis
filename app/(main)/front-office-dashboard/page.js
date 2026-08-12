@@ -27,7 +27,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     dayOpen,
   ] = await Promise.all([
     supabase.from('patients').select('*', { count: 'exact', head: true }).gte('created_at', today),
-    supabase.from('queue_entries').select('*, visits(patients(first_name, last_name))').neq('status', 'Done').order('issued_at', { ascending: true }),
+    supabase.from('queue_entries').select('*, visits(patients(first_name, last_name))').neq('status', 'Done').neq('status', 'Cancelled').gte('issued_at', today).order('issued_at', { ascending: true }),
     supabase.from('visits').select('*', { count: 'exact', head: true }).gte('created_at', today).is('appointment_id', null),
     supabase.from('invoices').select('net, paid').in('status', ['Pending', 'Partial']),
     supabase.from('visits').select('*, patients(id, first_name, last_name, uhid), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: false }),
@@ -312,6 +312,3 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     </div>
   );
 }
-
-
-
