@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase-server';
+import DownloadPdfButton from '@/app/components/DownloadPdfButton';
 
 async function StatCard({ label, value, color, icon, sub }) {
   return (
@@ -47,6 +48,12 @@ export default async function ReportsPage() {
 
   return (
     <div>
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <DownloadPdfButton label="Download Snapshot as PDF" />
+      </div>
+      <div className="print-only" style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>
+        Hospital Snapshot -- {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+      </div>
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 10 }}>
         Patient Statistics
       </div>
@@ -82,4 +89,3 @@ export default async function ReportsPage() {
     </div>
   );
 }
-

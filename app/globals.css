@@ -292,11 +292,28 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .tbl tbody tr { transition: background .1s ease; }
 .tbl tbody tr:hover { background: var(--g50); }
 
+.print-only { display: none; }
+
 /* ── PRINT ── */
 @media print {
   .no-print { display: none !important; }
+  .print-only { display: inline !important; }
   body { background: #fff; }
   .card { box-shadow: none; }
+
+  /* App chrome (sidebar, topbar, mobile drawer) never belongs in a
+     printout -- this makes any page in the app printable/PDF-able via
+     the browser's own Print dialog, not just the dedicated print
+     routes. Screen layout relies on height:100vh + overflow:hidden for
+     internal scrolling; that would clip a long report to a single
+     screen's height when printed, so it's reset to natural flow here. */
+  .sidebar, .topbar, .mobile-nav-backdrop, .mobile-menu-btn { display: none !important; }
+  .app-layout, .main-area, .content-area {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .content-area { padding: 0 !important; }
 
   /* Consistent margins on every sheet, not just the first. */
   @page {
@@ -367,5 +384,3 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .content-area { padding: 12px; }
   .tbl { font-size: 11.5px; }
 }
-
-

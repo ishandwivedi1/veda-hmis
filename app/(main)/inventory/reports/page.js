@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import InventoryTabs from '../inventory-tabs';
+import DownloadPdfButton from '@/app/components/DownloadPdfButton';
 import { getStockValuationReport, getExpiryReport, getConsumptionReport, getVendorPurchaseSummary } from '../actions';
 
 function daysAgo(n) {
@@ -39,7 +40,10 @@ export default function InventoryReportsPage() {
 
   return (
     <div>
-      <InventoryTabs />
+      <div className="no-print"><InventoryTabs /></div>
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <DownloadPdfButton label="Download All Reports as PDF" />
+      </div>
 
       {loading ? (
         <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>Loading reports...</div>
@@ -75,8 +79,11 @@ export default function InventoryReportsPage() {
           {/* EXPIRY REPORT */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-calendar-exclamation" style={{ color: 'var(--red)' }}></i> Expiry Report</div>
-              <select className="fi fi-sm" style={{ width: 160 }} value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)}>
+              <div className="card-title" style={{ marginBottom: 0 }}>
+                <i className="ti ti-calendar-exclamation" style={{ color: 'var(--red)' }}></i> Expiry Report
+                <span className="print-only" style={{ fontWeight: 400, fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>(next {expiryDays} days)</span>
+              </div>
+              <select className="fi fi-sm no-print" style={{ width: 160 }} value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)}>
                 <option value="30">Next 30 days</option>
                 <option value="60">Next 60 days</option>
                 <option value="90">Next 90 days</option>
@@ -105,11 +112,14 @@ export default function InventoryReportsPage() {
           {/* CONSUMPTION REPORT */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-              <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-chart-bar" style={{ color: 'var(--blue)' }}></i> Consumption Report</div>
+              <div className="card-title" style={{ marginBottom: 0 }}>
+                <i className="ti ti-chart-bar" style={{ color: 'var(--blue)' }}></i> Consumption Report
+                <span className="print-only" style={{ fontWeight: 400, fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>({new Date(consumptionStart).toLocaleDateString('en-IN')} to {new Date(consumptionEnd).toLocaleDateString('en-IN')})</span>
+              </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input className="fi fi-sm" type="date" value={consumptionStart} onChange={(e) => setConsumptionStart(e.target.value)} />
+                <input className="fi fi-sm no-print" type="date" value={consumptionStart} onChange={(e) => setConsumptionStart(e.target.value)} />
                 <span style={{ fontSize: 12, color: 'var(--g400)' }}>to</span>
-                <input className="fi fi-sm" type="date" value={consumptionEnd} onChange={(e) => setConsumptionEnd(e.target.value)} />
+                <input className="fi fi-sm no-print" type="date" value={consumptionEnd} onChange={(e) => setConsumptionEnd(e.target.value)} />
               </div>
             </div>
             <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>What actually moved off the shelf -- the real signal for how much to reorder.</div>
@@ -132,11 +142,14 @@ export default function InventoryReportsPage() {
           {/* VENDOR PURCHASE SUMMARY */}
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-              <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-building-store" style={{ color: 'var(--purple)' }}></i> Vendor Purchase Summary</div>
+              <div className="card-title" style={{ marginBottom: 0 }}>
+                <i className="ti ti-building-store" style={{ color: 'var(--purple)' }}></i> Vendor Purchase Summary
+                <span className="print-only" style={{ fontWeight: 400, fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>({new Date(vendorStart).toLocaleDateString('en-IN')} to {new Date(vendorEnd).toLocaleDateString('en-IN')})</span>
+              </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input className="fi fi-sm" type="date" value={vendorStart} onChange={(e) => setVendorStart(e.target.value)} />
+                <input className="fi fi-sm no-print" type="date" value={vendorStart} onChange={(e) => setVendorStart(e.target.value)} />
                 <span style={{ fontSize: 12, color: 'var(--g400)' }}>to</span>
-                <input className="fi fi-sm" type="date" value={vendorEnd} onChange={(e) => setVendorEnd(e.target.value)} />
+                <input className="fi fi-sm no-print" type="date" value={vendorEnd} onChange={(e) => setVendorEnd(e.target.value)} />
               </div>
             </div>
             <table className="tbl">

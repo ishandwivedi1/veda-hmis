@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { getPaymentReport } from '../actions';
+import DownloadPdfButton from '@/app/components/DownloadPdfButton';
 
 const RPT_DEFS = [
   { id: 'daily', icon: 'ti-calendar', color: '--green', title: 'Collection', desc: 'All payments in period' },
@@ -76,7 +77,7 @@ export default function PaymentReportsTab() {
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16, padding: '14px 16px' }}>
+      <div className="card no-print" style={{ marginBottom: 16, padding: '14px 16px' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 8 }}>Period</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input type="date" className="fi" style={{ width: 150 }} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
@@ -93,7 +94,7 @@ export default function PaymentReportsTab() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
+      <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
         {RPT_DEFS.map((r) => (
           <div
             key={r.id}
@@ -111,8 +112,14 @@ export default function PaymentReportsTab() {
       {report && (
         <div className="card">
           <div className="card-head">
-            <div className="card-title"><i className="ti ti-file"></i> {report.title}</div>
-            <button className="btn btn-sm" onClick={() => { setReport(null); setActiveReportId(null); }}><i className="ti ti-x"></i> Close</button>
+            <div className="card-title">
+              <i className="ti ti-file"></i> {report.title}
+              <span className="print-only" style={{ fontWeight: 400, fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>({new Date(fromDate).toLocaleDateString('en-IN')} to {new Date(toDate).toLocaleDateString('en-IN')})</span>
+            </div>
+            <div className="no-print" style={{ display: 'flex', gap: 8 }}>
+              <DownloadPdfButton />
+              <button className="btn btn-sm" onClick={() => { setReport(null); setActiveReportId(null); }}><i className="ti ti-x"></i> Close</button>
+            </div>
           </div>
           <table className="tbl">
             <thead><tr>{report.headers.map((h) => <th key={h}>{h}</th>)}</tr></thead>
@@ -147,5 +154,3 @@ export default function PaymentReportsTab() {
     </div>
   );
 }
-
-
