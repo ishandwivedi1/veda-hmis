@@ -56,100 +56,77 @@ export default function InventoryDashboardPage() {
     <div>
       <InventoryTabs />
 
-      {/* BIG PRIMARY ACTION */}
-      <div className="card" style={{ marginBottom: 16, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, var(--blue), var(--teal))' }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: '#fff' }}>Received new stock from a vendor?</div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,.85)', marginTop: 2 }}>Log the vendor bill once, add every item on it in one go.</div>
-        </div>
-        <Link href="/inventory/material-input" style={{ textDecoration: 'none' }}>
-          <button className="btn" style={{ background: '#fff', color: 'var(--blue)', fontWeight: 800, fontSize: 15, padding: '12px 26px', border: 'none' }}>
-            <i className="ti ti-plus" style={{ marginRight: 6 }}></i> New Material In
-          </button>
-        </Link>
-      </div>
-
+      {/* 1. KPI ROW */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
         <KpiCard label="Tracked items" value={stats.totalItems} sub="Drugs with stock tracking on" color="var(--blue)" />
         <KpiCard label="Low stock" value={stats.lowStock} sub="At or below reorder level" color="var(--amber)" />
-        <KpiCard label="Out of stock" value={stats.outOfStock} sub="Zero or negative on hand" color="var(--red)" />
+        <KpiCard label="Out of stock" value={stats.outOfStock} sub="Zero or negative in stock" color="var(--red)" />
         <KpiCard label="Unpaid bills" value={unpaidCount} sub={`Rs.${unpaidTotal.toLocaleString('en-IN')} outstanding`} color="var(--purple)" />
       </div>
 
-      {/* STOCK LOOKUP */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-search" style={{ color: 'var(--blue)' }}></i> Check Stock of Any Item</div>
-        <input
-          className="fi" placeholder="Start typing a drug name..." value={query}
-          onChange={(e) => setQuery(e.target.value)} style={{ maxWidth: 400 }}
-        />
-        {searching && <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 6 }}>Searching...</div>}
-        {results.length > 0 && (
-          <div style={{ marginTop: 10 }}>
-            {results.map((r) => (
-              <div key={r.itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                <div>
-                  <span style={{ fontWeight: 600 }}>{r.name}</span>
-                  <span style={{ fontSize: 11, color: 'var(--g500)', marginLeft: 8 }}>{r.generic}</span>
+      {/* 2. NEW MATERIAL IN + STOCK LOOKUP, side by side */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div className="card-title" style={{ marginBottom: 6 }}><i className="ti ti-truck-delivery" style={{ color: 'var(--blue)' }}></i> Received new stock from a vendor?</div>
+          <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 14 }}>Log the vendor bill once, add every item on it in one go.</div>
+          <Link href="/inventory/material-input" style={{ textDecoration: 'none' }}>
+            <button className="btn btn-primary" style={{ fontWeight: 700, fontSize: 14, padding: '10px 22px' }}>
+              <i className="ti ti-plus"></i> New Material In
+            </button>
+          </Link>
+        </div>
+
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-search" style={{ color: 'var(--blue)' }}></i> Check Stock of Any Item</div>
+          <input
+            className="fi" placeholder="Start typing a drug name..." value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {searching && <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 6 }}>Searching...</div>}
+          {results.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              {results.map((r) => (
+                <div key={r.itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                  <div>
+                    <span style={{ fontWeight: 600 }}>{r.name}</span>
+                    <span style={{ fontSize: 10, color: 'var(--g500)', marginLeft: 6 }}>{r.generic}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 700 }}>{r.onHand} {r.unit}</span>
+                    <span className={`badge ${STATUS_BADGE[r.stockStatus]}`}>{r.stockStatus}</span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontWeight: 700 }}>{r.onHand} {r.unit}</span>
-                  <span className={`badge ${STATUS_BADGE[r.stockStatus]}`}>{r.stockStatus}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* UNPAID BILLS ALERT */}
-      {unpaidCount > 0 && (
-        <div className="card" style={{ marginBottom: 16, borderLeft: '3px solid var(--red)' }}>
-          <div className="card-title" style={{ marginBottom: 10 }}>
-            <i className="ti ti-alert-triangle" style={{ color: 'var(--red)' }}></i> Unpaid Vendor Bills -- Rs.{unpaidTotal.toLocaleString('en-IN')} outstanding
-          </div>
-          <table className="tbl">
-            <thead><tr><th>Vendor</th><th>Bill No.</th><th>Bill Date</th><th>Amount</th><th></th></tr></thead>
-            <tbody>
-              {unpaidPurchases.map((p) => (
-                <tr key={p.id}>
-                  <td style={{ fontWeight: 600 }}>{p.vendorName}</td>
-                  <td>{p.billNumber}</td>
-                  <td>{new Date(p.billDate).toLocaleDateString('en-IN')}</td>
-                  <td>{p.billAmount ? `Rs.${p.billAmount.toLocaleString('en-IN')}` : <span style={{ color: 'var(--g400)' }}>Not entered</span>}</td>
-                  <td><button className="btn btn-sm btn-primary" onClick={() => handleMarkPaid(p.id)}>Mark Paid</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* 3. ITEMS RUNNING SHORT */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10 }}>
+          <i className="ti ti-alert-circle" style={{ color: 'var(--amber)' }}></i> Items Running Short
         </div>
-      )}
+        <table className="tbl">
+          <thead><tr><th>Drug</th><th>In Stock</th><th>Reorder At</th><th>Status</th></tr></thead>
+          <tbody>
+            {shortages.map((r) => (
+              <tr key={r.itemId}>
+                <td style={{ fontWeight: 600 }}>{r.name}</td>
+                <td style={{ fontWeight: 700, color: r.stockStatus === 'Out' ? 'var(--red)' : 'var(--amber)' }}>{r.onHand} {r.unit}</td>
+                <td>{r.reorderLevel}</td>
+                <td><span className={`badge ${STATUS_BADGE[r.stockStatus]}`}>{r.stockStatus}</span></td>
+              </tr>
+            ))}
+            {shortages.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>Nothing running short right now.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16 }}>
-        {/* ITEMS RUNNING SHORT */}
-        <div className="card">
-          <div className="card-title" style={{ marginBottom: 10 }}>
-            <i className="ti ti-alert-circle" style={{ color: 'var(--amber)' }}></i> Items Running Short
-          </div>
-          <table className="tbl">
-            <thead><tr><th>Drug</th><th>On Hand</th><th>Reorder At</th><th>Status</th></tr></thead>
-            <tbody>
-              {shortages.map((r) => (
-                <tr key={r.itemId}>
-                  <td style={{ fontWeight: 600 }}>{r.name}</td>
-                  <td style={{ fontWeight: 700, color: r.stockStatus === 'Out' ? 'var(--red)' : 'var(--amber)' }}>{r.onHand} {r.unit}</td>
-                  <td>{r.reorderLevel}</td>
-                  <td><span className={`badge ${STATUS_BADGE[r.stockStatus]}`}>{r.stockStatus}</span></td>
-                </tr>
-              ))}
-              {shortages.length === 0 && (
-                <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>Nothing running short right now.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* LAST 5 VENDOR BILLS */}
+      {/* 4. LAST 5 VENDOR BILLS + UNPAID VENDOR BILLS, equally split */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div className="card">
           <div className="card-title" style={{ marginBottom: 10 }}>
             <i className="ti ti-receipt-2" style={{ color: 'var(--green)' }}></i> Last 5 Vendor Bills
@@ -169,6 +146,32 @@ export default function InventoryDashboardPage() {
           <div style={{ marginTop: 10, textAlign: 'right' }}>
             <Link href="/inventory/material-input" style={{ fontSize: 12, color: 'var(--blue)' }}>View all purchases &rarr;</Link>
           </div>
+        </div>
+
+        <div className="card" style={{ borderLeft: unpaidCount > 0 ? '3px solid var(--red)' : 'none' }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            <i className="ti ti-alert-triangle" style={{ color: 'var(--red)' }}></i> Unpaid Vendor Bills
+          </div>
+          {unpaidCount > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginBottom: 8 }}>
+              Rs.{unpaidTotal.toLocaleString('en-IN')} outstanding across {unpaidCount} bill{unpaidCount === 1 ? '' : 's'}
+            </div>
+          )}
+          {unpaidPurchases.map((p) => (
+            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>{p.vendorName}</div>
+                <div style={{ color: 'var(--g500)', fontSize: 11 }}>{p.billNumber} · {new Date(p.billDate).toLocaleDateString('en-IN')}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 700 }}>{p.billAmount ? `Rs.${p.billAmount.toLocaleString('en-IN')}` : '--'}</span>
+                <button className="btn btn-sm btn-primary" onClick={() => handleMarkPaid(p.id)}>Mark Paid</button>
+              </div>
+            </div>
+          ))}
+          {unpaidCount === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--g400)', padding: '8px 0' }}>All bills settled.</div>
+          )}
         </div>
       </div>
     </div>

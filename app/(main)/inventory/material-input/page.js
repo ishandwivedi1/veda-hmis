@@ -8,7 +8,14 @@ import {
   getTrackedItemsForPicker, markPurchasePaid, markPurchaseUnpaid,
 } from '../actions';
 
-const emptyLine = () => ({ key: Math.random().toString(36).slice(2), itemId: '', batchNumber: '', expiryDate: '', qty: '', costPrice: '' });
+const emptyLine = () => ({ key: Math.random().toString(36).slice(2), itemId: '', batchNumber: '', expiryDate: '', qty: '', rate: '', discountPct: '' });
+
+function lineTotal(l) {
+  const qty = Number(l.qty) || 0;
+  const rate = Number(l.rate) || 0;
+  const disc = Number(l.discountPct) || 0;
+  return qty * rate * (1 - disc / 100);
+}
 
 function Modal({ onClose, width = 420, children }) {
   return (
@@ -71,7 +78,7 @@ export default function MaterialInputPage() {
     setSaving(true);
     const res = await createPurchaseWithLines({
       vendorId: pVendorId, billNumber: pBillNumber, billDate: pBillDate, billAmount: pBillAmount, notes: pNotes,
-      lines: validLines.map((l) => ({ ...l, itemName: itemPicker.find((p) => p.itemId === l.itemId)?.name })),
+      lines: validLines.map((l) => ({ ...l, costPrice: l.rate, itemName: itemPicker.find((p) => p.itemId === l.itemId)?.name })),
     });
     setSaving(false);
     if (res.error && !res.partial) { setError(res.error); return; }
@@ -94,6 +101,9 @@ export default function MaterialInputPage() {
   }
 
   const vendorName = vendors.find((v) => v.id === pVendorId)?.name;
+  const grandTotal = pLines.reduce((s, l) => s + lineTotal(l), 0);
+  const billAmountNum = Number(pBillAmount) || 0;
+  const totalsMismatch = pBillAmount && Math.abs(billAmountNum - grandTotal) > 0.5;
 
   return (
     <div>
@@ -128,7 +138,7 @@ export default function MaterialInputPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
           <div>
             <label className="flbl">Total bill amount (optional)</label>
-            <input className="fi" type="number" min="0" step="0.01" value={pBillAmount} onChange={(e) => setPBillAmount(e.target.value)} placeholder="Rs." />
+            <input className="fi" type="number" min="0" step="0.01" value={pBillAmount} onChange={(e) => setPBillAmount(e.target.value)} placeholder="Rs. -- to match against items below" />
           </div>
           <div style={{ gridColumn: 'span 2' }}>
             <label className="flbl">Notes (optional)</label>
@@ -136,25 +146,51 @@ export default function MaterialInputPage() {
           </div>
         </div>
 
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 8 }}>
           Items on this bill {vendorName && <span style={{ textTransform: 'none', fontWeight: 400 }}>-- from {vendorName}</span>}
         </div>
+
+        {/* Column headers -- fixed-width columns keep this from sprawling */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 4, fontSize: 10, fontWeight: 600, color: 'var(--g500)', textTransform: 'uppercase', padding: '0 2px' }}>
+          <div style={{ flex: '1 1 0', minWidth: 0 }}>Item</div>
+          <div style={{ width: 88 }}>Batch</div>
+          <div style={{ width: 118 }}>Expiry</div>
+          <div style={{ width: 55 }}>Qty</div>
+          <div style={{ width: 70 }}>Rate</div>
+          <div style={{ width: 60 }}>Disc%</div>
+          <div style={{ width: 74, textAlign: 'right' }}>Total</div>
+          <div style={{ width: 24 }}></div>
+        </div>
+
         {pLines.map((line) => (
           <div key={line.key} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-            <select className="fi fi-sm" style={{ flex: 2 }} value={line.itemId} onChange={(e) => updateLine(line.key, 'itemId', e.target.value)}>
+            <select className="fi fi-sm" style={{ flex: '1 1 0', minWidth: 0 }} value={line.itemId} onChange={(e) => updateLine(line.key, 'itemId', e.target.value)}>
               <option value="">-- Item --</option>
               {itemPicker.map((i) => <option key={i.itemId} value={i.itemId}>{i.name}</option>)}
             </select>
-            <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Batch" value={line.batchNumber} onChange={(e) => updateLine(line.key, 'batchNumber', e.target.value)} />
-            <input className="fi fi-sm" style={{ flex: 1 }} type="date" value={line.expiryDate} onChange={(e) => updateLine(line.key, 'expiryDate', e.target.value)} />
-            <input className="fi fi-sm" style={{ width: 70 }} type="number" min="1" placeholder="Qty" value={line.qty} onChange={(e) => updateLine(line.key, 'qty', e.target.value)} />
-            <input className="fi fi-sm" style={{ width: 80 }} type="number" min="0" step="0.01" placeholder="Cost" value={line.costPrice} onChange={(e) => updateLine(line.key, 'costPrice', e.target.value)} />
-            <button className="btn btn-sm" onClick={() => removeLine(line.key)} title="Remove line" style={{ color: 'var(--red)' }}><i className="ti ti-x"></i></button>
+            <input className="fi fi-sm" style={{ width: 88 }} placeholder="Batch" value={line.batchNumber} onChange={(e) => updateLine(line.key, 'batchNumber', e.target.value)} />
+            <input className="fi fi-sm" style={{ width: 118 }} type="date" value={line.expiryDate} onChange={(e) => updateLine(line.key, 'expiryDate', e.target.value)} />
+            <input className="fi fi-sm" style={{ width: 55 }} type="number" min="1" placeholder="0" value={line.qty} onChange={(e) => updateLine(line.key, 'qty', e.target.value)} />
+            <input className="fi fi-sm" style={{ width: 70 }} type="number" min="0" step="0.01" placeholder="0" value={line.rate} onChange={(e) => updateLine(line.key, 'rate', e.target.value)} />
+            <input className="fi fi-sm" style={{ width: 60 }} type="number" min="0" max="100" step="0.01" placeholder="0" value={line.discountPct} onChange={(e) => updateLine(line.key, 'discountPct', e.target.value)} />
+            <div style={{ width: 74, textAlign: 'right', fontSize: 12, fontWeight: 600 }}>
+              {lineTotal(line) > 0 ? `Rs.${lineTotal(line).toFixed(2)}` : '--'}
+            </div>
+            <button className="btn btn-sm" onClick={() => removeLine(line.key)} title="Remove line" style={{ width: 24, padding: '2px 4px', color: 'var(--red)' }}><i className="ti ti-x"></i></button>
           </div>
         ))}
-        <button className="btn btn-sm" onClick={addLine} style={{ marginBottom: 16 }}><i className="ti ti-plus"></i> Add another item</button>
+        <button className="btn btn-sm" onClick={addLine} style={{ marginBottom: 14 }}><i className="ti ti-plus"></i> Add another item</button>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--g100)', paddingTop: 12 }}>
+          <div style={{ fontSize: 13 }}>
+            <span style={{ color: 'var(--g500)' }}>Items total:</span>{' '}
+            <span style={{ fontWeight: 700, fontSize: 15 }}>Rs.{grandTotal.toFixed(2)}</span>
+            {totalsMismatch && (
+              <span style={{ color: 'var(--red)', fontSize: 11, marginLeft: 10 }}>
+                <i className="ti ti-alert-triangle"></i> Doesn&apos;t match bill amount (Rs.{billAmountNum.toFixed(2)})
+              </span>
+            )}
+          </div>
           <button className="btn btn-primary" onClick={handleSavePurchase} disabled={saving} style={{ fontSize: 14, padding: '10px 24px', fontWeight: 700 }}>
             {saving ? 'Saving...' : 'Save Purchase & Add Stock'}
           </button>
@@ -193,13 +229,13 @@ export default function MaterialInputPage() {
       </div>
 
       {viewPurchase && (
-        <Modal onClose={() => setViewPurchase(null)} width={480}>
+        <Modal onClose={() => setViewPurchase(null)} width={560}>
           <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-receipt-2"></i> Purchase Details</div>
           <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 10 }}>
             {viewPurchase.vendorName} · Bill {viewPurchase.billNumber} · {new Date(viewPurchase.billDate).toLocaleDateString('en-IN')}
           </div>
           <table className="tbl" style={{ fontSize: 11 }}>
-            <thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th>Qty</th><th>Cost</th></tr></thead>
+            <thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th>Qty</th><th>Rate</th><th>Disc%</th><th>Total</th></tr></thead>
             <tbody>
               {purchaseLines.map((l) => (
                 <tr key={l.id}>
@@ -207,10 +243,18 @@ export default function MaterialInputPage() {
                   <td>{l.batchNumber || '--'}</td>
                   <td>{l.expiryDate ? new Date(l.expiryDate).toLocaleDateString('en-IN') : '--'}</td>
                   <td>{l.qty}</td>
-                  <td>{l.costPrice ? `Rs.${l.costPrice}` : '--'}</td>
+                  <td>{l.rate ? `Rs.${l.rate}` : '--'}</td>
+                  <td>{l.discountPct ? `${l.discountPct}%` : '--'}</td>
+                  <td style={{ fontWeight: 600 }}>Rs.{l.lineTotal.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr style={{ fontWeight: 700 }}>
+                <td colSpan={6} style={{ textAlign: 'right' }}>Total</td>
+                <td>Rs.{purchaseLines.reduce((s, l) => s + l.lineTotal, 0).toFixed(2)}</td>
+              </tr>
+            </tfoot>
           </table>
           <div style={{ marginTop: 12, textAlign: 'right' }}>
             <button className="btn" onClick={() => setViewPurchase(null)}>Close</button>

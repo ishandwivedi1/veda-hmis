@@ -4,55 +4,32 @@ import { createClient } from '@/lib/supabase-server';
 import { revalidatePath } from 'next/cache';
 
 // ── DASHBOARD ──
+// Aggregation (on-hand sum, nearest expiry, expiring-soon flag) now
+// happens in Postgres via the inventory_stock_summary view -- one
+// round trip instead of fetching items, then lots, then reducing in
+// JS. Sorting/status-labeling is cheap enough to stay client-side.
 export async function getInventoryDashboard() {
   const supabase = await createClient();
 
-  const { data: items } = await supabase
-    .from('inventory_items')
-    .select('*, master_drugs(id, code, brand, generic, strength, form, rate)')
-    .eq('status', 'Active')
-    .eq('item_type', 'Drug');
-
-  const itemIds = (items || []).map((i) => i.id);
-  let lotsByItem = {};
-  if (itemIds.length > 0) {
-    const { data: lots } = await supabase
-      .from('inventory_lots')
-      .select('*')
-      .in('item_id', itemIds)
-      .eq('status', 'Active');
-    (lots || []).forEach((l) => {
-      if (!lotsByItem[l.item_id]) lotsByItem[l.item_id] = [];
-      lotsByItem[l.item_id].push(l);
-    });
-  }
-
-  const sixtyDaysOut = new Date();
-  sixtyDaysOut.setDate(sixtyDaysOut.getDate() + 60);
+  const { data: items } = await supabase.from('inventory_stock_summary').select('*');
 
   const rows = (items || []).map((item) => {
-    const lots = lotsByItem[item.id] || [];
-    const onHand = lots.reduce((s, l) => s + Number(l.qty_on_hand), 0);
-    const nearestExpiry = lots
-      .filter((l) => l.expiry_date)
-      .sort((a, b) => new Date(a.expiry_date) - new Date(b.expiry_date))[0]?.expiry_date || null;
-    const expiringSoon = lots.some((l) => l.expiry_date && new Date(l.expiry_date) <= sixtyDaysOut && Number(l.qty_on_hand) > 0);
-
+    const onHand = Number(item.on_hand);
     let stockStatus = 'OK';
     if (onHand <= 0) stockStatus = 'Out';
     else if (onHand <= Number(item.reorder_level)) stockStatus = 'Low';
 
     return {
-      itemId: item.id,
-      drugId: item.master_drugs?.id,
-      name: item.master_drugs ? `${item.master_drugs.brand || item.master_drugs.generic} ${item.master_drugs.strength || ''}`.trim() : 'Unknown drug',
-      generic: item.master_drugs?.generic,
-      form: item.master_drugs?.form,
+      itemId: item.item_id,
+      drugId: item.drug_id,
+      name: `${item.brand || item.generic} ${item.strength || ''}`.trim(),
+      generic: item.generic,
+      form: item.form,
       unit: item.unit,
       onHand,
       reorderLevel: Number(item.reorder_level),
-      nearestExpiry,
-      expiringSoon,
+      nearestExpiry: item.nearest_expiry,
+      expiringSoon: item.expiring_soon,
       stockStatus,
     };
   });
@@ -219,6 +196,7 @@ export async function createPurchaseWithLines({ vendorId, billNumber, billDate, 
       p_vendor_bill_number: null,
       p_received_by: receivedBy,
       p_purchase_id: purchase.id,
+      p_discount_pct: Number(line.discountPct) || 0,
     });
     if (lineErr) failures.push(`${line.itemName || line.itemId}: ${lineErr.message}`);
   }
@@ -266,14 +244,21 @@ export async function getPurchaseLines(purchaseId) {
     .from('inventory_lots')
     .select('*, inventory_items(drug_id, master_drugs(brand, generic, strength))')
     .eq('purchase_id', purchaseId);
-  return (data || []).map((l) => ({
-    id: l.id,
-    name: l.inventory_items?.master_drugs ? `${l.inventory_items.master_drugs.brand || l.inventory_items.master_drugs.generic} ${l.inventory_items.master_drugs.strength || ''}`.trim() : 'Unknown item',
-    batchNumber: l.batch_number,
-    expiryDate: l.expiry_date,
-    qty: l.qty_received,
-    costPrice: l.cost_price,
-  }));
+  return (data || []).map((l) => {
+    const rate = Number(l.cost_price) || 0;
+    const discountPct = Number(l.discount_pct) || 0;
+    const qty = Number(l.qty_received) || 0;
+    return {
+      id: l.id,
+      name: l.inventory_items?.master_drugs ? `${l.inventory_items.master_drugs.brand || l.inventory_items.master_drugs.generic} ${l.inventory_items.master_drugs.strength || ''}`.trim() : 'Unknown item',
+      batchNumber: l.batch_number,
+      expiryDate: l.expiry_date,
+      qty,
+      rate,
+      discountPct,
+      lineTotal: Math.round(qty * rate * (1 - discountPct / 100) * 100) / 100,
+    };
+  });
 }
 
 // ── MOVEMENT HISTORY (per item) ──
@@ -281,11 +266,14 @@ export async function getItemMovements(itemId) {
   const supabase = await createClient();
   const { data } = await supabase
     .from('inventory_movements')
-    .select('*, inventory_lots(batch_number), profiles(full_name)')
+    .select('*, inventory_lots(batch_number, inventory_vendors(name)), profiles(full_name)')
     .eq('item_id', itemId)
     .order('created_at', { ascending: false })
     .limit(50);
-  return data || [];
+  return (data || []).map((m) => ({
+    ...m,
+    vendorName: m.inventory_lots?.inventory_vendors?.name || null,
+  }));
 }
 
 // ── MANUAL WRITE-OFF (expired / damaged) ──

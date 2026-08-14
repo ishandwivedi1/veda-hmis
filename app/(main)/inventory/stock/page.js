@@ -109,7 +109,7 @@ export default function InventoryStockPage() {
           <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>Loading...</div>
         ) : (
           <table className="tbl">
-            <thead><tr><th>Drug</th><th>Form</th><th>Unit</th><th>On Hand</th><th>Reorder At</th><th>Nearest Expiry</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Drug</th><th>Form</th><th>Unit</th><th>In Stock</th><th>Reorder At</th><th>Nearest Expiry</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.itemId}>
@@ -118,7 +118,12 @@ export default function InventoryStockPage() {
                     <div style={{ fontSize: 10, color: 'var(--g500)' }}>{r.generic}</div>
                   </td>
                   <td>{r.form || '--'}</td>
-                  <td>{r.unit}</td>
+                  <td>
+                    <div>{r.unit}</div>
+                    <button className="btn btn-sm" style={{ marginTop: 4, padding: '1px 8px', fontSize: 10 }} onClick={() => openEditItem(r)}>
+                      <i className="ti ti-edit" style={{ fontSize: 11 }}></i> Edit
+                    </button>
+                  </td>
                   <td style={{ fontWeight: 700, color: r.stockStatus === 'Out' ? 'var(--red)' : r.stockStatus === 'Low' ? 'var(--amber)' : 'inherit' }}>{r.onHand}</td>
                   <td>{r.reorderLevel}</td>
                   <td style={{ color: r.expiringSoon ? 'var(--red)' : 'inherit', fontSize: 11 }}>
@@ -126,8 +131,7 @@ export default function InventoryStockPage() {
                     {r.expiringSoon && <span style={{ marginLeft: 4 }}>⚠</span>}
                   </td>
                   <td><span className={`badge ${STATUS_BADGE[r.stockStatus]}`}>{r.stockStatus}</span></td>
-                  <td style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-sm" onClick={() => openEditItem(r)}>Edit</button>
+                  <td>
                     <button className="btn btn-sm" onClick={() => openHistory(r)}>History</button>
                   </td>
                 </tr>
@@ -203,7 +207,7 @@ export default function InventoryStockPage() {
           <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-history"></i> Movement History</div>
           <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 10 }}>{historyItem.name}</div>
           <table className="tbl" style={{ fontSize: 11 }}>
-            <thead><tr><th>Date</th><th>Type</th><th>Qty</th><th>Batch</th><th>By</th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Qty</th><th>Batch</th><th>Vendor</th><th>By</th></tr></thead>
             <tbody>
               {movements.map((m) => (
                 <tr key={m.id}>
@@ -211,11 +215,12 @@ export default function InventoryStockPage() {
                   <td>{m.movement_type}{m.notes && <div style={{ fontSize: 9, color: 'var(--red)' }}>{m.notes}</div>}</td>
                   <td style={{ color: Number(m.qty_change) < 0 ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>{Number(m.qty_change) > 0 ? '+' : ''}{m.qty_change}</td>
                   <td>{m.inventory_lots?.batch_number || '--'}</td>
+                  <td>{m.vendorName || '--'}</td>
                   <td>{m.profiles?.full_name || '--'}</td>
                 </tr>
               ))}
               {movements.length === 0 && (
-                <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No movements yet.</td></tr>
+                <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No movements yet.</td></tr>
               )}
             </tbody>
           </table>
