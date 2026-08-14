@@ -1284,12 +1284,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 <i className="ti ti-tool"></i> Send for Procedure
               </button>
             )}
-            <button onClick={() => openPrintPopup(`/opd-case-sheet-print/${data.encounter.id}`)} className="btn" style={{ marginLeft: 'auto' }}>
-              <i className="ti ti-file-description"></i> Print Case Sheet
-            </button>
-            <button onClick={() => openPrintPopup(`/visit-summary-print/${data.encounter.id}`)} className="btn">
-              <i className="ti ti-printer"></i> Print Visit Summary
-            </button>
           </div>
 
           {/* Escape hatch -- for a visit that genuinely can't reach the
@@ -1317,6 +1311,20 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
             </div>
           )}
           </fieldset>
+
+          {/* PRINT ACTIONS -- deliberately kept OUTSIDE the <fieldset
+              disabled={isReadOnly}> above. Printing a case sheet / visit
+              summary doesn't change any data, so a completed (locked)
+              encounter should still allow printing without requiring
+              "Unlock to Edit" first. */}
+          <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <button onClick={() => openPrintPopup(`/opd-case-sheet-print/${data.encounter.id}`)} className="btn" style={{ marginLeft: 'auto' }}>
+              <i className="ti ti-file-description"></i> Print Case Sheet
+            </button>
+            <button onClick={() => openPrintPopup(`/visit-summary-print/${data.encounter.id}`)} className="btn">
+              <i className="ti ti-printer"></i> Print Visit Summary
+            </button>
+          </div>
         </div>
       </div>
     </div>

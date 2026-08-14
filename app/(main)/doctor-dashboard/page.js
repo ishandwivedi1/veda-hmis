@@ -93,10 +93,10 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginBottom: 20 }}>
         <div className="card">
           <div className="card-head">
-            <div className="card-title"><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Doctor Queue<span className="badge b-gray">{active.length}</span></div>
+            <div className="card-title" style={{ color: 'var(--blue)' }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Doctor Queue<span className="badge b-gray">{active.length}</span></div>
           </div>
           <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => onRunAction(doctorCallNext)} disabled={!!inConsultation}>
             <i className="ti ti-bell-ringing"></i> Call Next
@@ -150,7 +150,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
             need to be pulled back in). */}
         <div className="card">
           <div className="card-head">
-            <div className="card-title"><i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)' }}></i> Intermediate Queue<span className="badge b-gray">{intermediate.length}</span></div>
+            <div className="card-title" style={{ color: 'var(--purple)' }}><i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)' }}></i> Intermediate Queue<span className="badge b-gray">{intermediate.length}</span></div>
           </div>
           {intermediate.map((e) => (
             <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
@@ -169,6 +169,31 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
               No one in Dilation, Investigation, or Biometry.
             </div>
           )}
+        </div>
+
+        {/* COMPLETED TODAY -- moved in alongside Doctor Queue and
+            Intermediate Queue (was buried in the lower grid) so all
+            three time-sensitive lists sit in one row, equally sized. */}
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title" style={{ color: 'var(--green)' }}><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Completed Today<span className="badge b-green">{completed.length}</span></div>
+          </div>
+          {completed.slice(0, 8).map((e) => (
+            <div
+              key={e.id}
+              onClick={() => onOpen(e)}
+              style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}<VisitTypeBadge type={e.visits?.visit_type} /></span>
+                <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--g500)' }}>
+                {e.completed_at ? new Date(e.completed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '--'}
+              </div>
+            </div>
+          ))}
+          {completed.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing completed yet today.</div>}
         </div>
       </div>
 
@@ -256,28 +281,6 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
             </div>
           ))}
           {medicalFitnessToday.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing pending today.</div>}
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title"><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Completed Today<span className="badge b-green">{completed.length}</span></div>
-          </div>
-          {completed.slice(0, 8).map((e) => (
-            <div
-              key={e.id}
-              onClick={() => onOpen(e)}
-              style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span> {patientName(e)}<VisitTypeBadge type={e.visits?.visit_type} /></span>
-                <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--g500)' }}>
-                {e.completed_at ? new Date(e.completed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '--'}
-              </div>
-            </div>
-          ))}
-          {completed.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing completed yet today.</div>}
         </div>
       </div>
     </div>
