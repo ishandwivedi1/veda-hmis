@@ -11,7 +11,7 @@ import {
   getDosageOptions, addDosageOption, removeDosageOption,
   getVendorsMaster, addVendorMaster, updateVendorMaster, deleteVendorMaster,
   getSurgeries,
-  getMasterAuditLog,
+  getMasterAuditLog, amIAdmin,
 } from '../actions';
 
 const SERVICE_DEPTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure'];
@@ -48,6 +48,7 @@ export default function FinancialMastersPage() {
   const [surgeries, setSurgeries] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
   const [editingId, setEditingId] = useState(null);
@@ -71,7 +72,9 @@ export default function FinancialMastersPage() {
     setDosageOptions(await getDosageOptions());
     setSurgeries(await getSurgeries());
     setVendors(await getVendorsMaster());
-    setAuditLog(await getMasterAuditLog(auditTable));
+    const admin = await amIAdmin();
+    setIsAdmin(admin);
+    if (admin) setAuditLog(await getMasterAuditLog(auditTable));
   }, [auditTable]);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -600,25 +603,27 @@ export default function FinancialMastersPage() {
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}>
-          <i className="ti ti-history" style={{ color: 'var(--g400)' }}></i> Change History -- {activeTab}
-        </div>
-        <div style={{ maxHeight: 500, overflowY: 'auto' }}>
-          {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No changes recorded yet.</div>}
-          {auditLog.map((a) => (
-            <div key={a.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span className={`badge ${a.action === 'Create' ? 'b-green' : a.action === 'Edit' ? 'b-blue' : a.action === 'Reactivate' ? 'b-teal' : 'b-red'}`} style={{ fontSize: 10 }}>{a.action}</span>
-                <span style={{ fontSize: 10, color: 'var(--g400)' }}>{new Date(a.changed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+      {isAdmin && (
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            <i className="ti ti-history" style={{ color: 'var(--g400)' }}></i> Change History -- {activeTab}
+          </div>
+          <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+            {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No changes recorded yet.</div>}
+            {auditLog.map((a) => (
+              <div key={a.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className={`badge ${a.action === 'Create' ? 'b-green' : a.action === 'Edit' ? 'b-blue' : a.action === 'Reactivate' ? 'b-teal' : 'b-red'}`} style={{ fontSize: 10 }}>{a.action}</span>
+                  <span style={{ fontSize: 10, color: 'var(--g400)' }}>{new Date(a.changed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <div style={{ marginTop: 3, fontFamily: 'monospace', fontSize: 11, color: 'var(--g600)' }}>{a.record_code}</div>
+                <div style={{ marginTop: 2 }}>{a.detail}</div>
+                <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>{a.profiles?.full_name || 'Staff'}</div>
               </div>
-              <div style={{ marginTop: 3, fontFamily: 'monospace', fontSize: 11, color: 'var(--g600)' }}>{a.record_code}</div>
-              <div style={{ marginTop: 2 }}>{a.detail}</div>
-              <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 2 }}>{a.profiles?.full_name || 'Staff'}</div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

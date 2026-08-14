@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { doctorComplete, doctorSendOut } from '@/app/(main)/queue/actions';
+import { isCurrentUserAdmin } from '@/lib/authz';
 
 async function addAudit(supabase, encounterId, message, userId) {
   await supabase.from('encounter_audit_log').insert({ encounter_id: encounterId, message, created_by: userId || null });
@@ -102,6 +103,12 @@ export async function getConsultationData(queueEntryId) {
 
   const patientId = entry.visits.patients.id;
 
+  // Audit Log is Administrator-only (app-layer check here is a UX
+  // convenience -- the real boundary is the RLS policy on
+  // encounter_audit_log itself, which already blocks SELECT for
+  // non-admins at the database level).
+  const isAdmin = await isCurrentUserAdmin(supabase);
+
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
     { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
@@ -160,13 +167,14 @@ export async function getConsultationData(queueEntryId) {
   return {
     entry, findings, iopReadings, encounter, examination,
     diagnoses: diagnoses || [], prescriptions: prescriptions || [], investigations: investigations || [],
-    workflowRequests: workflowRequests || [], auditLog: auditLog || [],
+    workflowRequests: workflowRequests || [], auditLog: isAdmin ? (auditLog || []) : [],
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
     biometryRecords: biometryRecords || [],
     surgicalCases: surgicalCases || [],
     isLocked: encounter.status === 'Completed',
     isFollowUp, priorEncounterId: priorCompletedEncounters[0]?.id || null,
+    isAdmin,
   };
 }
 

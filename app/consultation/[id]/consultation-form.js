@@ -633,6 +633,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
             previousVisitSummary={data.isFollowUp && followUpContext ? followUpContext.snapshot.previousVisitSummary : null}
             encounter={data.encounter}
             auditLog={data.auditLog}
+            isAdmin={data.isAdmin}
             openInvestigations={openInvestigations}
             activeWorkflows={activeWorkflows}
             pendingRx={pendingRx}

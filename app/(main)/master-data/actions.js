@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { isCurrentUserAdmin } from '@/lib/authz';
 
 async function logMasterAudit(supabase, masterTable, recordCode, action, detail) {
   const { data: userData } = await supabase.auth.getUser();
@@ -9,12 +10,24 @@ async function logMasterAudit(supabase, masterTable, recordCode, action, detail)
   });
 }
 
+// Change History is Administrator-only (app-layer check here is a UX
+// convenience -- the real boundary is the RLS policy on
+// master_data_audit_log itself, which already blocks SELECT for
+// non-admins at the database level).
 export async function getMasterAuditLog(masterTable) {
   const supabase = await createClient();
+  if (!(await isCurrentUserAdmin(supabase))) return [];
   let q = supabase.from('master_data_audit_log').select('*, profiles(full_name)').order('changed_at', { ascending: false }).limit(30);
   if (masterTable) q = q.eq('master_table', masterTable);
   const { data } = await q;
   return data || [];
+}
+
+// Lets client components (this page is 'use client') know whether to
+// show the Change History card at all, rather than fetching it and
+// getting an empty array back either way.
+export async function amIAdmin() {
+  return isCurrentUserAdmin();
 }
 
 // Generic toggle works the same way across all master tables -- every

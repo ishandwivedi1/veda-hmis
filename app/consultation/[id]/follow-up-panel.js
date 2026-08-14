@@ -150,7 +150,7 @@ function elapsedMin(iso) {
 //    history (previous visit, timeline, past investigations) with this
 //    encounter's own status/tasks/audit log, all in one column so the
 //    main workspace gets the full remaining width. ──
-export function ContextSidebar({ patientId, previousVisitSummary, encounter, auditLog, openInvestigations, activeWorkflows, pendingRx, wfItems }) {
+export function ContextSidebar({ patientId, previousVisitSummary, encounter, auditLog, isAdmin, openInvestigations, activeWorkflows, pendingRx, wfItems }) {
   const [showSummary, setShowSummary] = useState(false);
   const [events, setEvents] = useState(null);
 
@@ -270,7 +270,8 @@ export function ContextSidebar({ patientId, previousVisitSummary, encounter, aud
         </div>
       )}
 
-      {auditLog && (
+      {/* Audit Log is Administrator-only. */}
+      {isAdmin && auditLog && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
           <div style={{ maxHeight: 240, overflowY: 'auto' }}>

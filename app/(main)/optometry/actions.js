@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { isCurrentUserAdmin } from '@/lib/authz';
 
 // Fields that live directly on optometry_assessments -- everything
 // except IOP readings (own table, timestamped list) and audit entries
@@ -116,6 +117,12 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
     supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).order('created_at', { ascending: false }),
   ]);
 
+  // Audit Log is Administrator-only (app-layer check here is a UX
+  // convenience -- the real boundary is the RLS policy on
+  // optometry_audit_log itself, which already blocks SELECT for
+  // non-admins at the database level).
+  const isAdmin = await isCurrentUserAdmin(supabase);
+
   // Same lock rule as before: once completed, editable until the
   // doctor's queue entry moves to "In Consultation" or "Done".
   let locked = false;
@@ -137,7 +144,7 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
     locked = doctorEntry?.status === 'Done' || (!viewerIsDoctor && doctorEntry?.status === 'In Consultation');
   }
 
-  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: auditLog || [], locked };
+  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: isAdmin ? (auditLog || []) : [], locked, isAdmin };
 }
 
 // "Save Draft" -- patient stays in the queue, nothing routed anywhere

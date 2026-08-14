@@ -184,6 +184,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
   const [encounter, setEncounter] = useState(null);
   const [iopReadings, setIopReadings] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [locked, setLocked] = useState(false);
   const [loadError, setLoadError] = useState('');
 
@@ -217,6 +218,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
       setEncounter(result.encounter);
       setIopReadings(result.iopReadings);
       setAuditLog(result.auditLog);
+      setIsAdmin(!!result.isAdmin);
       setLocked(result.locked);
 
       const f = emptyForm();
@@ -972,17 +974,19 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
         </AsmtSection>
       </div>
 
-      {/* AUDIT LOG */}
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
-        {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity yet.</div>}
-        {auditLog.map((a) => (
-          <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8 }}>
-            <span style={{ color: 'var(--g400)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-            <span>{a.message}</span>
-          </div>
-        ))}
-      </div>
+      {/* AUDIT LOG -- Administrator-only */}
+      {isAdmin && (
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
+          {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity yet.</div>}
+          {auditLog.map((a) => (
+            <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8 }}>
+              <span style={{ color: 'var(--g400)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              <span>{a.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {!embedded && (
         <div style={{ marginTop: 16 }}>

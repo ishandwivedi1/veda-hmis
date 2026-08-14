@@ -51,6 +51,7 @@ export default function AssessmentViewer({ assessmentId }) {
   const [iopReadings, setIopReadings] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [overrideCount, setOverrideCount] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [openSections, setOpenSections] = useState({ va: true, refraction: true, iop: true, additional: true, obs: true });
   const router = useRouter();
@@ -62,6 +63,7 @@ export default function AssessmentViewer({ assessmentId }) {
       setIopReadings(result.iopReadings);
       setAuditLog(result.auditLog);
       setOverrideCount(result.overrideCount);
+      setIsAdmin(!!result.isAdmin);
     });
   }, [assessmentId]);
 
@@ -115,7 +117,9 @@ export default function AssessmentViewer({ assessmentId }) {
       </div>
       {overrideCount > 0 && (
         <div className="msg-warn" style={{ background: 'var(--amber-lt)', color: 'var(--amber)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-          <i className="ti ti-alert-triangle"></i> A doctor has overridden {overrideCount} field{overrideCount > 1 ? 's' : ''} on this record. See the highlighted entries in the Audit Log below for exactly what changed and when.
+          <i className="ti ti-alert-triangle"></i> {isAdmin
+            ? <>A doctor has overridden {overrideCount} field{overrideCount > 1 ? 's' : ''} on this record. See the highlighted entries in the Audit Log below for exactly what changed and when.</>
+            : <>A doctor has overridden one or more fields on this record.</>}
         </div>
       )}
 
@@ -232,33 +236,35 @@ export default function AssessmentViewer({ assessmentId }) {
         </AsmtSection>
       </div>
 
-      {/* AUDIT LOG -- doctor overrides are highlighted here since they're
-          logged as regular entries on this same assessment (no separate
-          shadow table). */}
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
-        {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity recorded.</div>}
-        {auditLog.map((a) => (
-          <div
-            key={a.id}
-            style={{
-              fontSize: 11, padding: '6px 8px', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8,
-              background: a.isDoctorOverride ? 'rgba(220,38,38,0.06)' : 'transparent',
-              borderRadius: a.isDoctorOverride ? 6 : 0,
-              marginBottom: a.isDoctorOverride ? 2 : 0,
-            }}
-          >
-            <span style={{ color: a.isDoctorOverride ? 'var(--red)' : 'var(--g400)', flexShrink: 0 }}>
-              {new Date(a.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-            </span>
-            <span style={{ color: a.isDoctorOverride ? 'var(--red)' : 'var(--g500)', fontWeight: a.isDoctorOverride ? 600 : 400 }}>
-              {a.isDoctorOverride && <i className="ti ti-stethoscope" style={{ marginRight: 4 }}></i>}
-              {a.message}
-              {a.isDoctorOverride && a.created_by_name && <span style={{ fontWeight: 400 }}> -- {a.created_by_name}</span>}
-            </span>
-          </div>
-        ))}
-      </div>
+      {/* AUDIT LOG -- Administrator-only. Doctor overrides are highlighted
+          here since they're logged as regular entries on this same
+          assessment (no separate shadow table). */}
+      {isAdmin && (
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
+          {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity recorded.</div>}
+          {auditLog.map((a) => (
+            <div
+              key={a.id}
+              style={{
+                fontSize: 11, padding: '6px 8px', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8,
+                background: a.isDoctorOverride ? 'rgba(220,38,38,0.06)' : 'transparent',
+                borderRadius: a.isDoctorOverride ? 6 : 0,
+                marginBottom: a.isDoctorOverride ? 2 : 0,
+              }}
+            >
+              <span style={{ color: a.isDoctorOverride ? 'var(--red)' : 'var(--g400)', flexShrink: 0 }}>
+                {new Date(a.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </span>
+              <span style={{ color: a.isDoctorOverride ? 'var(--red)' : 'var(--g500)', fontWeight: a.isDoctorOverride ? 600 : 400 }}>
+                {a.isDoctorOverride && <i className="ti ti-stethoscope" style={{ marginRight: 4 }}></i>}
+                {a.message}
+                {a.isDoctorOverride && a.created_by_name && <span style={{ fontWeight: 400 }}> -- {a.created_by_name}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ marginTop: 16 }}>
         <button type="button" className="btn" onClick={() => router.push('/optometry-history')}>
