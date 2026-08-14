@@ -292,12 +292,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .tbl tbody tr { transition: background .1s ease; }
 .tbl tbody tr:hover { background: var(--g50); }
 
-.print-only { display: none; }
-
 /* ── PRINT ── */
 @media print {
   .no-print { display: none !important; }
-  .print-only { display: inline !important; }
   body { background: #fff; }
   .card { box-shadow: none; }
 

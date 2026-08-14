@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import InventoryTabs from '../inventory-tabs';
-import DownloadPdfButton from '@/app/components/DownloadPdfButton';
 import { getStockValuationReport, getExpiryReport, getConsumptionReport, getVendorPurchaseSummary } from '../actions';
 
 function daysAgo(n) {
@@ -11,6 +11,14 @@ function daysAgo(n) {
   return d.toISOString().slice(0, 10);
 }
 const today = () => new Date().toISOString().slice(0, 10);
+
+function PdfLink({ href }) {
+  return (
+    <Link href={href} target="_blank" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+      <i className="ti ti-file-download"></i> Download PDF
+    </Link>
+  );
+}
 
 export default function InventoryReportsPage() {
   const [valuation, setValuation] = useState({ rows: [], totalValue: 0 });
@@ -41,9 +49,6 @@ export default function InventoryReportsPage() {
   return (
     <div>
       <div className="no-print"><InventoryTabs /></div>
-      <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <DownloadPdfButton label="Download All Reports as PDF" />
-      </div>
 
       {loading ? (
         <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>Loading reports...</div>
@@ -53,9 +58,12 @@ export default function InventoryReportsPage() {
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div className="card-title" style={{ marginBottom: 0 }}><i className="ti ti-currency-rupee" style={{ color: 'var(--green)' }}></i> Stock Valuation</div>
-              <div style={{ fontSize: 13 }}>
-                <span style={{ color: 'var(--g500)' }}>Total value on shelf: </span>
-                <span style={{ fontWeight: 800, fontSize: 16 }}>Rs.{valuation.totalValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ fontSize: 13 }}>
+                  <span style={{ color: 'var(--g500)' }}>Total value on shelf: </span>
+                  <span style={{ fontWeight: 800, fontSize: 16 }}>Rs.{valuation.totalValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                </div>
+                <PdfLink href="/inventory-report-print/valuation" />
               </div>
             </div>
             <table className="tbl">
@@ -81,14 +89,16 @@ export default function InventoryReportsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div className="card-title" style={{ marginBottom: 0 }}>
                 <i className="ti ti-calendar-exclamation" style={{ color: 'var(--red)' }}></i> Expiry Report
-                <span className="print-only" style={{ fontWeight: 400, fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>(next {expiryDays} days)</span>
               </div>
-              <select className="fi fi-sm no-print" style={{ width: 160 }} value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)}>
-                <option value="30">Next 30 days</option>
-                <option value="60">Next 60 days</option>
-                <option value="90">Next 90 days</option>
-                <option value="180">Next 180 days</option>
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <select className="fi fi-sm" style={{ width: 160 }} value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)}>
+                  <option value="30">Next 30 days</option>
+                  <option value="60">Next 60 days</option>
+                  <option value="90">Next 90 days</option>
+                  <option value="180">Next 180 days</option>
+                </select>
+                <PdfLink href={`/inventory-report-print/expiry?days=${expiryDays}`} />
+              </div>
             </div>
             <table className="tbl">
               <thead><tr><th>Drug</th><th>Batch</th><th>Expiry Date</th><th>Days Left</th><th>Qty</th></tr></thead>
@@ -114,12 +124,12 @@ export default function InventoryReportsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
               <div className="card-title" style={{ marginBottom: 0 }}>
                 <i className="ti ti-chart-bar" style={{ color: 'var(--blue)' }}></i> Consumption Report
-                <span className="print-only" style={{ fontWeight: 400, fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>({new Date(consumptionStart).toLocaleDateString('en-IN')} to {new Date(consumptionEnd).toLocaleDateString('en-IN')})</span>
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input className="fi fi-sm no-print" type="date" value={consumptionStart} onChange={(e) => setConsumptionStart(e.target.value)} />
+                <input className="fi fi-sm" type="date" value={consumptionStart} onChange={(e) => setConsumptionStart(e.target.value)} />
                 <span style={{ fontSize: 12, color: 'var(--g400)' }}>to</span>
-                <input className="fi fi-sm no-print" type="date" value={consumptionEnd} onChange={(e) => setConsumptionEnd(e.target.value)} />
+                <input className="fi fi-sm" type="date" value={consumptionEnd} onChange={(e) => setConsumptionEnd(e.target.value)} />
+                <PdfLink href={`/inventory-report-print/consumption?from=${consumptionStart}&to=${consumptionEnd}`} />
               </div>
             </div>
             <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>What actually moved off the shelf -- the real signal for how much to reorder.</div>
@@ -144,12 +154,12 @@ export default function InventoryReportsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
               <div className="card-title" style={{ marginBottom: 0 }}>
                 <i className="ti ti-building-store" style={{ color: 'var(--purple)' }}></i> Vendor Purchase Summary
-                <span className="print-only" style={{ fontWeight: 400, fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>({new Date(vendorStart).toLocaleDateString('en-IN')} to {new Date(vendorEnd).toLocaleDateString('en-IN')})</span>
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input className="fi fi-sm no-print" type="date" value={vendorStart} onChange={(e) => setVendorStart(e.target.value)} />
+                <input className="fi fi-sm" type="date" value={vendorStart} onChange={(e) => setVendorStart(e.target.value)} />
                 <span style={{ fontSize: 12, color: 'var(--g400)' }}>to</span>
-                <input className="fi fi-sm no-print" type="date" value={vendorEnd} onChange={(e) => setVendorEnd(e.target.value)} />
+                <input className="fi fi-sm" type="date" value={vendorEnd} onChange={(e) => setVendorEnd(e.target.value)} />
+                <PdfLink href={`/inventory-report-print/vendor?from=${vendorStart}&to=${vendorEnd}`} />
               </div>
             </div>
             <table className="tbl">

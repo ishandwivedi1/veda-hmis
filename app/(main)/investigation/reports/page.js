@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { getInvestigationReport } from '../actions';
 import InvestigationTabs from '../investigation-tabs';
-import DownloadPdfButton from '@/app/components/DownloadPdfButton';
 
 const RPT_DEFS = [
   { id: 'register', icon: 'ti-calendar', color: '--teal', title: 'Daily Investigation Register', desc: 'All investigations in period' },
@@ -84,10 +84,11 @@ export default function InvestigationReportsPage() {
           <div className="card-head">
             <div className="card-title">
               <i className="ti ti-file"></i> {report.title}
-              <span className="print-only" style={{ fontWeight: 400, fontSize: 12, color: 'var(--g500)', marginLeft: 8 }}>({new Date(fromDate).toLocaleDateString('en-IN')} to {new Date(toDate).toLocaleDateString('en-IN')})</span>
             </div>
             <div className="no-print" style={{ display: 'flex', gap: 8 }}>
-              <DownloadPdfButton />
+              <Link href={`/investigation-report-print?reportId=${activeReportId}&from=${fromDate}&to=${toDate}`} target="_blank" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                <i className="ti ti-file-download"></i> Download PDF
+              </Link>
               <button className="btn btn-sm" onClick={() => { setReport(null); setActiveReportId(null); }}><i className="ti ti-x"></i> Close</button>
             </div>
           </div>
