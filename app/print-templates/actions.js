@@ -986,11 +986,20 @@ function fmtRxVal(v) {
 // individual SPH/CYL/AXIS field) so figures from different refraction
 // types are never mixed together in one row, and the source actually
 // used is labeled on the printout rather than implied to be "Final".
+// A distance/near refraction row can be entirely valid with SPH left
+// blank (plano/zero) while the real correction sits in CYL+AXIS -- pure
+// astigmatism with no spherical component is clinically common. Only
+// checking SPH for "was this row filled in" silently drops exactly
+// that case, so every field is checked here.
+function rowHasData(assessment, prefix) {
+  return !!(assessment?.[`${prefix}_sph`] || assessment?.[`${prefix}_cyl`] || assessment?.[`${prefix}_axis`] || assessment?.[`${prefix}_va`]);
+}
+
 const REFRACTION_SOURCE_LABEL = { final: 'Final Rx', subj: 'Subjective', obj: 'Objective (Auto-Rx)' };
 function pickRxRow(assessment, eye, distNear) {
   for (const type of ['final', 'subj', 'obj']) {
     const prefix = `ref_${type}_${eye}_${distNear}`;
-    if (assessment?.[`${prefix}_sph`]) {
+    if (rowHasData(assessment, prefix)) {
       return { cells: buildRxCells(assessment, prefix), source: type };
     }
   }
@@ -1018,8 +1027,8 @@ function buildGlassesPrescriptionContext(settings, { patient, assessment, optome
   const nearRe = buildRxCells(assessment, 'ref_final_re_near');
   const nearLe = buildRxCells(assessment, 'ref_final_le_near');
 
-  const hasDistRx = !!(assessment?.ref_final_re_dist_sph || assessment?.ref_final_le_dist_sph);
-  const hasNearRx = !!(assessment?.ref_final_re_near_sph || assessment?.ref_final_le_near_sph);
+  const hasDistRx = rowHasData(assessment, 'ref_final_re_dist') || rowHasData(assessment, 'ref_final_le_dist');
+  const hasNearRx = rowHasData(assessment, 'ref_final_re_near') || rowHasData(assessment, 'ref_final_le_near');
 
   return {
     hospital_name: settings.name || 'VEDA EYE HOSPITAL',
@@ -1289,13 +1298,14 @@ function buildOpdCaseSheetContext(settings, { patient, encounter, visit, doctor,
   const distLe = distLeRow.cells;
   const nearRe = nearReRow.cells;
   const nearLe = nearLeRow.cells;
-  const hasDistRx = distRe.sph !== '--' || distLe.sph !== '--';
-  const hasNearRx = nearRe.sph !== '--' || nearLe.sph !== '--';
+  const cellHasData = (c) => c.sph !== '--' || c.cyl !== '--' || c.axis !== '--' || c.va !== '--';
+  const hasDistRx = cellHasData(distRe) || cellHasData(distLe);
+  const hasNearRx = cellHasData(nearRe) || cellHasData(nearLe);
   // Whichever eye actually supplied the row decides the label -- if
   // both eyes came from the same source this is just that source; if
   // they differed (rare), RE's source wins since it's listed first.
-  const distSourceLabel = REFRACTION_SOURCE_LABEL[distRe.sph !== '--' ? distReRow.source : distLeRow.source];
-  const nearSourceLabel = REFRACTION_SOURCE_LABEL[nearRe.sph !== '--' ? nearReRow.source : nearLeRow.source];
+  const distSourceLabel = REFRACTION_SOURCE_LABEL[cellHasData(distRe) ? distReRow.source : distLeRow.source];
+  const nearSourceLabel = REFRACTION_SOURCE_LABEL[cellHasData(nearRe) ? nearReRow.source : nearLeRow.source];
 
   const followupParts = [];
   if (followup?.after_period) followupParts.push(followup.after_period);
