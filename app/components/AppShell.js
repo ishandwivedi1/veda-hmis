@@ -28,6 +28,7 @@ const NAV_ITEMS = [
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
   { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', section: 'Clinical' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
+  { href: '/inventory', label: 'Inventory', icon: 'ti-boxes', section: 'Inventory' },
   { href: '/doctor-dashboard', label: 'Doctor Dashboard', icon: 'ti-stethoscope', section: 'Ophthalmologist' },
   { href: '/medical-fitness', label: 'Medical Fitness', icon: 'ti-heart-rate-monitor', section: 'Ophthalmologist' },
   { href: '/patient-timeline', label: 'Patient Timeline', icon: 'ti-timeline', section: 'Ophthalmologist' },
@@ -70,6 +71,7 @@ const PAGE_TITLES = [
   { match: /^\/payments/, title: 'Payments' },
   { match: /^\/cash-management/, title: 'Cash Management' },
   { match: /^\/pharmacy/, title: 'Pharmacy' },
+  { match: /^\/inventory/, title: 'Inventory' },
   { match: /^\/counselling/, title: 'Counselling' },
   { match: /^\/ot-schedule/, title: 'OT Schedule' },
   { match: /^\/biometry/, title: 'Biometry & IOL Planning' },
@@ -237,6 +239,3 @@ export default function AppShell({ children }) {
     </div>
   );
 }
-
-
-

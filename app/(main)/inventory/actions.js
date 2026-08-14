@@ -4,9 +4,6 @@ import { createClient } from '@/lib/supabase-server';
 import { revalidatePath } from 'next/cache';
 
 // ── DASHBOARD ──
-// One row per drug that has an inventory item set up, with on-hand
-// qty aggregated across its lots, nearest expiry, and a status read
-// (OK / Low / Out) driven off reorder_level.
 export async function getInventoryDashboard() {
   const supabase = await createClient();
 
@@ -75,9 +72,7 @@ export async function getInventoryDashboard() {
   return { rows, stats };
 }
 
-// ── ITEM SETUP ──
-// Drugs that exist in the master list but don't have an inventory
-// item yet -- so staff can "activate" tracking for them.
+// ── ITEM SETUP / EDITING ──
 export async function getUntrackedDrugs() {
   const supabase = await createClient();
   const { data: drugs } = await supabase.from('master_drugs').select('id, code, brand, generic, strength, form').eq('status', 'Active').order('generic');
@@ -95,15 +90,20 @@ export async function createInventoryItem(drugId, unit, reorderLevel) {
     reorder_level: Number(reorderLevel) || 0,
   });
   if (error) return { error: error.message };
-  revalidatePath('/pharmacy/inventory');
+  revalidatePath('/inventory');
   return { success: true };
 }
 
-export async function updateReorderLevel(itemId, reorderLevel) {
+// Now covers BOTH unit and reorder level -- previously only reorder
+// level could be changed after tracking started.
+export async function updateInventoryItem(itemId, unit, reorderLevel) {
   const supabase = await createClient();
-  const { error } = await supabase.from('inventory_items').update({ reorder_level: Number(reorderLevel) || 0 }).eq('id', itemId);
+  const { error } = await supabase.from('inventory_items').update({
+    unit: unit || 'Unit',
+    reorder_level: Number(reorderLevel) || 0,
+  }).eq('id', itemId);
   if (error) return { error: error.message };
-  revalidatePath('/pharmacy/inventory');
+  revalidatePath('/inventory');
   return { success: true };
 }
 
@@ -121,30 +121,106 @@ export async function addVendor(name, phone) {
   return { vendor: data };
 }
 
-// ── STOCK IN ──
-export async function stockIn({ itemId, batchNumber, expiryDate, qty, costPrice, vendorId, vendorBillNumber }) {
+// ── PURCHASES (new) ──
+// One vendor + one bill number entered ONCE, covering many item lines.
+// Each line just becomes a stock_in call tagged with the purchase --
+// the RPC pulls vendor/bill from the purchase itself, so there's no
+// re-typing (and no risk of a typo splitting one bill across two
+// different-looking vendor/bill combinations).
+export async function createPurchaseWithLines({ vendorId, newVendorName, billNumber, billDate, notes, lines }) {
   const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const receivedBy = userData?.user?.id || null;
+
+  let finalVendorId = vendorId;
+  if (!finalVendorId && newVendorName?.trim()) {
+    const vRes = await addVendor(newVendorName.trim());
+    if (vRes.error) return { error: vRes.error };
+    finalVendorId = vRes.vendor.id;
+  }
+  if (!finalVendorId) return { error: 'Select or enter a vendor.' };
+
+  const validLines = (lines || []).filter((l) => l.itemId && Number(l.qty) > 0);
+  if (validLines.length === 0) return { error: 'Add at least one item line with a quantity.' };
+
+  const { data: purchase, error: pErr } = await supabase.rpc('create_purchase', {
+    p_vendor_id: finalVendorId,
+    p_bill_number: billNumber || null,
+    p_bill_date: billDate || null,
+    p_notes: notes || null,
+    p_received_by: receivedBy,
+  });
+  if (pErr) return { error: pErr.message };
 
   const { data: location } = await supabase.from('inventory_locations').select('id').eq('status', 'Active').order('created_at').limit(1).single();
   if (!location) return { error: 'No active stock location found.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const failures = [];
+  for (const line of validLines) {
+    const { error: lineErr } = await supabase.rpc('stock_in', {
+      p_item_id: line.itemId,
+      p_location_id: location.id,
+      p_batch_number: line.batchNumber || null,
+      p_expiry_date: line.expiryDate || null,
+      p_qty: Number(line.qty),
+      p_cost_price: Number(line.costPrice) || 0,
+      p_vendor_id: null,
+      p_vendor_bill_number: null,
+      p_received_by: receivedBy,
+      p_purchase_id: purchase.id,
+    });
+    if (lineErr) failures.push(`${line.itemName || line.itemId}: ${lineErr.message}`);
+  }
 
-  const { data, error } = await supabase.rpc('stock_in', {
-    p_item_id: itemId,
-    p_location_id: location.id,
-    p_batch_number: batchNumber || null,
-    p_expiry_date: expiryDate || null,
-    p_qty: Number(qty),
-    p_cost_price: Number(costPrice) || 0,
-    p_vendor_id: vendorId || null,
-    p_vendor_bill_number: vendorBillNumber || null,
-    p_received_by: userData?.user?.id || null,
-  });
+  revalidatePath('/inventory');
+  if (failures.length > 0) return { partial: true, error: `Some lines failed: ${failures.join('; ')}` };
+  return { success: true, purchaseId: purchase.id };
+}
 
-  if (error) return { error: error.message };
-  revalidatePath('/pharmacy/inventory');
-  return { success: true, lot: data };
+export async function getRecentPurchases() {
+  const supabase = await createClient();
+  const { data: purchases } = await supabase
+    .from('inventory_purchases')
+    .select('*, inventory_vendors(name), profiles(full_name)')
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  const purchaseIds = (purchases || []).map((p) => p.id);
+  let lineCounts = {};
+  if (purchaseIds.length > 0) {
+    const { data: lots } = await supabase.from('inventory_lots').select('purchase_id, qty_received').in('purchase_id', purchaseIds);
+    (lots || []).forEach((l) => {
+      if (!lineCounts[l.purchase_id]) lineCounts[l.purchase_id] = { count: 0, totalQty: 0 };
+      lineCounts[l.purchase_id].count += 1;
+      lineCounts[l.purchase_id].totalQty += Number(l.qty_received);
+    });
+  }
+
+  return (purchases || []).map((p) => ({
+    id: p.id,
+    vendorName: p.inventory_vendors?.name || '--',
+    billNumber: p.bill_number || '--',
+    billDate: p.bill_date,
+    receivedBy: p.profiles?.full_name || '--',
+    itemCount: lineCounts[p.id]?.count || 0,
+    totalQty: lineCounts[p.id]?.totalQty || 0,
+  }));
+}
+
+export async function getPurchaseLines(purchaseId) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('inventory_lots')
+    .select('*, inventory_items(drug_id, master_drugs(brand, generic, strength))')
+    .eq('purchase_id', purchaseId);
+  return (data || []).map((l) => ({
+    id: l.id,
+    name: l.inventory_items?.master_drugs ? `${l.inventory_items.master_drugs.brand || l.inventory_items.master_drugs.generic} ${l.inventory_items.master_drugs.strength || ''}`.trim() : 'Unknown item',
+    batchNumber: l.batch_number,
+    expiryDate: l.expiry_date,
+    qty: l.qty_received,
+    costPrice: l.cost_price,
+  }));
 }
 
 // ── MOVEMENT HISTORY (per item) ──
@@ -184,6 +260,23 @@ export async function writeOffLot(lotId, movementType, notes) {
   });
   if (movErr) return { error: movErr.message };
 
-  revalidatePath('/pharmacy/inventory');
+  revalidatePath('/inventory');
   return { success: true };
+}
+
+// Full active-item list, used to populate item-line pickers in the
+// New Purchase form (separate from getInventoryDashboard's aggregated
+// stock view, since here we just need id/name pairs for a dropdown).
+export async function getTrackedItemsForPicker() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('inventory_items')
+    .select('id, unit, master_drugs(brand, generic, strength)')
+    .eq('status', 'Active')
+    .eq('item_type', 'Drug');
+  return (data || []).map((i) => ({
+    itemId: i.id,
+    unit: i.unit,
+    name: i.master_drugs ? `${i.master_drugs.brand || i.master_drugs.generic} ${i.master_drugs.strength || ''}`.trim() : 'Unknown drug',
+  })).sort((a, b) => a.name.localeCompare(b.name));
 }
