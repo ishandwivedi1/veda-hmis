@@ -138,12 +138,12 @@ export async function getTodayCollectionSummary(date) {
   return { transactions: rows, byMode, total, count: rows.length };
 }
 
-export async function getReconciliationData(date) {
+export async function getReconciliationData(date, precomputedSummary) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
 
   const [summary, pettyCashTotal] = await Promise.all([
-    getTodayCollectionSummary(targetDate),
+    precomputedSummary || getTodayCollectionSummary(targetDate),
     getPettyCashTotal(targetDate),
   ]);
   const { data: saved } = await supabase.from('day_reconciliation').select('*').eq('closing_date', targetDate);
@@ -181,12 +181,12 @@ export async function saveReconciliation(mode, expected, actual, reason, approve
   return { success: true };
 }
 
-export async function getCloseDayReadiness(date) {
+export async function getCloseDayReadiness(date, precomputedSummary) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
 
   const [reconciliation, { data: alreadyClosed }] = await Promise.all([
-    getReconciliationData(targetDate),
+    getReconciliationData(targetDate, precomputedSummary),
     supabase.from('day_closings').select('id').eq('closing_date', targetDate).maybeSingle(),
   ]);
 
@@ -298,5 +298,3 @@ export async function requireDayOpen() {
   }
   return null;
 }
-
-

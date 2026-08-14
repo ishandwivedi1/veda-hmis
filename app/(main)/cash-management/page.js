@@ -10,7 +10,6 @@ import {
   getDayClosingHistory,
   getDailyReport,
   reopenDay,
-  isTodayClosed,
   getDayOpening,
   openDay,
   getRevenueByDepartmentToday,
@@ -150,19 +149,25 @@ export default function CashManagementPage() {
   }
 
   const refresh = useCallback(async () => {
+    // Fetch the summary once (it's the same expensive payments+joins
+    // query that getCloseDayReadiness used to re-fetch internally via
+    // getReconciliationData) and thread it through instead.
+    const summaryData = await getTodayCollectionSummary();
+
     const [
-      summaryData, revenueByDeptData, readinessData, historyData,
-      isClosed, openingData, openQueueData, unclosedPastDaysData,
+      revenueByDeptData, readinessData, historyData,
+      openingData, openQueueData, unclosedPastDaysData,
     ] = await Promise.all([
-      getTodayCollectionSummary(),
       getRevenueByDepartmentToday(),
-      getCloseDayReadiness(),
+      getCloseDayReadiness(undefined, summaryData),
       getDayClosingHistory(),
-      isTodayClosed(),
       getDayOpening(),
       getOpenQueueEntriesToday(),
       getUnclosedPastDays(),
     ]);
+    // readiness.alreadyClosed is the same day_closings check
+    // isTodayClosed() used to make as a separate RPC round trip.
+    const isClosed = readinessData.alreadyClosed;
     setSummary(summaryData);
     setRevenueByDept(revenueByDeptData);
     setReadiness(readinessData);
@@ -832,5 +837,3 @@ export default function CashManagementPage() {
     </div>
   );
 }
-
-
