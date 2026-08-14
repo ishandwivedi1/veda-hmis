@@ -591,6 +591,54 @@ export async function deleteDrug(id, code) {
   return deleteMasterRecord(supabase, 'master_drugs', id, code);
 }
 
+// ── VENDORS (Financial Master -- used by Inventory > Material Input) ──
+export async function getVendorsMaster() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('inventory_vendors').select('*').order('name');
+  return data || [];
+}
+export async function addVendorMaster(values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const code = await generateCategoryCode(supabase, 'inventory_vendors', 'Vendor');
+  const { error } = await supabase.from('inventory_vendors').insert({
+    code, name,
+    contact_person: values.contactPerson ? normalizeName(values.contactPerson) : null,
+    phone: values.phone || null,
+    gst_number: values.gstNumber || null,
+    status: 'Active',
+  });
+  if (error) {
+    if (error.code === '23505') return { error: 'A vendor with this name already exists.' };
+    return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'inventory_vendors', code, 'Create', `${name} added`);
+  return { success: true };
+}
+export async function updateVendorMaster(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = normalizeName(values.name);
+  const { error } = await supabase.from('inventory_vendors').update({
+    name,
+    contact_person: values.contactPerson ? normalizeName(values.contactPerson) : null,
+    phone: values.phone || null,
+    gst_number: values.gstNumber || null,
+  }).eq('id', id);
+  if (error) {
+    if (error.code === '23505') return { error: 'A vendor with this name already exists.' };
+    return { error: error.message };
+  }
+  const changes = [];
+  if (oldValues.name !== name) changes.push(`Name ${oldValues.name} -> ${name}`);
+  if (oldValues.phone !== values.phone) changes.push(`Phone updated`);
+  await logMasterAudit(supabase, 'inventory_vendors', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
+  return { success: true };
+}
+export async function deleteVendorMaster(id, code) {
+  const supabase = await createClient();
+  return deleteMasterRecord(supabase, 'inventory_vendors', id, code);
+}
+
 // ── DIAGNOSES ──
 export async function getDiagnosesMaster() {
   const supabase = await createClient();
@@ -682,6 +730,3 @@ export async function getActiveIolCatalog() {
 // lives in master_services where dept = 'Investigation'. Consolidated
 // into Financial Masters (Migration 48) to avoid the same item ever
 // having two different prices in two different places.
-
-
-

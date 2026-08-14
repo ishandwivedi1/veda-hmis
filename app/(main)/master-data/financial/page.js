@@ -9,12 +9,13 @@ import {
   getDrugs, addDrug, updateDrug, deleteDrug,
   getDrugTypes, addDrugType, updateDrugType, deleteDrugType,
   getDosageOptions, addDosageOption, removeDosageOption,
+  getVendorsMaster, addVendorMaster, updateVendorMaster, deleteVendorMaster,
   getSurgeries,
   getMasterAuditLog,
 } from '../actions';
 
 const SERVICE_DEPTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure'];
-const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key: 'Pharmacy', type: 'drug' }, { key: 'Packages', label: 'Surgery', type: 'package' }];
+const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key: 'Pharmacy', type: 'drug' }, { key: 'Packages', label: 'Surgery', type: 'package' }, { key: 'Vendors', type: 'vendor' }];
 const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
 const ORIGINS = ['Indian', 'Imported'];
 
@@ -45,6 +46,7 @@ export default function FinancialMastersPage() {
   const [newTypeName, setNewTypeName] = useState('');
   const [newDosageText, setNewDosageText] = useState('');
   const [surgeries, setSurgeries] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({});
@@ -59,7 +61,7 @@ export default function FinancialMastersPage() {
   const [newLineAmount, setNewLineAmount] = useState('');
 
   const tabDef = TABS.find((t) => t.key === activeTab);
-  const auditTable = tabDef.type === 'package' ? 'master_packages' : tabDef.type === 'drug' ? 'master_drugs' : 'master_services';
+  const auditTable = tabDef.type === 'package' ? 'master_packages' : tabDef.type === 'drug' ? 'master_drugs' : tabDef.type === 'vendor' ? 'inventory_vendors' : 'master_services';
 
   const refresh = useCallback(async () => {
     setServices(await getServices());
@@ -68,6 +70,7 @@ export default function FinancialMastersPage() {
     setDrugTypes(await getDrugTypes());
     setDosageOptions(await getDosageOptions());
     setSurgeries(await getSurgeries());
+    setVendors(await getVendorsMaster());
     setAuditLog(await getMasterAuditLog(auditTable));
   }, [auditTable]);
 
@@ -88,6 +91,8 @@ export default function FinancialMastersPage() {
       if (!form.generic) { setError('Salt Composition is required.'); return; }
     } else if (tabDef.type === 'package') {
       if (!form.name) { setError('Name is required.'); return; }
+    } else if (tabDef.type === 'vendor') {
+      if (!form.name) { setError('Vendor name is required.'); return; }
     } else if (!form.name) {
       setError('Name is required.'); return;
     }
@@ -98,6 +103,7 @@ export default function FinancialMastersPage() {
       result = await addPackage(isCataract ? form : { ...form, iolCategory: '', origin: '' });
     }
     else if (tabDef.type === 'drug') result = await addDrug(form);
+    else if (tabDef.type === 'vendor') result = await addVendorMaster(form);
     else result = await addService({ ...form, dept: activeTab });
 
     if (result?.error) { setError(result.error); return; }
@@ -113,6 +119,7 @@ export default function FinancialMastersPage() {
     setEditingId(record.id);
     if (tabDef.type === 'package') setEditForm({ name: record.name || '', includes: record.includes || '', surgeryId: record.surgery_id || '', iolCategory: record.iol_category || '', origin: record.origin || '' });
     else if (tabDef.type === 'drug') setEditForm({ brand: record.brand || '', generic: record.generic || '', strength: record.strength || '', form: record.form || '', drugTypeId: record.drug_type_id || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '' });
+    else if (tabDef.type === 'vendor') setEditForm({ name: record.name || '', contactPerson: record.contact_person || '', phone: record.phone || '', gstNumber: record.gst_number || '' });
     else setEditForm({ name: record.name || '', rate: record.rate ?? '', gstPct: record.gst_pct ?? '', investigationPackage: record.investigation_package || '' });
   }
 
@@ -158,6 +165,7 @@ export default function FinancialMastersPage() {
       result = await updatePackage(record.id, record, isCataract ? editForm : { ...editForm, iolCategory: '', origin: '' });
     }
     else if (tabDef.type === 'drug') result = await updateDrug(record.id, record, editForm);
+    else if (tabDef.type === 'vendor') result = await updateVendorMaster(record.id, record, editForm);
     else result = await updateService(record.id, record, { ...editForm, dept: record.dept });
     if (result?.error) { setError(result.error); return; }
     setSuccess('Updated.');
@@ -171,6 +179,7 @@ export default function FinancialMastersPage() {
     let result;
     if (tabDef.type === 'package') result = await deletePackage(record.id, record.code);
     else if (tabDef.type === 'drug') result = await deleteDrug(record.id, record.code);
+    else if (tabDef.type === 'vendor') result = await deleteVendorMaster(record.id, record.code);
     else result = await deleteService(record.id, record.code);
     if (result?.error) { setError(result.error); return; }
     setSuccess('Deleted.');
@@ -232,9 +241,9 @@ export default function FinancialMastersPage() {
           {error && <div className="msg-err">{error}</div>}
           {success && <div className="msg-success"><i className="ti ti-circle-check"></i> {success}</div>}
 
-          {(tabDef.type === 'service' || tabDef.type === 'drug') && (
+          {(tabDef.type === 'service' || tabDef.type === 'drug' || tabDef.type === 'vendor') && (
             <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-              <i className="ti ti-info-circle"></i> {tabDef.type === 'service' ? 'Code is generated automatically, linked to department (e.g. INV001, INV002...).' : 'Code is generated automatically from the name.'}
+              <i className="ti ti-info-circle"></i> {tabDef.type === 'service' ? 'Code is generated automatically, linked to department (e.g. INV001, INV002...).' : tabDef.type === 'vendor' ? 'Code is generated automatically (VEN01, VEN02...). Vendor names must be unique.' : 'Code is generated automatically from the name.'}
             </div>
           )}
 
@@ -263,6 +272,14 @@ export default function FinancialMastersPage() {
                   </select>
                   <input type="number" className="fi" placeholder="Rate" onChange={update('rate')} />
                   <input type="number" className="fi" placeholder="GST %" onChange={update('gstPct')} />
+                </div>
+              )}
+              {tabDef.type === 'vendor' && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                  <input className="fi" placeholder="Vendor / Distributor Name" onChange={update('name')} />
+                  <input className="fi" placeholder="Contact Person (optional)" onChange={update('contactPerson')} />
+                  <input className="fi" placeholder="Phone (optional)" onChange={update('phone')} />
+                  <input className="fi" placeholder="GST Number (optional)" onChange={update('gstNumber')} />
                 </div>
               )}
               {tabDef.type === 'package' && (
@@ -375,6 +392,43 @@ export default function FinancialMastersPage() {
                     </tr>
                   )
                 ))}
+              </tbody>
+            </table>
+          )}
+
+          {tabDef.type === 'vendor' && (
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Contact Person</th><th>Phone</th><th>GST Number</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {vendors.map((v) => (
+                  editingId === v.id ? (
+                    <tr key={v.id} style={{ background: 'var(--g50)' }}>
+                      <td style={{ fontFamily: 'monospace' }}>{v.code}</td>
+                      <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
+                      <td><input className="fi fi-sm" value={editForm.contactPerson} onChange={updateEdit('contactPerson')} /></td>
+                      <td><input className="fi fi-sm" value={editForm.phone} onChange={updateEdit('phone')} /></td>
+                      <td><input className="fi fi-sm" value={editForm.gstNumber} onChange={updateEdit('gstNumber')} /></td>
+                      <td><span className={`badge ${v.status === 'Active' ? 'b-green' : 'b-gray'}`}>{v.status}</span></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveEdit(v)}>Save</button>
+                        <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={v.id}>
+                      <td style={{ fontFamily: 'monospace' }}>{v.code}</td><td style={{ fontWeight: 600 }}>{v.name}</td>
+                      <td>{v.contact_person || '--'}</td><td>{v.phone || '--'}</td><td>{v.gst_number || '--'}</td>
+                      <td><StatusToggle record={v} table="inventory_vendors" onUpdate={refresh} /></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm" onClick={() => startEdit(v)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" onClick={() => handleDelete(v)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
+                      </td>
+                    </tr>
+                  )
+                ))}
+                {vendors.length === 0 && (
+                  <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No vendors yet. Add one to start using it in Inventory &gt; Material Input.</td></tr>
+                )}
               </tbody>
             </table>
           )}
@@ -568,4 +622,3 @@ export default function FinancialMastersPage() {
     </div>
   );
 }
-

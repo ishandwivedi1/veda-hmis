@@ -1,11 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import {
-  getInventoryDashboard, getUntrackedDrugs, createInventoryItem, updateInventoryItem,
-  getVendors, addVendor, createPurchaseWithLines, getRecentPurchases, getPurchaseLines,
-  getItemMovements, writeOffLot, getTrackedItemsForPicker,
-} from './actions';
+import Link from 'next/link';
+import InventoryTabs from './inventory-tabs';
+import { getDashboardSummary, searchItemStock, markPurchasePaid } from './actions';
 
 function KpiCard({ label, value, sub, color }) {
   return (
@@ -18,396 +16,161 @@ function KpiCard({ label, value, sub, color }) {
 }
 
 const STATUS_BADGE = { OK: 'b-green', Low: 'b-amber', Out: 'b-red' };
-const emptyLine = () => ({ key: Math.random().toString(36).slice(2), itemId: '', batchNumber: '', expiryDate: '', qty: '', costPrice: '' });
 
-function Modal({ onClose, width = 420, children }) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={onClose}>
-      <div className="card" style={{ width, marginBottom: 0, maxHeight: '85vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-export default function InventoryPage() {
-  const [rows, setRows] = useState([]);
-  const [stats, setStats] = useState({ totalItems: 0, lowStock: 0, outOfStock: 0, expiringSoon: 0 });
+export default function InventoryDashboardPage() {
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [purchases, setPurchases] = useState([]);
-
-  const [showAddItem, setShowAddItem] = useState(false);
-  const [untrackedDrugs, setUntrackedDrugs] = useState([]);
-  const [addDrugId, setAddDrugId] = useState('');
-  const [addUnit, setAddUnit] = useState('Strip');
-  const [addReorder, setAddReorder] = useState('10');
-
-  const [editItem, setEditItem] = useState(null); // { itemId, name, unit, reorderLevel }
-  const [editUnit, setEditUnit] = useState('');
-  const [editReorder, setEditReorder] = useState('');
-
-  const [showPurchase, setShowPurchase] = useState(false);
-  const [vendors, setVendors] = useState([]);
-  const [itemPicker, setItemPicker] = useState([]);
-  const [pVendorId, setPVendorId] = useState('');
-  const [pNewVendor, setPNewVendor] = useState('');
-  const [pBillNumber, setPBillNumber] = useState('');
-  const [pBillDate, setPBillDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [pNotes, setPNotes] = useState('');
-  const [pLines, setPLines] = useState([emptyLine()]);
-
-  const [viewPurchase, setViewPurchase] = useState(null);
-  const [purchaseLines, setPurchaseLines] = useState([]);
-
-  const [historyItem, setHistoryItem] = useState(null);
-  const [movements, setMovements] = useState([]);
-
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [data, recent] = await Promise.all([getInventoryDashboard(), getRecentPurchases()]);
-    setRows(data.rows);
-    setStats(data.stats);
-    setPurchases(recent);
+    setData(await getDashboardSummary());
     setLoading(false);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  async function openAddItem() {
-    setError('');
-    const drugs = await getUntrackedDrugs();
-    setUntrackedDrugs(drugs);
-    setAddDrugId(drugs[0]?.id || '');
-    setShowAddItem(true);
-  }
+  useEffect(() => {
+    if (query.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      setResults(await searchItemStock(query));
+      setSearching(false);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
 
-  async function handleAddItem() {
-    if (!addDrugId) return;
-    setSaving(true);
-    const res = await createInventoryItem(addDrugId, addUnit, addReorder);
-    setSaving(false);
-    if (res.error) { setError(res.error); return; }
-    setShowAddItem(false);
+  async function handleMarkPaid(id) {
+    await markPurchasePaid(id);
     refresh();
   }
 
-  function openEditItem(row) {
-    setError('');
-    setEditItem(row);
-    setEditUnit(row.unit);
-    setEditReorder(String(row.reorderLevel));
+  if (loading || !data) {
+    return <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>Loading...</div>;
   }
 
-  async function handleEditItem() {
-    setSaving(true);
-    const res = await updateInventoryItem(editItem.itemId, editUnit, editReorder);
-    setSaving(false);
-    if (res.error) { setError(res.error); return; }
-    setEditItem(null);
-    refresh();
-  }
-
-  async function openPurchase() {
-    setError('');
-    const [v, items] = await Promise.all([getVendors(), getTrackedItemsForPicker()]);
-    setVendors(v);
-    setItemPicker(items);
-    setPVendorId(''); setPNewVendor(''); setPBillNumber(''); setPNotes('');
-    setPBillDate(new Date().toISOString().slice(0, 10));
-    setPLines([emptyLine()]);
-    setShowPurchase(true);
-  }
-
-  function updateLine(key, field, value) {
-    setPLines((prev) => prev.map((l) => (l.key === key ? { ...l, [field]: value } : l)));
-  }
-  function addLine() { setPLines((prev) => [...prev, emptyLine()]); }
-  function removeLine(key) { setPLines((prev) => (prev.length > 1 ? prev.filter((l) => l.key !== key) : prev)); }
-
-  async function handleSavePurchase() {
-    if (!pVendorId && !pNewVendor.trim()) { setError('Select or enter a vendor.'); return; }
-    const validLines = pLines.filter((l) => l.itemId && Number(l.qty) > 0);
-    if (validLines.length === 0) { setError('Add at least one item with a quantity.'); return; }
-
-    setSaving(true);
-    const res = await createPurchaseWithLines({
-      vendorId: pVendorId || null,
-      newVendorName: pVendorId ? null : pNewVendor,
-      billNumber: pBillNumber, billDate: pBillDate, notes: pNotes,
-      lines: validLines.map((l) => ({ ...l, itemName: itemPicker.find((p) => p.itemId === l.itemId)?.name })),
-    });
-    setSaving(false);
-    if (res.error && !res.partial) { setError(res.error); return; }
-    if (res.partial) { alert(res.error); }
-    setShowPurchase(false);
-    refresh();
-  }
-
-  async function openViewPurchase(p) {
-    setViewPurchase(p);
-    const lines = await getPurchaseLines(p.id);
-    setPurchaseLines(lines);
-  }
-
-  async function openHistory(row) {
-    setHistoryItem(row);
-    const m = await getItemMovements(row.itemId);
-    setMovements(m);
-  }
-
-  async function handleWriteOff(lotId, type) {
-    const notes = window.prompt(`Reason for ${type.toLowerCase()}?`) || '';
-    const res = await writeOffLot(lotId, type, notes);
-    if (res.error) { alert(res.error); return; }
-    refresh();
-    if (historyItem) openHistory(historyItem);
-  }
+  const { stats, shortages, recentPurchases, unpaidPurchases, unpaidTotal, unpaidCount } = data;
 
   return (
     <div>
+      <InventoryTabs />
+
+      {/* BIG PRIMARY ACTION */}
+      <div className="card" style={{ marginBottom: 16, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, var(--blue), var(--teal))' }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#fff' }}>Received new stock from a vendor?</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,.85)', marginTop: 2 }}>Log the vendor bill once, add every item on it in one go.</div>
+        </div>
+        <Link href="/inventory/material-input" style={{ textDecoration: 'none' }}>
+          <button className="btn" style={{ background: '#fff', color: 'var(--blue)', fontWeight: 800, fontSize: 15, padding: '12px 26px', border: 'none' }}>
+            <i className="ti ti-plus" style={{ marginRight: 6 }}></i> New Material In
+          </button>
+        </Link>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
         <KpiCard label="Tracked items" value={stats.totalItems} sub="Drugs with stock tracking on" color="var(--blue)" />
         <KpiCard label="Low stock" value={stats.lowStock} sub="At or below reorder level" color="var(--amber)" />
         <KpiCard label="Out of stock" value={stats.outOfStock} sub="Zero or negative on hand" color="var(--red)" />
-        <KpiCard label="Expiring soon" value={stats.expiringSoon} sub="Within 60 days" color="var(--purple)" />
+        <KpiCard label="Unpaid bills" value={unpaidCount} sub={`Rs.${unpaidTotal.toLocaleString('en-IN')} outstanding`} color="var(--purple)" />
       </div>
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <div className="card-title"><i className="ti ti-boxes" style={{ color: 'var(--blue)' }}></i> Pharmacy Stock</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn" onClick={openAddItem}><i className="ti ti-plus"></i> Track New Drug</button>
-            <button className="btn btn-primary" onClick={openPurchase}><i className="ti ti-truck-delivery"></i> New Purchase (Stock In)</button>
+      {/* STOCK LOOKUP */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-search" style={{ color: 'var(--blue)' }}></i> Check Stock of Any Item</div>
+        <input
+          className="fi" placeholder="Start typing a drug name..." value={query}
+          onChange={(e) => setQuery(e.target.value)} style={{ maxWidth: 400 }}
+        />
+        {searching && <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 6 }}>Searching...</div>}
+        {results.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            {results.map((r) => (
+              <div key={r.itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                <div>
+                  <span style={{ fontWeight: 600 }}>{r.name}</span>
+                  <span style={{ fontSize: 11, color: 'var(--g500)', marginLeft: 8 }}>{r.generic}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontWeight: 700 }}>{r.onHand} {r.unit}</span>
+                  <span className={`badge ${STATUS_BADGE[r.stockStatus]}`}>{r.stockStatus}</span>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-
-        {loading ? (
-          <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>Loading...</div>
-        ) : (
-          <table className="tbl">
-            <thead><tr><th>Drug</th><th>Form</th><th>Unit</th><th>On Hand</th><th>Reorder At</th><th>Nearest Expiry</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.itemId}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{r.name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--g500)' }}>{r.generic}</div>
-                  </td>
-                  <td>{r.form || '--'}</td>
-                  <td>{r.unit}</td>
-                  <td style={{ fontWeight: 700, color: r.stockStatus === 'Out' ? 'var(--red)' : r.stockStatus === 'Low' ? 'var(--amber)' : 'inherit' }}>{r.onHand}</td>
-                  <td>{r.reorderLevel}</td>
-                  <td style={{ color: r.expiringSoon ? 'var(--red)' : 'inherit', fontSize: 11 }}>
-                    {r.nearestExpiry ? new Date(r.nearestExpiry).toLocaleDateString('en-IN') : '--'}
-                    {r.expiringSoon && <span style={{ marginLeft: 4 }}>⚠</span>}
-                  </td>
-                  <td><span className={`badge ${STATUS_BADGE[r.stockStatus]}`}>{r.stockStatus}</span></td>
-                  <td style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-sm" onClick={() => openEditItem(r)}>Edit</button>
-                    <button className="btn btn-sm" onClick={() => openHistory(r)}>History</button>
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>
-                  No drugs are being stock-tracked yet. Click &quot;Track New Drug&quot; to start.
-                </td></tr>
-              )}
-            </tbody>
-          </table>
         )}
       </div>
 
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-receipt-2" style={{ color: 'var(--green)' }}></i> Recent Purchases</div>
-        <table className="tbl">
-          <thead><tr><th>Date</th><th>Vendor</th><th>Bill No.</th><th>Items</th><th>Total Qty</th><th>Received By</th><th></th></tr></thead>
-          <tbody>
-            {purchases.map((p) => (
-              <tr key={p.id}>
-                <td>{new Date(p.billDate).toLocaleDateString('en-IN')}</td>
-                <td>{p.vendorName}</td>
-                <td>{p.billNumber}</td>
-                <td>{p.itemCount}</td>
-                <td>{p.totalQty}</td>
-                <td>{p.receivedBy}</td>
-                <td><button className="btn btn-sm" onClick={() => openViewPurchase(p)}>View</button></td>
-              </tr>
-            ))}
-            {purchases.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No purchases recorded yet.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ADD ITEM MODAL */}
-      {showAddItem && (
-        <Modal onClose={() => setShowAddItem(false)} width={400}>
-          <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-plus"></i> Track New Drug</div>
-          {error && <div className="msg-err" style={{ fontSize: 12 }}>{error}</div>}
-          <div style={{ marginBottom: 8 }}>
-            <label className="flbl">Drug</label>
-            <select className="fi" value={addDrugId} onChange={(e) => setAddDrugId(e.target.value)}>
-              {untrackedDrugs.length === 0 && <option value="">-- All drugs already tracked --</option>}
-              {untrackedDrugs.map((d) => (
-                <option key={d.id} value={d.id}>{d.brand || d.generic} {d.strength} ({d.generic})</option>
-              ))}
-            </select>
+      {/* UNPAID BILLS ALERT */}
+      {unpaidCount > 0 && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: '3px solid var(--red)' }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            <i className="ti ti-alert-triangle" style={{ color: 'var(--red)' }}></i> Unpaid Vendor Bills -- Rs.{unpaidTotal.toLocaleString('en-IN')} outstanding
           </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <div style={{ flex: 1 }}>
-              <label className="flbl">Stocking unit</label>
-              <select className="fi" value={addUnit} onChange={(e) => setAddUnit(e.target.value)}>
-                <option>Strip</option><option>Bottle</option><option>Vial</option><option>Box</option><option>Tube</option><option>Unit</option>
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label className="flbl">Reorder level</label>
-              <input className="fi" type="number" min="0" value={addReorder} onChange={(e) => setAddReorder(e.target.value)} />
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={() => setShowAddItem(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleAddItem} disabled={saving || !addDrugId}>{saving ? 'Saving...' : 'Start Tracking'}</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* EDIT ITEM MODAL */}
-      {editItem && (
-        <Modal onClose={() => setEditItem(null)} width={380}>
-          <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-edit"></i> Edit Item</div>
-          <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 10 }}>{editItem.name}</div>
-          {error && <div className="msg-err" style={{ fontSize: 12 }}>{error}</div>}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-            <div style={{ flex: 1 }}>
-              <label className="flbl">Stocking unit</label>
-              <select className="fi" value={editUnit} onChange={(e) => setEditUnit(e.target.value)}>
-                <option>Strip</option><option>Bottle</option><option>Vial</option><option>Box</option><option>Tube</option><option>Unit</option>
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label className="flbl">Reorder level</label>
-              <input className="fi" type="number" min="0" value={editReorder} onChange={(e) => setEditReorder(e.target.value)} />
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={() => setEditItem(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleEditItem} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* NEW PURCHASE MODAL (vendor + bill entered once, many item lines) */}
-      {showPurchase && (
-        <Modal onClose={() => setShowPurchase(false)} width={640}>
-          <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-truck-delivery"></i> New Purchase</div>
-          {error && <div className="msg-err" style={{ fontSize: 12 }}>{error}</div>}
-
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <div style={{ flex: 1 }}>
-              <label className="flbl">Vendor</label>
-              <select className="fi" value={pVendorId} onChange={(e) => setPVendorId(e.target.value)}>
-                <option value="">-- Select or type new below --</option>
-                {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label className="flbl">Bill date</label>
-              <input className="fi" type="date" value={pBillDate} onChange={(e) => setPBillDate(e.target.value)} />
-            </div>
-          </div>
-          {!pVendorId && (
-            <div style={{ marginBottom: 8 }}>
-              <label className="flbl">Or new vendor name</label>
-              <input className="fi" value={pNewVendor} onChange={(e) => setPNewVendor(e.target.value)} placeholder="e.g. Sunrise Pharma Distributors" />
-            </div>
-          )}
-          <div style={{ marginBottom: 14 }}>
-            <label className="flbl">Vendor bill number</label>
-            <input className="fi" value={pBillNumber} onChange={(e) => setPBillNumber(e.target.value)} placeholder="Applies to every item below" />
-          </div>
-
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 6 }}>Items on this bill</div>
-          {pLines.map((line) => (
-            <div key={line.key} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-              <select className="fi fi-sm" style={{ flex: 2 }} value={line.itemId} onChange={(e) => updateLine(line.key, 'itemId', e.target.value)}>
-                <option value="">-- Item --</option>
-                {itemPicker.map((i) => <option key={i.itemId} value={i.itemId}>{i.name}</option>)}
-              </select>
-              <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Batch" value={line.batchNumber} onChange={(e) => updateLine(line.key, 'batchNumber', e.target.value)} />
-              <input className="fi fi-sm" style={{ flex: 1 }} type="date" value={line.expiryDate} onChange={(e) => updateLine(line.key, 'expiryDate', e.target.value)} />
-              <input className="fi fi-sm" style={{ width: 60 }} type="number" min="1" placeholder="Qty" value={line.qty} onChange={(e) => updateLine(line.key, 'qty', e.target.value)} />
-              <input className="fi fi-sm" style={{ width: 70 }} type="number" min="0" step="0.01" placeholder="Cost" value={line.costPrice} onChange={(e) => updateLine(line.key, 'costPrice', e.target.value)} />
-              <button className="btn btn-sm" onClick={() => removeLine(line.key)} title="Remove line" style={{ color: 'var(--red)' }}><i className="ti ti-x"></i></button>
-            </div>
-          ))}
-          <button className="btn btn-sm" onClick={addLine} style={{ marginBottom: 14 }}><i className="ti ti-plus"></i> Add another item</button>
-
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={() => setShowPurchase(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleSavePurchase} disabled={saving}>{saving ? 'Saving...' : 'Save Purchase & Add Stock'}</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* VIEW PURCHASE MODAL */}
-      {viewPurchase && (
-        <Modal onClose={() => setViewPurchase(null)} width={480}>
-          <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-receipt-2"></i> Purchase Details</div>
-          <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 10 }}>
-            {viewPurchase.vendorName} · Bill {viewPurchase.billNumber} · {new Date(viewPurchase.billDate).toLocaleDateString('en-IN')}
-          </div>
-          <table className="tbl" style={{ fontSize: 11 }}>
-            <thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th>Qty</th><th>Cost</th></tr></thead>
+          <table className="tbl">
+            <thead><tr><th>Vendor</th><th>Bill No.</th><th>Bill Date</th><th>Amount</th><th></th></tr></thead>
             <tbody>
-              {purchaseLines.map((l) => (
-                <tr key={l.id}>
-                  <td>{l.name}</td>
-                  <td>{l.batchNumber || '--'}</td>
-                  <td>{l.expiryDate ? new Date(l.expiryDate).toLocaleDateString('en-IN') : '--'}</td>
-                  <td>{l.qty}</td>
-                  <td>{l.costPrice ? `Rs.${l.costPrice}` : '--'}</td>
+              {unpaidPurchases.map((p) => (
+                <tr key={p.id}>
+                  <td style={{ fontWeight: 600 }}>{p.vendorName}</td>
+                  <td>{p.billNumber}</td>
+                  <td>{new Date(p.billDate).toLocaleDateString('en-IN')}</td>
+                  <td>{p.billAmount ? `Rs.${p.billAmount.toLocaleString('en-IN')}` : <span style={{ color: 'var(--g400)' }}>Not entered</span>}</td>
+                  <td><button className="btn btn-sm btn-primary" onClick={() => handleMarkPaid(p.id)}>Mark Paid</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div style={{ marginTop: 12, textAlign: 'right' }}>
-            <button className="btn" onClick={() => setViewPurchase(null)}>Close</button>
-          </div>
-        </Modal>
+        </div>
       )}
 
-      {/* HISTORY MODAL */}
-      {historyItem && (
-        <Modal onClose={() => setHistoryItem(null)} width={520}>
-          <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-history"></i> Movement History</div>
-          <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 10 }}>{historyItem.name}</div>
-          <table className="tbl" style={{ fontSize: 11 }}>
-            <thead><tr><th>Date</th><th>Type</th><th>Qty</th><th>Batch</th><th>By</th></tr></thead>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16 }}>
+        {/* ITEMS RUNNING SHORT */}
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            <i className="ti ti-alert-circle" style={{ color: 'var(--amber)' }}></i> Items Running Short
+          </div>
+          <table className="tbl">
+            <thead><tr><th>Drug</th><th>On Hand</th><th>Reorder At</th><th>Status</th></tr></thead>
             <tbody>
-              {movements.map((m) => (
-                <tr key={m.id}>
-                  <td>{new Date(m.created_at).toLocaleDateString('en-IN')}</td>
-                  <td>{m.movement_type}{m.notes && <div style={{ fontSize: 9, color: 'var(--red)' }}>{m.notes}</div>}</td>
-                  <td style={{ color: Number(m.qty_change) < 0 ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>{Number(m.qty_change) > 0 ? '+' : ''}{m.qty_change}</td>
-                  <td>{m.inventory_lots?.batch_number || '--'}</td>
-                  <td>{m.profiles?.full_name || '--'}</td>
+              {shortages.map((r) => (
+                <tr key={r.itemId}>
+                  <td style={{ fontWeight: 600 }}>{r.name}</td>
+                  <td style={{ fontWeight: 700, color: r.stockStatus === 'Out' ? 'var(--red)' : 'var(--amber)' }}>{r.onHand} {r.unit}</td>
+                  <td>{r.reorderLevel}</td>
+                  <td><span className={`badge ${STATUS_BADGE[r.stockStatus]}`}>{r.stockStatus}</span></td>
                 </tr>
               ))}
-              {movements.length === 0 && (
-                <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No movements yet.</td></tr>
+              {shortages.length === 0 && (
+                <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>Nothing running short right now.</td></tr>
               )}
             </tbody>
           </table>
-          <div style={{ marginTop: 12, textAlign: 'right' }}>
-            <button className="btn" onClick={() => setHistoryItem(null)}>Close</button>
+        </div>
+
+        {/* LAST 5 VENDOR BILLS */}
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            <i className="ti ti-receipt-2" style={{ color: 'var(--green)' }}></i> Last 5 Vendor Bills
           </div>
-        </Modal>
-      )}
+          {recentPurchases.map((p) => (
+            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>{p.vendorName}</div>
+                <div style={{ color: 'var(--g500)', fontSize: 11 }}>{p.billNumber} · {new Date(p.billDate).toLocaleDateString('en-IN')}</div>
+              </div>
+              <span className={`badge ${p.paymentStatus === 'Paid' ? 'b-green' : 'b-red'}`}>{p.paymentStatus}</span>
+            </div>
+          ))}
+          {recentPurchases.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--g400)', padding: '8px 0' }}>No purchases recorded yet.</div>
+          )}
+          <div style={{ marginTop: 10, textAlign: 'right' }}>
+            <Link href="/inventory/material-input" style={{ fontSize: 12, color: 'var(--blue)' }}>View all purchases &rarr;</Link>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

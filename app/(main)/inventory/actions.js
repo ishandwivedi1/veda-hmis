@@ -107,48 +107,99 @@ export async function updateInventoryItem(itemId, unit, reorderLevel) {
   return { success: true };
 }
 
+// ── DASHBOARD SUMMARY (shortages + recent bills + unpaid alert) ──
+export async function getDashboardSummary() {
+  const { rows, stats } = await getInventoryDashboard();
+  const shortages = rows.filter((r) => r.stockStatus !== 'OK').slice(0, 10);
+
+  const supabase = await createClient();
+  const { data: recentRaw } = await supabase
+    .from('inventory_purchases')
+    .select('id, bill_number, bill_date, payment_status, bill_amount, inventory_vendors(name)')
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  const { data: unpaidRaw } = await supabase
+    .from('inventory_purchases')
+    .select('id, bill_number, bill_date, bill_amount, inventory_vendors(name)')
+    .eq('payment_status', 'Unpaid')
+    .order('bill_date', { ascending: true });
+
+  const unpaidPurchases = (unpaidRaw || []).map((p) => ({
+    id: p.id, vendorName: p.inventory_vendors?.name || '--', billNumber: p.bill_number || '--',
+    billDate: p.bill_date, billAmount: Number(p.bill_amount || 0),
+  }));
+  const unpaidTotal = unpaidPurchases.reduce((s, p) => s + p.billAmount, 0);
+
+  return {
+    stats,
+    shortages,
+    recentPurchases: (recentRaw || []).map((p) => ({
+      id: p.id, vendorName: p.inventory_vendors?.name || '--', billNumber: p.bill_number || '--',
+      billDate: p.bill_date, paymentStatus: p.payment_status, billAmount: Number(p.bill_amount || 0),
+    })),
+    unpaidPurchases,
+    unpaidTotal,
+    unpaidCount: unpaidPurchases.length,
+  };
+}
+
+// Quick "check stock of any item" lookup used on the Dashboard.
+export async function searchItemStock(query) {
+  if (!query || query.trim().length < 2) return [];
+  const { rows } = await getInventoryDashboard();
+  const q = query.trim().toLowerCase();
+  return rows.filter((r) => r.name.toLowerCase().includes(q) || (r.generic || '').toLowerCase().includes(q)).slice(0, 8);
+}
+
+export async function markPurchasePaid(purchaseId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('inventory_purchases')
+    .update({ payment_status: 'Paid', paid_date: new Date().toISOString().slice(0, 10) })
+    .eq('id', purchaseId);
+  if (error) return { error: error.message };
+  revalidatePath('/inventory');
+  return { success: true };
+}
+export async function markPurchaseUnpaid(purchaseId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('inventory_purchases').update({ payment_status: 'Unpaid', paid_date: null }).eq('id', purchaseId);
+  if (error) return { error: error.message };
+  revalidatePath('/inventory');
+  return { success: true };
+}
+
 // ── VENDORS ──
+// Vendors are now managed in Financial Masters (master-data/actions.js:
+// getVendorsMaster/addVendorMaster/etc.) -- this just reads the same
+// table for populating the vendor dropdown in Material Input.
 export async function getVendors() {
   const supabase = await createClient();
   const { data } = await supabase.from('inventory_vendors').select('*').eq('status', 'Active').order('name');
   return data || [];
 }
 
-export async function addVendor(name, phone) {
-  const supabase = await createClient();
-  const { data, error } = await supabase.from('inventory_vendors').insert({ name: name.trim(), phone: phone?.trim() || null }).select().single();
-  if (error) return { error: error.message };
-  return { vendor: data };
-}
-
-// ── PURCHASES (new) ──
+// ── PURCHASES ──
 // One vendor + one bill number entered ONCE, covering many item lines.
-// Each line just becomes a stock_in call tagged with the purchase --
-// the RPC pulls vendor/bill from the purchase itself, so there's no
-// re-typing (and no risk of a typo splitting one bill across two
-// different-looking vendor/bill combinations).
-export async function createPurchaseWithLines({ vendorId, newVendorName, billNumber, billDate, notes, lines }) {
+// Vendor must already exist (added via Financial Masters) -- no more
+// inline vendor creation here, to keep vendor master data clean.
+export async function createPurchaseWithLines({ vendorId, billNumber, billDate, notes, billAmount, lines }) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
   const receivedBy = userData?.user?.id || null;
 
-  let finalVendorId = vendorId;
-  if (!finalVendorId && newVendorName?.trim()) {
-    const vRes = await addVendor(newVendorName.trim());
-    if (vRes.error) return { error: vRes.error };
-    finalVendorId = vRes.vendor.id;
-  }
-  if (!finalVendorId) return { error: 'Select or enter a vendor.' };
+  if (!vendorId) return { error: 'Select a vendor. New vendors are added under Financial Masters > Vendors.' };
 
   const validLines = (lines || []).filter((l) => l.itemId && Number(l.qty) > 0);
   if (validLines.length === 0) return { error: 'Add at least one item line with a quantity.' };
 
   const { data: purchase, error: pErr } = await supabase.rpc('create_purchase', {
-    p_vendor_id: finalVendorId,
+    p_vendor_id: vendorId,
     p_bill_number: billNumber || null,
     p_bill_date: billDate || null,
     p_notes: notes || null,
     p_received_by: receivedBy,
+    p_bill_amount: billAmount ? Number(billAmount) : null,
   });
   if (pErr) return { error: pErr.message };
 
@@ -204,6 +255,8 @@ export async function getRecentPurchases() {
     receivedBy: p.profiles?.full_name || '--',
     itemCount: lineCounts[p.id]?.count || 0,
     totalQty: lineCounts[p.id]?.totalQty || 0,
+    paymentStatus: p.payment_status,
+    billAmount: Number(p.bill_amount || 0),
   }));
 }
 
