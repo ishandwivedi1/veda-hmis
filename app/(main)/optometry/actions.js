@@ -9,6 +9,11 @@ const ASSESSMENT_FIELDS = [
   'va_scale', 're_dist_unaided', 're_dist_glasses', 're_dist_ph', 're_near_unaided', 're_near_glasses',
   'le_dist_unaided', 'le_dist_glasses', 'le_dist_ph', 'le_near_unaided', 'le_near_glasses',
   'va_not_assessed',
+  'ref_pg_re_dist_va', 'ref_pg_re_dist_sph', 'ref_pg_re_dist_cyl', 'ref_pg_re_dist_axis',
+  'ref_pg_re_near_va', 'ref_pg_re_near_sph', 'ref_pg_re_near_cyl', 'ref_pg_re_near_axis',
+  'ref_pg_le_dist_va', 'ref_pg_le_dist_sph', 'ref_pg_le_dist_cyl', 'ref_pg_le_dist_axis',
+  'ref_pg_le_near_va', 'ref_pg_le_near_sph', 'ref_pg_le_near_cyl', 'ref_pg_le_near_axis',
+  'ref_pg_copy_re_to_le',
   'ref_pd', 'ref_vd',
   'ref_obj_re_dist_va', 'ref_obj_re_dist_sph', 'ref_obj_re_dist_cyl', 'ref_obj_re_dist_axis',
   'ref_obj_re_near_va', 'ref_obj_re_near_sph', 'ref_obj_re_near_cyl', 'ref_obj_re_near_axis',
@@ -29,7 +34,7 @@ const ASSESSMENT_FIELDS = [
   'add_k1_re', 'add_k1_le', 'add_k2_re', 'add_k2_le', 'add_axial_length_re', 'add_axial_length_le',
   'add_pachymetry_re', 'add_pachymetry_le', 'add_schirmer_re', 'add_schirmer_le',
   'add_color_vision_re', 'add_color_vision_le', 'add_syringing_re', 'add_syringing_le',
-  'section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done',
+  'section_va_done', 'section_pg_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done',
 ];
 
 function pickAssessmentFields(fields) {
@@ -236,5 +241,3 @@ export async function addIopReading(assessmentId, eye, value) {
 
   return { reading };
 }
-
-

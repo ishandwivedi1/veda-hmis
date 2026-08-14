@@ -69,7 +69,7 @@ function emptyForm() {
     add_k1_re: '', add_k1_le: '', add_k2_re: '', add_k2_le: '', add_axial_length_re: '', add_axial_length_le: '',
     add_pachymetry_re: '', add_pachymetry_le: '', add_schirmer_re: '', add_schirmer_le: '',
     add_color_vision_re: '', add_color_vision_le: '', add_syringing_re: '', add_syringing_le: '',
-    section_va_done: false, section_refraction_done: false, section_iop_done: false, section_additional_done: false,
+    section_va_done: false, section_pg_done: false, section_refraction_done: false, section_iop_done: false, section_additional_done: false,
   };
   ['re', 'le'].forEach((eye) => {
     VA_ROWS.forEach(({ row, dist, near }) => {
@@ -77,7 +77,7 @@ function emptyForm() {
       if (near) f[vaKey(eye, 'near', row)] = '';
     });
   });
-  ['obj', 'subj', 'final'].forEach((type) => {
+  ['pg', 'obj', 'subj', 'final'].forEach((type) => {
     ['re', 'le'].forEach((eye) => {
       ['dist', 'near'].forEach((dn) => {
         ['va', 'sph', 'cyl', 'axis'].forEach((m) => { f[refKey(type, eye, dn, m)] = ''; });
@@ -188,7 +188,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
   const [loadError, setLoadError] = useState('');
 
   const [form, setForm] = useState(emptyForm());
-  const [openSections, setOpenSections] = useState({ history: true, va: true, refraction: false, iop: false, additional: false });
+  const [openSections, setOpenSections] = useState({ history: true, va: true, pg: false, refraction: false, iop: false, additional: false });
   const [refTab, setRefTab] = useState('obj');
   const [reIopInput, setReIopInput] = useState('');
   const [leIopInput, setLeIopInput] = useState('');
@@ -303,6 +303,34 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
     });
   }
 
+  // Present Glasses (PG) power -- same shape as a refraction entry
+  // (SPH/CYL/AXIS/VA x Dist/Near x RE/LE), but describes the glasses
+  // the patient already has, not a new prescription. Kept as its own
+  // section/done-flag so it can't be conflated with actual refraction.
+  function setPg(eye, distNear, metric, value) {
+    setForm((prev) => {
+      const next = { ...prev, [refKey('pg', eye, distNear, metric)]: value, section_pg_done: true };
+      if (eye === 're' && prev.ref_pg_copy_re_to_le) {
+        next[refKey('pg', 'le', distNear, metric)] = value;
+      }
+      return next;
+    });
+  }
+
+  function togglePgCopyToLE(checked) {
+    setForm((prev) => {
+      const next = { ...prev, ref_pg_copy_re_to_le: checked };
+      if (checked) {
+        ['dist', 'near'].forEach((dn) => {
+          ['va', 'sph', 'cyl', 'axis'].forEach((m) => {
+            next[refKey('pg', 'le', dn, m)] = prev[refKey('pg', 're', dn, m)];
+          });
+        });
+      }
+      return next;
+    });
+  }
+
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   }
@@ -382,7 +410,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
   if (!entry || !assessment) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
   const patient = entry.visits?.patients;
-  const doneCount = ['section_va_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done'].filter((k) => form[k]).length;
+  const doneCount = ['section_va_done', 'section_pg_done', 'section_refraction_done', 'section_iop_done', 'section_additional_done'].filter((k) => form[k]).length;
   const vaScaleValues = vaValuesForScale(form.va_scale);
 
   const reIopSorted = iopReadings.filter((r) => r.eye === 'RE');
@@ -430,9 +458,9 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.4px' }}>Assessment progress</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{doneCount} / 4 sections</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{doneCount} / 5 sections</div>
             <div style={{ height: 6, borderRadius: 3, background: 'var(--g200)', width: 160, marginTop: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 3, background: 'var(--teal)', width: `${(doneCount / 4) * 100}%`, transition: 'width .3s' }}></div>
+              <div style={{ height: '100%', borderRadius: 3, background: 'var(--teal)', width: `${(doneCount / 5) * 100}%`, transition: 'width .3s' }}></div>
             </div>
           </div>
           {!locked && (
@@ -591,10 +619,88 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
           </datalist>
         </AsmtSection>
       </div>
-      {/* SECTION 2: REFRACTION */}
+      {/* SECTION 2: PRESENT GLASSES (PG) POWER */}
       <div style={{ marginBottom: 12 }}>
         <AsmtSection
-          num={2} color="var(--blue)" title="Refraction" badge={form.section_refraction_done ? 'Done' : 'Not started'} badgeCls={form.section_refraction_done ? 'b-green' : 'b-gray'}
+          num={2} color="var(--indigo, #4338ca)" title="Present Glasses (PG) Power" badge={form.section_pg_done ? 'Done' : 'Not started'} badgeCls={form.section_pg_done ? 'b-green' : 'b-gray'}
+          open={openSections.pg} onToggle={() => toggleSection('pg')}
+        >
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
+            Power of the glasses the patient is currently wearing, read off a lensometer -- not a new prescription.
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 60 }}></th>
+                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
+                    OD (RE)
+                  </th>
+                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
+                    OS (LE)
+                  </th>
+                </tr>
+                <tr>
+                  <th></th>
+                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h) => (
+                    <th key={`pg-re-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
+                  ))}
+                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h, i) => (
+                    <th key={`pg-le-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {['dist', 'near'].map((distNear) => {
+                  const leCopying = form.ref_pg_copy_re_to_le;
+                  return (
+                    <tr key={distNear} style={{ borderTop: '1px solid var(--g100)' }}>
+                      <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)', textTransform: 'capitalize' }}>{distNear === 'dist' ? 'Dist' : 'Near'}</td>
+                      {['re', 'le'].map((eye) => (
+                        <Fragment key={eye}>
+                          <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                            {distNear === 'dist' ? (
+                              <input className="fi fi-sm" list="va-dist-options" disabled={locked || (eye === 'le' && leCopying)} value={form[refKey('pg', eye, distNear, 'va')]} onChange={(e) => setPg(eye, distNear, 'va', e.target.value)} placeholder="--" />
+                            ) : (
+                              <select className="fi fi-sm" disabled={locked || (eye === 'le' && leCopying)} value={form[refKey('pg', eye, distNear, 'va')]} onChange={(e) => setPg(eye, distNear, 'va', e.target.value)}>
+                                <option value="">--</option>
+                                {VA_NEAR.map((v) => <option key={v} value={v}>{v}</option>)}
+                              </select>
+                            )}
+                          </td>
+                          <td style={{ padding: '6px 6px' }}>
+                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey('pg', eye, distNear, 'sph')]} onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey('pg', eye, distNear, 'sph') })} />
+                          </td>
+                          <td style={{ padding: '6px 6px' }}>
+                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey('pg', eye, distNear, 'cyl')]} onClick={() => setPicker({ kind: 'sphcyl', label: `CYL -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey('pg', eye, distNear, 'cyl') })} />
+                          </td>
+                          <td style={{ padding: '6px 6px' }}>
+                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey('pg', eye, distNear, 'axis')]} onClick={() => setPicker({ kind: 'axis', label: `AXIS -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey('pg', eye, distNear, 'axis') })} />
+                          </td>
+                        </Fragment>
+                      ))}
+                    </tr>
+                  );
+                })}
+                <tr style={{ borderTop: '1px solid var(--g100)' }}>
+                  <td style={{ padding: '8px 10px' }}></td>
+                  <td colSpan={7} style={{ padding: '6px 6px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--g700)', cursor: locked ? 'default' : 'pointer' }}>
+                      <input type="checkbox" disabled={locked} checked={!!form.ref_pg_copy_re_to_le} onChange={(e) => togglePgCopyToLE(e.target.checked)} />
+                      Copy RE Value to LE
+                    </label>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </AsmtSection>
+      </div>
+      {/* SECTION 3: REFRACTION */}
+      <div style={{ marginBottom: 12 }}>
+        <AsmtSection
+          num={3} color="var(--blue)" title="Refraction" badge={form.section_refraction_done ? 'Done' : 'Not started'} badgeCls={form.section_refraction_done ? 'b-green' : 'b-gray'}
           open={openSections.refraction} onToggle={() => toggleSection('refraction')}
         >
           <div style={{ display: 'flex', gap: 4, marginBottom: 14, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
@@ -711,7 +817,8 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
           currentValue={form[picker.fieldKey]}
           onSelect={(v) => {
             const [, type, eye, distNear, metric] = picker.fieldKey.split('_');
-            setRef(type, eye, distNear, metric, v);
+            if (type === 'pg') setPg(eye, distNear, metric, v);
+            else setRef(type, eye, distNear, metric, v);
           }}
           onClose={() => setPicker(null)}
         />
@@ -737,7 +844,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
       {/* SECTION 3: IOP */}
       <div style={{ marginBottom: 12 }}>
         <AsmtSection
-          num={3} color="var(--purple)" title="Intraocular Pressure" badge={form.section_iop_done ? 'Done' : 'Not started'} badgeCls={form.section_iop_done ? 'b-green' : 'b-gray'}
+          num={4} color="var(--purple)" title="Intraocular Pressure" badge={form.section_iop_done ? 'Done' : 'Not started'} badgeCls={form.section_iop_done ? 'b-green' : 'b-gray'}
           open={openSections.iop} onToggle={() => toggleSection('iop')}
         >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -775,7 +882,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
       {/* SECTION 4: ADDITIONAL MEASUREMENTS */}
       <div style={{ marginBottom: 12 }}>
         <AsmtSection
-          num={4} color="var(--amber)" title="Additional Measurements" badge={form.section_additional_done ? 'Done' : 'Not started'} badgeCls={form.section_additional_done ? 'b-green' : 'b-gray'}
+          num={5} color="var(--amber)" title="Additional Measurements" badge={form.section_additional_done ? 'Done' : 'Not started'} badgeCls={form.section_additional_done ? 'b-green' : 'b-gray'}
           open={openSections.additional} onToggle={() => toggleSection('additional')}
         >
           <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 12 }}>Complete only the measurements relevant to this visit -- recorded per eye.</div>
@@ -858,6 +965,3 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
     </div>
   );
 }
-
-
-
