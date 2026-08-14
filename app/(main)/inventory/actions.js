@@ -321,3 +321,111 @@ export async function getTrackedItemsForPicker() {
     name: i.master_drugs ? `${i.master_drugs.brand || i.master_drugs.generic} ${i.master_drugs.strength || ''}`.trim() : 'Unknown drug',
   })).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// ── REPORTS ──
+// These are periodic/analytical views, not the hot-path dashboard, so
+// aggregating the (small) result sets in JS here is fine -- no need
+// for the same DB-side-view treatment given to getInventoryDashboard.
+
+// How much money is currently sitting on the shelf, item by item.
+export async function getStockValuationReport() {
+  const supabase = await createClient();
+  const { data: lots } = await supabase
+    .from('inventory_lots')
+    .select('item_id, qty_on_hand, cost_price, inventory_items(unit, master_drugs(brand, generic, strength))')
+    .eq('status', 'Active')
+    .gt('qty_on_hand', 0);
+
+  const byItem = {};
+  (lots || []).forEach((l) => {
+    const id = l.item_id;
+    if (!byItem[id]) {
+      byItem[id] = {
+        name: l.inventory_items?.master_drugs ? `${l.inventory_items.master_drugs.brand || l.inventory_items.master_drugs.generic} ${l.inventory_items.master_drugs.strength || ''}`.trim() : 'Unknown',
+        unit: l.inventory_items?.unit, qty: 0, value: 0,
+      };
+    }
+    byItem[id].qty += Number(l.qty_on_hand);
+    byItem[id].value += Number(l.qty_on_hand) * Number(l.cost_price || 0);
+  });
+  const rows = Object.values(byItem)
+    .map((r) => ({ ...r, avgCost: r.qty ? r.value / r.qty : 0 }))
+    .sort((a, b) => b.value - a.value);
+  const totalValue = rows.reduce((s, r) => s + r.value, 0);
+  return { rows, totalValue };
+}
+
+// Batches expiring within N days, nearest first -- so stock can be
+// pushed/sold/returned before it's wasted.
+export async function getExpiryReport(days = 90) {
+  const supabase = await createClient();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() + Number(days));
+
+  const { data: lots } = await supabase
+    .from('inventory_lots')
+    .select('id, batch_number, expiry_date, qty_on_hand, inventory_items(unit, master_drugs(brand, generic, strength))')
+    .eq('status', 'Active')
+    .gt('qty_on_hand', 0)
+    .not('expiry_date', 'is', null)
+    .lte('expiry_date', cutoff.toISOString().slice(0, 10))
+    .order('expiry_date', { ascending: true });
+
+  const today = new Date();
+  return (lots || []).map((l) => ({
+    name: l.inventory_items?.master_drugs ? `${l.inventory_items.master_drugs.brand || l.inventory_items.master_drugs.generic} ${l.inventory_items.master_drugs.strength || ''}`.trim() : 'Unknown',
+    unit: l.inventory_items?.unit,
+    batchNumber: l.batch_number,
+    expiryDate: l.expiry_date,
+    qty: l.qty_on_hand,
+    daysLeft: Math.ceil((new Date(l.expiry_date) - today) / 86400000),
+  }));
+}
+
+// How much of each drug actually got dispensed over a date range --
+// the real signal for reorder quantities, not just current stock.
+export async function getConsumptionReport(startDate, endDate) {
+  const supabase = await createClient();
+  let q = supabase
+    .from('inventory_movements')
+    .select('item_id, qty_change, created_at, inventory_items(unit, master_drugs(brand, generic, strength))')
+    .eq('movement_type', 'Dispensed');
+  if (startDate) q = q.gte('created_at', `${startDate}T00:00:00`);
+  if (endDate) q = q.lte('created_at', `${endDate}T23:59:59`);
+  const { data } = await q;
+
+  const byItem = {};
+  (data || []).forEach((m) => {
+    const id = m.item_id;
+    if (!byItem[id]) {
+      byItem[id] = {
+        name: m.inventory_items?.master_drugs ? `${m.inventory_items.master_drugs.brand || m.inventory_items.master_drugs.generic} ${m.inventory_items.master_drugs.strength || ''}`.trim() : 'Unknown',
+        unit: m.inventory_items?.unit, consumed: 0,
+      };
+    }
+    byItem[id].consumed += Math.abs(Number(m.qty_change));
+  });
+  return Object.values(byItem).sort((a, b) => b.consumed - a.consumed);
+}
+
+// Purchases grouped by vendor over a date range -- bill count, total
+// spend, and how much of that is still unpaid, per vendor.
+export async function getVendorPurchaseSummary(startDate, endDate) {
+  const supabase = await createClient();
+  let q = supabase.from('inventory_purchases').select('vendor_id, bill_amount, payment_status, bill_date, inventory_vendors(name)');
+  if (startDate) q = q.gte('bill_date', startDate);
+  if (endDate) q = q.lte('bill_date', endDate);
+  const { data } = await q;
+
+  const byVendor = {};
+  (data || []).forEach((p) => {
+    const id = p.vendor_id;
+    if (!byVendor[id]) byVendor[id] = { name: p.inventory_vendors?.name || '--', bills: 0, total: 0, paid: 0, unpaid: 0 };
+    byVendor[id].bills += 1;
+    const amt = Number(p.bill_amount || 0);
+    byVendor[id].total += amt;
+    if (p.payment_status === 'Paid') byVendor[id].paid += amt;
+    else byVendor[id].unpaid += amt;
+  });
+  return Object.values(byVendor).sort((a, b) => b.total - a.total);
+}

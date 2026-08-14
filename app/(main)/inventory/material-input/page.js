@@ -150,45 +150,49 @@ export default function MaterialInputPage() {
           Items on this bill {vendorName && <span style={{ textTransform: 'none', fontWeight: 400 }}>-- from {vendorName}</span>}
         </div>
 
-        {/* Column headers -- fixed-width columns keep this from sprawling */}
+        {/* Column headers -- Item is capped narrower, other columns widened */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 4, fontSize: 10, fontWeight: 600, color: 'var(--g500)', textTransform: 'uppercase', padding: '0 2px' }}>
-          <div style={{ flex: '1 1 0', minWidth: 0 }}>Item</div>
-          <div style={{ width: 88 }}>Batch</div>
-          <div style={{ width: 118 }}>Expiry</div>
-          <div style={{ width: 55 }}>Qty</div>
-          <div style={{ width: 70 }}>Rate</div>
-          <div style={{ width: 60 }}>Disc%</div>
-          <div style={{ width: 74, textAlign: 'right' }}>Total</div>
+          <div style={{ width: 150 }}>Item</div>
+          <div style={{ width: 110 }}>Batch</div>
+          <div style={{ width: 140 }}>Expiry</div>
+          <div style={{ width: 75 }}>Qty</div>
+          <div style={{ width: 95 }}>Rate</div>
+          <div style={{ width: 80 }}>Disc%</div>
+          <div style={{ flex: '1 1 0', minWidth: 90, textAlign: 'right' }}>Total</div>
           <div style={{ width: 24 }}></div>
         </div>
 
         {pLines.map((line) => (
           <div key={line.key} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-            <select className="fi fi-sm" style={{ flex: '1 1 0', minWidth: 0 }} value={line.itemId} onChange={(e) => updateLine(line.key, 'itemId', e.target.value)}>
+            <select className="fi fi-sm" style={{ width: 150 }} value={line.itemId} onChange={(e) => updateLine(line.key, 'itemId', e.target.value)}>
               <option value="">-- Item --</option>
               {itemPicker.map((i) => <option key={i.itemId} value={i.itemId}>{i.name}</option>)}
             </select>
-            <input className="fi fi-sm" style={{ width: 88 }} placeholder="Batch" value={line.batchNumber} onChange={(e) => updateLine(line.key, 'batchNumber', e.target.value)} />
-            <input className="fi fi-sm" style={{ width: 118 }} type="date" value={line.expiryDate} onChange={(e) => updateLine(line.key, 'expiryDate', e.target.value)} />
-            <input className="fi fi-sm" style={{ width: 55 }} type="number" min="1" placeholder="0" value={line.qty} onChange={(e) => updateLine(line.key, 'qty', e.target.value)} />
-            <input className="fi fi-sm" style={{ width: 70 }} type="number" min="0" step="0.01" placeholder="0" value={line.rate} onChange={(e) => updateLine(line.key, 'rate', e.target.value)} />
-            <input className="fi fi-sm" style={{ width: 60 }} type="number" min="0" max="100" step="0.01" placeholder="0" value={line.discountPct} onChange={(e) => updateLine(line.key, 'discountPct', e.target.value)} />
-            <div style={{ width: 74, textAlign: 'right', fontSize: 12, fontWeight: 600 }}>
+            <input className="fi fi-sm" style={{ width: 110 }} placeholder="Batch" value={line.batchNumber} onChange={(e) => updateLine(line.key, 'batchNumber', e.target.value)} />
+            <input className="fi fi-sm" style={{ width: 140 }} type="date" value={line.expiryDate} onChange={(e) => updateLine(line.key, 'expiryDate', e.target.value)} />
+            <input className="fi fi-sm" style={{ width: 75 }} type="number" min="1" placeholder="0" value={line.qty} onChange={(e) => updateLine(line.key, 'qty', e.target.value)} />
+            <input className="fi fi-sm" style={{ width: 95 }} type="number" min="0" step="0.01" placeholder="0" value={line.rate} onChange={(e) => updateLine(line.key, 'rate', e.target.value)} />
+            <input className="fi fi-sm" style={{ width: 80 }} type="number" min="0" max="100" step="0.01" placeholder="0" value={line.discountPct} onChange={(e) => updateLine(line.key, 'discountPct', e.target.value)} />
+            <div style={{ flex: '1 1 0', minWidth: 90, textAlign: 'right', fontSize: 12, fontWeight: 600 }}>
               {lineTotal(line) > 0 ? `Rs.${lineTotal(line).toFixed(2)}` : '--'}
             </div>
             <button className="btn btn-sm" onClick={() => removeLine(line.key)} title="Remove line" style={{ width: 24, padding: '2px 4px', color: 'var(--red)' }}><i className="ti ti-x"></i></button>
           </div>
         ))}
-        <button className="btn btn-sm" onClick={addLine} style={{ marginBottom: 14 }}><i className="ti ti-plus"></i> Add another item</button>
+        <button className="btn btn-sm" onClick={addLine} style={{ marginBottom: 10 }}><i className="ti ti-plus"></i> Add another item</button>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--g100)', paddingTop: 12 }}>
-          <div style={{ fontSize: 13 }}>
-            <span style={{ color: 'var(--g500)' }}>Items total:</span>{' '}
-            <span style={{ fontWeight: 700, fontSize: 15 }}>Rs.{grandTotal.toFixed(2)}</span>
+        {/* Grand total -- aligned directly under the Total column above it */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', borderTop: '1px solid var(--g100)', paddingTop: 10, marginBottom: 14 }}>
+          <div style={{ width: 150 + 110 + 140 + 75 + 95 + 80 + 36, textAlign: 'right', fontSize: 12, color: 'var(--g500)', fontWeight: 600 }}>Grand Total</div>
+          <div style={{ flex: '1 1 0', minWidth: 90, textAlign: 'right', fontSize: 15, fontWeight: 800 }}>Rs.{grandTotal.toFixed(2)}</div>
+          <div style={{ width: 24 }}></div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 12 }}>
             {totalsMismatch && (
-              <span style={{ color: 'var(--red)', fontSize: 11, marginLeft: 10 }}>
-                <i className="ti ti-alert-triangle"></i> Doesn&apos;t match bill amount (Rs.{billAmountNum.toFixed(2)})
-              </span>
+              <span style={{ color: 'var(--red)' }}>
+                <i className="ti ti-alert-triangle"></i> Doesn&apos;t match bill amount (Rs.{billAmountNum.toFixed(2)})</span>
             )}
           </div>
           <button className="btn btn-primary" onClick={handleSavePurchase} disabled={saving} style={{ fontSize: 14, padding: '10px 24px', fontWeight: 700 }}>

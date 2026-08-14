@@ -7,6 +7,7 @@ const TABS = [
   { href: '/inventory', label: 'Dashboard', icon: 'ti-layout-dashboard' },
   { href: '/inventory/stock', label: 'Stock', icon: 'ti-boxes' },
   { href: '/inventory/material-input', label: 'Material Input', icon: 'ti-truck-delivery' },
+  { href: '/inventory/reports', label: 'Reports', icon: 'ti-report' },
 ];
 
 export default function InventoryTabs() {
