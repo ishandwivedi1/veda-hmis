@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
-import { getScheduledOT, getOTHistory, getOTAvailability, rescheduleOTSlot, completeOT } from './actions';
+import { getScheduledOT, getOTHistory, getOTAvailability, rescheduleOTSlot, completeOT, undoCompleteOT } from './actions';
 
 const STATUS_BADGE = { Scheduled: 'b-blue', 'In Progress': 'b-amber', Completed: 'b-green', Cancelled: 'b-red' };
 
@@ -113,7 +113,8 @@ function ScheduledOTTab() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  async function handleComplete(otId, caseId) {
+  async function handleComplete(otId, caseId, patientName) {
+    if (!window.confirm(`Mark ${patientName}'s surgery as Complete? This should only be done AFTER the surgery has actually happened -- it will move out of Scheduled and cannot be easily undone once intraoperative details are recorded.`)) return;
     await completeOT(otId, caseId);
     refresh();
   }
@@ -154,7 +155,7 @@ function ScheduledOTTab() {
                       <button className="btn btn-sm" onClick={() => setReschedulingId(reschedulingId === s.id ? null : s.id)}>
                         <i className="ti ti-calendar-time"></i> Reschedule
                       </button>
-                      <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id)}>Complete</button>
+                      <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id, `${s.surgical_cases?.patients?.first_name} ${s.surgical_cases?.patients?.last_name}`)}>Complete</button>
                     </div>
                   </td>
                 </tr>
@@ -181,10 +182,25 @@ function OTHistoryTab() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [undoingId, setUndoingId] = useState(null);
+  const [undoError, setUndoError] = useState('');
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     getOTHistory().then((data) => { setHistory(data); setLoading(false); });
   }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function handleUndo(s) {
+    const name = `${s.surgical_cases?.patients?.first_name} ${s.surgical_cases?.patients?.last_name}`;
+    if (!window.confirm(`Undo the Complete on ${name}'s surgery and move it back to Scheduled?`)) return;
+    setUndoError('');
+    setUndoingId(s.id);
+    const result = await undoCompleteOT(s.id, s.surgical_case_id);
+    setUndoingId(null);
+    if (result.error) { setUndoError(result.error); return; }
+    refresh();
+  }
 
   const filtered = search.trim()
     ? history.filter((s) => {
@@ -203,13 +219,14 @@ function OTHistoryTab() {
       <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
         Patients no longer in the active schedule -- currently in surgery, completed, or cancelled.
       </div>
+      {undoError && <div className="msg-err" style={{ marginBottom: 10 }}>{undoError}</div>}
 
       {loading && <div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading...</div>}
 
       {!loading && (
         <table className="tbl">
           <thead>
-            <tr><th>Date</th><th>Session</th><th>Patient</th><th>Procedure</th><th>Surgeon</th><th>Status</th></tr>
+            <tr><th>Date</th><th>Session</th><th>Patient</th><th>Procedure</th><th>Surgeon</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             {filtered.map((s) => (
@@ -223,10 +240,17 @@ function OTHistoryTab() {
                 <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
                 <td>{s.profiles?.full_name || '--'}</td>
                 <td><span className={`badge ${STATUS_BADGE[s.status] || 'b-gray'}`}>{s.status}</span></td>
+                <td>
+                  {s.status === 'Completed' && (
+                    <button className="btn btn-sm" onClick={() => handleUndo(s)} disabled={undoingId === s.id} title="Undo an accidental Complete click">
+                      {undoingId === s.id ? 'Undoing...' : <><i className="ti ti-arrow-back-up"></i> Undo</>}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>Nothing here yet.</td></tr>
+              <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>Nothing here yet.</td></tr>
             )}
           </tbody>
         </table>

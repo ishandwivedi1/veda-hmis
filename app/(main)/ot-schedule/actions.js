@@ -71,3 +71,26 @@ export async function completeOT(otScheduleId, surgicalCaseId) {
 
   return { success: true };
 }
+
+// Self-serve fix for an accidental Complete click, without needing a
+// database intervention. Only allowed if no intraop record exists yet
+// for this booking -- that's the real safety boundary: a surgery with
+// actual recorded intraoperative details has genuinely happened and
+// should never be silently reverted this way, only one that was marked
+// Complete by mistake before ever being checked in.
+export async function undoCompleteOT(otScheduleId, surgicalCaseId) {
+  const supabase = await createClient();
+
+  const { data: intraop } = await supabase.from('ot_intraop_records').select('id').eq('ot_schedule_id', otScheduleId).maybeSingle();
+  if (intraop) {
+    return { error: 'This surgery already has recorded intraoperative details, so it cannot be undone this way. Contact your administrator if this was still marked Complete in error.' };
+  }
+
+  const { error: otError } = await supabase.from('ot_schedule').update({ status: 'Scheduled' }).eq('id', otScheduleId);
+  if (otError) return { error: otError.message };
+
+  const { error: caseError } = await supabase.from('surgical_cases').update({ status: 'Scheduled' }).eq('id', surgicalCaseId);
+  if (caseError) return { error: caseError.message };
+
+  return { success: true };
+}
