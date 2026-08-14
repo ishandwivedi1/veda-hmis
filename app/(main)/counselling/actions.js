@@ -41,7 +41,7 @@ export async function sendForBiometry(caseId) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
-  const { data: sc } = await supabase.from('surgical_cases').select('id, encounter_id').eq('id', caseId).single();
+  const { data: sc } = await supabase.from('surgical_cases').select('id, encounter_id, procedure_name, eye').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
 
   const { data: queueEntry, error } = await supabase.rpc('send_case_to_department_queue', {
@@ -57,6 +57,17 @@ export async function sendForBiometry(caseId) {
   // dashboard reflects "Awaiting Biometry" immediately instead of only
   // after the technician opens the queue entry -- and so the technician
   // finds it already there rather than creating a fresh one.
+  //
+  // Procedure + eye come from THIS surgical case (already fetched above
+  // by caseId, so it's the definitive source -- no second lookup needed).
+  // Deliberately NOT looked up by visit_id here: send_case_to_department_
+  // queue() above issues a FRESH queue token against the patient's
+  // still-open visit, which can be a different visit_id than the one the
+  // surgical case itself was created under (e.g. counselling happening
+  // days after the original consultation). encounter_id stays the same
+  // across that gap, but visit_id doesn't -- so a visit_id-based lookup
+  // here would silently miss the eye/procedure and create a blank stub,
+  // same as it did before this fix.
   const visitId = queueEntry?.visit_id;
   if (visitId) {
     const { data: existing } = await supabase
@@ -69,7 +80,11 @@ export async function sendForBiometry(caseId) {
 
     if (!existing || existing.length === 0) {
       const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
-      await supabase.from('biometry_records').insert({ visit_id: visitId, encounter_id: sc.encounter_id || null, surgeon_id: visit?.doctor_id || null });
+      await supabase.from('biometry_records').insert({
+        visit_id: visitId, encounter_id: sc.encounter_id || null, surgeon_id: visit?.doctor_id || null,
+        procedure_name: sc.procedure_name || null,
+        surgical_eye: sc.eye === 'OD' ? 'RE' : sc.eye === 'OS' ? 'LE' : sc.eye === 'OU' ? 'Both' : null,
+      });
     }
   }
 
