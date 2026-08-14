@@ -331,6 +331,25 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
     });
   }
 
+  // Pulls every value from one refraction type into another -- used to
+  // bring Objective/Subjective readings into Final Rx with one click.
+  // Printed documents (prescription, case sheet) only show what's in
+  // Final Rx, so leaving this un-copied is what makes a genuinely
+  // recorded Distance refraction silently vanish from the printout.
+  function copyRefractionInto(fromType, toType) {
+    setForm((prev) => {
+      const next = { ...prev, [`section_${toType === 'final' ? 'refraction' : toType}_done`]: true };
+      ['re', 'le'].forEach((eye) => {
+        ['dist', 'near'].forEach((dn) => {
+          ['va', 'sph', 'cyl', 'axis'].forEach((m) => {
+            next[refKey(toType, eye, dn, m)] = prev[refKey(fromType, eye, dn, m)];
+          });
+        });
+      });
+      return next;
+    });
+  }
+
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   }
@@ -711,10 +730,20 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
             ))}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
             <div style={{ fontSize: 11, color: 'var(--g500)', flex: 1 }}>
-              {refTab === 'obj' ? 'Auto-refractometer values. Review before finalizing.' : refTab === 'subj' ? 'Values obtained during subjective refraction with trial lenses.' : 'Final accepted refraction used for prescription / optical order.'}
+              {refTab === 'obj' ? 'Auto-refractometer values. Review before finalizing.' : refTab === 'subj' ? 'Values obtained during subjective refraction with trial lenses.' : 'Final accepted refraction used for prescription / optical order -- printouts only read from this tab.'}
             </div>
+            {refTab === 'final' && !locked && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" className="btn btn-sm" onClick={() => copyRefractionInto('subj', 'final')} title="Pull every Subjective value into Final Rx">
+                  <i className="ti ti-copy"></i> Copy from Subjective
+                </button>
+                <button type="button" className="btn btn-sm" onClick={() => copyRefractionInto('obj', 'final')} title="Pull every Objective (Auto-Rx) value into Final Rx">
+                  <i className="ti ti-copy"></i> Copy from Objective
+                </button>
+              </div>
+            )}
             <button
               type="button"
               className="btn btn-sm"
