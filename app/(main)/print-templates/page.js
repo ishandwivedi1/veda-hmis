@@ -180,6 +180,53 @@ function HospitalSettingsPanel() {
           </div>
         ))}
       </div>
+
+      {/* LETTERHEAD / PRE-PRINTED PAPER -- when the front desk prints
+          onto stationery that already has the hospital header printed
+          on it (letterhead / doctor's prescription pad), the digital
+          header would duplicate it. These let each print type hide its
+          own header and leave blank space matching the pad's header
+          height instead. */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--g100)' }}>
+        <div className="card-title" style={{ marginBottom: 4, fontSize: 13 }}>
+          <i className="ti ti-file-text" style={{ color: 'var(--amber)' }}></i> Letterhead / Pre-Printed Paper
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 12 }}>
+          For OPD Case Sheet and Glasses Prescription printouts made on stationery that already carries the hospital header (letterhead / prescription pad) -- hide the digital header and leave blank space for it instead.
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={!!settings.case_sheet_hide_header}
+              onChange={(e) => update('case_sheet_hide_header', e.target.checked)}
+            />
+            Hide header on OPD Case Sheet
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={!!settings.glasses_rx_hide_header}
+              onChange={(e) => update('glasses_rx_hide_header', e.target.checked)}
+            />
+            Hide header on Glasses Prescription
+          </label>
+        </div>
+
+        <div style={{ maxWidth: 260 }}>
+          <label className="flbl">Blank space to leave at top (cm)</label>
+          <input
+            type="number" step="0.1" min="0" max="15"
+            className="fi fi-sm"
+            value={settings.print_letterhead_space_cm ?? 5}
+            onChange={(e) => update('print_letterhead_space_cm', e.target.value === '' ? '' : Number(e.target.value))}
+          />
+          <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
+            Matches the header height already printed on your letterhead / prescription pad. Applies whenever a header above is hidden. Default 5cm.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
