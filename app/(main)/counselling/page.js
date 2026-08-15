@@ -39,6 +39,8 @@ function PackagePicker({ sc, onUpdate }) {
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedPackageId, setSelectedPackageId] = useState('');
+  const [selecting, setSelecting] = useState(false);
 
   useEffect(() => {
     if (!biometrySatisfied(sc)) { setLoading(false); return; }
@@ -89,6 +91,18 @@ function PackagePicker({ sc, onUpdate }) {
 
   if (loading) return <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading packages...</div>;
 
+  const selected = packages.find((p) => p.id === selectedPackageId);
+
+  async function handleSelect() {
+    setError('');
+    if (!selectedPackageId) { setError('Choose a package first.'); return; }
+    setSelecting(true);
+    const result = await selectPackage(sc.id, selectedPackageId);
+    setSelecting(false);
+    if (result.error) { setError(result.error); return; }
+    onUpdate();
+  }
+
   return (
     <div>
       {error && <div className="msg-err">{error}</div>}
@@ -100,27 +114,35 @@ function PackagePicker({ sc, onUpdate }) {
           No packages found for IOL type "{sc.iol_category}" in Master Data. Add one under Financial Masters &gt; Packages.
         </div>
       )}
-      {packages.map((p) => (
-        <button
-          key={p.id}
-          onClick={async () => {
-            setError('');
-            const result = await selectPackage(sc.id, p.id);
-            if (result.error) { setError(result.error); return; }
-            onUpdate();
-          }}
-          style={{ display: 'block', width: '100%', textAlign: 'left', border: '1.5px solid var(--g200)', borderRadius: 'var(--r)', padding: 12, marginBottom: 8, background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
-              {p.name}
-              {p.origin && <span className={`badge ${p.origin === 'Imported' ? 'b-blue' : 'b-green'}`}>{p.origin}</span>}
+      {packages.length > 0 && (
+        <>
+          <select className="fi" value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)} style={{ marginBottom: 10 }}>
+            <option value="">Select a package...</option>
+            {packages.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}{p.origin ? ` (${p.origin})` : ''} -- Rs.{Number(p.price).toLocaleString('en-IN')}
+              </option>
+            ))}
+          </select>
+
+          {selected && (
+            <div style={{ border: '1.5px solid var(--g200)', borderRadius: 'var(--r)', padding: 12, marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {selected.name}
+                  {selected.origin && <span className={`badge ${selected.origin === 'Imported' ? 'b-blue' : 'b-green'}`}>{selected.origin}</span>}
+                </div>
+                <div style={{ fontWeight: 700, color: 'var(--green)', fontSize: 13 }}>Rs.{Number(selected.price).toLocaleString('en-IN')}</div>
+              </div>
+              {selected.includes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 4 }}>{selected.includes}</div>}
             </div>
-            <div style={{ fontWeight: 700, color: 'var(--green)', fontSize: 13 }}>Rs.{Number(p.price).toLocaleString('en-IN')}</div>
-          </div>
-          {p.includes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 4 }}>{p.includes}</div>}
-        </button>
-      ))}
+          )}
+
+          <button className="btn btn-primary btn-sm" onClick={handleSelect} disabled={!selectedPackageId || selecting}>
+            <i className="ti ti-check"></i> {selecting ? 'Selecting...' : 'Select Package'}
+          </button>
+        </>
+      )}
     </div>
   );
 }
