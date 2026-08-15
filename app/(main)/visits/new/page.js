@@ -34,6 +34,7 @@ function NewVisitForm() {
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [surgeryWarning, setSurgeryWarning] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -122,7 +123,41 @@ function NewVisitForm() {
       return;
     }
 
+    // Visit was created and the patient is checked in either way -- this
+    // isn't blocking, just surfacing that OT Schedule has no matching
+    // case for today so it doesn't get silently discovered later.
+    if (result.surgeryNotScheduled) {
+      setSurgeryWarning(true);
+      return;
+    }
+
     router.push('/front-office-dashboard?visitCreated=1');
+  }
+
+  if (surgeryWarning) {
+    return (
+      <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div className="card">
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, color: 'var(--amber)' }}>
+            <i className="ti ti-alert-triangle" style={{ marginRight: 6 }}></i>Visit created -- but no OT case found for today
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--g600)', marginTop: 12, lineHeight: 1.6 }}>
+            {selectedPatient?.first_name} {selectedPatient?.last_name} has been checked in, but there's no surgery scheduled for them today in OT Schedule. This usually means the surgical decision was made outside today's Doctor / Counselling flow -- e.g. a returning patient whose surgery was arranged before HMIS existed, or an external referral.
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--g600)', marginTop: 10, lineHeight: 1.6 }}>
+            Go to <strong>OT Schedule</strong> and use <strong>"Register Surgery Directly"</strong> to add this patient's case and slot them in.
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+            <button className="btn btn-primary" onClick={() => router.push('/ot-schedule')}>
+              <i className="ti ti-calendar-plus"></i> Go to OT Schedule
+            </button>
+            <button className="btn" onClick={() => router.push('/front-office-dashboard?visitCreated=1')}>
+              Continue without fixing now
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

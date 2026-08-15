@@ -102,7 +102,34 @@ export async function createWalkInVisit(values) {
   const { data: { user } } = await supabase.auth.getUser();
   deferVisitWhatsApp(data, user?.id);
 
-  return { visit: data };
+  // create_walk_in_visit's Surgery branch only ATTACHES this visit to an
+  // OT case that was already scheduled for today -- it can't create one.
+  // If nothing matches (patient's surgery was arranged before HMIS
+  // existed, an external referral, staff skipped Counselling, etc.),
+  // that attach step silently touches zero rows and the visit still
+  // gets created successfully, leaving the patient invisible in OT
+  // Schedule with no indication anything went wrong. Surface that here
+  // instead of letting it be discovered later in OT.
+  let surgeryNotScheduled = false;
+  if (values.visitType === 'Surgery' && data?.patient_id) {
+    const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const { data: cases } = await supabase.from('surgical_cases').select('id').eq('patient_id', data.patient_id).neq('status', 'Cancelled');
+    const caseIds = (cases || []).map((c) => c.id);
+    if (caseIds.length === 0) {
+      surgeryNotScheduled = true;
+    } else {
+      const { data: match } = await supabase
+        .from('ot_schedule')
+        .select('id')
+        .in('surgical_case_id', caseIds)
+        .eq('scheduled_date', todayIst)
+        .in('status', ['Scheduled', 'In Progress'])
+        .limit(1);
+      surgeryNotScheduled = !match || match.length === 0;
+    }
+  }
+
+  return { visit: data, surgeryNotScheduled };
 }
 
 export async function getSurgeryTypeOptions() {

@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
-import { getScheduledOT, getOTHistory, getOTAvailability, rescheduleOTSlot, completeOT, undoCompleteOT } from './actions';
+import {
+  getScheduledOT, getOTHistory, getOTAvailability, rescheduleOTSlot, completeOT, undoCompleteOT,
+  searchPatientsForDirectSurgery, getPackagesForDirectSurgery, getSurgeonsForDirectSurgery, registerSurgeryDirect,
+} from './actions';
+import { getSurgeries } from '@/app/(main)/master-data/actions';
 
 const STATUS_BADGE = { Scheduled: 'b-blue', 'In Progress': 'b-amber', Completed: 'b-green', Cancelled: 'b-red' };
 
@@ -259,29 +263,267 @@ function OTHistoryTab() {
   );
 }
 
+// ── REGISTER SURGERY DIRECTLY ──────────────────────────────────────────
+// Fast-track for a patient whose surgical decision was made outside
+// today's Doctor -> Counselling pipeline: a returning patient whose
+// surgery was arranged before HMIS existed, an external referral, an
+// emergency. Creates the surgical case AND books the OT slot in one go,
+// with biometry & medical fitness recorded as skipped-with-a-reason
+// rather than the app pretending they went through the normal workup.
+function RegisterSurgeryDirectForm({ onDone }) {
+  const [patientQuery, setPatientQuery] = useState('');
+  const [patientResults, setPatientResults] = useState([]);
+  const [selectedPatient, setSelectedPatient] = useState(null);
+  const [searching, setSearching] = useState(false);
+
+  const [surgeries, setSurgeries] = useState([]);
+  const [procedureName, setProcedureName] = useState('');
+  const [eye, setEye] = useState('');
+  const [surgeons, setSurgeons] = useState([]);
+  const [surgeonId, setSurgeonId] = useState('');
+  const [priority, setPriority] = useState('Routine');
+  const [workupNote, setWorkupNote] = useState('');
+
+  const [packages, setPackages] = useState([]);
+  const [packageId, setPackageId] = useState('');
+
+  const [date, setDate] = useState('');
+  const [sessions, setSessions] = useState([]);
+  const [sessionId, setSessionId] = useState('');
+  const [loadingSessions, setLoadingSessions] = useState(false);
+
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getSurgeries().then(setSurgeries);
+    getSurgeonsForDirectSurgery().then(setSurgeons);
+    getPackagesForDirectSurgery().then(setPackages);
+  }, []);
+
+  useEffect(() => {
+    if (!patientQuery.trim()) { setPatientResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      searchPatientsForDirectSurgery(patientQuery.trim()).then((rows) => { setPatientResults(rows); setSearching(false); });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [patientQuery]);
+
+  useEffect(() => {
+    setSessionId('');
+    if (!date) { setSessions([]); return; }
+    setLoadingSessions(true);
+    getOTAvailability(date).then((rows) => { setSessions(rows); setLoadingSessions(false); });
+  }, [date]);
+
+  async function handleSave() {
+    setError('');
+    if (!selectedPatient) { setError('Select a patient.'); return; }
+    if (!procedureName) { setError('Select the procedure.'); return; }
+    if (!workupNote.trim()) { setError('Explain where biometry & fitness clearance came from -- required so this case has an honest audit trail.'); return; }
+    if (!packageId) { setError('Select a billing package.'); return; }
+    if (!date) { setError('Pick a date.'); return; }
+    if (!sessionId) { setError('Select an OT session.'); return; }
+
+    setSaving(true);
+    const result = await registerSurgeryDirect({
+      patientId: selectedPatient.id, procedureName, eye: eye || null, surgeonId: surgeonId || null,
+      priority, workupNote, packageId, date, sessionId, notes,
+    });
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    onDone(true);
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 16, borderColor: 'var(--amber)' }}>
+      <div className="card-title" style={{ marginBottom: 4 }}>
+        <i className="ti ti-calendar-plus" style={{ color: 'var(--amber)' }}></i> Register Surgery Directly
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 14 }}>
+        For a patient whose surgery was decided outside today's Doctor / Counselling flow -- a returning patient from before HMIS existed, an external referral, or an emergency. Biometry & medical fitness are recorded as not-required-in-system with your reason, not faked.
+      </div>
+
+      {error && <div className="msg-err" style={{ marginBottom: 10 }}>{error}</div>}
+
+      <div style={{ marginBottom: 12 }}>
+        <label className="flbl">Patient</label>
+        {selectedPatient ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <span className="badge b-blue">{selectedPatient.uhid}</span>
+            <strong>{selectedPatient.first_name} {selectedPatient.last_name}</strong>
+            <span style={{ color: 'var(--g400)', fontSize: 11 }}>{selectedPatient.mobile}</span>
+            <button type="button" className="btn btn-sm" onClick={() => { setSelectedPatient(null); setPatientQuery(''); }}>Change</button>
+          </div>
+        ) : (
+          <>
+            <input className="fi fi-sm" placeholder="Search by name, UHID, or mobile..." value={patientQuery} onChange={(e) => setPatientQuery(e.target.value)} />
+            {searching && <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>Searching...</div>}
+            {patientResults.length > 0 && (
+              <div style={{ marginTop: 6, border: '1px solid var(--g100)', borderRadius: 8, maxHeight: 180, overflowY: 'auto' }}>
+                {patientResults.map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={() => { setSelectedPatient(p); setPatientResults([]); }}
+                    style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderBottom: '1px solid var(--g100)' }}
+                  >
+                    <span className="badge b-blue" style={{ marginRight: 6 }}>{p.uhid}</span>
+                    {p.first_name} {p.last_name} <span style={{ color: 'var(--g400)' }}>-- {p.mobile}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 12 }}>
+        <div>
+          <label className="flbl">Procedure</label>
+          <select className="fi fi-sm" value={procedureName} onChange={(e) => setProcedureName(e.target.value)}>
+            <option value="">Select...</option>
+            {surgeries.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="flbl">Eye</label>
+          <select className="fi fi-sm" value={eye} onChange={(e) => setEye(e.target.value)}>
+            <option value="">--</option>
+            <option value="RE">RE</option>
+            <option value="LE">LE</option>
+          </select>
+        </div>
+      </div>
+
+      {procedureName && (
+        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: -6, marginBottom: 12 }}>
+          For a bilateral case, register each eye separately (they're normally booked into different OT sessions/dates anyway) -- submit this form once per eye.
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+        <div>
+          <label className="flbl">Surgeon</label>
+          <select className="fi fi-sm" value={surgeonId} onChange={(e) => setSurgeonId(e.target.value)}>
+            <option value="">--</option>
+            {surgeons.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="flbl">Priority</label>
+          <select className="fi fi-sm" value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <option value="Routine">Routine</option>
+            <option value="Urgent">Urgent</option>
+            <option value="Emergency">Emergency</option>
+          </select>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label className="flbl">Where did biometry & medical fitness clearance come from?</label>
+        <input className="fi fi-sm" placeholder='e.g. "Done before HMIS -- surgery decided 1 month ago", "External hospital referral, reports attached", "Emergency"' value={workupNote} onChange={(e) => setWorkupNote(e.target.value)} />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label className="flbl">Billing Package</label>
+        <select className="fi fi-sm" value={packageId} onChange={(e) => setPackageId(e.target.value)}>
+          <option value="">Select...</option>
+          {packages.map((p) => <option key={p.id} value={p.id}>{p.name} -- ₹{p.price}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, marginBottom: 12 }}>
+        <div>
+          <label className="flbl">OT Date</label>
+          <input type="date" className="fi fi-sm" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="flbl">OT Session</label>
+          {loadingSessions ? (
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>Checking availability...</div>
+          ) : sessions.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>{date ? 'No active OT sessions configured.' : 'Pick a date first.'}</div>
+          ) : (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {sessions.map((s) => {
+                const full = s.remaining <= 0;
+                const selected = sessionId === s.session_id;
+                return (
+                  <button
+                    key={s.session_id} type="button" disabled={full} onClick={() => setSessionId(s.session_id)}
+                    className="btn btn-sm"
+                    style={{
+                      background: selected ? 'var(--purple)' : full ? 'var(--g100)' : '',
+                      color: selected ? '#fff' : full ? 'var(--g400)' : '',
+                      cursor: full ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {s.name} ({s.remaining} left)
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <label className="flbl">Notes (optional)</label>
+        <input className="fi fi-sm" placeholder="Anything else worth recording..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Registering...' : <><i className="ti ti-check"></i> Register & Book OT Slot</>}
+        </button>
+        <button className="btn" onClick={() => onDone(false)}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 export default function OTSchedulePage() {
   const [activeTab, setActiveTab] = useState('scheduled');
+  const [showDirectForm, setShowDirectForm] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 400 }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('scheduled')}
-          style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'scheduled' ? '#fff' : 'transparent', color: activeTab === 'scheduled' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'scheduled' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
-        >
-          <i className="ti ti-calendar-event"></i> Scheduled OT
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('history')}
-          style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'history' ? '#fff' : 'transparent', color: activeTab === 'history' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'history' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
-        >
-          <i className="ti ti-history"></i> OT History
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 4, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 400 }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('scheduled')}
+            style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'scheduled' ? '#fff' : 'transparent', color: activeTab === 'scheduled' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'scheduled' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+          >
+            <i className="ti ti-calendar-event"></i> Scheduled OT
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('history')}
+            style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'history' ? '#fff' : 'transparent', color: activeTab === 'history' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'history' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+          >
+            <i className="ti ti-history"></i> OT History
+          </button>
+        </div>
+
+        <button type="button" className="btn" style={{ borderColor: 'var(--amber)', color: 'var(--amber)' }} onClick={() => setShowDirectForm(!showDirectForm)}>
+          <i className="ti ti-calendar-plus"></i> {showDirectForm ? 'Close' : 'Register Surgery Directly'}
         </button>
       </div>
 
-      {activeTab === 'scheduled' && <ScheduledOTTab />}
+      {showDirectForm && (
+        <RegisterSurgeryDirectForm
+          onDone={(saved) => {
+            setShowDirectForm(false);
+            if (saved) { setActiveTab('scheduled'); setRefreshKey((k) => k + 1); }
+          }}
+        />
+      )}
+
+      {activeTab === 'scheduled' && <ScheduledOTTab key={refreshKey} />}
       {activeTab === 'history' && <OTHistoryTab />}
     </div>
   );

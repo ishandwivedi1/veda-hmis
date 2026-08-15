@@ -94,3 +94,139 @@ export async function undoCompleteOT(otScheduleId, surgicalCaseId) {
 
   return { success: true };
 }
+
+// ── REGISTER SURGERY DIRECTLY ──────────────────────────────────────────
+// Fast-track for a surgical case that never went through today's
+// Doctor -> Counselling pipeline -- a patient returning for a surgery
+// that was decided a month ago (before HMIS existed), an external
+// referral arriving with their own workup, or an emergency. Without
+// this, such a patient's surgical_cases row never gets created, so they
+// can never appear in OT Schedule no matter how many times front desk
+// checks them in.
+//
+// Deliberately open to any signed-in staff member for now (no role
+// restriction) -- there's a backlog of exactly this kind of case to
+// clear. Restricting it to OT Schedule/Administrator only is a
+// follow-up, not done here.
+//
+// This does NOT bypass biometry/fitness silently -- it reuses the exact
+// same "skip with a mandatory reason" pattern Counselling already uses
+// for biometry (biometry_skip_reason), extended to fitness the same way
+// (fitness_skip_reason), so the case honestly records why those steps
+// weren't done in this system rather than faking that they were.
+
+export async function searchPatientsForDirectSurgery(q) {
+  if (!q) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('patients')
+    .select('id, uhid, first_name, last_name, mobile')
+    .or(`uhid.ilike.%${q}%,mobile.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+    .limit(10);
+  if (error) return [];
+  return data || [];
+}
+
+// All active packages, unfiltered by IOL category -- the normal
+// Counselling picker (getPackagesForCase) filters by iol_category, but
+// that comes from Biometry, which this fast-track deliberately skips.
+// Staff pick the correct package directly instead.
+export async function getPackagesForDirectSurgery() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('master_packages')
+    .select('id, code, name, price, includes, iol_category, origin')
+    .eq('status', 'Active')
+    .order('name');
+  if (error) return [];
+  return data || [];
+}
+
+export async function getSurgeonsForDirectSurgery() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .eq('designation', 'Doctor')
+    .eq('status', 'Active')
+    .order('full_name');
+  if (error) return [];
+  return data || [];
+}
+
+export async function registerSurgeryDirect(input) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { patientId, procedureName, eye, surgeonId, priority, workupNote, packageId, date, sessionId, notes } = input || {};
+
+  if (!patientId) return { error: 'Select a patient.' };
+  if (!procedureName || !procedureName.trim()) return { error: 'Enter the procedure.' };
+  if (!workupNote || !workupNote.trim()) {
+    return { error: 'Explain where biometry & medical fitness clearance came from (e.g. "done before HMIS", "external hospital referral -- reports attached", "emergency"). This is recorded on the case for audit purposes.' };
+  }
+  if (!packageId) return { error: 'Select a billing package.' };
+  if (!date) return { error: 'Select a date.' };
+  if (!sessionId) return { error: 'Select an OT session.' };
+
+  // Guard against accidentally duplicating an already-open case for this
+  // patient + procedure. This bypasses the normal pipeline entirely, so
+  // there's no visit_id-scoped check to lean on like markForSurgery has
+  // -- check across all of this patient's open cases instead.
+  const { data: existingCases } = await supabase
+    .from('surgical_cases')
+    .select('id, procedure_name, status')
+    .eq('patient_id', patientId)
+    .neq('status', 'Cancelled')
+    .neq('status', 'Completed');
+  const dup = (existingCases || []).find((c) => c.procedure_name?.trim().toLowerCase() === procedureName.trim().toLowerCase());
+  if (dup) {
+    return { error: `This patient already has an open case for ${dup.procedure_name} (${dup.status}). Use OT Schedule or Counselling to manage that one instead of creating a duplicate.` };
+  }
+
+  const trimmedNote = workupNote.trim();
+
+  const { data: created, error: insertError } = await supabase
+    .from('surgical_cases')
+    .insert({
+      patient_id: patientId,
+      procedure_name: procedureName.trim(),
+      eye: eye || null,
+      surgeon_id: surgeonId || null,
+      priority: priority || 'Routine',
+      biometry_required: false,
+      biometry_skip_reason: trimmedNote,
+      fitness_required: false,
+      fitness_skip_reason: trimmedNote,
+      decision: 'Accepted',
+      decision_locked: true,
+      package_id: packageId,
+      package_locked: true,
+      status: 'Ready for Scheduling',
+      notes: notes?.trim() || null,
+    })
+    .select('id')
+    .single();
+
+  if (insertError) return { error: insertError.message };
+
+  await supabase.from('surgical_case_notes').insert({
+    surgical_case_id: created.id,
+    note: `Case registered directly, bypassing Doctor/Counselling -- ${trimmedNote}`,
+    created_by: userData?.user?.id || null,
+  });
+
+  // Reuses the exact same booking RPC Counselling uses -- same capacity
+  // checks, same ot_schedule row shape, nothing duplicated.
+  const { data: bookResult, error: bookError } = await supabase.rpc('book_ot_slot', {
+    p_case_id: created.id,
+    p_date: date,
+    p_session_id: sessionId,
+    p_surgeon_id: surgeonId || null,
+    p_notes: notes?.trim() || null,
+  });
+  if (bookError) return { error: bookError.message, caseId: created.id };
+  if (bookResult?.error) return { error: bookResult.error, caseId: created.id };
+
+  return { success: true, caseId: created.id, otScheduleId: bookResult.ot_schedule_id };
+}

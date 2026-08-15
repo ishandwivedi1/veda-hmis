@@ -2900,6 +2900,7 @@ CREATE TABLE IF NOT EXISTS "public"."surgical_cases" (
     "package_locked" boolean DEFAULT false NOT NULL,
     "decision_locked" boolean DEFAULT false NOT NULL,
     "fitness_required" boolean DEFAULT true,
+    "fitness_skip_reason" "text",
     CONSTRAINT "surgical_cases_decision_check" CHECK (("decision" = ANY (ARRAY['Accepted'::"text", 'Wants Time to Decide'::"text", 'Discuss with Family'::"text", 'Financial Constraint'::"text", 'Declined'::"text", 'Second Opinion'::"text", 'Other'::"text"]))),
     CONSTRAINT "surgical_cases_iol_category_check" CHECK (("iol_category" = ANY (ARRAY['Monofocal'::"text", 'Monofocal Toric'::"text", 'Multifocal'::"text", 'EDOF'::"text"]))),
     CONSTRAINT "surgical_cases_priority_check" CHECK (("priority" = ANY (ARRAY['Routine'::"text", 'Urgent'::"text", 'Emergency'::"text"]))),
