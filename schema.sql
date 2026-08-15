@@ -2901,9 +2901,14 @@ CREATE TABLE IF NOT EXISTS "public"."surgical_cases" (
     "decision_locked" boolean DEFAULT false NOT NULL,
     "fitness_required" boolean DEFAULT true,
     "fitness_skip_reason" "text",
+    "proceed_status" "text" DEFAULT 'Deciding'::"text" NOT NULL,
+    "iol_order_notes" "text",
+    "last_reminder_sent_at" timestamp with time zone,
+    "reminder_count" integer DEFAULT 0 NOT NULL,
     CONSTRAINT "surgical_cases_decision_check" CHECK (("decision" = ANY (ARRAY['Accepted'::"text", 'Wants Time to Decide'::"text", 'Discuss with Family'::"text", 'Financial Constraint'::"text", 'Declined'::"text", 'Second Opinion'::"text", 'Other'::"text"]))),
     CONSTRAINT "surgical_cases_iol_category_check" CHECK (("iol_category" = ANY (ARRAY['Monofocal'::"text", 'Monofocal Toric'::"text", 'Multifocal'::"text", 'EDOF'::"text"]))),
     CONSTRAINT "surgical_cases_priority_check" CHECK (("priority" = ANY (ARRAY['Routine'::"text", 'Urgent'::"text", 'Emergency'::"text"]))),
+    CONSTRAINT "surgical_cases_proceed_status_check" CHECK (("proceed_status" = ANY (ARRAY['Deciding'::"text", 'Awaiting Return'::"text", 'Proceeding'::"text"]))),
     CONSTRAINT "surgical_cases_status_check" CHECK (("status" = ANY (ARRAY['Pending Workup'::"text", 'Ready for Scheduling'::"text", 'Scheduled'::"text", 'Completed'::"text", 'Cancelled'::"text"])))
 );
 
@@ -2911,6 +2916,12 @@ CREATE TABLE IF NOT EXISTS "public"."surgical_cases" (
 ALTER TABLE "public"."surgical_cases" OWNER TO "postgres";
 
 
+COMMENT ON COLUMN "public"."surgical_cases"."proceed_status" IS 'Deciding: just advised, no decision yet. Awaiting Return: patient said
+   they will come back another day for workup/decision. Proceeding:
+   patient is moving forward now (same visit or already returned).';
+COMMENT ON COLUMN "public"."surgical_cases"."iol_order_notes" IS 'Free text -- e.g. "Ordered Alcon monofocal +21D from XYZ Optics,
+   expected Friday". Simple by design, no structured procurement
+   tracking yet.';
 COMMENT ON COLUMN "public"."surgical_cases"."iol_category" IS 'Denormalized from biometry_records.final_iol_category once Biometry is
    Approved -- lets the counselling package picker filter Master Data
    packages without joining to biometry_records every time.';
