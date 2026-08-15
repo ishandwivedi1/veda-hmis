@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import {
   getSurgicalCaseDetail, orderBiometryForCase, setPreOpPanelNotes,
-  setProceedStatus, setIolOrderNotes,
+  setProceedStatus, setIolOrderNotes, editSurgicalCaseDetails,
 } from '../actions';
+import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
   selectPackage, changePackage, getPackagesForCase,
   setDecision, referForMedicalFitness, markReadyForScheduling, bookOTSlot, getSurgeons, addCaseNote,
@@ -15,6 +16,83 @@ import { getOTAvailability, rescheduleOTSlot } from '@/app/(main)/ot-schedule/ac
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
+
+// ── HEADER (editable) ──────────────────────────────────────────────
+function CaseHeader({ sc, patient, onAction }) {
+  const [editing, setEditing] = useState(false);
+  const [surgeries, setSurgeries] = useState([]);
+  const [procedureName, setProcedureName] = useState(sc.procedure_name);
+  const [eye, setEye] = useState(sc.eye || 'OD');
+  const [reason, setReason] = useState('');
+  const progressed = sc.status !== 'Pending Workup';
+
+  useEffect(() => { if (editing) getSurgeries().then(setSurgeries); }, [editing]);
+
+  function startEdit() {
+    setProcedureName(sc.procedure_name); setEye(sc.eye || 'OD'); setReason(''); setEditing(true);
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 16, background: 'var(--indigo)', color: '#fff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+          <div style={{ fontSize: 12, opacity: 0.85 }}>{patient?.uhid} -- {patient?.age}y {patient?.gender} -- {patient?.mobile}</div>
+        </div>
+        {!editing ? (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>
+              {sc.procedure_name}
+              <button
+                className="btn btn-sm" style={{ marginLeft: 8, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff', padding: '2px 8px' }}
+                onClick={startEdit} title="Edit procedure/eye"
+              >
+                <i className="ti ti-pencil"></i>
+              </button>
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.85 }}>{EYE_LABEL[sc.eye] || sc.eye}</div>
+          </div>
+        ) : null}
+      </div>
+
+      {editing && (
+        <div style={{ marginTop: 12, background: 'rgba(255,255,255,.1)', borderRadius: 8, padding: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
+            <select className="fi fi-sm" value={procedureName} onChange={(e) => setProcedureName(e.target.value)}>
+              <option value={sc.procedure_name}>{sc.procedure_name}</option>
+              {surgeries.filter((s) => s.name !== sc.procedure_name).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+            <select className="fi fi-sm" value={eye} onChange={(e) => setEye(e.target.value)}>
+              <option value="OD">Right (OD)</option>
+              <option value="OS">Left (OS)</option>
+              <option value="OU">Both (OU)</option>
+            </select>
+          </div>
+          {progressed && (
+            <input
+              className="fi fi-sm" style={{ marginBottom: 8 }}
+              placeholder={`Reason for changing (required -- case has already moved to "${sc.status}")`}
+              value={reason} onChange={(e) => setReason(e.target.value)}
+            />
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={async () => {
+                const r = await onAction(editSurgicalCaseDetails)(sc.id, procedureName, eye, reason);
+                if (r?.error) return;
+                setEditing(false);
+              }}
+            >
+              Save
+            </button>
+            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff' }} onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Section({ num, color, title, done, children, defaultOpen, active }) {
   const [open, setOpen] = useState(!!defaultOpen || !!active);
@@ -97,18 +175,7 @@ export default function Workspace({ caseId }) {
         <i className="ti ti-arrow-left"></i> All Cases
       </button>
 
-      <div className="card" style={{ marginBottom: 16, background: 'var(--indigo)', color: '#fff' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
-            <div style={{ fontSize: 12, opacity: 0.85 }}>{patient?.uhid} -- {patient?.age}y {patient?.gender} -- {patient?.mobile}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{sc.procedure_name}</div>
-            <div style={{ fontSize: 12, opacity: 0.85 }}>{EYE_LABEL[sc.eye] || sc.eye}</div>
-          </div>
-        </div>
-      </div>
+      <CaseHeader sc={sc} patient={patient} onAction={flash} />
 
       {error && <div className="msg-err" style={{ marginBottom: 12 }}>{error}</div>}
       {ok && <div className="msg-ok" style={{ marginBottom: 12 }}>{ok}</div>}
@@ -198,11 +265,16 @@ function FitnessSection({ sc, fitnessReferral, onAction, active }) {
 
 // ── 1. INVESTIGATIONS ──────────────────────────────────────────────
 function InvestigationsSection({ sc, biometryRecords, onAction, active }) {
-  const [eye, setEye] = useState(sc.eye === 'OU' ? 'OD' : sc.eye || 'OD');
+  // Biometry is almost always done for both eyes regardless of which
+  // eye (if any) is actually having surgery -- the fellow eye's
+  // measurements matter for comparison and IOL choice. "Both" is the
+  // default, one-click action; a single eye is the rare exception, not
+  // an equally-weighted choice.
+  const [singleEyeMode, setSingleEyeMode] = useState(false);
+  const [eye, setEye] = useState('OD');
   const [instructions, setInstructions] = useState('');
   const [panelNotes, setPanelNotes] = useState(sc.notes || '');
   const biometryOrdered = biometryRecords.length > 0;
-  const anyApproved = biometryRecords.some((b) => b.status === 'Approved');
 
   return (
     <Section num={1} color="var(--purple)" title="Investigations (Biometry + Pre-Op Panel)" done={biometryOrdered} defaultOpen={!biometryOrdered} active={active}>
@@ -215,17 +287,32 @@ function InvestigationsSection({ sc, biometryRecords, onAction, active }) {
               {b.status !== 'Approved' && <a href="/biometry" style={{ color: 'var(--blue)', fontWeight: 600 }}>Open Biometry &rarr;</a>}
             </div>
           ))
+        ) : !singleEyeMode ? (
+          <div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Instructions (optional)" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+              <button className="btn btn-sm btn-primary" onClick={() => onAction(orderBiometryForCase)(sc.id, 'OU', instructions)}>
+                <i className="ti ti-ruler-measure"></i> Order Biometry -- Both Eyes
+              </button>
+            </div>
+            <button
+              className="btn btn-sm" style={{ background: 'none', border: 'none', color: 'var(--g400)', padding: 0, fontSize: 11 }}
+              onClick={() => setSingleEyeMode(true)}
+            >
+              Only one eye needed? &rarr;
+            </button>
+          </div>
         ) : (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <select className="fi fi-sm" style={{ width: 100 }} value={eye} onChange={(e) => setEye(e.target.value)}>
-              <option value="OD">RE</option>
-              <option value="OS">LE</option>
-              <option value="OU">Both</option>
+              <option value="OD">RE only</option>
+              <option value="OS">LE only</option>
             </select>
             <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Instructions (optional)" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
             <button className="btn btn-sm btn-primary" onClick={() => onAction(orderBiometryForCase)(sc.id, eye, instructions)}>
               <i className="ti ti-ruler-measure"></i> Order
             </button>
+            <button className="btn btn-sm" onClick={() => setSingleEyeMode(false)}>Cancel</button>
           </div>
         )}
       </div>

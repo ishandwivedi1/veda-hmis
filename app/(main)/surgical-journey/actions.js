@@ -14,6 +14,40 @@ import { markForSurgery } from '@/app/(main)/counselling/actions';
 // genuinely new pieces (proceed status, IOL order notes, manual
 // reminder tracking) that didn't exist anywhere before.
 
+// ── EDIT PROCEDURE / EYE (any stage) ───────────────────────────────
+// counselling's updateSurgicalCase only allows this while status is
+// still 'Pending Workup' and refuses otherwise with no real
+// alternative -- there was no actual place "further changes should go
+// through Counselling" could happen. This lets a genuine correction
+// (wrong eye picked, procedure name needs fixing) happen at ANY stage,
+// same principle as changePackage/setDecision: once the case has
+// progressed, a reason is required and logged, rather than the edit
+// being refused outright.
+export async function editSurgicalCaseDetails(caseId, procedureName, eye, reason) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('status, procedure_name, eye').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  const progressed = sc.status !== 'Pending Workup';
+  if (progressed && (!reason || !reason.trim())) {
+    return { error: `A reason is required to change the procedure/eye once the case has moved to "${sc.status}".` };
+  }
+
+  const { error } = await supabase.from('surgical_cases').update({ procedure_name: procedureName, eye }).eq('id', caseId);
+  if (error) return { error: error.message };
+
+  if (progressed) {
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from('surgical_case_notes').insert({
+      surgical_case_id: caseId,
+      note: `Procedure/eye corrected -- was "${sc.procedure_name}" (${sc.eye}), now "${procedureName}" (${eye}). Reason: ${reason.trim()}`,
+      created_by: userData?.user?.id || null,
+    });
+  }
+
+  return { success: true };
+}
+
 // ── DASHBOARD ────────────────────────────────────────────────────────
 
 // Every open surgical case (any staff member -- a small setup doesn't
@@ -66,12 +100,22 @@ export async function getSurgicalCaseDetail(caseId) {
   // Biometry status -- read live rather than trusting the denormalized
   // iol_category alone, so the page can show "Awaiting measurement" vs
   // "Awaiting surgeon approval" vs "Approved" distinctly.
+  //
+  // Matches on surgical_case_id (the robust link, set by
+  // orderBiometryForCase/Counselling's sendForBiometry) OR visit_id
+  // (catches records ordered from a plain OPD consultation before this
+  // case existed, or older records from before surgical_case_id was
+  // introduced). visit_id alone was the fragile version of this query
+  // that caused the "next patient didn't move to Recovery" bug earlier
+  // -- keeping it only as a fallback, not the primary match.
   let biometryRecords = [];
-  if (sc.visit_id) {
+  {
+    const orParts = [`surgical_case_id.eq.${caseId}`];
+    if (sc.visit_id) orParts.push(`visit_id.eq.${sc.visit_id}`);
     const { data } = await supabase
       .from('biometry_records')
       .select('id, surgical_eye, status, final_iol_power, final_iol_category, approved_at')
-      .eq('visit_id', sc.visit_id)
+      .or(orParts.join(','))
       .neq('status', 'Cancelled')
       .order('created_at', { ascending: false });
     biometryRecords = data || [];
@@ -155,7 +199,26 @@ export async function orderBiometryForCase(caseId, eye, instructions) {
   const mappedEye = eyeMap[eye || sc.eye] || null;
   if (!mappedEye) return { error: 'Select which eye needs Biometry.' };
 
-  return adviseBiometry(sc.visit_id, sc.encounter_id, mappedEye, instructions);
+  const result = await adviseBiometry(sc.visit_id, sc.encounter_id, mappedEye, instructions);
+  if (result.error) return result;
+
+  // adviseBiometry doesn't know about surgical cases at all -- it's
+  // also used standalone from a regular OPD consultation with no
+  // surgery involved. Link the record(s) it just created/touched back
+  // to this case here, same fix as Counselling's sendForBiometry
+  // (biometry_records.surgical_case_id, not the fragile visit_id-only
+  // matching that caused the earlier "next patient didn't move to
+  // Recovery" bug).
+  const eyesToLink = mappedEye === 'Both' ? ['RE', 'LE'] : [mappedEye];
+  await supabase
+    .from('biometry_records')
+    .update({ surgical_case_id: caseId })
+    .eq('visit_id', sc.visit_id)
+    .in('surgical_eye', eyesToLink)
+    .neq('status', 'Cancelled')
+    .is('surgical_case_id', null);
+
+  return result;
 }
 
 export async function setPreOpPanelNotes(caseId, notes) {
