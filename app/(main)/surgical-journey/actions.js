@@ -1,7 +1,8 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
-import { markForSurgery, adviseBiometry } from '@/app/(main)/consultation/actions';
+import { adviseBiometry } from '@/app/(main)/consultation/actions';
+import { markForSurgery } from '@/app/(main)/counselling/actions';
 
 // This module deliberately does NOT reimplement package selection,
 // biometry skip/unskip, decision recording, ready-for-scheduling, or OT
