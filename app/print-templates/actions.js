@@ -649,7 +649,7 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
   let surgeonForBill = null; // Surgery Bill shows the operating surgeon, not the visit's consulting doctor
   let packageBreakup = [];
   let breakupAvailable = false;
-  if (isSurgery && invoice.visit_id) {
+  if (isSurgery) {
     // The package/surgery header shown on the bill must reflect what was
     // actually billed on THIS invoice, not whatever the surgical case's
     // package currently is -- a patient's package can be changed after
@@ -657,17 +657,28 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
     // under a different package entirely, and past invoices must not
     // silently start showing today's package on reprint. The billed
     // package name/code therefore comes straight from this invoice's own
-    // Surgery line item, which is immutable once created.
+    // Surgery line item, which is immutable once created -- no visit_id
+    // needed for this part at all.
     const surgeryLine = (rawLineItems || []).find((li) => li.dept === 'Surgery');
     packageName = surgeryLine?.service_name || null;
     packageCode = surgeryLine?.service_code || null;
 
-    const { data: surgicalCase } = await supabase
-      .from('surgical_cases')
-      .select('id, procedure_name, eye, surgeon_id')
-      .eq('visit_id', invoice.visit_id)
-      .neq('status', 'Cancelled')
-      .maybeSingle();
+    // Enrichment only -- a surgical case registered directly (OT
+    // Schedule's "Register Surgery Directly") or billed without a visit
+    // selected has no visit_id to look this up by. That's fine: the
+    // manual_surgery_* fields below (always saved at billing time,
+    // whether prefilled from a case or typed by hand) cover exactly
+    // this situation, which is why they exist.
+    let surgicalCase = null;
+    if (invoice.visit_id) {
+      const { data } = await supabase
+        .from('surgical_cases')
+        .select('id, procedure_name, eye, surgeon_id')
+        .eq('visit_id', invoice.visit_id)
+        .neq('status', 'Cancelled')
+        .maybeSingle();
+      surgicalCase = data;
+    }
 
     // Surgery/Eye/Doctor are always editable in New Invoice now (whether
     // prefilled from a case or entered by hand), and whatever was
@@ -689,9 +700,10 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
       const { data: surgery } = await supabase.from('master_surgeries').select('code').eq('name', surgeryName).maybeSingle();
       surgeryCode = surgery?.code || null;
     }
-    if (surgicalCase) {
-      // The package's own line-item breakup is tied to whatever package
-      // was actually billed, not the case's current one either.
+    // Breakup lookup is keyed off packageCode (the invoice's own line
+    // item, always available for a surgery invoice) -- not the
+    // surgical case, so this works regardless of whether one was found.
+    if (packageCode) {
       const { data: pkgForBreakup } = await supabase.from('master_packages').select('id').eq('code', packageCode).maybeSingle();
       if (pkgForBreakup) {
         const { data: breakupItems } = await supabase
