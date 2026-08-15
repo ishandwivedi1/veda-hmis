@@ -40,26 +40,34 @@ export async function ensureRecoveryEpisode(otScheduleId, surgicalCaseId, visitI
   return created.id;
 }
 
-// ── DASHBOARD: patients still in recovery, not yet discharged ──
+// ── DASHBOARD: patients still in recovery, not yet discharged -- PLUS
+// anyone discharged today. A discharge shouldn't make the patient
+// vanish from the dashboard the instant it happens; it only moves to
+// History once the day rolls over (same pattern as OT Intraop's
+// Dashboard vs History split). ──
 export async function getRecoveryCaseList() {
   const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('recovery_episodes')
     .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
-    .is('discharge_date', null)
+    .or(`discharge_date.is.null,discharge_date.eq.${todayIst}`)
     .order('created_at', { ascending: true });
   if (error) return [];
   return (data || []).filter((e) => e.surgical_cases);
 }
 
-// ── HISTORY: discharged episodes (Recovery's part is done -- Post Op
-// takes over follow-up tracking and closure from here) ──
+// ── HISTORY: discharged episodes from BEFORE today -- Recovery's part
+// is done, Post Op takes over follow-up tracking and closure from here.
+// Today's discharges stay on the Dashboard until the day rolls over. ──
 export async function getRecoveryHistory() {
   const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('recovery_episodes')
     .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
     .not('discharge_date', 'is', null)
+    .lt('discharge_date', todayIst)
     .order('discharge_date', { ascending: false });
   if (error) return [];
   return (data || []).filter((e) => e.surgical_cases);

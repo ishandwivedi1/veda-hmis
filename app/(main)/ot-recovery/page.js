@@ -18,19 +18,26 @@ function TabButton({ active, onClick, icon, label, disabled }) {
 }
 
 function DashboardTab({ cases, loading, onOpen }) {
+  const inRecovery = cases.filter((c) => !c.discharge_date);
+  const dischargedToday = cases.filter((c) => c.discharge_date);
+
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(1, 1fr)', gap: 10, marginBottom: 14, maxWidth: 260 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14, maxWidth: 420 }}>
         <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--teal)' }}>
           <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>In recovery, not yet discharged</div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>{cases.length}</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{inRecovery.length}</div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--green)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Discharged today</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{dischargedToday.length}</div>
         </div>
       </div>
 
-      <div className="card">
+      <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-bed" style={{ color: 'var(--teal)' }}></i> Patients in Recovery</div>
         {loading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 20, textAlign: 'center' }}>Loading...</div>}
-        {!loading && cases.map((c) => {
+        {!loading && inRecovery.map((c) => {
           const sc = c.surgical_cases;
           const patient = sc.patients;
           return (
@@ -49,8 +56,35 @@ function DashboardTab({ cases, loading, onOpen }) {
             </div>
           );
         })}
-        {!loading && cases.length === 0 && (
+        {!loading && inRecovery.length === 0 && (
           <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No patients currently in recovery.</div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Discharged Today</div>
+        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Moves to History tomorrow -- still open here today for reference or a correction.</div>
+        {!loading && dischargedToday.map((c) => {
+          const sc = c.surgical_cases;
+          const patient = sc.patients;
+          return (
+            <div key={c.id} onClick={() => onOpen(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
+              <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                {patient?.first_name?.charAt(0)}
+              </div>
+              <div style={{ flex: 1 }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{patient?.first_name} {patient?.last_name}</span>
+                <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>Discharged</span>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+                  {patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'}
+                </div>
+              </div>
+              <button className="btn btn-sm"><i className="ti ti-eye"></i> View</button>
+            </div>
+          );
+        })}
+        {!loading && dischargedToday.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nobody discharged yet today.</div>
         )}
       </div>
     </div>
