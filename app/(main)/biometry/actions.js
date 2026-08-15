@@ -56,6 +56,41 @@ export async function getBiometryQueue() {
   return { rows, stats };
 }
 
+// ── COMPLETED TODAY -- Approved records from today, so a biometry
+// doesn't just disappear from the Queue the instant it's approved.
+// Moves to History (getBiometryHistory) once the day rolls over --
+// mirrors the same Dashboard/History split used in OT Intraop, OT
+// Recovery, and the Investigation Queue. ──
+export async function getBiometryCompletedToday() {
+  const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const startUTC = new Date(`${todayIst}T00:00:00+05:30`).toISOString();
+  const endUTC = new Date(`${todayIst}T23:59:59.999+05:30`).toISOString();
+
+  const { data, error } = await supabase
+    .from('biometry_records')
+    .select('*, visits(id, doctor_id, patients(first_name, last_name, uhid))')
+    .eq('status', 'Approved')
+    .gte('approved_at', startUTC)
+    .lte('approved_at', endUTC)
+    .order('approved_at', { ascending: false });
+  if (error) return [];
+
+  return (data || [])
+    .filter((r) => r.visits)
+    .map((r) => ({
+      recordId: r.id,
+      visitId: r.visit_id,
+      encounterId: r.encounter_id,
+      doctorId: r.visits?.doctor_id,
+      patient: r.visits?.patients,
+      status: r.status,
+      procedureName: r.procedure_name,
+      surgicalEye: r.surgical_eye,
+      approvedAt: r.approved_at,
+    }));
+}
+
 // Finds an in-flight record for this visit, or creates a fresh one --
 // same lazy-create pattern as the encounter/optometry assessment.
 export async function getOrCreateBiometryRecord(visitId, encounterId) {

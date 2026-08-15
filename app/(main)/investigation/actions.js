@@ -102,7 +102,9 @@ export async function getInvestigationQueue() {
 
 // ── TODAY'S INVESTIGATIONS -- for the Dashboard widget (patient, test
 // name, billing status, view/print). IST-bounded so "today" matches
-// the front desk's actual working day rather than UTC midnight. ──
+// the front desk's actual working day rather than UTC midnight.
+// Returns everything ordered today regardless of status -- the page
+// splits pending vs completed client-side (see investigation/page.js). ──
 export async function getTodaysInvestigations() {
   const supabase = await createClient();
   const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });

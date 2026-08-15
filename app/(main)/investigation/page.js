@@ -63,6 +63,9 @@ export default function InvestigationPage() {
     ? groups.map((g) => ({ ...g, items: g.items.filter((i) => (i.kind === 'biometry' ? 'Biometry' : matchType(i.name)) === typeFilter) })).filter((g) => g.items.length > 0)
     : groups;
 
+  const todaysPending = todaysInvestigations.filter((r) => ['Ordered', 'In Progress'].includes(r.status));
+  const todaysCompleted = todaysInvestigations.filter((r) => ['Completed', 'Available', 'Verified'].includes(r.status));
+
   return (
     <div>
       <div className="g4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
@@ -76,15 +79,49 @@ export default function InvestigationPage() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title" style={{ marginBottom: 10 }}>
-          <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> Today&apos;s Investigations
-          <span className="badge b-gray" style={{ marginLeft: 8 }}>{todaysInvestigations.length}</span>
+          <i className="ti ti-clock" style={{ color: 'var(--amber)' }}></i> Today&apos;s Pending
+          <span className="badge b-amber" style={{ marginLeft: 8 }}>{todaysPending.length}</span>
         </div>
+        <table className="tbl">
+          <thead>
+            <tr><th>Patient Name</th><th>Investigation</th><th>Status</th><th>Billing Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {todaysPending.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <strong>{r.patient?.first_name} {r.patient?.last_name}</strong>
+                  <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{r.patient?.uhid}</span>
+                </td>
+                <td style={{ fontWeight: 600 }}>{r.name} <span style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 400 }}>({r.eye})</span></td>
+                <td><span className="badge b-amber">{r.status}</span></td>
+                <td><span className={`badge ${r.payment?.badge || 'b-gray'}`}>{r.payment?.label || 'Unbilled'}</span></td>
+                <td>
+                  <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(`/investigation/${r.id}`)} title="View">
+                    <i className="ti ti-eye"></i>
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {todaysPending.length === 0 && (
+              <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>Nothing pending from today.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10 }}>
+          <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Today&apos;s Completed
+          <span className="badge b-green" style={{ marginLeft: 8 }}>{todaysCompleted.length}</span>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Moves to History tomorrow -- still viewable/printable from here today.</div>
         <table className="tbl">
           <thead>
             <tr><th>Patient Name</th><th>Investigation</th><th>Billing Status</th><th></th></tr>
           </thead>
           <tbody>
-            {todaysInvestigations.map((r) => (
+            {todaysCompleted.map((r) => (
               <tr key={r.id}>
                 <td>
                   <strong>{r.patient?.first_name} {r.patient?.last_name}</strong>
@@ -96,21 +133,19 @@ export default function InvestigationPage() {
                   <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(`/investigation/${r.id}`)} title="View">
                     <i className="ti ti-eye"></i>
                   </button>
-                  {['Completed', 'Verified', 'Available'].includes(r.status) && (
-                    <button
-                      onClick={() => openPrintPopup(`/investigation-print/${r.id}`)}
-                      className="btn"
-                      style={{ padding: '3px 8px', fontSize: 11 }}
-                      title="Print / PDF"
-                    >
-                      <i className="ti ti-printer"></i>
-                    </button>
-                  )}
+                  <button
+                    onClick={() => openPrintPopup(`/investigation-print/${r.id}`)}
+                    className="btn"
+                    style={{ padding: '3px 8px', fontSize: 11 }}
+                    title="Print / PDF"
+                  >
+                    <i className="ti ti-printer"></i>
+                  </button>
                 </td>
               </tr>
             ))}
-            {todaysInvestigations.length === 0 && (
-              <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No investigations today yet.</td></tr>
+            {todaysCompleted.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>Nothing completed yet today.</td></tr>
             )}
           </tbody>
         </table>
@@ -118,7 +153,7 @@ export default function InvestigationPage() {
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-head" style={{ marginBottom: 0 }}>
-          <div className="card-title"><i className="ti ti-list-numbers" style={{ color: 'var(--teal)' }}></i> Investigation Queue</div>
+          <div className="card-title"><i className="ti ti-list-numbers" style={{ color: 'var(--teal)' }}></i> Investigation Queue <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--g400)' }}>(all pending, any date)</span></div>
           <select className="fi" style={{ width: 'auto', padding: '5px 8px', fontSize: 11 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">All types</option>
             <option value="OCT">OCT</option>
