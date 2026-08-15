@@ -52,39 +52,63 @@ export async function sendForBiometry(caseId) {
   });
   if (error) return { error: error.message };
 
-  // Also create the biometry_records stub right away (mirrors
-  // getOrCreateBiometryRecord in the Biometry module) so the Counselling
-  // dashboard reflects "Awaiting Biometry" immediately instead of only
-  // after the technician opens the queue entry -- and so the technician
-  // finds it already there rather than creating a fresh one.
+  // Also create the biometry_records stub(s) right away (mirrors
+  // ensureBiometryRecords in the Doctor Consultation module) so the
+  // Counselling dashboard reflects "Awaiting Biometry" immediately
+  // instead of only after the technician opens the queue entry -- and
+  // so the technician finds it already there rather than creating a
+  // fresh one.
   //
   // Procedure + eye come from THIS surgical case (already fetched above
-  // by caseId, so it's the definitive source -- no second lookup needed).
-  // Deliberately NOT looked up by visit_id here: send_case_to_department_
+  // by caseId, so it's the definitive source -- no second lookup by
+  // visit_id needed here). That matters because send_case_to_department_
   // queue() above issues a FRESH queue token against the patient's
   // still-open visit, which can be a different visit_id than the one the
   // surgical case itself was created under (e.g. counselling happening
-  // days after the original consultation). encounter_id stays the same
-  // across that gap, but visit_id doesn't -- so a visit_id-based lookup
-  // here would silently miss the eye/procedure and create a blank stub,
-  // same as it did before this fix.
+  // days after the original consultation) -- a visit_id-based lookup
+  // would silently miss the eye/procedure, same as it did before this
+  // fix.
+  //
+  // One record per eye -- verifyBiometryMeasurements only supports a
+  // single eye per record ("OU not supported for a single IOL
+  // calculation"), so a bilateral (OU) case fans out into two records,
+  // RE and LE, same pattern the doctor's own OPD biometry order already
+  // uses (ensureBiometryRecords in consultation/actions.js).
   const visitId = queueEntry?.visit_id;
   if (visitId) {
-    const { data: existing } = await supabase
-      .from('biometry_records')
-      .select('id')
-      .eq('visit_id', visitId)
-      .neq('status', 'Cancelled')
-      .order('created_at', { ascending: false })
-      .limit(1);
+    const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
 
-    if (!existing || existing.length === 0) {
-      const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
-      await supabase.from('biometry_records').insert({
-        visit_id: visitId, encounter_id: sc.encounter_id || null, surgeon_id: visit?.doctor_id || null,
-        procedure_name: sc.procedure_name || null,
-        surgical_eye: sc.eye === 'OD' ? 'RE' : sc.eye === 'OS' ? 'LE' : sc.eye === 'OU' ? 'Both' : null,
-      });
+    const mappedEyes = sc.eye === 'OU' ? ['RE', 'LE'] : sc.eye === 'OD' ? ['RE'] : sc.eye === 'OS' ? ['LE'] : [];
+    // Fallback for a surgical case whose eye hasn't been set yet -- keep
+    // creating a single blank stub rather than silently creating nothing,
+    // matching the pre-fix behaviour for that edge case.
+    const eyes = mappedEyes.length > 0 ? mappedEyes : [null];
+
+    for (const eye of eyes) {
+      let existingQuery = supabase
+        .from('biometry_records')
+        .select('id, surgical_case_id')
+        .eq('visit_id', visitId)
+        .neq('status', 'Cancelled')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      existingQuery = eye ? existingQuery.eq('surgical_eye', eye) : existingQuery.is('surgical_eye', null);
+      const { data: existing } = await existingQuery;
+
+      if (!existing || existing.length === 0) {
+        await supabase.from('biometry_records').insert({
+          visit_id: visitId, encounter_id: sc.encounter_id || null, surgeon_id: visit?.doctor_id || null,
+          surgical_case_id: sc.id,
+          procedure_name: sc.procedure_name || null,
+          surgical_eye: eye,
+        });
+      } else if (!existing[0].surgical_case_id) {
+        // A record for this eye already exists (e.g. the doctor already
+        // advised Biometry from OPD before this surgical case existed) --
+        // just link it back to this surgical case rather than creating a
+        // duplicate.
+        await supabase.from('biometry_records').update({ surgical_case_id: sc.id }).eq('id', existing[0].id);
+      }
     }
   }
 

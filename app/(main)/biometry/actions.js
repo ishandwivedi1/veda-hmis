@@ -85,19 +85,28 @@ export async function getOrCreateBiometryRecord(visitId, encounterId) {
   // before any surgical case exists yet for this visit.
   const { data: surgicalCase } = await supabase
     .from('surgical_cases')
-    .select('procedure_name, eye')
+    .select('id, procedure_name, eye')
     .eq('visit_id', visitId)
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
+  // OU (bilateral) can't be represented on a single record --
+  // verifyBiometryMeasurements only supports one eye per record. This
+  // fallback path only ever creates ONE record (unlike Counselling's
+  // sendForBiometry, which fans an OU case out into two), so for OU we
+  // deliberately leave surgical_eye blank here rather than writing an
+  // unsupported value -- the technician sets it explicitly instead.
+  const surgicalEye = surgicalCase?.eye === 'OD' ? 'RE' : surgicalCase?.eye === 'OS' ? 'LE' : null;
+
   const { data: created, error } = await supabase
     .from('biometry_records')
     .insert({
       visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null,
+      surgical_case_id: surgicalCase?.id || null,
       procedure_name: surgicalCase?.procedure_name || null,
-      surgical_eye: surgicalCase?.eye === 'OD' ? 'RE' : surgicalCase?.eye === 'OS' ? 'LE' : surgicalCase?.eye === 'OU' ? 'Both' : null,
+      surgical_eye: surgicalEye,
     })
     .select('id')
     .single();

@@ -1828,6 +1828,7 @@ CREATE TABLE IF NOT EXISTS "public"."biometry_records" (
     "billing_updated_at" timestamp with time zone,
     "invoice_id" "uuid",
     "doctor_instructions" "text",
+    "surgical_case_id" "uuid",
     CONSTRAINT "biometry_records_billing_status_check" CHECK (("billing_status" = ANY (ARRAY['Pending'::"text", 'Billed'::"text", 'Denied'::"text", 'Deferred'::"text"]))),
     CONSTRAINT "biometry_records_status_check" CHECK (("status" = ANY (ARRAY['Awaiting Biometry'::"text", 'Measured'::"text", 'Calculated'::"text", 'Approved'::"text", 'Cancelled'::"text"]))),
     CONSTRAINT "biometry_records_surgical_eye_check" CHECK (("surgical_eye" = ANY (ARRAY['RE'::"text", 'LE'::"text", 'OU'::"text"])))
@@ -1838,6 +1839,13 @@ ALTER TABLE "public"."biometry_records" OWNER TO "postgres";
 
 
 COMMENT ON COLUMN "public"."biometry_records"."billing_status" IS 'Front Office billing state: Pending (not yet actioned), Billed (invoiced), Denied (patient declined), Deferred (patient will return later).';
+
+
+
+COMMENT ON COLUMN "public"."biometry_records"."surgical_case_id" IS 'Optional link back to the surgical case this record originated from
+   (set by Counselling''s "Send for Biometry"). NULL for standalone
+   OPD-ordered biometry, which is equally valid and does not involve a
+   surgical case at all.';
 
 
 
@@ -1997,6 +2005,9 @@ CREATE TABLE IF NOT EXISTS "public"."hospital_settings" (
     "email" "text" DEFAULT 'admin@vedaeyehospital.com'::"text",
     "terms_text" "text" DEFAULT 'Invoice due & Payable on Receipt.'::"text",
     "logo_data_url" "text",
+    "case_sheet_hide_header" boolean DEFAULT false NOT NULL,
+    "glasses_rx_hide_header" boolean DEFAULT false NOT NULL,
+    "print_letterhead_space_cm" numeric DEFAULT 5 NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"(),
     "updated_by" "uuid",
     CONSTRAINT "hospital_settings_singleton" CHECK ("id")
