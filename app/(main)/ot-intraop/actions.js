@@ -14,13 +14,18 @@ export async function getConsumableOptions() {
   return all.filter((c) => c.status === 'Active');
 }
 
-// ── HISTORY: completed OT cases ──
+// ── HISTORY: completed OT cases -- everything BEFORE today. Today's
+// completed cases stay on the live Dashboard (see getOTCaseList) until
+// the day rolls over, so a completed case doesn't just vanish the
+// moment it's marked done. ──
 export async function getOTIntraopHistory() {
   const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('ot_schedule')
     .select('*, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
     .eq('status', 'Completed')
+    .lt('scheduled_date', todayIst)
     .order('scheduled_date', { ascending: false });
   if (error) return [];
 
@@ -42,23 +47,35 @@ export async function getOTIntraopHistory() {
 
 // ── CASE SELECTOR ──
 // Today's (and any overdue) bookings that haven't been completed or
-// cancelled -- the natural set of cases someone would walk in and open.
+// cancelled, PLUS today's already-completed cases -- so a case doesn't
+// disappear from the Dashboard the instant it's marked Completed. It
+// only moves to History (getOTIntraopHistory) once the day rolls over.
 // Also computes, per case, the package price and the patient's current
 // advance balance -- Open is gated on the advance fully covering the
 // package (surgery billing itself now happens later, at discharge, via
 // the Surgery Billing widget on the Billing Dashboard -- not here).
 export async function getOTCaseList() {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('ot_schedule')
-    .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
-    .in('status', ['Scheduled', 'In Progress'])
-    .lte('scheduled_date', new Date().toISOString().slice(0, 10))
-    .order('scheduled_date', { ascending: true })
-    .order('sequence_number', { ascending: true, nullsFirst: false });
-  if (error) return [];
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-  const cases = (data || []).filter((b) => b.surgical_cases);
+  const [{ data: pending, error: pendingError }, { data: completedToday, error: completedError }] = await Promise.all([
+    supabase
+      .from('ot_schedule')
+      .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+      .in('status', ['Scheduled', 'In Progress'])
+      .lte('scheduled_date', todayIst)
+      .order('scheduled_date', { ascending: true })
+      .order('sequence_number', { ascending: true, nullsFirst: false }),
+    supabase
+      .from('ot_schedule')
+      .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+      .eq('status', 'Completed')
+      .eq('scheduled_date', todayIst)
+      .order('scheduled_date', { ascending: true }),
+  ]);
+  if (pendingError || completedError) return [];
+
+  const cases = [...(pending || []), ...(completedToday || [])].filter((b) => b.surgical_cases);
 
   const balanceByPatient = {};
   const patientIds = [...new Set(cases.map((b) => b.surgical_cases.patient_id).filter(Boolean))];
@@ -299,6 +316,13 @@ export async function completeSurgery(otScheduleId, surgicalCaseId, values) {
   const recordId = await ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId);
   if (!recordId) return { error: 'Could not create intraop record.' };
 
+  // Was this already completed before? Determines whether this call is
+  // the original completion or a correction to one -- both go through
+  // this same function (the "Save Changes" button when unlocked reuses
+  // it), but they should read differently in the audit trail.
+  const { data: before } = await supabase.from('ot_intraop_records').select('completed_at').eq('id', recordId).maybeSingle();
+  const isCorrection = !!before?.completed_at;
+
   const { data: userData } = await supabase.auth.getUser();
 
   const { error: recError } = await supabase.from('ot_intraop_records').update({
@@ -310,7 +334,10 @@ export async function completeSurgery(otScheduleId, surgicalCaseId, values) {
     surgical_outcome: values.surgicalOutcome || null, outcome_remarks: values.outcomeRemarks || null,
     recovery_destination: values.recoveryDestination || null, recovery_monitoring: values.recoveryMonitoring || null,
     recovery_instructions: values.recoveryInstructions || null, recovery_concerns: values.recoveryConcerns || null,
-    completed_at: new Date().toISOString(), completed_by: userData?.user?.id || null,
+    // Only stamp completed_at/completed_by the FIRST time -- a
+    // correction shouldn't rewrite when the surgery was actually
+    // completed or by whom; that's preserved in the audit log instead.
+    ...(isCorrection ? {} : { completed_at: new Date().toISOString(), completed_by: userData?.user?.id || null }),
   }).eq('id', recordId);
   if (recError) return { error: recError.message };
 
@@ -328,8 +355,10 @@ export async function completeSurgery(otScheduleId, surgicalCaseId, values) {
   if (booking && caseRow) await ensureRecoveryEpisode(otScheduleId, surgicalCaseId, caseRow.visit_id, booking.scheduled_date);
 
   await supabase.from('ot_schedule_audit_log').insert({
-    ot_schedule_id: otScheduleId, action: 'Completed',
-    detail: `Surgery completed -- outcome: ${values.surgicalOutcome || '--'} -- handed over to Recovery (${values.recoveryDestination || '--'})`,
+    ot_schedule_id: otScheduleId, action: isCorrection ? 'Corrected After Completion' : 'Completed',
+    detail: isCorrection
+      ? `Intraop record corrected after completion -- outcome: ${values.surgicalOutcome || '--'}`
+      : `Surgery completed -- outcome: ${values.surgicalOutcome || '--'} -- handed over to Recovery (${values.recoveryDestination || '--'})`,
     changed_by: userData?.user?.id || null,
   });
 

@@ -19,15 +19,24 @@ export async function getDrugOptions() {
 // Called from OT Intraop's "Hand Over to Recovery" -- creates the
 // episode the moment a patient actually arrives here, same
 // lazy-create-on-handoff pattern used for biometry/medical fitness.
+// visit_id is optional -- a surgical case registered directly (e.g. OT
+// Schedule's "Register Surgery Directly", for a patient whose surgery
+// was decided outside today's Doctor -> Counselling pipeline) may not
+// have one. Recovery still needs to work for that patient; it just
+// can't show the pre-approved biometry/IOL plan (there isn't one to
+// show -- biometry was skipped for exactly this kind of case anyway).
 export async function ensureRecoveryEpisode(otScheduleId, surgicalCaseId, visitId, scheduledDate) {
   const supabase = await createClient();
   const { data: existing } = await supabase.from('recovery_episodes').select('id').eq('ot_schedule_id', otScheduleId).maybeSingle();
   if (existing) return existing.id;
   const { data: created, error } = await supabase.from('recovery_episodes').insert({
-    ot_schedule_id: otScheduleId, surgical_case_id: surgicalCaseId, visit_id: visitId,
+    ot_schedule_id: otScheduleId, surgical_case_id: surgicalCaseId, visit_id: visitId || null,
     admission_date: scheduledDate, surgery_date: scheduledDate,
   }).select('id').single();
-  if (error) return null;
+  if (error) {
+    console.error('ensureRecoveryEpisode failed:', error.message, { otScheduleId, surgicalCaseId, visitId });
+    return null;
+  }
   return created.id;
 }
 
@@ -70,7 +79,13 @@ export async function getRecoveryEpisodeDetail(episodeId) {
 
   const [{ data: intraop }, { data: biometry }, { data: meds }, { data: followups }, { data: complications }] = await Promise.all([
     supabase.from('ot_intraop_records').select('implant_power, implant_manufacturer, implant_model, surgical_outcome, outcome_remarks').eq('ot_schedule_id', episode.ot_schedule_id).maybeSingle(),
-    supabase.from('biometry_records').select('final_iol_power, final_iol_category, surgical_eye').eq('visit_id', episode.visit_id).eq('status', 'Approved'),
+    // visit_id may be null for a directly-registered surgical case (no
+    // biometry plan to show either way, since biometry was skipped for
+    // that kind of case) -- skip the lookup entirely rather than
+    // querying with a null value.
+    episode.visit_id
+      ? supabase.from('biometry_records').select('final_iol_power, final_iol_category, surgical_eye').eq('visit_id', episode.visit_id).eq('status', 'Approved')
+      : Promise.resolve({ data: [] }),
     supabase.from('recovery_medications').select('*').eq('recovery_episode_id', episodeId).order('added_at'),
     supabase.from('recovery_followups').select('*').eq('recovery_episode_id', episodeId).order('scheduled_date'),
     supabase.from('recovery_complications').select('*').eq('recovery_episode_id', episodeId).order('occurred_at'),

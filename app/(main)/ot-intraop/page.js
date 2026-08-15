@@ -32,14 +32,18 @@ function DashboardTab({ cases, loading, onOpen, onRefresh }) {
     onRefresh();
   }
 
+  const pendingCases = cases.filter((c) => c.status !== 'Completed');
+  const completedToday = cases.filter((c) => c.status === 'Completed');
+
   const counts = {
     Scheduled: cases.filter((c) => c.status === 'Scheduled').length,
     'In Progress': cases.filter((c) => c.status === 'In Progress').length,
+    Completed: completedToday.length,
   };
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 }}>
         <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--amber)' }}>
           <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Scheduled, not checked in</div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>{counts.Scheduled}</div>
@@ -48,16 +52,20 @@ function DashboardTab({ cases, loading, onOpen, onRefresh }) {
           <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>In Progress</div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>{counts['In Progress']}</div>
         </div>
+        <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--green)' }}>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Completed today</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{counts.Completed}</div>
+        </div>
         <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '3px solid var(--red)' }}>
-          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Total open cases</div>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 4 }}>Total today</div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>{cases.length}</div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-building-hospital" style={{ color: 'var(--red)' }}></i> Today&apos;s OT Cases</div>
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-building-hospital" style={{ color: 'var(--red)' }}></i> Today&apos;s Pending Cases</div>
         {loading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 20, textAlign: 'center' }}>Loading...</div>}
-        {!loading && cases.map((c) => {
+        {!loading && pendingCases.map((c) => {
           const sc = c.surgical_cases;
           const patient = sc.patients;
           const canOpen = c.advanceCleared;
@@ -104,8 +112,39 @@ function DashboardTab({ cases, loading, onOpen, onRefresh }) {
             </div>
           );
         })}
-        {!loading && cases.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No OT cases scheduled for today.</div>
+        {!loading && pendingCases.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No pending OT cases for today.</div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Today&apos;s Completed Cases</div>
+        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Moves to OT History tomorrow -- still editable from here today if a correction is needed.</div>
+        {!loading && completedToday.map((c) => {
+          const sc = c.surgical_cases;
+          const patient = sc.patients;
+          return (
+            <div
+              key={c.id}
+              onClick={() => onOpen(c.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
+            >
+              <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                {patient?.first_name?.charAt(0)}
+              </div>
+              <div style={{ flex: 1 }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{patient?.first_name} {patient?.last_name}</span>
+                <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>Completed</span>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+                  {patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
+                </div>
+              </div>
+              <button className="btn btn-sm"><i className="ti ti-edit"></i> View / Edit</button>
+            </div>
+          );
+        })}
+        {!loading && completedToday.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nothing completed yet today.</div>
         )}
       </div>
     </div>

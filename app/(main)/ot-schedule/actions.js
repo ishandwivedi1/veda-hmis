@@ -186,10 +186,26 @@ export async function registerSurgeryDirect(input) {
 
   const trimmedNote = workupNote.trim();
 
+  // If front desk already checked this patient in today (the normal
+  // order of events -- Surgery visit created, then OT discovers no
+  // matching case), attach that visit now so Recovery can show the
+  // pre-approved biometry/IOL plan later if one exists. Not required --
+  // recovery_episodes.visit_id is nullable specifically so this case
+  // still works cleanly when no visit exists yet either way.
+  const { data: openVisit } = await supabase
+    .from('visits')
+    .select('id')
+    .eq('patient_id', patientId)
+    .eq('status', 'Open')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const { data: created, error: insertError } = await supabase
     .from('surgical_cases')
     .insert({
       patient_id: patientId,
+      visit_id: openVisit?.id || null,
       procedure_name: procedureName.trim(),
       eye: eye || null,
       surgeon_id: surgeonId || null,

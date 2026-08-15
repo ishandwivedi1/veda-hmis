@@ -74,6 +74,7 @@ export default function Workspace({ otScheduleId, onBack }) {
   const [recoveryInstructions, setRecoveryInstructions] = useState('');
   const [recoveryConcerns, setRecoveryConcerns] = useState('');
   const [saving, setSaving] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
 
   function addLog(msg) {
     setLog((prev) => [`${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })} -- ${msg}`, ...prev].slice(0, 20));
@@ -136,6 +137,7 @@ export default function Workspace({ otScheduleId, onBack }) {
     initializedTabRef.current = false;
     setSubTab('checkin');
     setSeconds(0);
+    setUnlocked(false);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(timerRef.current);
@@ -148,6 +150,12 @@ export default function Workspace({ otScheduleId, onBack }) {
   const sc = booking.surgical_cases;
   const patient = sc.patients;
   const isCompleted = booking.status === 'Completed';
+  // Once completed, the intraoperative fields are locked for reference
+  // unless explicitly unlocked -- same "Unlock to Edit" pattern as a
+  // completed Doctor Consultation, so a genuine correction (wrong
+  // implant serial typed in, outcome remarks need fixing) doesn't
+  // require a database intervention.
+  const isReadOnly = isCompleted && !unlocked;
   const currentStep = isCompleted ? 4 : intraop?.checkin_completed_at ? (intraop?.anaesthesia_recorded_at ? (intraop?.completed_at ? 4 : 2) : 1) : 0;
 
   const requiredConsentsOk = CONSENT_FORM_TYPES.filter((f) => f.required).every((f) => consentForms[f.key]);
@@ -276,6 +284,7 @@ export default function Workspace({ otScheduleId, onBack }) {
 
   async function handleCompleteSurgery() {
     setError(''); setOk('');
+    const wasAlreadyCompleted = isCompleted;
     const result = await completeSurgery(otScheduleId, sc.id, {
       implantPower: imPower, implantCategory: imCategory, implantSerial: imSerial, implantManufacturer: imMfr, implantModel: imModel, implantCatalogId: imCatalogId, implantExpiry: imExpiry, implantEye: imEye,
       skipImplant: biometryPlans.length === 0,
@@ -285,8 +294,14 @@ export default function Workspace({ otScheduleId, onBack }) {
     });
     if (result.error) { setError(result.error); return; }
     clearInterval(timerRef.current);
-    addLog('SURGERY COMPLETED -- OT Case marked complete, handed over to Recovery');
-    setOk('Surgery completed and handed over to Recovery. Case marked Completed in OT Scheduling.');
+    if (wasAlreadyCompleted) {
+      addLog('INTRAOP RECORD CORRECTED -- changes saved after completion');
+      setOk('Changes saved.');
+      setUnlocked(false);
+    } else {
+      addLog('SURGERY COMPLETED -- OT Case marked complete, handed over to Recovery');
+      setOk('Surgery completed and handed over to Recovery. Case marked Completed in OT Scheduling.');
+    }
     refresh();
   }
 
@@ -300,6 +315,20 @@ export default function Workspace({ otScheduleId, onBack }) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{isCompleted ? 'Surgery Completed' : booking.status}</span>
+          {isCompleted && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{
+                borderColor: 'rgba(255,255,255,.3)',
+                background: unlocked ? 'rgba(251,191,36,.35)' : 'rgba(255,255,255,.1)',
+                color: '#fff',
+              }}
+              onClick={() => setUnlocked((v) => !v)}
+            >
+              <i className={`ti ${unlocked ? 'ti-lock-open' : 'ti-lock'}`}></i> {unlocked ? 'Lock' : 'Unlock to Edit'}
+            </button>
+          )}
           {!isCompleted && (
             <button
               type="button"
@@ -326,6 +355,24 @@ export default function Workspace({ otScheduleId, onBack }) {
           </button>
         </div>
       </div>
+
+      {isCompleted && (
+        <div
+          className="msg-info"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+            background: unlocked ? 'var(--amber-lt)' : 'var(--g100)', color: unlocked ? 'var(--amber)' : 'var(--g600)',
+            padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14,
+          }}
+        >
+          <span>
+            <i className={`ti ${unlocked ? 'ti-lock-open' : 'ti-lock'}`}></i>{' '}
+            {unlocked
+              ? 'Editing a completed surgery -- changes save immediately and are logged.'
+              : 'This surgery is completed. Viewing read-only for reference.'}
+          </span>
+        </div>
+      )}
 
       {error && <div className="msg-err"><i className="ti ti-x-circle"></i><span>{error}</span></div>}
       {ok && <div className="msg-ok"><i className="ti ti-circle-check"></i><span>{ok}</span></div>}
@@ -443,7 +490,7 @@ export default function Workspace({ otScheduleId, onBack }) {
                   <span>{item} <span style={{ fontSize: 10, color: 'var(--g400)' }}>(auto -- from Consent Forms above)</span></span>
                 </div>
               ) : (
-                <div key={i} onClick={() => !isCompleted && toggleCheckinItem(i)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 8, marginBottom: 5, fontSize: 12, border: '1px solid var(--g200)', cursor: isCompleted ? 'default' : 'pointer', background: checkinChecked[i] ? 'var(--green-lt)' : '#fff' }}>
+                <div key={i} onClick={() => !isReadOnly && toggleCheckinItem(i)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 8, marginBottom: 5, fontSize: 12, border: '1px solid var(--g200)', cursor: isReadOnly ? 'default' : 'pointer', background: checkinChecked[i] ? 'var(--green-lt)' : '#fff' }}>
                   <div style={{ width: 18, height: 18, borderRadius: 4, background: checkinChecked[i] ? 'var(--green)' : '#fff', border: '2px solid', borderColor: checkinChecked[i] ? 'var(--green)' : 'var(--g300)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{checkinChecked[i] && <i className="ti ti-check" style={{ fontSize: 11, color: '#fff' }}></i>}</div>
                   <span>{item}</span>
                 </div>
@@ -480,7 +527,7 @@ export default function Workspace({ otScheduleId, onBack }) {
                 </div>
                 <div style={{ marginBottom: 6 }}>
                   <label className="flbl">Eye implanted</label>
-                  <select className="fi fi-sm" value={imEye} onChange={(e) => setImEye(e.target.value)} disabled={isCompleted} style={{ borderColor: eyeMismatch ? 'var(--red)' : undefined }}>
+                  <select className="fi fi-sm" value={imEye} onChange={(e) => setImEye(e.target.value)} disabled={isReadOnly} style={{ borderColor: eyeMismatch ? 'var(--red)' : undefined }}>
                     <option value="OD">Right (OD)</option>
                     <option value="OS">Left (OS)</option>
                     <option value="OU">Both (OU)</option>
@@ -488,11 +535,11 @@ export default function Workspace({ otScheduleId, onBack }) {
                 </div>
                 <div style={{ marginBottom: 6 }}>
                   <label className="flbl">IOL Power (D)</label>
-                  <input className="fi fi-sm" value={imPower} onChange={(e) => setImPower(e.target.value)} disabled={isCompleted} style={{ borderColor: powerMismatch ? 'var(--red)' : undefined }} />
+                  <input className="fi fi-sm" value={imPower} onChange={(e) => setImPower(e.target.value)} disabled={isReadOnly} style={{ borderColor: powerMismatch ? 'var(--red)' : undefined }} />
                 </div>
                 <div style={{ marginBottom: 6 }}>
                   <label className="flbl">IOL Category</label>
-                  <select className="fi fi-sm" value={imCategory} onChange={(e) => setImCategory(e.target.value)} disabled={isCompleted} style={{ borderColor: categoryMismatch ? 'var(--red)' : undefined }}>
+                  <select className="fi fi-sm" value={imCategory} onChange={(e) => setImCategory(e.target.value)} disabled={isReadOnly} style={{ borderColor: categoryMismatch ? 'var(--red)' : undefined }}>
                     <option value="">-- Select --</option>
                     <option>Monofocal</option>
                     <option>Monofocal Toric</option>
@@ -503,7 +550,7 @@ export default function Workspace({ otScheduleId, onBack }) {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                     <label className="flbl">Specific IOL (Manufacturer &amp; Brand)</label>
-                    {!isCompleted && (
+                    {!isReadOnly && (
                       <button
                         type="button"
                         onClick={() => setImIolMode(imIolMode === 'catalog' ? 'other' : 'catalog')}
@@ -524,7 +571,7 @@ export default function Workspace({ otScheduleId, onBack }) {
                           setImMfr(item?.manufacturer || '');
                           setImModel(item ? `${item.brand}${item.model ? ' ' + item.model : ''}` : '');
                         }}
-                        disabled={isCompleted}
+                        disabled={isReadOnly}
                         style={{ borderColor: specificIolMismatch ? 'var(--red)' : undefined }}
                       >
                         <option value="">-- Select IOL --</option>
@@ -538,8 +585,8 @@ export default function Workspace({ otScheduleId, onBack }) {
                     </>
                   ) : (
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <input className="fi fi-sm" placeholder="Manufacturer" value={imMfr} onChange={(e) => { setImMfr(e.target.value); setImCatalogId(''); }} disabled={isCompleted} style={{ borderColor: specificIolMismatch ? 'var(--red)' : undefined }} />
-                      <input className="fi fi-sm" placeholder="Model" value={imModel} onChange={(e) => { setImModel(e.target.value); setImCatalogId(''); }} disabled={isCompleted} style={{ borderColor: specificIolMismatch ? 'var(--red)' : undefined }} />
+                      <input className="fi fi-sm" placeholder="Manufacturer" value={imMfr} onChange={(e) => { setImMfr(e.target.value); setImCatalogId(''); }} disabled={isReadOnly} style={{ borderColor: specificIolMismatch ? 'var(--red)' : undefined }} />
+                      <input className="fi fi-sm" placeholder="Model" value={imModel} onChange={(e) => { setImModel(e.target.value); setImCatalogId(''); }} disabled={isReadOnly} style={{ borderColor: specificIolMismatch ? 'var(--red)' : undefined }} />
                     </div>
                   )}
                 </div>
@@ -549,15 +596,15 @@ export default function Workspace({ otScheduleId, onBack }) {
             {variancePresent && (
               <div style={{ marginBottom: 10 }}>
                 <label className="flbl">Variance reason (mandatory to proceed)</label>
-                <input className="fi fi-sm" value={varianceReason} onChange={(e) => setVarianceReason(e.target.value)} disabled={isCompleted} placeholder="Document reason for deviation from the approved plan..." />
+                <input className="fi fi-sm" value={varianceReason} onChange={(e) => setVarianceReason(e.target.value)} disabled={isReadOnly} placeholder="Document reason for deviation from the approved plan..." />
               </div>
             )}
 
             <div style={{ borderTop: '1px dashed var(--g200)', paddingTop: 10 }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 6 }}>Serial / Batch (from the implanted unit's label)</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div><label className="flbl">Serial / Batch number</label><input className="fi fi-sm" value={imSerial} onChange={(e) => setImSerial(e.target.value)} disabled={isCompleted} /></div>
-                <div><label className="flbl">Expiry date</label><input type="date" className="fi fi-sm" value={imExpiry} onChange={(e) => setImExpiry(e.target.value)} disabled={isCompleted} /></div>
+                <div><label className="flbl">Serial / Batch number</label><input className="fi fi-sm" value={imSerial} onChange={(e) => setImSerial(e.target.value)} disabled={isReadOnly} /></div>
+                <div><label className="flbl">Expiry date</label><input type="date" className="fi fi-sm" value={imExpiry} onChange={(e) => setImExpiry(e.target.value)} disabled={isReadOnly} /></div>
               </div>
             </div>
           </div>
@@ -566,14 +613,14 @@ export default function Workspace({ otScheduleId, onBack }) {
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-injection" style={{ color: 'var(--teal)' }}></i> Anaesthesia</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <div><label className="flbl">Anaesthesia type</label><select className="fi fi-sm" value={anaesType} onChange={(e) => setAnaesType(e.target.value)} disabled={isCompleted}><option>Topical</option><option>Peribulbar</option><option>Retrobulbar</option><option>Local with Sedation</option><option>General</option></select></div>
-              <div><label className="flbl">Anaesthetist</label><input className="fi fi-sm" value={anaesDoctor} onChange={(e) => setAnaesDoctor(e.target.value)} disabled={isCompleted} placeholder="If applicable" /></div>
+              <div><label className="flbl">Anaesthesia type</label><select className="fi fi-sm" value={anaesType} onChange={(e) => setAnaesType(e.target.value)} disabled={isReadOnly}><option>Topical</option><option>Peribulbar</option><option>Retrobulbar</option><option>Local with Sedation</option><option>General</option></select></div>
+              <div><label className="flbl">Anaesthetist</label><input className="fi fi-sm" value={anaesDoctor} onChange={(e) => setAnaesDoctor(e.target.value)} disabled={isReadOnly} placeholder="If applicable" /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <div><label className="flbl">Start time</label><input type="time" className="fi fi-sm" value={anaesStart} onChange={(e) => setAnaesStart(e.target.value)} disabled={isCompleted} /></div>
-              <div><label className="flbl">End time</label><input type="time" className="fi fi-sm" value={anaesEnd} onChange={(e) => setAnaesEnd(e.target.value)} disabled={isCompleted} /></div>
+              <div><label className="flbl">Start time</label><input type="time" className="fi fi-sm" value={anaesStart} onChange={(e) => setAnaesStart(e.target.value)} disabled={isReadOnly} /></div>
+              <div><label className="flbl">End time</label><input type="time" className="fi fi-sm" value={anaesEnd} onChange={(e) => setAnaesEnd(e.target.value)} disabled={isReadOnly} /></div>
             </div>
-            <input className="fi fi-sm" value={anaesRemarks} onChange={(e) => setAnaesRemarks(e.target.value)} disabled={isCompleted} placeholder="Sedation details / special remarks..." />
+            <input className="fi fi-sm" value={anaesRemarks} onChange={(e) => setAnaesRemarks(e.target.value)} disabled={isReadOnly} placeholder="Sedation details / special remarks..." />
             {!intraop?.anaesthesia_recorded_at && !isCompleted && (
               <button className="btn btn-sm" style={{ background: 'var(--blue)', color: '#fff', border: 'none', marginTop: 8 }} onClick={handleRecordAnaesthesia}><i className="ti ti-check"></i> Record anaesthesia</button>
             )}
@@ -633,9 +680,9 @@ export default function Workspace({ otScheduleId, onBack }) {
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-box" style={{ color: 'var(--amber)' }}></i> Consumables</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-              {consumableOptions.map((c) => <span key={c.id} className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => !isCompleted && handleAddConsumable(c.name)}>{c.name}</span>)}
+              {consumableOptions.map((c) => <span key={c.id} className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => !isReadOnly && handleAddConsumable(c.name)}>{c.name}</span>)}
             </div>
-            {!isCompleted && (
+            {!isReadOnly && (
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                 <input className="fi fi-sm" style={{ flex: 1 }} value={consumableName} onChange={(e) => setConsumableName(e.target.value)} placeholder="Consumable name..." />
                 <button className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', border: 'none' }} onClick={() => handleAddConsumable()}><i className="ti ti-plus"></i> Add</button>
@@ -644,7 +691,7 @@ export default function Workspace({ otScheduleId, onBack }) {
             {consumables.map((c) => (
               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', background: 'var(--g50)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
                 <i className="ti ti-box" style={{ color: 'var(--amber)' }}></i><span style={{ flex: 1 }}>{c.name}</span>
-                {!isCompleted && <button onClick={() => removeConsumable(c.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => removeConsumable(c.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>
@@ -655,7 +702,7 @@ export default function Workspace({ otScheduleId, onBack }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
               {EVENT_QUICK.map((e) => <span key={e} className="badge b-amber" style={{ cursor: 'pointer' }} onClick={() => setEventName(e)}>{e}</span>)}
             </div>
-            {!isCompleted && (
+            {!isReadOnly && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, marginBottom: 8 }}>
                 <input className="fi fi-sm" value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="Event description..." />
                 <select className="fi fi-sm" value={eventSeverity} onChange={(e) => setEventSeverity(e.target.value)}><option>Mild</option><option>Moderate</option><option>Severe</option></select>
@@ -665,7 +712,7 @@ export default function Workspace({ otScheduleId, onBack }) {
             {events.map((e) => (
               <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 6, fontSize: 12, border: '1px solid var(--g200)', background: e.severity === 'Severe' ? 'var(--red-lt)' : e.severity === 'Moderate' ? 'var(--amber-lt)' : 'var(--g50)' }}>
                 <div style={{ flex: 1 }}><strong>{e.name}</strong> <span className={`badge ${e.severity === 'Severe' ? 'b-red' : e.severity === 'Moderate' ? 'b-amber' : 'b-gray'}`} style={{ fontSize: 10 }}>{e.severity}</span></div>
-                {!isCompleted && <button onClick={() => removeIntraopEvent(e.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => removeIntraopEvent(e.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>
@@ -676,7 +723,7 @@ export default function Workspace({ otScheduleId, onBack }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
               {COMPL_QUICK.map((c) => <span key={c} className="badge b-red" style={{ cursor: 'pointer' }} onClick={() => setComplName(c)}>{c}</span>)}
             </div>
-            {!isCompleted && (
+            {!isReadOnly && (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                   <input className="fi fi-sm" value={complName} onChange={(e) => setComplName(e.target.value)} placeholder="Complication..." />
@@ -696,7 +743,7 @@ export default function Workspace({ otScheduleId, onBack }) {
                   <div style={{ fontSize: 11, color: 'var(--g600)', marginTop: 3 }}>Management: {c.management}</div>
                   {c.outcome && <div style={{ fontSize: 11, color: 'var(--g600)' }}>Outcome: {c.outcome}</div>}
                 </div>
-                {!isCompleted && <button onClick={() => removeIntraopEvent(c.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => removeIntraopEvent(c.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>
@@ -704,30 +751,30 @@ export default function Workspace({ otScheduleId, onBack }) {
           {/* Notes */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-notes" style={{ color: 'var(--g500)' }}></i> Operative Notes</div>
-            <textarea className="fi fi-sm" rows={3} value={opNotes} onChange={(e) => setOpNotes(e.target.value)} disabled={isCompleted} placeholder="Free-text operative narrative..." />
+            <textarea className="fi fi-sm" rows={3} value={opNotes} onChange={(e) => setOpNotes(e.target.value)} disabled={isReadOnly} placeholder="Free-text operative narrative..." />
           </div>
 
           {/* Outcome */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-flag" style={{ color: 'var(--green)' }}></i> Surgical Outcome</div>
-            <select className="fi fi-sm" value={surgicalOutcome} onChange={(e) => setSurgicalOutcome(e.target.value)} disabled={isCompleted} style={{ marginBottom: 8 }}>
+            <select className="fi fi-sm" value={surgicalOutcome} onChange={(e) => setSurgicalOutcome(e.target.value)} disabled={isReadOnly} style={{ marginBottom: 8 }}>
               <option>Successful</option><option>Successful with Complication</option><option>Converted Procedure</option><option>Procedure Deferred</option><option>Procedure Abandoned</option>
             </select>
-            <input className="fi fi-sm" value={outcomeRemarks} onChange={(e) => setOutcomeRemarks(e.target.value)} disabled={isCompleted} placeholder="Additional remarks..." />
+            <input className="fi fi-sm" value={outcomeRemarks} onChange={(e) => setOutcomeRemarks(e.target.value)} disabled={isReadOnly} placeholder="Additional remarks..." />
           </div>
 
           {/* Recovery */}
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-bed" style={{ color: 'var(--teal)' }}></i> Recovery Handover</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <div><label className="flbl">Recovery destination</label><select className="fi fi-sm" value={recoveryDest} onChange={(e) => setRecoveryDest(e.target.value)} disabled={isCompleted}><option>Recovery Bay 1</option><option>Recovery Bay 2</option><option>Day Care Ward</option></select></div>
-              <div><label className="flbl">Required monitoring</label><input className="fi fi-sm" value={recoveryMonitor} onChange={(e) => setRecoveryMonitor(e.target.value)} disabled={isCompleted} placeholder="e.g. Vitals q15min x1hr" /></div>
+              <div><label className="flbl">Recovery destination</label><select className="fi fi-sm" value={recoveryDest} onChange={(e) => setRecoveryDest(e.target.value)} disabled={isReadOnly}><option>Recovery Bay 1</option><option>Recovery Bay 2</option><option>Day Care Ward</option></select></div>
+              <div><label className="flbl">Required monitoring</label><input className="fi fi-sm" value={recoveryMonitor} onChange={(e) => setRecoveryMonitor(e.target.value)} disabled={isReadOnly} placeholder="e.g. Vitals q15min x1hr" /></div>
             </div>
             <div style={{ marginBottom: 8 }}>
               <label className="flbl">Post-operative instructions</label>
-              <textarea className="fi fi-sm" rows={2} value={recoveryInstructions} onChange={(e) => setRecoveryInstructions(e.target.value)} disabled={isCompleted} placeholder="e.g. Eye shield overnight. Moxifloxacin QID..." />
+              <textarea className="fi fi-sm" rows={2} value={recoveryInstructions} onChange={(e) => setRecoveryInstructions(e.target.value)} disabled={isReadOnly} placeholder="e.g. Eye shield overnight. Moxifloxacin QID..." />
             </div>
-            <input className="fi fi-sm" value={recoveryConcerns} onChange={(e) => setRecoveryConcerns(e.target.value)} disabled={isCompleted} placeholder="Immediate concerns (if any)..." />
+            <input className="fi fi-sm" value={recoveryConcerns} onChange={(e) => setRecoveryConcerns(e.target.value)} disabled={isReadOnly} placeholder="Immediate concerns (if any)..." />
           </div>
 
           {!isCompleted && (
@@ -740,9 +787,19 @@ export default function Workspace({ otScheduleId, onBack }) {
               </button>
             </div>
           )}
-          {isCompleted && (
+          {isCompleted && !unlocked && (
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <span className="btn" style={{ background: 'var(--green)', color: '#fff', border: 'none', cursor: 'default' }}><i className="ti ti-circle-check"></i> Surgery Completed</span>
+            </div>
+          )}
+          {isCompleted && unlocked && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => { setUnlocked(false); refresh(); }}>
+                <i className="ti ti-x"></i> Discard & Lock
+              </button>
+              <button className="btn btn-primary" style={{ background: 'var(--amber)', borderColor: 'var(--amber)' }} onClick={handleCompleteSurgery}>
+                <i className="ti ti-device-floppy"></i> Save Changes
+              </button>
             </div>
           )}
           </>

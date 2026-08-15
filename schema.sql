@@ -2789,7 +2789,7 @@ CREATE TABLE IF NOT EXISTS "public"."recovery_episodes" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "ot_schedule_id" "uuid" NOT NULL,
     "surgical_case_id" "uuid" NOT NULL,
-    "visit_id" "uuid" NOT NULL,
+    "visit_id" "uuid",
     "admission_date" "date",
     "surgery_date" "date",
     "discharge_date" "date",
