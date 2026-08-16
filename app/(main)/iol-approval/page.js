@@ -20,6 +20,17 @@ function ApproveModal({ item, onClose, onDone }) {
     getActiveIolCatalog().then(setCatalog);
   }, [item.caseId]);
 
+  // Pre-fill from the existing approval when re-opening to revise it --
+  // otherwise Edit silently opened a blank form and looked like nothing
+  // could be changed.
+  useEffect(() => {
+    if (detail?.approval) {
+      setCatalogId(detail.approval.iol_catalog_id || '');
+      setPower(detail.approval.power || '');
+      setNotes(detail.approval.notes || '');
+    }
+  }, [detail]);
+
   const eyeKey = item.eye === 'OD' ? 're_power' : item.eye === 'OS' ? 'le_power' : null;
 
   function pickRecommendation(rec) {
@@ -53,7 +64,7 @@ function ApproveModal({ item, onClose, onDone }) {
       <div className="card" style={{ width: 520, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <div className="card-head" style={{ marginBottom: 4, alignItems: 'flex-start' }}>
           <div className="card-title">
-            <i className="ti ti-lens" style={{ color: 'var(--indigo)' }}></i> IOL Approval
+            <i className="ti ti-lens" style={{ color: 'var(--indigo)' }}></i> {detail?.approval ? 'Revise IOL Approval' : 'IOL Approval'}
           </div>
           {detail?.biometry && (
             <a href={`/biometry/${detail.biometry.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
@@ -119,7 +130,7 @@ function ApproveModal({ item, onClose, onDone }) {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn" onClick={onClose}>Cancel</button>
               <button className="btn btn-primary" onClick={handleApprove} disabled={saving || !catalogId || !power}>
-                {saving ? 'Approving...' : 'Approve'}
+                {saving ? 'Saving...' : detail?.approval ? 'Update Approval' : 'Approve'}
               </button>
             </div>
           </>
@@ -136,12 +147,20 @@ export default function IolApprovalPage() {
   const [approving, setApproving] = useState(null);
 
   const refresh = useCallback(async () => {
-    setPending(await getPendingIolApprovals());
-    setApprovedToday(await getApprovedToday());
+    const [pendingList, approvedList] = await Promise.all([getPendingIolApprovals(), getApprovedToday()]);
+    setPending(pendingList);
+    setApprovedToday(approvedList);
     setLoading(false);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Same live-queue pattern used elsewhere (Queue, OT Intraop, etc) --
+  // without this, an approval made by someone else, or just leaving
+  // this tab open, never shows up until a manual hard refresh.
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 15000);
+    return () => clearInterval(interval);
+  }, [refresh]);
 
   return (
     <div>
@@ -192,6 +211,18 @@ export default function IolApprovalPage() {
                 {a.master_iol_catalog?.brand} {a.master_iol_catalog?.model} -- {a.power}D
               </div>
             </div>
+            <button
+              className="btn btn-sm"
+              onClick={() => setApproving({
+                caseId: a.surgical_case_id,
+                patient: a.surgical_cases?.patients,
+                procedureName: a.surgical_cases?.procedure_name,
+                eye: a.eye,
+                packageName: a.surgical_cases?.master_packages?.name || null,
+              })}
+            >
+              <i className="ti ti-edit"></i> Edit
+            </button>
           </div>
         ))}
         {approvedToday.length === 0 && (

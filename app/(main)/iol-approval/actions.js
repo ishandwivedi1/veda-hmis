@@ -62,7 +62,7 @@ export async function getApprovedToday() {
 
   const { data, error } = await supabase
     .from('iol_approvals')
-    .select('*, surgical_cases(id, procedure_name, eye, patients:patient_id(first_name, last_name, uhid)), master_iol_catalog(brand, model)')
+    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(name)), master_iol_catalog(brand, model)')
     .eq('status', 'Approved')
     .gte('approved_at', startUTC)
     .lte('approved_at', endUTC)
