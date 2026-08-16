@@ -42,6 +42,43 @@ export async function getOTAvailability(date) {
   return data || [];
 }
 
+// ── MONTH SUMMARY -- for the calendar-view date picker (Surgical
+// Journey's "Give This Date" / Reschedule). Total daily capacity is
+// constant (sum of all Active sessions' capacity, sessions don't vary
+// by day of week), so this just needs per-day booked counts plus the
+// actual case list for each day so prior bookings are visible before
+// the date is finalized. ──
+export async function getOTMonthSummary(startDate, endDate) {
+  const supabase = await createClient();
+
+  const { data: sessions } = await supabase.from('master_ot_sessions').select('capacity').eq('status', 'Active');
+  const dailyCapacity = (sessions || []).reduce((sum, s) => sum + (s.capacity || 0), 0);
+
+  const { data: bookings, error } = await supabase
+    .from('ot_schedule')
+    .select('id, scheduled_date, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid))')
+    .gte('scheduled_date', startDate)
+    .lte('scheduled_date', endDate)
+    .neq('status', 'Cancelled')
+    .order('scheduled_date', { ascending: true });
+  if (error) return { dailyCapacity, byDate: {} };
+
+  const byDate = {};
+  (bookings || []).forEach((b) => {
+    if (!byDate[b.scheduled_date]) byDate[b.scheduled_date] = [];
+    byDate[b.scheduled_date].push({
+      id: b.id,
+      sessionName: b.master_ot_sessions?.name || '--',
+      procedureName: b.surgical_cases?.procedure_name || '--',
+      eye: b.surgical_cases?.eye || '',
+      patientName: b.surgical_cases?.patients ? `${b.surgical_cases.patients.first_name} ${b.surgical_cases.patients.last_name}` : '--',
+      uhid: b.surgical_cases?.patients?.uhid || '',
+    });
+  });
+
+  return { dailyCapacity, byDate };
+}
+
 export async function rescheduleOTSlot(otScheduleId, date, sessionId, reason) {
   const supabase = await createClient();
   if (!date) return { error: 'Pick a new date.' };

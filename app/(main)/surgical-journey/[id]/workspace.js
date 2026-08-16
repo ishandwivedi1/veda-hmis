@@ -15,6 +15,7 @@ import {
   setDecision, referForMedicalFitness, markReadyForScheduling, bookOTSlot, getSurgeons, addCaseNote,
 } from '@/app/(main)/counselling/actions';
 import { getOTAvailability, rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
+import OTCalendarPicker from './ot-calendar-picker';
 
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
@@ -659,21 +660,26 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
           </div>
         ) : (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, marginBottom: 8 }}>
-              <input type="date" className="fi fi-sm" value={date} min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })} onChange={(e) => setDate(e.target.value)} />
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {loadingSessions ? <span style={{ fontSize: 12, color: 'var(--g400)' }}>Checking...</span> : sessions.map((s) => {
-                  const full = s.remaining <= 0;
-                  return (
-                    <button key={s.session_id} disabled={full} className="btn btn-sm"
-                      style={{ background: sessionId === s.session_id ? 'var(--teal)' : full ? 'var(--g100)' : '', color: sessionId === s.session_id ? '#fff' : full ? 'var(--g400)' : '' }}
-                      onClick={() => setSessionId(s.session_id)}>
-                      {s.name} ({s.remaining} left)
-                    </button>
-                  );
-                })}
-              </div>
+            <div style={{ marginBottom: 8 }}>
+              <OTCalendarPicker value={date} onSelect={setDate} />
             </div>
+            {date && (
+              <div style={{ marginBottom: 8 }}>
+                <label className="flbl">Session</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {loadingSessions ? <span style={{ fontSize: 12, color: 'var(--g400)' }}>Checking...</span> : sessions.map((s) => {
+                    const full = s.remaining <= 0;
+                    return (
+                      <button key={s.session_id} disabled={full} className="btn btn-sm"
+                        style={{ background: sessionId === s.session_id ? 'var(--teal)' : full ? 'var(--g100)' : '', color: sessionId === s.session_id ? '#fff' : full ? 'var(--g400)' : '' }}
+                        onClick={() => setSessionId(s.session_id)}>
+                        {s.name} ({s.remaining} left)
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Reason for rescheduling..." value={rescheduleReason} onChange={(e) => setRescheduleReason(e.target.value)} />
               <button
@@ -713,11 +719,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
 
       {readyGateMet && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, marginBottom: 10 }}>
-            <div>
-              <label className="flbl">Date</label>
-              <input type="date" className="fi fi-sm" value={date} min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })} onChange={(e) => setDate(e.target.value)} />
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 10 }}>
             <div>
               <label className="flbl">Surgeon</label>
               <select className="fi fi-sm" value={surgeonId} onChange={(e) => setSurgeonId(e.target.value)}>
@@ -725,6 +727,10 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
                 {surgeons.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
               </select>
             </div>
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <label className="flbl">Date</label>
+            <OTCalendarPicker value={date} onSelect={setDate} />
           </div>
           {date && (
             <div style={{ marginBottom: 10 }}>
