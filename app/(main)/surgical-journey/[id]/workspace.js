@@ -498,13 +498,16 @@ function DecisionSection({ sc, onAction, active }) {
 // ── 3. PACKAGE & IOL DECISION ──────────────────────────────────────
 function PackageDecisionSection({ sc, onAction, active }) {
   const [packages, setPackages] = useState([]);
+  const [loadingPackages, setLoadingPackages] = useState(true);
   const [selectedPackageId, setSelectedPackageId] = useState('');
+  const [selecting, setSelecting] = useState(false);
+  const [selectError, setSelectError] = useState('');
   const [changeReason, setChangeReason] = useState('');
   const [changing, setChanging] = useState(false);
   const biometryReady = sc.biometry_done || sc.biometry_required === false;
 
   useEffect(() => {
-    if (biometryReady) getPackagesForCase(sc.iol_category).then(setPackages);
+    if (biometryReady) getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoadingPackages(false); });
   }, [biometryReady, sc.iol_category]);
 
   if (!biometryReady) {
@@ -513,6 +516,17 @@ function PackageDecisionSection({ sc, onAction, active }) {
         <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Biometry approval first.</div>
       </Section>
     );
+  }
+
+  const selectedPreview = packages.find((p) => p.id === selectedPackageId);
+
+  async function handleSelect() {
+    setSelectError('');
+    if (!selectedPackageId) { setSelectError('Choose a package first.'); return; }
+    setSelecting(true);
+    const result = await onAction(selectPackage)(sc.id, selectedPackageId);
+    setSelecting(false);
+    if (result?.error) { setSelectError(result.error); return; }
   }
 
   return (
@@ -533,7 +547,9 @@ function PackageDecisionSection({ sc, onAction, active }) {
                 <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
                   <select className="fi fi-sm" style={{ flex: 1 }} value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}>
                     <option value="">Select a new package...</option>
-                    {packages.map((p) => <option key={p.id} value={p.id}>{p.name} -- Rs.{Number(p.price).toLocaleString('en-IN')}</option>)}
+                    {packages.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}{p.origin ? ` (${p.origin})` : ''} -- Rs.{Number(p.price).toLocaleString('en-IN')}</option>
+                    ))}
                   </select>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -555,13 +571,45 @@ function PackageDecisionSection({ sc, onAction, active }) {
               </div>
             )}
           </div>
+        ) : loadingPackages ? (
+          <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading packages...</div>
         ) : (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select className="fi fi-sm" style={{ flex: 1 }} value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}>
-              <option value="">Select a package...</option>
-              {packages.map((p) => <option key={p.id} value={p.id}>{p.name} -- Rs.{Number(p.price).toLocaleString('en-IN')}</option>)}
-            </select>
-            <button className="btn btn-sm btn-primary" disabled={!selectedPackageId} onClick={() => onAction(selectPackage)(sc.id, selectedPackageId)}>Select</button>
+          <div>
+            {selectError && <div className="msg-err" style={{ marginBottom: 8 }}>{selectError}</div>}
+            <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+              Packages from Financial Masters &gt; Surgery.
+            </div>
+            {packages.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 14, fontSize: 12, color: 'var(--g400)', background: 'var(--g50)', borderRadius: 8 }}>
+                No active packages found. Add one under Financial Masters &gt; Surgery.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <select className="fi fi-sm" style={{ flex: 1 }} value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}>
+                    <option value="">Select a package...</option>
+                    {packages.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}{p.origin ? ` (${p.origin})` : ''} -- Rs.{Number(p.price).toLocaleString('en-IN')}</option>
+                    ))}
+                  </select>
+                  <button className="btn btn-sm btn-primary" disabled={!selectedPackageId || selecting} onClick={handleSelect}>
+                    <i className="ti ti-check"></i> {selecting ? 'Selecting...' : 'Select'}
+                  </button>
+                </div>
+                {selectedPreview && (
+                  <div style={{ border: '1.5px solid var(--g200)', borderRadius: 8, padding: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {selectedPreview.name}
+                        {selectedPreview.origin && <span className={`badge ${selectedPreview.origin === 'Imported' ? 'b-blue' : 'b-green'}`}>{selectedPreview.origin}</span>}
+                      </div>
+                      <div style={{ fontWeight: 700, color: 'var(--green)', fontSize: 13 }}>Rs.{Number(selectedPreview.price).toLocaleString('en-IN')}</div>
+                    </div>
+                    {selectedPreview.includes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 4 }}>{selectedPreview.includes}</div>}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
