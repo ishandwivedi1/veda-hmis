@@ -1,0 +1,1189 @@
+#!/bin/bash
+set -e
+
+echo "=================================================="
+echo "Deploying: Cash Management speed fix"
+echo "=================================================="
+echo ""
+echo "NOTE: The database indexes for this fix (idx_invoices_ist_date,"
+echo "idx_payments_ist_date, idx_visits_ist_date) have already been"
+echo "applied directly to both training and production Supabase"
+echo "projects. This script only deploys the app code."
+echo ""
+
+cat > "app/(main)/cash-management/actions.js" << 'VEDA_EOF_MARKER_9f3a'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+
+function todayIST() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+// A plain date string compared against a timestamptz column is
+// interpreted at UTC midnight by Postgres, not IST midnight -- that
+// mismatch is exactly what made the readiness check disagree with
+// close_day() (which correctly uses the ist_date() helper). Building
+// explicit +05:30 boundaries makes the two agree.
+function istDayBoundsUTC(dateStr) {
+  const d = dateStr || todayIST();
+  return {
+    dateStr: d,
+    startUTC: new Date(`${d}T00:00:00+05:30`).toISOString(),
+    endUTC: new Date(`${d}T23:59:59.999+05:30`).toISOString(),
+  };
+}
+
+// ── PETTY CASH -- day-to-day hospital cash outgoings (stationery,
+// transport, refreshments, minor repairs). Entered by any staff on a
+// day that's open; no approval step. Folds into Cash reconciliation
+// and Close Day so the drawer count ties out. ──
+export async function getExpenseCategoriesActive() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_expense_categories').select('*').eq('status', 'Active').order('name');
+  return data || [];
+}
+
+export async function getExpensesForDate(date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const { data } = await supabase
+    .from('petty_cash_expenses')
+    .select('*, master_expense_categories(name), profiles(full_name)')
+    .eq('expense_date', targetDate)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+export async function getPettyCashTotal(date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const { data } = await supabase.from('petty_cash_expenses').select('amount').eq('expense_date', targetDate);
+  return (data || []).reduce((sum, r) => sum + Number(r.amount), 0);
+}
+
+export async function addExpense(categoryId, amount, paidTo, note) {
+  const dayGuard = await requireDayOpen();
+  if (dayGuard) return dayGuard;
+
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const amt = Number(amount);
+  if (!categoryId) return { error: 'Select a category.' };
+  if (!amt || amt <= 0) return { error: 'Enter a valid amount.' };
+
+  const { data, error } = await supabase
+    .from('petty_cash_expenses')
+    .insert({
+      expense_date: todayIST(),
+      category_id: categoryId,
+      amount: amt,
+      paid_to: paidTo || null,
+      note: note || null,
+      entered_by: userData?.user?.id || null,
+    })
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { success: true, expense: data };
+}
+
+// Deletion is only allowed on today's un-closed entries -- once the
+// day is closed, its petty cash total is locked into that closing
+// record, same as reconciliation becomes read-only.
+export async function deleteExpense(id, expenseDate) {
+  if (expenseDate !== todayIST()) return { error: "Only today's entries can be deleted." };
+  const closed = await isTodayClosed();
+  if (closed) return { error: 'Today is already closed -- petty cash entries are locked.' };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from('petty_cash_expenses').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── REVENUE BY DEPARTMENT -- moved here from the Billing Dashboard,
+// since it's a same-day revenue breakdown that belongs alongside the
+// rest of today's collection summary. ──
+export async function getRevenueByDepartmentToday() {
+  const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC();
+
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select('purpose, net')
+    .gte('created_at', startUTC)
+    .lte('created_at', endUTC)
+    .neq('status', 'Cancelled');
+
+  const byDept = {};
+  (invoices || []).forEach((i) => {
+    const dept = i.purpose || 'Other';
+    byDept[dept] = (byDept[dept] || 0) + Number(i.net);
+  });
+
+  return byDept;
+}
+
+export async function getTodayCollectionSummary(date) {
+  const supabase = await createClient();
+  const { startUTC, endUTC } = istDayBoundsUTC(date);
+
+  const { data: payments } = await supabase
+    .from('payments')
+    .select('*, payment_modes(mode, amount), patients(first_name, last_name)')
+    .gte('collected_at', startUTC)
+    .lte('collected_at', endUTC)
+    .order('collected_at', { ascending: false });
+
+  const rows = payments || [];
+  const isRefund = (p) => p.payment_type === 'refund';
+
+  const byMode = {};
+  rows.forEach((p) => {
+    (p.payment_modes || []).forEach((m) => {
+      byMode[m.mode] = (byMode[m.mode] || 0) + (isRefund(p) ? -Number(m.amount) : Number(m.amount));
+    });
+  });
+
+  const total = rows.reduce((s, p) => s + (isRefund(p) ? -Number(p.total_amount) : Number(p.total_amount)), 0);
+
+  return { transactions: rows, byMode, total, count: rows.length };
+}
+
+export async function getReconciliationData(date, precomputedSummary) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+
+  const [summary, pettyCashTotal] = await Promise.all([
+    precomputedSummary || getTodayCollectionSummary(targetDate),
+    getPettyCashTotal(targetDate),
+  ]);
+  const { data: saved } = await supabase.from('day_reconciliation').select('*').eq('closing_date', targetDate);
+  const savedByMode = {};
+  (saved || []).forEach((r) => { savedByMode[r.mode] = r; });
+
+  // Petty cash is a physical cash outflow, so it only touches the Cash
+  // mode's expected figure -- Card/UPI/Cheque/Bank Transfer are
+  // untouched. Make sure a Cash row shows up even on a day with
+  // expenses but zero cash collections, so it isn't silently skipped.
+  const modes = new Set(Object.keys(summary.byMode));
+  if (pettyCashTotal > 0) modes.add('Cash');
+
+  return [...modes].map((mode) => {
+    const rawExpected = summary.byMode[mode] || 0;
+    const expected = mode === 'Cash' ? rawExpected - pettyCashTotal : rawExpected;
+    return {
+      mode,
+      expected,
+      actual: savedByMode[mode] ? Number(savedByMode[mode].actual) : expected,
+      saved: !!savedByMode[mode],
+      reason: savedByMode[mode]?.reason || '',
+    };
+  });
+}
+
+export async function saveReconciliation(mode, expected, actual, reason, approvedBy, date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const { error } = await supabase.rpc('save_reconciliation', {
+    p_closing_date: targetDate, p_mode: mode, p_expected: expected, p_actual: actual,
+    p_reason: reason || null, p_approved_by: approvedBy || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function getCloseDayReadiness(date, precomputedSummary) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+
+  const [reconciliation, { data: alreadyClosed }] = await Promise.all([
+    getReconciliationData(targetDate, precomputedSummary),
+    supabase.from('day_closings').select('id').eq('closing_date', targetDate).maybeSingle(),
+  ]);
+
+  return {
+    reconciliationComplete: reconciliation.every((r) => r.saved),
+    alreadyClosed: !!alreadyClosed,
+    reconciliation,
+  };
+}
+
+export async function closeDay(notes, date) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('close_day', { p_date: date || null, p_notes: notes || null });
+  if (error) return { error: error.message };
+  return { closing: data };
+}
+
+// Any day that was opened but never closed, before today. The "Close
+// a Past Day" flow works through this list -- and open_day itself now
+// refuses to open a new day while any of these exist.
+export async function getUnclosedPastDays() {
+  const supabase = await createClient();
+  const today = todayIST();
+
+  const { data: openings } = await supabase
+    .from('day_openings')
+    .select('opening_date')
+    .lt('opening_date', today)
+    .order('opening_date', { ascending: true });
+  if (!openings || openings.length === 0) return [];
+
+  const { data: closings } = await supabase
+    .from('day_closings')
+    .select('closing_date')
+    .lt('closing_date', today);
+  const closedSet = new Set((closings || []).map((c) => c.closing_date));
+
+  return openings.map((o) => o.opening_date).filter((d) => !closedSet.has(d));
+}
+
+export async function getDayClosingHistory() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('day_closings')
+    .select('*, profiles(full_name)')
+    .order('closing_date', { ascending: false })
+    .limit(30);
+  return data || [];
+}
+
+export async function getDailyReport(date) {
+  const supabase = await createClient();
+  const [{ data: closing }, { data: reconciliation }, expenses] = await Promise.all([
+    supabase.from('day_closings').select('*, profiles(full_name)').eq('closing_date', date).maybeSingle(),
+    supabase.from('day_reconciliation').select('*, profiles(full_name)').eq('closing_date', date),
+    getExpensesForDate(date),
+  ]);
+  return { closing, reconciliation: reconciliation || [], expenses };
+}
+
+export async function reopenDay(date, reason) {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('reopen_day', { p_date: date, p_reason: reason });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function getDayOpening() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const { data } = await supabase.from('day_openings').select('*, profiles(full_name)').eq('opening_date', today).maybeSingle();
+  return data;
+}
+
+export async function openDay(openingBalance, remarks) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('open_day', { p_date: null, p_opening_balance: openingBalance || 0, p_remarks: remarks || null });
+  if (error) return { error: error.message };
+  return { opening: data };
+}
+
+export async function isTodayClosed() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const { data } = await supabase.rpc('is_day_closed', { p_date: today });
+  return !!data;
+}
+
+export async function isTodayOpen() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const { data } = await supabase.from('day_openings').select('id').eq('opening_date', today).maybeSingle();
+  return !!data;
+}
+
+// Server-side guard for any action that moves physical cash (collect
+// payment, refund, advance, or a package invoice that collects an
+// advance inline). Called at the top of those actions specifically --
+// not a global gate -- so clinical work (doctor, optometry, OT) is
+// never blocked by a missed Open Day. Checked here rather than only
+// in the UI so it can't be bypassed by calling the server action
+// directly. Each new IST calendar date has no day_openings row until
+// someone opens it, so this is naturally enforced fresh every day
+// without any separate "reset" step.
+export async function requireDayOpen() {
+  const open = await isTodayOpen();
+  if (!open) {
+    return { error: "Today's cash day hasn't been opened yet. Go to Cash Management and open the day before collecting or refunding payments." };
+  }
+  return null;
+}
+VEDA_EOF_MARKER_9f3a
+
+cat > "app/(main)/cash-management/page.js" << 'VEDA_EOF_MARKER_9f3a'
+'use client';
+
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import {
+  getTodayCollectionSummary,
+  getReconciliationData,
+  saveReconciliation,
+  getCloseDayReadiness,
+  closeDay,
+  getDayClosingHistory,
+  getDailyReport,
+  reopenDay,
+  getDayOpening,
+  openDay,
+  getRevenueByDepartmentToday,
+  getUnclosedPastDays,
+  getExpenseCategoriesActive,
+  getExpensesForDate,
+  getPettyCashTotal,
+  addExpense,
+  deleteExpense,
+} from './actions';
+import { addExpenseCategory } from '@/app/(main)/master-data/actions';
+import { getApprovers } from '@/app/(main)/payments/actions';
+import { getOpenQueueEntriesToday, bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
+import AttachmentUploader from '@/app/components/AttachmentUploader';
+import { uploadAttachment } from '@/lib/attachments';
+
+const TABS = [
+  { key: 'summary', label: "Today's Collection", icon: 'ti-chart-bar' },
+  { key: 'pettycash', label: 'Petty Cash', icon: 'ti-cash-banknote' },
+  { key: 'reconciliation', label: 'Reconciliation', icon: 'ti-calculator' },
+  { key: 'close', label: 'Close Day', icon: 'ti-lock' },
+  { key: 'report', label: 'Daily Report', icon: 'ti-file-text' },
+  { key: 'history', label: 'History', icon: 'ti-history' },
+];
+
+const VARIANCE_REASONS = ['Change given error', 'Denomination counting error', 'Uncounted change', 'Recording error', 'Other'];
+
+function fmt(n) {
+  return `Rs.${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export default function CashManagementPage() {
+  const [activeTab, setActiveTab] = useState('summary');
+  const [summary, setSummary] = useState({ transactions: [], byMode: {}, total: 0, count: 0 });
+  const [revenueByDept, setRevenueByDept] = useState({});
+  const [reconRows, setReconRows] = useState([]);
+  const [readiness, setReadiness] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [approvers, setApprovers] = useState([]);
+  const [closedToday, setClosedToday] = useState(false);
+  const [opening, setOpening] = useState(null);
+  const [openingBalance, setOpeningBalance] = useState('');
+  const [openingRemarks, setOpeningRemarks] = useState('');
+  const [todayClosingInfo, setTodayClosingInfo] = useState(null);
+  const [openQueueEntries, setOpenQueueEntries] = useState([]);
+  const [bulkCloseReason, setBulkCloseReason] = useState('');
+  const [bulkClosing, setBulkClosing] = useState(false);
+  const [unclosedPastDays, setUnclosedPastDays] = useState([]);
+  const [closingPastDate, setClosingPastDate] = useState(null);
+  const [pastReconRows, setPastReconRows] = useState([]);
+  const [pastReconEdits, setPastReconEdits] = useState({});
+  const [pastReconApprover, setPastReconApprover] = useState('');
+  const [pastCloseNotes, setPastCloseNotes] = useState('');
+  const [pastLoading, setPastLoading] = useState(false);
+
+  const [reconEdits, setReconEdits] = useState({});
+  const [reconApprover, setReconApprover] = useState('');
+  const [closeNotes, setCloseNotes] = useState('');
+  const [reportDate, setReportDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
+  const [report, setReport] = useState(null);
+  const [reopenTarget, setReopenTarget] = useState(null);
+  const [reopenReason, setReopenReason] = useState('');
+
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const [expenseCategories, setExpenseCategories] = useState([]);
+  const [todayExpenses, setTodayExpenses] = useState([]);
+  const [pettyCashTotal, setPettyCashTotal] = useState(0);
+  const [newExpenseCategory, setNewExpenseCategory] = useState('');
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [newExpenseRemarks, setNewExpenseRemarks] = useState('');
+  const [newExpenseBill, setNewExpenseBill] = useState(null);
+  const [expenseSaving, setExpenseSaving] = useState(false);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [expandedExpenseId, setExpandedExpenseId] = useState(null);
+  const billInputRef = useRef(null);
+
+  const refreshPettyCash = useCallback(async () => {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const [cats, expenses, total] = await Promise.all([
+      getExpenseCategoriesActive(),
+      getExpensesForDate(today),
+      getPettyCashTotal(today),
+    ]);
+    setExpenseCategories(cats);
+    setTodayExpenses(expenses);
+    setPettyCashTotal(total);
+  }, []);
+
+  useEffect(() => { refreshPettyCash(); }, [refreshPettyCash]);
+
+  async function handleAddExpense() {
+    setError(''); setSuccess('');
+    if (!newExpenseCategory) { setError('Select an expense category.'); return; }
+    if (!newExpenseAmount || parseFloat(newExpenseAmount) <= 0) { setError('Enter a valid amount.'); return; }
+    setExpenseSaving(true);
+    const result = await addExpense(newExpenseCategory, parseFloat(newExpenseAmount), newExpenseRemarks, '');
+    if (result.error) { setExpenseSaving(false); setError(result.error); return; }
+
+    if (newExpenseBill && result.expense) {
+      const formData = new FormData();
+      formData.append('file', newExpenseBill);
+      formData.append('entityType', 'petty_cash_expense');
+      formData.append('entityId', result.expense.id);
+      const uploadResult = await uploadAttachment(formData);
+      if (uploadResult.error) setError(`Expense saved, but the bill upload failed: ${uploadResult.error}`);
+    }
+
+    setExpenseSaving(false);
+    setNewExpenseCategory(''); setNewExpenseAmount(''); setNewExpenseRemarks(''); setNewExpenseBill(null);
+    if (billInputRef.current) billInputRef.current.value = '';
+    setSuccess('Expense recorded.');
+    refreshPettyCash();
+    refresh();
+  }
+
+  async function handleDeleteExpense(exp) {
+    if (!window.confirm(`Delete this ${fmt(exp.amount)} expense?`)) return;
+    setError(''); setSuccess('');
+    const result = await deleteExpense(exp.id, exp.expense_date);
+    if (result.error) { setError(result.error); return; }
+    refreshPettyCash();
+    refresh();
+  }
+
+  async function handleAddCategory() {
+    setError('');
+    if (!newCategoryName.trim()) return;
+    const result = await addExpenseCategory({ name: newCategoryName });
+    if (result.error) { setError(result.error); return; }
+    setNewCategoryName('');
+    setShowAddCategory(false);
+    refreshPettyCash();
+  }
+
+  const refresh = useCallback(async () => {
+    // Fetch the summary once (it's the same expensive payments+joins
+    // query that getCloseDayReadiness used to re-fetch internally via
+    // getReconciliationData) and thread it through instead.
+    const summaryData = await getTodayCollectionSummary();
+
+    const [
+      revenueByDeptData, readinessData, historyData,
+      openingData, openQueueData, unclosedPastDaysData,
+    ] = await Promise.all([
+      getRevenueByDepartmentToday(),
+      getCloseDayReadiness(undefined, summaryData),
+      getDayClosingHistory(),
+      getDayOpening(),
+      getOpenQueueEntriesToday(),
+      getUnclosedPastDays(),
+    ]);
+    // readiness.alreadyClosed is the same day_closings check
+    // isTodayClosed() used to make as a separate RPC round trip.
+    const isClosed = readinessData.alreadyClosed;
+    setSummary(summaryData);
+    setRevenueByDept(revenueByDeptData);
+    setReadiness(readinessData);
+    setReconRows(readinessData.reconciliation); // already computed inside getCloseDayReadiness -- no need to fetch again
+    setHistory(historyData);
+    setClosedToday(isClosed);
+    setOpening(openingData);
+    setOpenQueueEntries(openQueueData);
+    setUnclosedPastDays(unclosedPastDaysData);
+    if (isClosed) {
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      setTodayClosingInfo(await getDailyReport(todayStr));
+    } else {
+      setTodayClosingInfo(null);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { getApprovers().then(setApprovers); }, []);
+
+  function updateReconField(mode, field, value) {
+    setReconEdits((prev) => ({ ...prev, [mode]: { ...prev[mode], [field]: value } }));
+  }
+
+  async function handleSaveRecon(row) {
+    setError(''); setSuccess('');
+    const edit = reconEdits[row.mode] || {};
+    const actual = edit.actual !== undefined ? parseFloat(edit.actual) : row.actual;
+    const reason = edit.reason !== undefined ? edit.reason : row.reason;
+    const variance = actual - row.expected;
+
+    if (Math.abs(variance) > 0.01 && !reason) {
+      setError(`A variance reason is required for ${row.mode} (variance: ${fmt(variance)}).`);
+      return;
+    }
+    if (Math.abs(variance) > 0.01 && !reconApprover) {
+      setError('Select a supervisor to approve this variance.');
+      return;
+    }
+
+    const result = await saveReconciliation(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? reconApprover : null);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`${row.mode} reconciled.`);
+    refresh();
+  }
+
+  async function handleOpenDay() {
+    setError(''); setSuccess('');
+    const result = await openDay(parseFloat(openingBalance) || 0, openingRemarks);
+    if (result.error) { setError(result.error); return; }
+    setSuccess('Day opened.');
+    setOpeningBalance(''); setOpeningRemarks('');
+    refresh();
+  }
+
+  // Soft warning, not a hard block -- Close Day can still proceed with
+  // patients left open in Doctor/Optometry queues. This just makes it a
+  // deliberate choice with a reason on record, instead of those visits
+  // silently rolling into tomorrow's queue view.
+  async function handleBulkForceClose() {
+    setError(''); setSuccess('');
+    if (!bulkCloseReason.trim()) { setError('A reason is required to close these visits.'); return; }
+    setBulkClosing(true);
+    const ids = openQueueEntries.map((e) => e.id);
+    const result = await bulkForceCloseQueueEntries(ids, bulkCloseReason);
+    setBulkClosing(false);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`Closed ${result.count} visit(s).`);
+    setBulkCloseReason('');
+    refresh();
+  }
+
+  // ── CLOSE A PAST DAY -- self-contained, mirrors the main
+  // Reconciliation/Close Day flow but scoped to a specific backdated
+  // date instead of today, with its own state so it can't collide with
+  // whatever's happening on today's tabs at the same time. ──
+  async function openPastDayClosing(date) {
+    setError(''); setSuccess('');
+    setClosingPastDate(date);
+    setPastReconEdits({});
+    setPastCloseNotes('');
+    setPastReconRows(await getReconciliationData(date));
+  }
+
+  function updatePastReconField(mode, field, value) {
+    setPastReconEdits((prev) => ({ ...prev, [mode]: { ...prev[mode], [field]: value } }));
+  }
+
+  async function handleSavePastRecon(row) {
+    setError(''); setSuccess('');
+    const edit = pastReconEdits[row.mode] || {};
+    const actual = edit.actual !== undefined ? parseFloat(edit.actual) : row.actual;
+    const reason = edit.reason !== undefined ? edit.reason : row.reason;
+    const variance = actual - row.expected;
+
+    if (Math.abs(variance) > 0.01 && !reason) {
+      setError(`A variance reason is required for ${row.mode} (variance: ${fmt(variance)}).`);
+      return;
+    }
+    if (Math.abs(variance) > 0.01 && !pastReconApprover) {
+      setError('Select a supervisor to approve this variance.');
+      return;
+    }
+
+    const result = await saveReconciliation(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? pastReconApprover : null, closingPastDate);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`${row.mode} reconciled for ${closingPastDate}.`);
+    setPastReconRows(await getReconciliationData(closingPastDate));
+  }
+
+  async function handleClosePastDay() {
+    setError(''); setSuccess('');
+    const allSaved = pastReconRows.every((r) => r.saved);
+    if (!allSaved) { setError('Complete reconciliation for every payment mode before closing this day.'); return; }
+    setPastLoading(true);
+    const result = await closeDay(pastCloseNotes, closingPastDate);
+    setPastLoading(false);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`${closingPastDate} closed successfully.`);
+    setClosingPastDate(null);
+    refresh();
+  }
+
+  async function handleCloseDay() {
+    setError(''); setSuccess('');
+    if (!readiness?.reconciliationComplete) { setError('Complete reconciliation for every payment mode before closing.'); return; }
+    setLoading(true);
+    const result = await closeDay(closeNotes);
+    setLoading(false);
+    if (result.error) { setError(result.error); return; }
+    setSuccess('Day closed successfully. Daily report generated.');
+    refresh();
+    setActiveTab('report');
+    loadReport(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
+  }
+
+  async function loadReport(date) {
+    setReport(await getDailyReport(date));
+  }
+
+  useEffect(() => { if (activeTab === 'report') loadReport(reportDate); }, [activeTab, reportDate]);
+
+  async function handleReopen() {
+    if (!reopenReason.trim()) { setError('A reason is required to reopen.'); return; }
+    setError('');
+    const result = await reopenDay(reopenTarget, reopenReason);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`${reopenTarget} reopened.`);
+    setReopenTarget(null);
+    setReopenReason('');
+    refresh();
+  }
+
+  return (
+    <div>
+      <div style={{ borderRadius: 12, padding: '14px 18px', marginBottom: 16, color: '#fff', background: closedToday ? 'linear-gradient(135deg,#303a42,#1c242b)' : opening ? 'linear-gradient(135deg,#166534,#157a4f)' : 'linear-gradient(135deg,#92400e,#a15c00)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: closedToday ? '#97a0aa' : opening ? '#4ade80' : '#fbbf24', boxShadow: closedToday ? 'none' : `0 0 8px ${opening ? '#4ade80' : '#fbbf24'}` }}></div>
+          <div>
+            <div style={{ fontWeight: 700 }}>
+              {closedToday ? `Closed at ${new Date(todayClosingInfo?.closing?.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : opening ? `Opened at ${new Date(opening.opened_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} by ${opening.profiles?.full_name || '--'}` : 'Day not opened yet'}
+            </div>
+            <div style={{ fontSize: 12, opacity: .85 }}>{new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+          </div>
+          <div style={{ marginLeft: 'auto', fontSize: 13 }}>{fmt(summary.total)} collected today ({summary.count} transactions)</div>
+        </div>
+        {!opening && !closedToday && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.25)', display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div>
+              <label style={{ fontSize: 10, opacity: .85, display: 'block', marginBottom: 3 }}>Opening cash balance (Rs.)</label>
+              <input type="number" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} placeholder="0.00" style={{ padding: '6px 10px', borderRadius: 6, border: 'none', width: 140 }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <label style={{ fontSize: 10, opacity: .85, display: 'block', marginBottom: 3 }}>Remarks</label>
+              <input value={openingRemarks} onChange={(e) => setOpeningRemarks(e.target.value)} placeholder="Optional..." style={{ padding: '6px 10px', borderRadius: 6, border: 'none', width: '100%' }} />
+            </div>
+            <button className="btn" style={{ background: '#fff', color: 'var(--amber)', fontWeight: 700 }} onClick={handleOpenDay}>
+              <i className="ti ti-unlock"></i> Open Day
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+        {TABS.map((t) => (
+          <button key={t.key} className={activeTab === t.key ? 'btn btn-primary' : 'btn'} onClick={() => { setActiveTab(t.key); setError(''); setSuccess(''); }}>
+            <i className={`ti ${t.icon}`}></i> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {error && <div className="msg-err">{error}</div>}
+      {success && <div className="msg-success"><i className="ti ti-circle-check"></i> {success}</div>}
+
+      {activeTab === 'summary' && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+            <div className="card" style={{ borderTop: '3px solid var(--amber)' }}>
+              <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total Collected</div>
+              <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(summary.total)}</div>
+              <div style={{ fontSize: 11, color: 'var(--g400)' }}>{summary.count} transactions</div>
+            </div>
+            {['Cash', 'UPI', 'Card'].map((m) => (
+              <div key={m} className="card" style={{ borderTop: '3px solid var(--blue)' }}>
+                <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>{m}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(summary.byMode[m] || 0)}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 10 }}>
+              <i className="ti ti-chart-bar" style={{ color: 'var(--amber)' }}></i> Revenue by Department -- Today
+            </div>
+            {Object.keys(revenueByDept).length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No invoices yet today.</div>}
+            {Object.entries(revenueByDept).sort((a, b) => b[1] - a[1]).map(([dept, amount]) => {
+              const max = Math.max(...Object.values(revenueByDept));
+              return (
+                <div key={dept} style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                    <span>{dept}</span><span style={{ fontWeight: 600 }}>{fmt(amount)}</span>
+                  </div>
+                  <div style={{ height: 8, background: 'var(--g100)', borderRadius: 4 }}>
+                    <div style={{ width: `${max ? (amount / max) * 100 : 0}%`, height: '100%', background: 'var(--amber)', borderRadius: 4 }}></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-receipt" style={{ color: 'var(--green)' }}></i> Transactions Today</div>
+            <table className="tbl">
+              <thead><tr><th>Receipt #</th><th>Time</th><th>Patient</th><th>Mode(s)</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+              <tbody>
+                {summary.transactions.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ fontFamily: 'monospace' }}>{p.receipt_number}</td>
+                    <td>{new Date(p.collected_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td>{p.patients?.first_name} {p.patients?.last_name}</td>
+                    <td>{(p.payment_modes || []).map((m) => m.mode).join('+')}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600, color: p.payment_type === 'refund' ? 'var(--red)' : 'var(--g800)' }}>
+                      {p.payment_type === 'refund' ? '-' : ''}{fmt(p.total_amount)}
+                    </td>
+                  </tr>
+                ))}
+                {summary.transactions.length === 0 && (
+                  <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No transactions yet today.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'pettycash' && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 16 }}>
+            <div className="card" style={{ borderTop: '3px solid var(--red)' }}>
+              <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Today's Petty Cash Spend</div>
+              <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(pettyCashTotal)}</div>
+              <div style={{ fontSize: 11, color: 'var(--g400)' }}>{todayExpenses.length} entries</div>
+            </div>
+            <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
+              <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Net Cash Expected</div>
+              <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt((summary.byMode['Cash'] || 0) - pettyCashTotal)}</div>
+              <div style={{ fontSize: 11, color: 'var(--g400)' }}>Cash collected minus petty cash</div>
+            </div>
+          </div>
+
+          {!opening && (
+            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-alert-triangle"></i> Today's cash day hasn't been opened yet. Open it from the "Today's Collection" tab before recording expenses.</div>
+          )}
+          {closedToday && (
+            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-lock"></i> Today is already closed -- petty cash entries are locked. See the Daily Report tab.</div>
+          )}
+
+          {!closedToday && opening && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-plus" style={{ color: 'var(--green)' }}></i> Record an Expense</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 0.8fr 1.6fr', gap: 10, marginBottom: 10 }}>
+                <select className="fi" value={newExpenseCategory} onChange={(e) => setNewExpenseCategory(e.target.value)}>
+                  <option value="">-- Category --</option>
+                  {expenseCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <input type="number" className="fi" placeholder="Amount" value={newExpenseAmount} onChange={(e) => setNewExpenseAmount(e.target.value)} />
+                <input type="text" className="fi" placeholder="Remarks (optional)" value={newExpenseRemarks} onChange={(e) => setNewExpenseRemarks(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <label className="btn" style={{ cursor: 'pointer', marginBottom: 0 }}>
+                  <i className="ti ti-paperclip"></i> {newExpenseBill ? newExpenseBill.name : 'Attach bill (optional)'}
+                  <input ref={billInputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/jpg" onChange={(e) => setNewExpenseBill(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                </label>
+                {newExpenseBill && (
+                  <button className="btn" style={{ padding: '3px 9px', fontSize: 11 }} onClick={() => { setNewExpenseBill(null); if (billInputRef.current) billInputRef.current.value = ''; }}>
+                    <i className="ti ti-x"></i>
+                  </button>
+                )}
+                <span style={{ flex: 1 }}></span>
+                <button className="btn btn-primary" disabled={expenseSaving} onClick={handleAddExpense}>{expenseSaving ? 'Saving...' : 'Add Expense'}</button>
+              </div>
+
+              {!showAddCategory && (
+                <div style={{ marginTop: 10 }}>
+                  <button className="btn btn-sm" onClick={() => setShowAddCategory(true)}><i className="ti ti-plus"></i> New category</button>
+                </div>
+              )}
+              {showAddCategory && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <input type="text" className="fi fi-sm" style={{ maxWidth: 220 }} placeholder="Category name" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
+                  <button className="btn btn-sm btn-primary" onClick={handleAddCategory}>Save</button>
+                  <button className="btn btn-sm" onClick={() => { setShowAddCategory(false); setNewCategoryName(''); }}>Cancel</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-receipt" style={{ color: 'var(--red)' }}></i> Today's Expenses</div>
+            <table className="tbl">
+              <thead><tr><th>Time</th><th>Category</th><th>Remarks</th><th>Entered By</th><th style={{ textAlign: 'right' }}>Amount</th><th></th></tr></thead>
+              <tbody>
+                {todayExpenses.map((exp) => (
+                  <Fragment key={exp.id}>
+                    <tr>
+                      <td>{new Date(exp.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td>{exp.master_expense_categories?.name}</td>
+                      <td>{exp.paid_to || '--'}</td>
+                      <td>{exp.profiles?.full_name || 'Staff'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(exp.amount)}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button className="btn" style={{ padding: '3px 9px', fontSize: 11 }} onClick={() => setExpandedExpenseId(expandedExpenseId === exp.id ? null : exp.id)}>
+                          <i className="ti ti-paperclip"></i>
+                        </button>
+                        {!closedToday && (
+                          <button className="btn" style={{ padding: '3px 9px', fontSize: 11, marginLeft: 4 }} onClick={() => handleDeleteExpense(exp)}>
+                            <i className="ti ti-trash" style={{ color: 'var(--red)' }}></i>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {expandedExpenseId === exp.id && (
+                      <tr>
+                        <td colSpan={6} style={{ background: 'var(--g50)' }}>
+                          <AttachmentUploader entityType="petty_cash_expense" entityId={exp.id} title="Bill / Receipt" />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+                {todayExpenses.length === 0 && (
+                  <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No petty cash expenses recorded today.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'reconciliation' && (
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-calculator" style={{ color: 'var(--amber)' }}></i> Cash Reconciliation</div>
+          <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
+            <i className="ti ti-info-circle"></i> Enter the actual counted amount for each mode. The system computes variance automatically -- a reason and supervisor approval are required whenever actual differs from expected.
+          </div>
+          {closedToday && (
+            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-lock"></i> Today is already closed -- reconciliation is read-only.</div>
+          )}
+
+          <div style={{ display: 'flex', padding: '8px 12px', background: 'var(--g50)', borderRadius: 8, marginBottom: 6, fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>
+            <span style={{ minWidth: 140 }}>Mode</span>
+            <span style={{ minWidth: 130, textAlign: 'right' }}>Expected</span>
+            <span style={{ flex: 1, textAlign: 'center' }}>Actual</span>
+            <span style={{ minWidth: 130, textAlign: 'right' }}>Variance</span>
+            <span style={{ minWidth: 90 }}></span>
+          </div>
+
+          {reconRows.map((row) => {
+            const editedActual = reconEdits[row.mode]?.actual !== undefined ? reconEdits[row.mode].actual : row.actual;
+            const variance = parseFloat(editedActual || 0) - row.expected;
+            const hasVariance = Math.abs(variance) > 0.01;
+            return (
+              <div key={row.mode} style={{ padding: '10px 12px', borderBottom: '1px solid var(--g100)', background: hasVariance ? 'var(--amber-lt)' : 'transparent', borderRadius: 8, marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{ minWidth: 140, fontWeight: 600, fontSize: 13 }}>{row.mode}</span>
+                  <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>{fmt(row.expected)}</span>
+                  <span style={{ flex: 1, textAlign: 'center' }}>
+                    <input type="number" className="fi fi-sm" style={{ maxWidth: 140, textAlign: 'right', display: 'inline-block' }} value={editedActual} disabled={closedToday}
+                      onChange={(e) => updateReconField(row.mode, 'actual', e.target.value)} />
+                  </span>
+                  <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: hasVariance ? 'var(--red)' : 'var(--g400)' }}>
+                    {hasVariance ? (variance > 0 ? '+' : '') + fmt(variance) : fmt(0)}
+                  </span>
+                  <span style={{ minWidth: 90, textAlign: 'right' }}>
+                    {!closedToday && <button className="btn btn-sm btn-primary" onClick={() => handleSaveRecon(row)}>Save</button>}
+                    {row.saved && <span className="badge b-green" style={{ marginLeft: 6 }}>Saved</span>}
+                  </span>
+                </div>
+                {hasVariance && !closedToday && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                    <select className="fi fi-sm" value={reconEdits[row.mode]?.reason !== undefined ? reconEdits[row.mode].reason : row.reason} onChange={(e) => updateReconField(row.mode, 'reason', e.target.value)}>
+                      <option value="">-- Variance reason --</option>
+                      {VARIANCE_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <select className="fi fi-sm" value={reconApprover} onChange={(e) => setReconApprover(e.target.value)}>
+                      <option value="">-- Approved by --</option>
+                      {approvers.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {reconRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No collections yet today -- nothing to reconcile.</div>}
+        </div>
+      )}
+
+      {activeTab === 'close' && (
+        <>
+        {unclosedPastDays.length > 0 && (
+          <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--red)' }}>
+            <div className="card-title" style={{ marginBottom: 10 }}>
+              <i className="ti ti-alert-triangle" style={{ color: 'var(--red)' }}></i> {unclosedPastDays.length} day(s) were opened but never closed
+            </div>
+            <div className="msg-err" style={{ marginBottom: 12 }}>
+              <i className="ti ti-lock"></i> A new day can&apos;t be opened until these are resolved. Close them here, oldest first.
+            </div>
+
+            {!closingPastDate ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {unclosedPastDays.map((d) => (
+                  <button key={d} className="btn" style={{ borderColor: 'var(--red)', color: 'var(--red)' }} onClick={() => openPastDayClosing(d)}>
+                    <i className="ti ti-calendar-exclamation"></i> Close {d}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <strong style={{ fontSize: 14 }}>Closing {closingPastDate}</strong>
+                  <button className="btn btn-sm" onClick={() => setClosingPastDate(null)}>Back to list</button>
+                </div>
+
+                <div style={{ display: 'flex', padding: '8px 12px', background: 'var(--g50)', borderRadius: 8, marginBottom: 6, fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>
+                  <span style={{ minWidth: 140 }}>Mode</span>
+                  <span style={{ minWidth: 130, textAlign: 'right' }}>Expected</span>
+                  <span style={{ flex: 1, textAlign: 'center' }}>Actual</span>
+                  <span style={{ minWidth: 130, textAlign: 'right' }}>Variance</span>
+                  <span style={{ minWidth: 90 }}></span>
+                </div>
+                {pastReconRows.map((row) => {
+                  const editedActual = pastReconEdits[row.mode]?.actual !== undefined ? pastReconEdits[row.mode].actual : row.actual;
+                  const variance = parseFloat(editedActual || 0) - row.expected;
+                  const hasVariance = Math.abs(variance) > 0.01;
+                  return (
+                    <div key={row.mode} style={{ padding: '10px 12px', borderBottom: '1px solid var(--g100)', background: hasVariance ? 'var(--amber-lt)' : 'transparent', borderRadius: 8, marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{ minWidth: 140, fontWeight: 600, fontSize: 13 }}>{row.mode}</span>
+                        <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>{fmt(row.expected)}</span>
+                        <span style={{ flex: 1, textAlign: 'center' }}>
+                          <input type="number" className="fi fi-sm" style={{ maxWidth: 140, textAlign: 'right', display: 'inline-block' }} value={editedActual}
+                            onChange={(e) => updatePastReconField(row.mode, 'actual', e.target.value)} />
+                        </span>
+                        <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: hasVariance ? 'var(--red)' : 'var(--g400)' }}>
+                          {hasVariance ? (variance > 0 ? '+' : '') + fmt(variance) : fmt(0)}
+                        </span>
+                        <span style={{ minWidth: 90, textAlign: 'right' }}>
+                          <button className="btn btn-sm btn-primary" onClick={() => handleSavePastRecon(row)}>Save</button>
+                          {row.saved && <span className="badge b-green" style={{ marginLeft: 6 }}>Saved</span>}
+                        </span>
+                      </div>
+                      {hasVariance && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <input className="fi fi-sm" placeholder="Variance reason" value={pastReconEdits[row.mode]?.reason !== undefined ? pastReconEdits[row.mode].reason : row.reason}
+                            onChange={(e) => updatePastReconField(row.mode, 'reason', e.target.value)} />
+                          <select className="fi fi-sm" value={pastReconApprover} onChange={(e) => setPastReconApprover(e.target.value)}>
+                            <option value="">-- Approving supervisor --</option>
+                            {approvers.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {pastReconRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No collections recorded for this date -- nothing to reconcile.</div>}
+
+                <label className="flbl" style={{ marginTop: 14 }}>Closing notes</label>
+                <textarea className="fi" rows={2} style={{ marginBottom: 10 }} value={pastCloseNotes} onChange={(e) => setPastCloseNotes(e.target.value)} placeholder="e.g. Closed late -- internet outage on this date" />
+                <button className="btn btn-danger" onClick={handleClosePastDay} disabled={pastLoading || (pastReconRows.length > 0 && !pastReconRows.every((r) => r.saved))}>
+                  <i className="ti ti-lock"></i> {pastLoading ? 'Closing...' : `Close ${closingPastDate}`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 20 }}>
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-lock" style={{ color: 'var(--red)' }}></i> Close Day</div>
+            {closedToday ? (
+              <div className="msg-success"><i className="ti ti-circle-check"></i> Today is already closed. See the Daily Report tab.</div>
+            ) : (
+              <>
+                <div className="msg-err" style={{ background: 'var(--amber-lt)', color: 'var(--amber)', border: 'none' }}>
+                  <i className="ti ti-alert-triangle"></i> Once closed, no new visits, invoices, or payments can be created for today until it's reopened.
+                </div>
+                <label className="flbl">Closing notes</label>
+                <textarea className="fi" rows={2} style={{ marginBottom: 14 }} value={closeNotes} onChange={(e) => setCloseNotes(e.target.value)} placeholder="Optional..." />
+                <button className="btn btn-danger" onClick={handleCloseDay} disabled={loading || !readiness?.reconciliationComplete}>
+                  <i className="ti ti-lock"></i> {loading ? 'Closing...' : 'Close Day and Generate Report'}
+                </button>
+              </>
+            )}
+          </div>
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-checklist" style={{ color: 'var(--green)' }}></i> Pre-close Checklist</div>
+            <div style={{ fontSize: 13, lineHeight: 2.2 }}>
+              <div><i className={`ti ${opening ? 'ti-circle-check' : 'ti-circle-x'}`} style={{ color: opening ? 'var(--green)' : 'var(--amber)', marginRight: 6 }}></i>
+                Day opened{opening ? ` at ${new Date(opening.opened_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : ' -- required before any payment can be collected today'}
+              </div>
+              <div><i className={`ti ${readiness?.reconciliationComplete ? 'ti-circle-check' : 'ti-circle-x'}`} style={{ color: readiness?.reconciliationComplete ? 'var(--green)' : 'var(--red)', marginRight: 6 }}></i>
+                Reconciliation complete for all payment modes
+              </div>
+              <div><i className={`ti ${!closedToday ? 'ti-circle-check' : 'ti-circle-x'}`} style={{ color: !closedToday ? 'var(--green)' : 'var(--red)', marginRight: 6 }}></i>
+                Day not already closed
+              </div>
+            </div>
+          </div>
+
+          {openQueueEntries.length > 0 && (
+            <div className="card" style={{ gridColumn: '1 / -1' }}>
+              <div className="card-title" style={{ marginBottom: 10 }}>
+                <i className="ti ti-alert-triangle" style={{ color: 'var(--amber)' }}></i> {openQueueEntries.length} visit(s) still open in Doctor/Optometry queues
+              </div>
+              <div className="msg-info" style={{ marginBottom: 10 }}>
+                <i className="ti ti-info-circle"></i> These won&apos;t block closing the day, but if left as-is they&apos;ll keep showing as pending tomorrow. Close them now with a shared reason, or leave them and resolve individually later from the Queue.
+              </div>
+              <table className="tbl" style={{ marginBottom: 12 }}>
+                <thead><tr><th>Patient</th><th>Dept</th><th>Token</th><th>Status</th><th>Since</th></tr></thead>
+                <tbody>
+                  {openQueueEntries.map((e) => (
+                    <tr key={e.id}>
+                      <td>{e.visits?.patients?.first_name} {e.visits?.patients?.last_name} <span style={{ color: 'var(--g400)', fontSize: 11 }}>({e.visits?.patients?.uhid})</span></td>
+                      <td>{e.department}</td>
+                      <td>{e.token}</td>
+                      <td>{e.status}</td>
+                      <td>{new Date(e.issued_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <label className="flbl">Reason (applied to all {openQueueEntries.length} visits above) *</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="fi" value={bulkCloseReason} onChange={(e) => setBulkCloseReason(e.target.value)} placeholder="e.g. End of day -- unresolved at closing time" />
+                <button className="btn" style={{ background: 'var(--amber)', color: '#fff', borderColor: 'transparent' }} onClick={handleBulkForceClose} disabled={bulkClosing}>
+                  {bulkClosing ? 'Closing...' : `Close All ${openQueueEntries.length}`}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        </>
+      )}
+
+      {activeTab === 'report' && (
+        <div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <label className="flbl">Report date</label>
+            <input type="date" className="fi" style={{ maxWidth: 200 }} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+          </div>
+          {!report?.closing ? (
+            <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>No closed day on record for this date.</div>
+          ) : (
+            <>
+              <div style={{ background: 'linear-gradient(135deg,#1e1b4b,#1e4e8c)', color: '#fff', borderRadius: 12, padding: '20px 24px', marginBottom: 16 }}>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>VEDA EYE HOSPITAL</div>
+                <div style={{ fontSize: 12, opacity: .8 }}>Haridwar, Uttarakhand</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 10, borderTop: '1px solid rgba(255,255,255,.2)', paddingTop: 10 }}>
+                  DAILY CASH CLOSING REPORT<br />
+                  Date: {report.closing.closing_date}<br />
+                  Closed by: {report.closing.profiles?.full_name || '--'} at {new Date(report.closing.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom: 10 }}>Reconciliation Summary</div>
+                  {report.reconciliation.map((r) => (
+                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                      <span>{r.mode}</span>
+                      <span style={{ fontWeight: 600, color: Math.abs(r.variance) > 0.01 ? 'var(--red)' : 'var(--green)' }}>
+                        {fmt(r.actual)}{Math.abs(r.variance) > 0.01 ? ` (var: ${r.variance > 0 ? '+' : ''}${fmt(r.variance)})` : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom: 10 }}>Day Totals</div>
+                  <div style={{ fontSize: 13, lineHeight: 2 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Revenue (billed)</span><strong>{fmt(report.closing.total_revenue)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Collected</span><strong style={{ color: 'var(--green)' }}>{fmt(report.closing.total_collected)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outstanding</span><strong style={{ color: 'var(--amber)' }}>{fmt(report.closing.total_outstanding)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Petty Cash Spent</span><strong style={{ color: 'var(--red)' }}>{fmt(report.closing.total_petty_cash_expenses)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoices</span><strong>{report.closing.total_invoices}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Visits</span><strong>{report.closing.total_visits}</strong></div>
+                  </div>
+                </div>
+              </div>
+
+              {report.expenses.length > 0 && (
+                <div className="card" style={{ marginTop: 16 }}>
+                  <div className="card-title" style={{ marginBottom: 10 }}>Petty Cash Expenses</div>
+                  <table className="tbl">
+                    <thead><tr><th>Category</th><th>Remarks</th><th>Entered By</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                    <tbody>
+                      {report.expenses.map((exp) => (
+                        <tr key={exp.id}>
+                          <td>{exp.master_expense_categories?.name}</td>
+                          <td>{exp.paid_to || '--'}</td>
+                          <td>{exp.profiles?.full_name || 'Staff'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(exp.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'history' && (
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-history" style={{ color: 'var(--g400)' }}></i> Closing History</div>
+          <table className="tbl">
+            <thead><tr><th>Date</th><th>Closed By</th><th>Revenue</th><th>Collected</th><th>Outstanding</th><th></th></tr></thead>
+            <tbody>
+              {history.map((h) => (
+                <tr key={h.id}>
+                  <td style={{ fontFamily: 'monospace' }}>{h.closing_date}</td>
+                  <td>{h.profiles?.full_name || '--'}</td>
+                  <td>{fmt(h.total_revenue)}</td>
+                  <td>{fmt(h.total_collected)}</td>
+                  <td>{fmt(h.total_outstanding)}</td>
+                  <td>
+                    {reopenTarget === h.closing_date ? (
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <input className="fi fi-sm" placeholder="Reason" value={reopenReason} onChange={(e) => setReopenReason(e.target.value)} style={{ width: 140 }} />
+                        <button className="btn btn-sm btn-danger" onClick={handleReopen}>Confirm</button>
+                        <button className="btn btn-sm" onClick={() => setReopenTarget(null)}>Cancel</button>
+                      </div>
+                    ) : (
+                      <button className="btn btn-sm" onClick={() => { setReopenTarget(h.closing_date); setReopenReason(''); }}>
+                        <i className="ti ti-lock-open"></i> Reopen
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {history.length === 0 && (
+                <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No closed days yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+VEDA_EOF_MARKER_9f3a
+
+echo "--- Files written ---"
+git status
+echo ""
+
+git add "app/(main)/cash-management/actions.js" "app/(main)/cash-management/page.js"
+
+git commit -m "Speed up Cash Management: add missing expression indexes on ist_date(created_at/collected_at) for invoices/payments/visits (close_day was doing full table scans), eliminate duplicate getTodayCollectionSummary query and redundant closed-day check on every refresh"
+
+git push origin main
+
+echo ""
+echo "Pushed. Vercel will auto-build main -> both portal.vedaeyehospital.com and training.vedaeyehospital.com."
+echo ""
+echo "What was actually wrong, and what changed:"
+echo "  1. close_day() filtered invoices/payments/visits using"
+echo "     ist_date(created_at) = <date> -- wrapping the column in a"
+echo "     function call, which Postgres cannot use a plain index for."
+echo "     Every single Close Day was doing a full table scan across"
+echo "     all three tables. Confirmed via EXPLAIN ANALYZE, then fixed"
+echo "     with matching expression indexes on all three columns -- this"
+echo "     will matter more and more as those tables grow over time."
+echo "  2. The Cash Management page was fetching the same expensive"
+echo "     payments query (with patient + payment-mode joins) TWICE on"
+echo "     every single page load and after every action (open day,"
+echo "     close day, reconciliation, expenses, bulk-close) -- once"
+echo "     directly, once again buried inside the readiness check. Now"
+echo "     fetched once and reused."
+echo "  3. The 'is today closed' check was also being computed two"
+echo "     different ways (a separate RPC call, plus a second check"
+echo "     already happening inside the readiness calculation). Now"
+echo "     computed once."
