@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import {
   getSurgicalCaseDetail, orderBiometryForCase, setPreOpPanelNotes,
-  setProceedStatus, setIolOrderNotes, editSurgicalCaseDetails,
+  setProceedStatus, setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions,
 } from '../actions';
 import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
@@ -24,12 +24,20 @@ function CaseHeader({ sc, patient, onAction }) {
   const [procedureName, setProcedureName] = useState(sc.procedure_name);
   const [eye, setEye] = useState(sc.eye || 'OD');
   const [reason, setReason] = useState('');
+  const [instructions, setInstructions] = useState(sc.treatment_instructions || '');
+  const [savingInstructions, setSavingInstructions] = useState(false);
   const progressed = sc.status !== 'Pending Workup';
 
   useEffect(() => { if (editing) getSurgeries().then(setSurgeries); }, [editing]);
 
   function startEdit() {
     setProcedureName(sc.procedure_name); setEye(sc.eye || 'OD'); setReason(''); setEditing(true);
+  }
+
+  async function handleSaveInstructions() {
+    setSavingInstructions(true);
+    await onAction(setTreatmentInstructions)(sc.id, instructions);
+    setSavingInstructions(false);
   }
 
   return (
@@ -90,6 +98,22 @@ function CaseHeader({ sc, patient, onAction }) {
           </div>
         </div>
       )}
+
+      {/* Further instructions -- tied to the treatment itself (what's
+          being done, which eye), not the pre-op investigations note. */}
+      <div style={{ marginTop: 12, background: 'rgba(255,255,255,.1)', borderRadius: 8, padding: 12 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.75, textTransform: 'uppercase', marginBottom: 6 }}>Further Instructions</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            className="fi fi-sm" style={{ flex: 1 }}
+            placeholder="Anything else about this treatment worth noting..."
+            value={instructions} onChange={(e) => setInstructions(e.target.value)}
+          />
+          <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff' }} onClick={handleSaveInstructions} disabled={savingInstructions}>
+            {savingInstructions ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

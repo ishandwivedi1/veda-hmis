@@ -112,7 +112,7 @@ export async function getConsultationData(queueEntryId) {
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
     { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
-    { data: diagnosisHistoryRaw }, { data: biometryRecords }, { data: surgicalCases },
+    { data: diagnosisHistoryRaw }, { data: surgicalCases },
   ] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
@@ -130,10 +130,6 @@ export async function getConsultationData(queueEntryId) {
       .from('visits')
       .select('id, encounters(id, started_at, status, diagnoses(id, name, category, eye, status, created_at))')
       .eq('patient_id', patientId),
-    // Biometry gets its own dedicated section in Diagnosis & Plan (not
-    // folded into Investigations) -- same reasoning as its own
-    // Financial Masters department: it's structurally its own thing.
-    supabase.from('biometry_records').select('id, status, doctor_instructions, billing_status').eq('patient_id', patientId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
     // So "Mark for Surgery" can show what's already been marked instead
     // of silently reverting to a blank button after saving. Scoped by
     // visit_id (one visit, one surgical case), not just this encounter,
@@ -170,7 +166,6 @@ export async function getConsultationData(queueEntryId) {
     workflowRequests: workflowRequests || [], auditLog: isAdmin ? (auditLog || []) : [],
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
-    biometryRecords: biometryRecords || [],
     surgicalCases: surgicalCases || [],
     isLocked: encounter.status === 'Completed',
     isFollowUp, priorEncounterId: priorCompletedEncounters[0]?.id || null,
@@ -554,6 +549,46 @@ export async function removePrescription(id, encounterId) {
 export async function addInvestigation(encounterId, values) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
+
+  // Biometry is a "special" investigation -- selectable here like any
+  // other, but fulfilled through its own dedicated module (device
+  // readings for both eyes, IOL recommendations, report upload), not
+  // the plain investigation queue. Ordering it here still creates a
+  // normal investigation_orders row (shows up in this OPD list like
+  // anything else), but also ensures the underlying biometry_records
+  // row exists so it correctly routes there. Biometry is patient-level
+  // and reusable for years -- if it's already Measured, there's
+  // nothing to re-order, just say so instead of creating a duplicate.
+  if (values.name.trim().toLowerCase() === 'biometry') {
+    const { data: enc } = await supabase.from('encounters').select('visit_id, visits(patient_id)').eq('id', encounterId).single();
+    const patientId = enc?.visits?.patient_id;
+    if (!patientId) return { error: 'Could not resolve patient for this encounter.' };
+
+    const { data: existing } = await supabase
+      .from('biometry_records')
+      .select('id, status')
+      .eq('patient_id', patientId)
+      .neq('status', 'Cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (existing && existing.length > 0 && existing[0].status === 'Measured') {
+      return { error: 'Biometry is already on file for this patient (Measured) -- no need to re-order. Open it from the Biometry module if you need to review it.' };
+    }
+
+    const { error } = await supabase.from('investigation_orders').insert({
+      encounter_id: encounterId, name: 'Biometry', eye: values.eye, priority: values.priority,
+    });
+    if (error) return { error: error.message };
+
+    if (!existing || existing.length === 0) {
+      await supabase.from('biometry_records').insert({ patient_id: patientId, visit_id: enc.visit_id, encounter_id: encounterId });
+    }
+
+    await addAudit(supabase, encounterId, 'Biometry ordered', userData?.user?.id);
+    return { success: true };
+  }
+
   const { error } = await supabase.from('investigation_orders').insert({
     encounter_id: encounterId,
     name: values.name,

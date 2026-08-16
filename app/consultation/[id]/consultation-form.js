@@ -17,10 +17,6 @@ import {
   completeConsultation,
   sendForDilationFromConsultation,
   sendForInvestigationFromConsultation,
-  sendForBiometryFromConsultation,
-  adviseBiometry,
-  updateBiometryInstructions,
-  removeBiometryRecord,
   completeWorkflowRequest,
   addOpticalAdvice,
   removeOpticalAdvice,
@@ -167,9 +163,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [invName, setInvName] = useState('');
   const [invEye, setInvEye] = useState('OU');
   const invPriority = 'Routine'; // selector removed -- no longer needed
-  const [bioInstructions, setBioInstructions] = useState('');
-  const [editingBioId, setEditingBioId] = useState(null);
-  const [editBioInstructions, setEditBioInstructions] = useState('');
 
   // Management Plan expansion forms
   const [optText, setOptText] = useState('');
@@ -207,7 +200,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
       // workflow, now triggered from Counselling (M22) rather than here.
       // Substring match, not exact -- the catalog entry is named
       // "Biometry (Procedure Charge)", not literally "Biometry".
-      setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation' && !s.name.toLowerCase().includes('biometry')));
+      setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation'));
       setProcedureOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Minor Procedure'));
       setSurgeryOptions(sg.filter((s) => s.status === 'Active'));
     })();
@@ -240,36 +233,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
       setFuInstructions(data.followup.instructions || '');
       setFuSaved(true);
     }
-    if (data.biometryRecords && data.biometryRecords.length > 0) {
-      const first = data.biometryRecords[0];
-      setBioInstructions(first.doctor_instructions || '');
-    }
   }, [data]);
-
-  async function handleAdviseBiometry() {
-    setError('');
-    const result = await adviseBiometry(data.entry.visits.patients.id, data.entry.visits.id, data.encounter.id, bioInstructions);
-    if (result.error) { setError(result.error); return; }
-    refresh();
-  }
-
-  function startEditBioInstructions(record) {
-    setEditingBioId(record.id);
-    setEditBioInstructions(record.doctor_instructions || '');
-  }
-
-  async function saveBioInstructions(id) {
-    await updateBiometryInstructions(id, editBioInstructions);
-    setEditingBioId(null);
-    refresh();
-  }
-
-  async function handleRemoveBiometry(id) {
-    setError('');
-    const result = await removeBiometryRecord(id, data.encounter.id);
-    if (result.error) { setError(result.error); return; }
-    refresh();
-  }
 
   async function handleVisitOutcomeChange(outcome) {
     setVisitOutcome(outcome);
@@ -485,16 +449,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setLoading(true);
     const result = kind === 'dilate'
       ? await sendForDilationFromConsultation(queueEntryId, data.encounter.id)
-      : kind === 'biometry'
-      ? await sendForBiometryFromConsultation(queueEntryId, data.entry.visits.patients.id, data.encounter.id, bioInstructions)
       : await sendForInvestigationFromConsultation(queueEntryId, data.encounter.id);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
-    // Biometry stays on the page -- a doctor may still need to add
-    // diagnoses, order investigations, etc. in the same sitting. Dilation
-    // and Investigation keep the existing "done with this patient for
-    // now" behavior since that wasn't something you flagged.
-    if (kind === 'biometry') { refresh(); return; }
     finishAndClose();
   }
 
@@ -540,10 +497,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   ];
 
   const isReadOnly = data.isLocked && !unlocked;
-  // Already routed to the technician if the current queue status
-  // mentions Biometry (including compound statuses like "Awaiting
-  // Investigation & Biometry" -- see doctorSendOut).
-  const bioSent = data.entry?.status?.includes('Biometry') || false;
 
   return (
     <div style={{ maxWidth: 1440, margin: '0 auto', padding: '20px 26px' }}>
@@ -714,88 +667,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 </div>
               </div>
 
-              <GroupHeader num={2} color="var(--indigo)" title="Biometry" />
-              <div className="card" style={{ marginBottom: 20 }}>
-                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-ruler-measure" style={{ color: 'var(--indigo)' }}></i> Biometry</div>
-                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
-                  Device measurements, IOL power calculation, and surgeon approval -- its own dedicated workflow, separate from lab investigations.
-                </div>
-
-                {bioSent ? (
-                  <>
-                    <div style={{ marginBottom: 6 }}>
-                      <span className="badge b-green"><i className="ti ti-check"></i> Sent for Biometry</span>
-                    </div>
-                    {data.biometryRecords.map((r) => (
-                      <div key={r.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                          <span className={`badge ${r.status === 'Measured' ? 'b-green' : 'b-amber'}`}>
-                            {r.status}
-                          </span>
-                          <a href={`/biometry/${r.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 12, textDecoration: 'none' }}>
-                            <i className="ti ti-external-link"></i> Open Biometry
-                          </a>
-                          {editingBioId !== r.id && (
-                            <button className="btn" style={{ fontSize: 11 }} onClick={() => startEditBioInstructions(r)}>
-                              <i className="ti ti-edit"></i> {r.doctor_instructions ? 'Edit instructions' : 'Add instructions'}
-                            </button>
-                          )}
-                          {r.billing_status !== 'Billed' ? (
-                            <button className="btn" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => handleRemoveBiometry(r.id)}>
-                              <i className="ti ti-trash"></i> Remove
-                            </button>
-                          ) : (
-                            <span style={{ fontSize: 10, color: 'var(--g400)' }}>Billed -- cannot remove here</span>
-                          )}
-                        </div>
-                        {editingBioId === r.id ? (
-                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                            <input className="fi" style={{ flex: 1 }} placeholder="Instructions for technician" value={editBioInstructions} onChange={(e) => setEditBioInstructions(e.target.value)} />
-                            <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => saveBioInstructions(r.id)}>Save</button>
-                            <button className="btn" style={{ fontSize: 12 }} onClick={() => setEditingBioId(null)}>Cancel</button>
-                          </div>
-                        ) : r.doctor_instructions && (
-                          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 4 }}><i className="ti ti-notes"></i> {r.doctor_instructions}</div>
-                        )}
-                      </div>
-                    ))}
-                  </>
-                ) : (
-                  <>
-                    {data.biometryRecords.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        {data.biometryRecords.map((r) => (
-                          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                            <span className="badge b-indigo"><i className="ti ti-check"></i> Advised</span>
-                            {r.billing_status !== 'Billed' ? (
-                              <button className="btn" style={{ fontSize: 10 }} onClick={() => handleRemoveBiometry(r.id)}>
-                                <i className="ti ti-trash" style={{ color: 'var(--red)' }}></i> Remove
-                              </button>
-                            ) : (
-                              <span style={{ fontSize: 10, color: 'var(--g400)' }}>Billed -- cannot remove here</span>
-                            )}
-                          </div>
-                        ))}
-                        <span style={{ fontSize: 11, color: 'var(--g500)' }}>Adjust below if needed, then use &quot;Send for Biometry&quot; at the bottom.</span>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                      <div style={{ flex: 1, minWidth: 200 }}>
-                        <label className="flbl">Instructions for technician (optional)</label>
-                        <input className="fi" placeholder="e.g. prior RK surgery, dense cataract" value={bioInstructions} onChange={(e) => setBioInstructions(e.target.value)} />
-                      </div>
-                      <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAdviseBiometry}>
-                        {data.biometryRecords.length > 0 ? 'Update' : 'Add'}
-                      </button>
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 8 }}>
-                      Adding here records the advice -- use &quot;Send for Biometry&quot; below when you&apos;re ready to actually route the patient.
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <GroupHeader num={3} color="var(--teal)" title="Diagnosis" />
+              <GroupHeader num={2} color="var(--teal)" title="Diagnosis" />
 
               {data.diagnosisHistory.length > 0 && (
                 <div className="card" style={{ marginBottom: 12, background: 'var(--g50)' }}>
@@ -846,7 +718,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 </div>
               </div>
 
-              <GroupHeader num={4} color="var(--blue)" title="Treatment" />
+              <GroupHeader num={3} color="var(--blue)" title="Treatment" />
 
               <div className="card" style={{ marginBottom: 12 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i> Prescription</div>
@@ -1163,7 +1035,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 )}
               </div>
 
-              <GroupHeader num={5} color="var(--amber)" title="Patient Management" />
+              <GroupHeader num={4} color="var(--amber)" title="Patient Management" />
 
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-notes" style={{ color: 'var(--g400)' }}></i> Patient Instructions</div>
@@ -1259,11 +1131,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
             {data.investigations.length > 0 && (
               <button className="btn" onClick={() => handleSendOut('investigate')} disabled={loading}>
                 Send for Investigation
-              </button>
-            )}
-            {!bioSent && data.biometryRecords.length > 0 && (
-              <button className="btn" onClick={() => handleSendOut('biometry')} disabled={loading}>
-                <i className="ti ti-ruler-measure"></i> Send for Biometry
               </button>
             )}
             {data.procedures.length > 0 && (

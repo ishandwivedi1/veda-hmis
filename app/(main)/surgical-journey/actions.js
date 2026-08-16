@@ -48,6 +48,16 @@ export async function editSurgicalCaseDetails(caseId, procedureName, eye, reason
   return { success: true };
 }
 
+// ── FURTHER INSTRUCTIONS (Treatment) ───────────────────────────────
+// Free text tied to the treatment itself (procedure + eye), distinct
+// from the pre-op panel notes in the Investigations step.
+export async function setTreatmentInstructions(caseId, instructions) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ treatment_instructions: instructions || null }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── DASHBOARD ────────────────────────────────────────────────────────
 
 // Every open surgical case (any staff member -- a small setup doesn't

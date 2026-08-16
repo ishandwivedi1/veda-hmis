@@ -170,11 +170,37 @@ export async function markBiometryMeasured(id, measurements, remarks) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
-    .select('visit_id')
+    .select('visit_id, patient_id')
     .single();
 
   if (error) return { error: error.message };
   if (data?.visit_id) await logJourneyEvent(supabase, data.visit_id, 'biometry_completed');
+
+  // Biometry is ordered through the regular OPD Investigations panel
+  // now (selectable like any other investigation), which creates a
+  // normal investigation_orders row alongside this specialized
+  // fulfillment. Keep that row in sync so it doesn't sit showing
+  // "Ordered" forever in the doctor's list once the actual work is
+  // done -- match across ALL of this patient's encounters, since
+  // biometry is patient-level and the order could have come from any
+  // visit.
+  if (data?.patient_id) {
+    const { data: visits } = await supabase.from('visits').select('id').eq('patient_id', data.patient_id);
+    const visitIds = (visits || []).map((v) => v.id);
+    if (visitIds.length > 0) {
+      const { data: encounters } = await supabase.from('encounters').select('id').in('visit_id', visitIds);
+      const encounterIds = (encounters || []).map((e) => e.id);
+      if (encounterIds.length > 0) {
+        await supabase
+          .from('investigation_orders')
+          .update({ status: 'Available', verified_at: new Date().toISOString() })
+          .in('encounter_id', encounterIds)
+          .ilike('name', 'biometry')
+          .eq('status', 'Ordered');
+      }
+    }
+  }
+
   return { success: true };
 }
 
