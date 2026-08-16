@@ -550,6 +550,22 @@ export async function addInvestigation(encounterId, values) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
+  // Don't let the same investigation get ordered twice for this
+  // encounter while an earlier order is still open (Ordered/In
+  // Progress) -- same name, same eye. Cancelled/completed ones don't
+  // block a fresh order.
+  const { data: dupe } = await supabase
+    .from('investigation_orders')
+    .select('id')
+    .eq('encounter_id', encounterId)
+    .eq('eye', values.eye)
+    .ilike('name', values.name.trim())
+    .in('status', ['Ordered', 'In Progress'])
+    .limit(1);
+  if (dupe && dupe.length > 0) {
+    return { error: `"${values.name.trim()}" (${values.eye}) is already ordered and still pending for this visit.` };
+  }
+
   // Biometry is a "special" investigation -- selectable here like any
   // other, but fulfilled through its own dedicated module (device
   // readings for both eyes, IOL recommendations, report upload), not
@@ -581,9 +597,10 @@ export async function addInvestigation(encounterId, values) {
     });
     if (error) return { error: error.message };
 
-    if (!existing || existing.length === 0) {
-      await supabase.from('biometry_records').insert({ patient_id: patientId, visit_id: enc.visit_id, encounter_id: encounterId });
-    }
+    // Shared with Surgical Journey's own "order Biometry" path --
+    // creates the biometry_records row if none exists yet, or just
+    // reuses the one that does, instead of duplicating that logic here.
+    await ensureBiometryRecord(supabase, patientId, enc.visit_id, encounterId, null);
 
     await addAudit(supabase, encounterId, 'Biometry ordered', userData?.user?.id);
     return { success: true };

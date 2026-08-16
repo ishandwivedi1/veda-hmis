@@ -71,6 +71,22 @@ export async function addInHouseInvestigationForCase(caseId, name, eye) {
   if (!sc) return { error: 'Case not found.' };
   if (!sc.encounter_id) return { error: 'This case has no linked consultation encounter to attach investigations to.' };
 
+  const resolvedEye = eye || 'OU';
+
+  // Don't let the same investigation get ordered twice for this case
+  // while an earlier order is still open (Ordered/In Progress).
+  const { data: dupe } = await supabase
+    .from('investigation_orders')
+    .select('id')
+    .eq('encounter_id', sc.encounter_id)
+    .eq('eye', resolvedEye)
+    .ilike('name', name.trim())
+    .in('status', ['Ordered', 'In Progress'])
+    .limit(1);
+  if (dupe && dupe.length > 0) {
+    return { error: `"${name.trim()}" (${resolvedEye}) is already ordered and still pending for this case.` };
+  }
+
   // Biometry is patient-level and fulfilled through its own dedicated
   // module -- same special-case Doctor Consultation's addInvestigation
   // already does. A normal investigation_orders row is still created so
@@ -84,13 +100,13 @@ export async function addInHouseInvestigationForCase(caseId, name, eye) {
   }
 
   const { error } = await supabase.from('investigation_orders').insert({
-    encounter_id: sc.encounter_id, name: name.trim(), eye: eye || 'OU', priority: 'Routine',
+    encounter_id: sc.encounter_id, name: name.trim(), eye: resolvedEye, priority: 'Routine',
   });
   if (error) return { error: error.message };
 
   await supabase.from('encounter_audit_log').insert({
     encounter_id: sc.encounter_id,
-    message: `Investigation ordered from Surgical Journey: ${name.trim()} (${eye || 'OU'})`,
+    message: `Investigation ordered from Surgical Journey: ${name.trim()} (${resolvedEye})`,
     created_by: userData?.user?.id || null,
   });
 
