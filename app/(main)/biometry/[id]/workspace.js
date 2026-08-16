@@ -141,6 +141,8 @@ export default function BiometryWorkspace({ recordId }) {
   const [error, setError] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [saving, setSaving] = useState(false);
+  const [isDoctor, setIsDoctor] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
   const router = useRouter();
 
   async function refresh() {
@@ -148,6 +150,7 @@ export default function BiometryWorkspace({ recordId }) {
     if (result.error) { setLoadError(result.error); return; }
     setRecord(result.record);
     setRecommendations(result.recommendations);
+    setIsDoctor(!!result.isDoctor);
     const m = result.record.measurements || {};
     setMeasurements({
       re: Array.isArray(m.re) ? m.re : (m.re && Object.keys(m.re).length ? [{ ...m.re, device: result.record.verify_device || 'Unspecified' }] : []),
@@ -163,7 +166,10 @@ export default function BiometryWorkspace({ recordId }) {
 
   const patient = record.patients;
   const isMeasured = record.status === 'Measured';
-  const canEdit = !isMeasured;
+  // Once Measured, this is a finalized report -- locked by default for
+  // everyone. A Doctor can unlock it to make a correction; anyone else
+  // only ever sees it read-only, no matter how they arrived here.
+  const canEdit = !isMeasured || (isDoctor && unlocked);
 
   function setFieldInSet(eyeKey, idx, fieldKey, value) {
     setMeasurements((prev) => {
@@ -218,6 +224,27 @@ export default function BiometryWorkspace({ recordId }) {
       {error && <div className="msg-err">{error}</div>}
       {okMsg && <div className="msg-success"><i className="ti ti-circle-check"></i> {okMsg}</div>}
 
+      {isMeasured && !unlocked && (
+        <div className="msg-info" style={{ background: 'var(--g100)', color: 'var(--g600)', padding: '9px 13px', borderRadius: 8, fontSize: 12.5, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <i className="ti ti-lock"></i>
+          <span style={{ flex: 1 }}>This report is finalized and locked for viewing.</span>
+          {isDoctor && (
+            <button className="btn btn-sm" onClick={() => setUnlocked(true)}>
+              <i className="ti ti-lock-open"></i> Edit (Doctor)
+            </button>
+          )}
+        </div>
+      )}
+      {isMeasured && unlocked && (
+        <div className="msg-warn" style={{ background: 'var(--amber-lt)', color: 'var(--amber)', padding: '9px 13px', borderRadius: 8, fontSize: 12.5, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <i className="ti ti-edit"></i>
+          <span style={{ flex: 1 }}>Editing a finalized report. Changes are saved immediately.</span>
+          <button className="btn btn-sm" onClick={() => setUnlocked(false)}>
+            <i className="ti ti-lock"></i> Lock again
+          </button>
+        </div>
+      )}
+
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-head" style={{ marginBottom: 10 }}>
           <div className="card-title"><i className="ti ti-ruler-measure" style={{ color: 'var(--indigo)' }}></i> Biometric Measurements</div>
@@ -242,7 +269,7 @@ export default function BiometryWorkspace({ recordId }) {
         <AttachmentUploader entityType="biometry_record" entityId={recordId} title="Device Report (required -- IOLMaster/Lenstar printout, scanned reports)" />
       </div>
 
-      {canEdit && (
+      {!isMeasured && canEdit && (
         <div className="card">
           <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-check" style={{ color: 'var(--green)' }}></i> Mark as Measured</div>
           <div style={{ marginBottom: 10 }}>
@@ -257,6 +284,14 @@ export default function BiometryWorkspace({ recordId }) {
               <i className="ti ti-device-floppy"></i> Save Draft
             </button>
           </div>
+        </div>
+      )}
+
+      {isMeasured && canEdit && (
+        <div className="card">
+          <button className="btn btn-sm" style={{ background: 'var(--indigo)', color: '#fff', border: 'none' }} onClick={handleSaveDraft} disabled={saving}>
+            <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save Correction'}
+          </button>
         </div>
       )}
 

@@ -115,13 +115,29 @@ export async function getBiometryDetail(id) {
     .eq('biometry_record_id', id)
     .order('created_at', { ascending: true });
 
-  return { record: data, recommendations: recommendations || [] };
+  // Once a record is Measured, opening it (e.g. via "View Report" from
+  // Surgical Journey) should default to a locked, read-only view --
+  // only a Doctor can unlock it to make a correction. Before Measured,
+  // the normal technician data-entry flow is unaffected.
+  const { data: userData } = await supabase.auth.getUser();
+  let isDoctor = false;
+  if (userData?.user) {
+    const { data: me } = await supabase.from('profiles').select('designation').eq('id', userData.user.id).maybeSingle();
+    isDoctor = me?.designation === 'Doctor';
+  }
+
+  return { record: data, recommendations: recommendations || [], isDoctor };
 }
 
 // Persists measurement readings without changing status -- technician
-// can leave and resume later.
+// can leave and resume later. Once the record is Measured, this is
+// locked to Doctors only (correcting a finalized reading), same
+// boundary the workspace UI enforces.
 export async function saveBiometryDraft(id, measurements) {
   const supabase = await createClient();
+  const lockError = await assertBiometryEditable(supabase, id);
+  if (lockError) return lockError;
+
   const { error } = await supabase
     .from('biometry_records')
     .update({ measurements, updated_at: new Date().toISOString() })
@@ -208,8 +224,27 @@ export async function markBiometryMeasured(id, measurements, remarks) {
 // The device's own printed table -- for each brand/model it evaluated,
 // what power it recommends per eye. This app records what the printout
 // says; it does not calculate anything itself.
+// Shared lock check: once a biometry record is Measured, only a
+// Doctor can modify it (readings or recommendations) -- everyone else
+// gets a read-only view. Returns null if the edit is allowed, or an
+// {error} object to return straight from the calling action.
+async function assertBiometryEditable(supabase, biometryRecordId) {
+  const { data: existing } = await supabase.from('biometry_records').select('status').eq('id', biometryRecordId).maybeSingle();
+  if (existing?.status !== 'Measured') return null;
+  const { data: userData } = await supabase.auth.getUser();
+  const { data: me } = userData?.user
+    ? await supabase.from('profiles').select('designation').eq('id', userData.user.id).maybeSingle()
+    : { data: null };
+  if (me?.designation !== 'Doctor') {
+    return { error: 'This biometry record is already Measured and locked. Only a Doctor can edit it.' };
+  }
+  return null;
+}
+
 export async function addIolRecommendation(biometryRecordId, iolCatalogId, rePower, lePower) {
   const supabase = await createClient();
+  const lockError = await assertBiometryEditable(supabase, biometryRecordId);
+  if (lockError) return lockError;
   if (!iolCatalogId) return { error: 'Select an IOL brand/model.' };
   if (!rePower && !lePower) return { error: 'Enter at least one power (RE or LE).' };
   const { error } = await supabase.from('biometry_iol_recommendations').insert({
@@ -222,6 +257,11 @@ export async function addIolRecommendation(biometryRecordId, iolCatalogId, rePow
 
 export async function removeIolRecommendation(id) {
   const supabase = await createClient();
+  const { data: rec } = await supabase.from('biometry_iol_recommendations').select('biometry_record_id').eq('id', id).maybeSingle();
+  if (rec?.biometry_record_id) {
+    const lockError = await assertBiometryEditable(supabase, rec.biometry_record_id);
+    if (lockError) return lockError;
+  }
   const { error } = await supabase.from('biometry_iol_recommendations').delete().eq('id', id);
   if (error) return { error: error.message };
   return { success: true };

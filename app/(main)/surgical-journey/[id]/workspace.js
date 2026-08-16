@@ -365,7 +365,7 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <span className={`badge ${inv.status === 'Available' ? 'b-green' : inv.status === 'Cancelled' ? 'b-red' : 'b-amber'}`} style={{ fontSize: 10 }}>{inv.status}</span>
                     {isBiometry ? (
-                      <a href="/biometry" target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 11, padding: '2px 8px', textDecoration: 'none' }}>
+                      <a href={bioRecord?.id ? `/biometry/${bioRecord.id}` : '/biometry'} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 11, padding: '2px 8px', textDecoration: 'none' }}>
                         {bioRecord?.status === 'Measured' ? 'View Report' : 'Open Biometry'}
                       </a>
                     ) : inv.status === 'Available' ? (
