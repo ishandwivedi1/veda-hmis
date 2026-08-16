@@ -12,6 +12,12 @@ export async function getInvestigationQueue() {
     .from('investigation_orders')
     .select('*, encounters(id, visit_id, visits(id, patients(first_name, last_name, uhid)))')
     .in('status', ['Ordered', 'In Progress'])
+    // Biometry is ordered here too (so it shows in the doctor's OPD
+    // list), but it's fulfilled through its own biometry_records row,
+    // which is merged into this queue separately below. Exclude it
+    // here so it doesn't show twice with the second copy wrongly
+    // routing to the plain Investigation workspace.
+    .not('name', 'ilike', 'biometry')
     .order('priority', { ascending: true })
     .order('created_at', { ascending: true });
 

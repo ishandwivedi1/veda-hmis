@@ -183,13 +183,25 @@ function PatientTimelineInner() {
                   <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 6 }}>No clinical record was created for this visit.</div>
                 )}
                 {selectedEvent.type === 'Investigation' && selectedEvent.id && (
-                  <button
-                    className="btn btn-primary btn-sm"
-                    style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
-                    onClick={() => openPopup(`/investigation/${selectedEvent.id}?mode=view`, `inv-${selectedEvent.id}`)}
-                  >
-                    <i className="ti ti-eye"></i> View Result
-                  </button>
+                  selectedEvent.title?.trim().toLowerCase() === 'biometry' ? (
+                    <a
+                      href="/biometry"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-primary btn-sm"
+                      style={{ marginTop: 10, width: '100%', justifyContent: 'center', textDecoration: 'none' }}
+                    >
+                      <i className="ti ti-ruler-measure"></i> Open Biometry
+                    </a>
+                  ) : (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
+                      onClick={() => openPopup(`/investigation/${selectedEvent.id}?mode=view`, `inv-${selectedEvent.id}`)}
+                    >
+                      <i className="ti ti-eye"></i> View Result
+                    </button>
+                  )
                 )}
               </div>
             )}

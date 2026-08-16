@@ -358,6 +358,7 @@ export function WorkspaceTab({ referralId, onDone }) {
               <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigations</div>
 
               {investigations.map((i) => {
+                const isBiometry = i.name.trim().toLowerCase() === 'biometry';
                 const type = matchInvestigationType(i.name);
                 const hasResults = i.status === 'Available';
                 return (
@@ -366,17 +367,21 @@ export function WorkspaceTab({ referralId, onDone }) {
                       <span><strong>{i.name}</strong> -- {i.eye}</span>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <span className={`badge ${INV_STATUS_BADGE[i.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{i.status}</span>
-                        {hasResults && (
+                        {isBiometry ? (
+                          <a href="/biometry" target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '2px 6px', fontSize: 10, textDecoration: 'none' }}>
+                            <i className="ti ti-ruler-measure"></i> Open Biometry
+                          </a>
+                        ) : hasResults && (
                           <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
                             <i className="ti ti-eye"></i> View
                           </button>
                         )}
-                        {i.status === 'Ordered' && isPending && (
+                        {!isBiometry && i.status === 'Ordered' && isPending && (
                           <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => handleRemoveInvestigation(i.id)}>Remove</button>
                         )}
                       </div>
                     </div>
-                    {hasResults && (
+                    {!isBiometry && hasResults && (
                       <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{summarizeResultData(type, i.result_data)}</div>
                     )}
                   </div>

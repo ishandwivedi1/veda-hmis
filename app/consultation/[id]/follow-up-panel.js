@@ -24,6 +24,17 @@ function iopStr(iop) {
   return `RE ${iop.re ?? '--'} / LE ${iop.le ?? '--'} mmHg`;
 }
 
+// Biometry investigations are fulfilled through the Biometry module,
+// not the plain Investigation workspace -- route clicks accordingly.
+function isBiometryTitle(title) {
+  return (title || '').trim().toLowerCase() === 'biometry';
+}
+
+function openInvestigation(e) {
+  if (isBiometryTitle(e.title)) window.open('/biometry', '_blank', 'noopener,noreferrer');
+  else openPopup(`/investigation/${e.id}?mode=view`, `inv-${e.id}`);
+}
+
 // ── Patient Snapshot (top panel, always visible for a Follow-up encounter) ──
 export function PatientSnapshotBar({ snapshot }) {
   if (!snapshot) return null;
@@ -185,7 +196,7 @@ export function ContextSidebar({ patientId, previousVisitSummary, encounter, aud
               const clickable = (e.type === 'Visit' && !!e.queueEntryId) || (e.type === 'Investigation' && !!e.id);
               function handleClick() {
                 if (e.type === 'Visit' && e.queueEntryId) window.open(`/consultation/${e.queueEntryId}`, '_blank', 'noopener,noreferrer');
-                else if (e.type === 'Investigation' && e.id) openPopup(`/investigation/${e.id}?mode=view`, `inv-${e.id}`);
+                else if (e.type === 'Investigation' && e.id) openInvestigation(e);
               }
               return (
                 <div
@@ -219,7 +230,7 @@ export function ContextSidebar({ patientId, previousVisitSummary, encounter, aud
         {investigations.slice(0, 15).map((e, idx) => (
           <div
             key={idx}
-            onClick={e.id ? () => openPopup(`/investigation/${e.id}?mode=view`, `inv-${e.id}`) : undefined}
+            onClick={e.id ? () => openInvestigation(e) : undefined}
             style={{ padding: '7px 4px', borderBottom: '1px solid var(--g100)', cursor: e.id ? 'pointer' : 'default', borderRadius: 6 }}
             onMouseEnter={e.id ? (ev) => { ev.currentTarget.style.background = 'var(--g50)'; } : undefined}
             onMouseLeave={e.id ? (ev) => { ev.currentTarget.style.background = 'transparent'; } : undefined}
@@ -326,13 +337,20 @@ export function NewInvestigationsSinceLastVisit({ investigations, matchInvestiga
         <i className="ti ti-flask"></i> New since last visit -- {investigations.length} result{investigations.length > 1 ? 's' : ''} ready
       </div>
       {investigations.map((i) => {
+        const isBiometry = isBiometryTitle(i.name);
         const type = matchInvestigationType(i.name);
         return (
           <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', fontSize: 12.5 }}>
-            <span><strong>{i.name}</strong> -- {i.eye} -- <span style={{ color: 'var(--g500)' }}>{summarizeResultData(type, i.result_data)}</span></span>
-            <button className="btn btn-sm" onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
-              <i className="ti ti-eye"></i> View
-            </button>
+            <span><strong>{i.name}</strong> -- {i.eye} -- <span style={{ color: 'var(--g500)' }}>{isBiometry ? 'Measured' : summarizeResultData(type, i.result_data)}</span></span>
+            {isBiometry ? (
+              <button className="btn btn-sm" onClick={() => window.open('/biometry', '_blank', 'noopener,noreferrer')}>
+                <i className="ti ti-ruler-measure"></i> Open Biometry
+              </button>
+            ) : (
+              <button className="btn btn-sm" onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
+                <i className="ti ti-eye"></i> View
+              </button>
+            )}
           </div>
         );
       })}

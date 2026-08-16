@@ -22,6 +22,17 @@ function matchType(name) {
 
 const TYPE_ICON = { OCT: 'ti-eye', 'Visual Field': 'ti-activity', 'Fundus Photography': 'ti-camera', Pachymetry: 'ti-ruler', 'External Report': 'ti-file-import', Biometry: 'ti-ruler-measure' };
 
+// Biometry is ordered through the regular Investigations panel (so it
+// shows up here like anything else) but is fulfilled through its own
+// dedicated module, not the plain investigation workspace -- any row
+// named "Biometry" routes to /biometry instead of /investigation/[id].
+function isBiometryName(name) {
+  return (name || '').trim().toLowerCase() === 'biometry';
+}
+function investigationHref(r) {
+  return isBiometryName(r.name) ? '/biometry' : `/investigation/${r.id}`;
+}
+
 // Investigation and Biometry use different status vocabularies
 // (Ordered/In Progress/... vs Awaiting Biometry/Measured/Calculated),
 // so the Queue badge needs to know which one it's looking at.
@@ -97,8 +108,8 @@ export default function InvestigationPage() {
                 <td><span className="badge b-amber">{r.status}</span></td>
                 <td><span className={`badge ${r.payment?.badge || 'b-gray'}`}>{r.payment?.label || 'Unbilled'}</span></td>
                 <td>
-                  <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(`/investigation/${r.id}`)} title="View">
-                    <i className="ti ti-eye"></i>
+                  <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(investigationHref(r))} title={isBiometryName(r.name) ? 'Open Biometry' : 'View'}>
+                    <i className={`ti ${isBiometryName(r.name) ? 'ti-ruler-measure' : 'ti-eye'}`}></i>
                   </button>
                 </td>
               </tr>
@@ -130,17 +141,19 @@ export default function InvestigationPage() {
                 <td style={{ fontWeight: 600 }}>{r.name} <span style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 400 }}>({r.eye})</span></td>
                 <td><span className={`badge ${r.payment?.badge || 'b-gray'}`}>{r.payment?.label || 'Unbilled'}</span></td>
                 <td style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(`/investigation/${r.id}`)} title="View">
-                    <i className="ti ti-eye"></i>
+                  <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(investigationHref(r))} title={isBiometryName(r.name) ? 'Open Biometry' : 'View'}>
+                    <i className={`ti ${isBiometryName(r.name) ? 'ti-ruler-measure' : 'ti-eye'}`}></i>
                   </button>
-                  <button
-                    onClick={() => openPrintPopup(`/investigation-print/${r.id}`)}
-                    className="btn"
-                    style={{ padding: '3px 8px', fontSize: 11 }}
-                    title="Print / PDF"
-                  >
-                    <i className="ti ti-printer"></i>
-                  </button>
+                  {!isBiometryName(r.name) && (
+                    <button
+                      onClick={() => openPrintPopup(`/investigation-print/${r.id}`)}
+                      className="btn"
+                      style={{ padding: '3px 8px', fontSize: 11 }}
+                      title="Print / PDF"
+                    >
+                      <i className="ti ti-printer"></i>
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

@@ -21,6 +21,14 @@ function patientLabel(r) {
   return p ? `${p.first_name} ${p.last_name}` : '';
 }
 
+// Biometry rows here come from the investigation_orders copy that
+// mirrors status for the doctor's OPD list -- the actual record lives
+// in the Biometry module, so route there instead of the plain
+// Investigation workspace.
+function isBiometryName(name) {
+  return (name || '').trim().toLowerCase() === 'biometry';
+}
+
 export default function InvestigationHistoryPage() {
   const [rows, setRows] = useState([]);
   const [patientFilter, setPatientFilter] = useState('');
@@ -119,8 +127,10 @@ export default function InvestigationHistoryPage() {
             {filtered.map((r) => {
               const p = r.encounters?.visits?.patients;
               const type = matchInvestigationType(r.name);
+              const isBiometry = isBiometryName(r.name);
+              const href = isBiometry ? '/biometry' : `/investigation/${r.id}`;
               return (
-                <tr key={r.id} onClick={() => router.push(`/investigation/${r.id}`)} style={{ cursor: 'pointer' }}>
+                <tr key={r.id} onClick={() => router.push(href)} style={{ cursor: 'pointer' }}>
                   <td style={{ fontSize: 11 }}>{new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                   <td>
                     <strong>{p?.first_name} {p?.last_name}</strong>
@@ -128,21 +138,21 @@ export default function InvestigationHistoryPage() {
                   </td>
                   <td style={{ fontWeight: 600 }}>{r.name}</td>
                   <td><span className="badge b-blue" style={{ fontSize: 10 }}>{r.eye}</span></td>
-                  <td style={{ fontSize: 11, color: 'var(--g600)' }}>{summarizeResultData(type, r.result_data)}</td>
+                  <td style={{ fontSize: 11, color: 'var(--g600)' }}>{isBiometry ? '--' : summarizeResultData(type, r.result_data)}</td>
                   <td><span className={`badge ${STATUS_BADGE[r.status] || 'b-gray'}`}>{r.status}</span></td>
                   <td style={{ fontSize: 11 }}>{r.doctorName}</td>
                   <td style={{ fontSize: 11, color: 'var(--g400)' }}>{r.performedByName}</td>
                   <td style={{ display: 'flex', gap: 4 }}>
                     <a
-                      href={`/investigation/${r.id}`}
-                      onClick={(e) => { e.stopPropagation(); router.push(`/investigation/${r.id}`); }}
+                      href={href}
+                      onClick={(e) => { e.stopPropagation(); router.push(href); }}
                       className="btn"
                       style={{ padding: '3px 8px', fontSize: 11, textDecoration: 'none' }}
-                      title="View"
+                      title={isBiometry ? 'Open Biometry' : 'View'}
                     >
-                      <i className="ti ti-eye"></i>
+                      <i className={`ti ${isBiometry ? 'ti-ruler-measure' : 'ti-eye'}`}></i>
                     </a>
-                    {['Completed', 'Verified', 'Available'].includes(r.status) && (
+                    {!isBiometry && ['Completed', 'Verified', 'Available'].includes(r.status) && (
                       <button
                         onClick={(e) => { e.stopPropagation(); openPrintPopup(`/investigation-print/${r.id}`); }}
                         className="btn"

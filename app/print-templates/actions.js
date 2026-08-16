@@ -988,7 +988,7 @@ export async function renderExternalInvestigationReferralHtml(caseId) {
 
   <table style="width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 18px;">
     <tr>
-      <td style="width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;">
+      <td style="width: 60%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;">
         <table style="width: 100%; font-size: 12px;">
           <tr><td style="width: 110px; color: #444;">PATIENT ID</td><td>: <strong>${patient?.uhid || '--'}</strong></td></tr>
           <tr><td style="color: #444;">NAME</td><td>: <strong>${patient?.first_name || ''} ${patient?.last_name || ''}</strong></td></tr>
@@ -996,18 +996,15 @@ export async function renderExternalInvestigationReferralHtml(caseId) {
           <tr><td style="color: #444;">MOBILE</td><td>: <strong>${patient?.mobile || '--'}</strong></td></tr>
         </table>
       </td>
-      <td style="width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9;">
+      <td style="width: 40%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9;">
         <table style="width: 100%; font-size: 12px;">
-          <tr><td style="width: 110px; color: #444;">DATE</td><td>: <strong>${fmtDate(new Date().toISOString())}</strong></td></tr>
-          <tr><td style="color: #444;">SURGERY ADVISED</td><td>: <strong>${sc.procedure_name} (${sc.eye})</strong></td></tr>
-          <tr><td style="color: #444;">DOCTOR</td><td>: <strong>Dr. ${sc.profiles?.full_name || '--'}</strong></td></tr>
-          <tr><td style="color: #444;">DOCTOR REGN NO</td><td>: <strong>${sc.profiles?.registration_no || '--'}</strong></td></tr>
+          <tr><td style="width: 60px; color: #444;">DATE</td><td>: <strong>${fmtDate(new Date().toISOString())}</strong></td></tr>
         </table>
       </td>
     </tr>
   </table>
 
-  <div style="font-size: 12px; margin-bottom: 10px;">The following investigations are requested prior to surgery. Please get these done and bring the reports on your next visit.</div>
+  <div style="font-size: 12px; margin-bottom: 10px;">The following investigations are requested. Please get these done and bring the reports on your next visit.</div>
 
   <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 30px;">
     <thead>

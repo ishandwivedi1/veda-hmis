@@ -627,6 +627,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   />
                 )}
                 {data.investigations.map((i) => {
+                  // Biometry is a special investigation -- it's fulfilled
+                  // through its own dedicated module (device readings,
+                  // IOL recommendations, surgeon approval), not the plain
+                  // Investigation workspace. Route it to /biometry instead
+                  // of /investigation/[id], same as Surgical Journey does.
+                  const isBiometry = i.name.trim().toLowerCase() === 'biometry';
                   const type = matchInvestigationType(i.name);
                   const hasResults = i.status === 'Available';
                   return (
@@ -637,17 +643,21 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span className={`badge ${INV_STATUS_BADGE[i.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{i.status}</span>
-                          {hasResults && (
+                          {isBiometry ? (
+                            <a href="/biometry" target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '2px 8px', fontSize: 11, textDecoration: 'none' }}>
+                              <i className="ti ti-ruler-measure"></i> Open Biometry
+                            </a>
+                          ) : hasResults && (
                             <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
                               <i className="ti ti-eye"></i> View findings
                             </button>
                           )}
-                          {i.status === 'Ordered' && (
+                          {!isBiometry && i.status === 'Ordered' && (
                             <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
                           )}
                         </div>
                       </div>
-                      {hasResults && (
+                      {!isBiometry && hasResults && (
                         <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3 }}>{summarizeResultData(type, i.result_data)}</div>
                       )}
                       {i.status === 'Cancelled' && i.unable_reason && (
