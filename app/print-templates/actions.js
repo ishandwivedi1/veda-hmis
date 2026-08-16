@@ -342,6 +342,7 @@ const PRINT_TEMPLATE_CATALOG = [
   { key: 'medicine_prescription', name: 'Medicine Prescription', description: 'Printed from Pharmacy -- the medicine list on its own, independent of the bill, for the patient to keep or take elsewhere.' },
   { key: 'consent_form', name: 'Consent Form', description: 'Coming soon.', comingSoon: true },
   { key: 'discharge_summary', name: 'Discharge Summary', description: 'Printed at Post-op discharge -- procedure, IOL, medications, instructions, follow-up schedule.' },
+  { key: 'external_tests_requisition', name: 'External Tests Requisition', description: 'Printed from Surgical Journey -- list of external tests (blood work, HIV test, etc) for the patient to take to an outside lab.' },
 ];
 
 // ── Hospital Settings -- the "actual fields to edit" form (name,
@@ -927,6 +928,114 @@ function amountInWords(amount) {
   if (thousand) parts.push(`${threeDigitWords(thousand)} Thousand`);
   if (hundred) parts.push(threeDigitWords(hundred));
   return `Rupees ${parts.join(' ')} Only`;
+}
+
+// ── Renders a simple referral slip listing external investigations
+//    requested for a surgical case (blood work, HIV test, etc -- not
+//    done in-house) -- handed to the patient to get done elsewhere.
+//    Self-contained rather than going through the editable
+//    print_templates table, since this is a short, fixed-format slip. ──
+export async function renderExternalInvestigationReferralHtml(caseId) {
+  const supabase = await createClient();
+
+  const { data: sc, error } = await supabase
+    .from('surgical_cases')
+    .select('id, procedure_name, eye, created_at, patients:patient_id(uhid, first_name, last_name, age, gender, mobile), profiles:surgeon_id(full_name, registration_no)')
+    .eq('id', caseId)
+    .single();
+  if (error || !sc) return { error: 'Case not found.' };
+
+  const { data: tests } = await supabase
+    .from('external_investigations')
+    .select('test_name, created_at')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: true });
+
+  if (!tests || tests.length === 0) return { error: 'No external investigations have been added for this case yet.' };
+
+  const settings = await getHospitalSettings();
+  const patient = sc.patients;
+
+  const rows = tests.map((t, i) => `
+    <tr>
+      <td style="border: 1px solid #999; padding: 8px; text-align: center; width: 40px;">${i + 1}</td>
+      <td style="border: 1px solid #999; padding: 8px;">${t.test_name}</td>
+      <td style="border: 1px solid #999; padding: 8px;"></td>
+    </tr>`).join('');
+
+  const html = `
+<div style="max-width: 780px; margin: 0 auto; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 13px;">
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 6px;">
+    <tr>
+      <td style="width: 100px; vertical-align: top;">${logoHtml(settings)}</td>
+      <td style="vertical-align: top;">
+        <div style="font-size: 24px; font-weight: 800; letter-spacing: .3px; text-decoration: underline;">${settings.name || ''}</div>
+        <div style="font-size: 11px; font-weight: 700; margin-top: 2px;">${settings.unit_line || ''}</div>
+        <div style="font-size: 10px; font-weight: 700;">REGN NO : ${settings.regn_no || ''}</div>
+      </td>
+      <td style="text-align: right; vertical-align: top; font-size: 10.5px; line-height: 1.5;">
+        ${settings.address_line1 || ''}<br/>
+        ${settings.address_line2 || ''}<br/>
+        ${settings.city_state_pin || ''}<br/>
+        Tel: ${settings.phone || ''}
+      </td>
+    </tr>
+  </table>
+
+  <div style="text-align: center; font-size: 16px; font-weight: 700; border-top: 1.5px solid #333; border-bottom: 1.5px solid #333; padding: 8px 0; margin: 10px 0 16px;">
+    INVESTIGATION REFERRAL
+  </div>
+
+  <table style="width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 18px;">
+    <tr>
+      <td style="width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;">
+        <table style="width: 100%; font-size: 12px;">
+          <tr><td style="width: 110px; color: #444;">PATIENT ID</td><td>: <strong>${patient?.uhid || '--'}</strong></td></tr>
+          <tr><td style="color: #444;">NAME</td><td>: <strong>${patient?.first_name || ''} ${patient?.last_name || ''}</strong></td></tr>
+          <tr><td style="color: #444;">AGE/GENDER</td><td>: <strong>${patient?.age ?? '--'} / ${patient?.gender || '--'}</strong></td></tr>
+          <tr><td style="color: #444;">MOBILE</td><td>: <strong>${patient?.mobile || '--'}</strong></td></tr>
+        </table>
+      </td>
+      <td style="width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9;">
+        <table style="width: 100%; font-size: 12px;">
+          <tr><td style="width: 110px; color: #444;">DATE</td><td>: <strong>${fmtDate(new Date().toISOString())}</strong></td></tr>
+          <tr><td style="color: #444;">SURGERY ADVISED</td><td>: <strong>${sc.procedure_name} (${sc.eye})</strong></td></tr>
+          <tr><td style="color: #444;">DOCTOR</td><td>: <strong>Dr. ${sc.profiles?.full_name || '--'}</strong></td></tr>
+          <tr><td style="color: #444;">DOCTOR REGN NO</td><td>: <strong>${sc.profiles?.registration_no || '--'}</strong></td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <div style="font-size: 12px; margin-bottom: 10px;">The following investigations are requested prior to surgery. Please get these done and bring the reports on your next visit.</div>
+
+  <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 30px;">
+    <thead>
+      <tr style="background: #e9edf2;">
+        <th style="border: 1px solid #999; padding: 8px;">S.NO</th>
+        <th style="border: 1px solid #999; padding: 8px; text-align: left;">Investigation</th>
+        <th style="border: 1px solid #999; padding: 8px; text-align: left; width: 160px;">Report / Remarks</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  <table style="width: 100%; margin-top: 50px;">
+    <tr>
+      <td style="font-size: 12px;">&nbsp;</td>
+      <td style="text-align: right; font-size: 12px;">
+        <div>Dr. ${sc.profiles?.full_name || ''}</div>
+        <div style="font-size: 10.5px; color: #666;">Reg No: ${sc.profiles?.registration_no || ''}</div>
+      </td>
+    </tr>
+  </table>
+
+  <div style="text-align: center; margin-top: 20px; font-size: 10.5px; color: #999;">
+    For any Queries please contact us at ${settings.phone || ''} or Email us at ${settings.email || ''}
+  </div>
+</div>`;
+
+  return { html };
 }
 
 // ── Renders the OPD Case Sheet for a given encounterId -- the

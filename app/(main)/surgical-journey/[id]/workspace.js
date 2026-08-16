@@ -4,9 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import {
-  getSurgicalCaseDetail, orderBiometryForCase,
+  getSurgicalCaseDetail,
   setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions,
   getInvestigationOptionsForCase, addInHouseInvestigationForCase, removeInHouseInvestigationForCase,
+  addExternalTest, removeExternalTest,
 } from '../actions';
 import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
@@ -213,7 +214,7 @@ export default function Workspace({ caseId }) {
       <DecisionSection sc={sc} onAction={flash} active={currentStep === 'decision'} />
 
       {/* 2. INVESTIGATIONS */}
-      <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} inHouseInvestigations={data.inHouseInvestigations} onAction={flash} active={currentStep === 'investigations'} />
+      <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} inHouseInvestigations={data.inHouseInvestigations} externalTests={data.externalTests} onAction={flash} active={currentStep === 'investigations'} />
 
       {/* 3. PACKAGE & IOL DECISION */}
       <PackageDecisionSection sc={sc} onAction={flash} active={currentStep === 'package'} />
@@ -323,12 +324,14 @@ function IolApprovalSection({ iolApproval, active }) {
 // panel. Biometry stays its own thing (patient-level, dedicated flow).
 // Everything else splits into In-House (routes through our own
 // Investigation module, status + View Report) and External (done
-// elsewhere -- just upload whatever report comes back, view anytime). ──
-function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, onAction, active }) {
-  const [instructions, setInstructions] = useState('');
+// elsewhere -- add multiple named tests, upload/view each one's report
+// separately, and print the whole list as a referral slip). ──
+function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, externalTests, onAction, active }) {
   const [invOptions, setInvOptions] = useState([]);
   const [selectedInv, setSelectedInv] = useState('');
   const [invEye, setInvEye] = useState('OU');
+  const [extTestName, setExtTestName] = useState('');
+  const [expandedTestId, setExpandedTestId] = useState(null);
   const biometryOrdered = biometryRecords.length > 0;
   const decided = sc.decision === 'Accepted';
 
@@ -349,42 +352,31 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, onA
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Biometry (both eyes, for IOL power)</div>
-        {biometryRecords.length > 0 ? (
-          biometryRecords.map((b) => (
-            <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 8px', background: 'var(--g50)', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
-              <span>{b.status}{b.verified_at ? ` -- ${new Date(b.verified_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}` : ''}</span>
-              <a href="/biometry" style={{ color: 'var(--blue)', fontWeight: 600 }}>Open Biometry &rarr;</a>
-            </div>
-          ))
-        ) : (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Instructions (optional)" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-            <button className="btn btn-sm btn-primary" onClick={() => onAction(orderBiometryForCase)(sc.id, instructions)}>
-              <i className="ti ti-ruler-measure"></i> Order Biometry
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>In-House Investigations</div>
+        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>Anything we do ourselves -- including Biometry, whatever the doctor feels this case needs.</div>
         {inHouseInvestigations.length > 0 && (
           <div style={{ marginBottom: 8 }}>
-            {inHouseInvestigations.map((inv) => (
-              <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', background: 'var(--g50)', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
-                <span>{inv.name} -- {inv.eye}</span>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span className={`badge ${inv.status === 'Available' ? 'b-green' : inv.status === 'Cancelled' ? 'b-red' : 'b-amber'}`} style={{ fontSize: 10 }}>{inv.status}</span>
-                  {inv.status === 'Available' && (
-                    <a href={`/investigation/${inv.id}?mode=view`} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 11, padding: '2px 8px', textDecoration: 'none' }}>View Report</a>
-                  )}
-                  {inv.status === 'Ordered' && (
-                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => onAction(removeInHouseInvestigationForCase)(inv.id)}>Remove</button>
-                  )}
+            {inHouseInvestigations.map((inv) => {
+              const isBiometry = inv.name.toLowerCase() === 'biometry';
+              const bioRecord = isBiometry ? biometryRecords[0] : null;
+              return (
+                <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', background: 'var(--g50)', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
+                  <span>{inv.name} -- {inv.eye}</span>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span className={`badge ${inv.status === 'Available' ? 'b-green' : inv.status === 'Cancelled' ? 'b-red' : 'b-amber'}`} style={{ fontSize: 10 }}>{inv.status}</span>
+                    {isBiometry ? (
+                      <a href="/biometry" target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 11, padding: '2px 8px', textDecoration: 'none' }}>
+                        {bioRecord?.status === 'Measured' ? 'View Report' : 'Open Biometry'}
+                      </a>
+                    ) : inv.status === 'Available' ? (
+                      <a href={`/investigation/${inv.id}?mode=view`} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 11, padding: '2px 8px', textDecoration: 'none' }}>View Report</a>
+                    ) : inv.status === 'Ordered' ? (
+                      <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => onAction(removeInHouseInvestigationForCase)(inv.id)}>Remove</button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8 }}>
@@ -405,9 +397,47 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, onA
       </div>
 
       <div>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>External Investigations (done elsewhere)</div>
-        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Upload whatever report comes back, whenever it comes back -- view anytime.</div>
-        <AttachmentUploader entityType="surgical_case" entityId={sc.id} title="" />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontWeight: 600, fontSize: 12 }}>External Investigations</div>
+          {externalTests.length > 0 && (
+            <a href={`/external-investigation-referral-print/${sc.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 11, padding: '2px 8px', textDecoration: 'none' }}>
+              <i className="ti ti-printer"></i> Print Referral
+            </a>
+          )}
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 8 }}>Blood work, HIV test, etc -- not done in-house. Add each test, upload its report whenever it comes back.</div>
+
+        {externalTests.length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            {externalTests.map((t) => (
+              <div key={t.id} style={{ background: 'var(--g50)', borderRadius: 6, marginBottom: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', fontSize: 12, cursor: 'pointer' }} onClick={() => setExpandedTestId(expandedTestId === t.id ? null : t.id)}>
+                  <span>{t.test_name}</span>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span className="badge b-gray" style={{ fontSize: 10 }}>{t.attachmentCount > 0 ? `${t.attachmentCount} file${t.attachmentCount > 1 ? 's' : ''}` : 'No report yet'}</span>
+                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={(e) => { e.stopPropagation(); onAction(removeExternalTest)(t.id); }}>Remove</button>
+                    <i className={`ti ${expandedTestId === t.id ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ color: 'var(--g400)' }}></i>
+                  </div>
+                </div>
+                {expandedTestId === t.id && (
+                  <div style={{ padding: '0 8px 10px' }}>
+                    <AttachmentUploader entityType="external_investigation" entityId={t.id} title="" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="fi fi-sm" style={{ flex: 1 }} placeholder='e.g. "CBC", "HIV Test", "RBS"' value={extTestName} onChange={(e) => setExtTestName(e.target.value)} />
+          <button
+            className="btn btn-sm btn-primary" disabled={!extTestName.trim()}
+            onClick={async () => { const r = await onAction(addExternalTest)(sc.id, extTestName); if (!r?.error) setExtTestName(''); }}
+          >
+            <i className="ti ti-plus"></i> Add Test
+          </button>
+        </div>
       </div>
     </Section>
   );

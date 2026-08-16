@@ -50,13 +50,15 @@ export async function editSurgicalCaseDetails(caseId, procedureName, eye, reason
 
 // ── IN-HOUSE INVESTIGATIONS (Step 2) ───────────────────────────────
 // Flexible and optional -- add whatever this case actually needs, not
-// a fixed required panel. Routes through the same investigation_orders
-// table and Investigation module queue Doctor Consultation uses.
-// "Further investigations for a surgical case go through the surgery
-// module" -- this is that entry point, not a trip back to Consultation.
+// a fixed required panel. Fully generic -- Biometry is just one more
+// option in the same list, not a separate hardcoded section, per your
+// instruction. Routes through the same investigation_orders table and
+// Investigation module queue Doctor Consultation uses. "Further
+// investigations for a surgical case go through the surgery module" --
+// this is that entry point, not a trip back to Consultation.
 export async function getInvestigationOptionsForCase() {
   const supabase = await createClient();
-  const { data } = await supabase.from('master_services').select('code, name').eq('status', 'Active').eq('dept', 'Investigation').neq('name', 'Biometry');
+  const { data } = await supabase.from('master_services').select('code, name').eq('status', 'Active').eq('dept', 'Investigation');
   return data || [];
 }
 
@@ -65,9 +67,21 @@ export async function addInHouseInvestigationForCase(caseId, name, eye) {
   const { data: userData } = await supabase.auth.getUser();
   if (!name || !name.trim()) return { error: 'Select an investigation.' };
 
-  const { data: sc } = await supabase.from('surgical_cases').select('encounter_id').eq('id', caseId).single();
+  const { data: sc } = await supabase.from('surgical_cases').select('encounter_id, patient_id, visit_id').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
   if (!sc.encounter_id) return { error: 'This case has no linked consultation encounter to attach investigations to.' };
+
+  // Biometry is patient-level and fulfilled through its own dedicated
+  // module -- same special-case Doctor Consultation's addInvestigation
+  // already does. A normal investigation_orders row is still created so
+  // it shows up in this same list with a status badge, but the actual
+  // biometry_records row (device readings, IOL recommendations) is what
+  // makes it real -- ensured here, same as everywhere else biometry
+  // gets ordered from.
+  if (name.trim().toLowerCase() === 'biometry') {
+    const result = await adviseBiometry(sc.patient_id, sc.visit_id, sc.encounter_id, null);
+    if (result.error) return result;
+  }
 
   const { error } = await supabase.from('investigation_orders').insert({
     encounter_id: sc.encounter_id, name: name.trim(), eye: eye || 'OU', priority: 'Routine',
@@ -86,6 +100,53 @@ export async function addInHouseInvestigationForCase(caseId, name, eye) {
 export async function removeInHouseInvestigationForCase(investigationId) {
   const supabase = await createClient();
   const { error } = await supabase.from('investigation_orders').delete().eq('id', investigationId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── EXTERNAL INVESTIGATIONS ─────────────────────────────────────────
+// Named tests done elsewhere (blood work, HIV test -- not done
+// in-house). Each is added by name; the report, once it comes back, is
+// a normal clinical_attachments upload keyed to that specific test, not
+// a generic unlabeled bucket. Also printable as a referral slip to
+// hand the patient.
+export async function getExternalTestsForCase(caseId) {
+  const supabase = await createClient();
+  const { data: tests, error } = await supabase
+    .from('external_investigations')
+    .select('*')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: true });
+  if (error) return [];
+
+  const testIds = (tests || []).map((t) => t.id);
+  let attachmentCountByTest = {};
+  if (testIds.length > 0) {
+    const { data: attachments } = await supabase
+      .from('clinical_attachments')
+      .select('entity_id')
+      .eq('entity_type', 'external_investigation')
+      .in('entity_id', testIds);
+    (attachments || []).forEach((a) => { attachmentCountByTest[a.entity_id] = (attachmentCountByTest[a.entity_id] || 0) + 1; });
+  }
+
+  return (tests || []).map((t) => ({ ...t, attachmentCount: attachmentCountByTest[t.id] || 0 }));
+}
+
+export async function addExternalTest(caseId, name) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!name || !name.trim()) return { error: 'Enter a test name.' };
+  const { error } = await supabase.from('external_investigations').insert({
+    surgical_case_id: caseId, test_name: name.trim(), created_by: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function removeExternalTest(testId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('external_investigations').delete().eq('id', testId);
   if (error) return { error: error.message };
   return { success: true };
 }
@@ -163,16 +224,15 @@ export async function getSurgicalCaseDetail(caseId) {
   // In-house investigations -- ordered against this case's own
   // consultation encounter, same investigation_orders table Doctor
   // Consultation uses and the same Investigation module queue picks
-  // them up from. Biometry is excluded here (it's patient-level and
-  // handled entirely separately above -- has its own dedicated flow,
-  // not a plain in-house investigation).
+  // them up from. Fully generic -- Biometry shows up here too now,
+  // same as anything else (whatever the doctor feels like), not a
+  // separate hardcoded section.
   let inHouseInvestigations = [];
   if (sc.encounter_id) {
     const { data } = await supabase
       .from('investigation_orders')
       .select('*')
       .eq('encounter_id', sc.encounter_id)
-      .neq('name', 'Biometry')
       .order('created_at', { ascending: false });
     inHouseInvestigations = data || [];
   }
@@ -226,10 +286,13 @@ export async function getSurgicalCaseDetail(caseId) {
     .eq('surgical_case_id', caseId)
     .maybeSingle();
 
+  const externalTests = await getExternalTestsForCase(caseId);
+
   return {
     case: { ...sc, biometry_done: biometryRecords.some((b) => b.status === 'Measured') },
     biometryRecords,
     inHouseInvestigations,
+    externalTests,
     fitnessReferral: fitnessReferral || null,
     iolApproval: iolApproval || null,
     otSchedule: otSchedule || null,

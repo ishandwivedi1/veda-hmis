@@ -2874,6 +2874,24 @@ CREATE TABLE IF NOT EXISTS "public"."surgical_case_notes" (
 ALTER TABLE "public"."surgical_case_notes" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."surgical_case_external_tests" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "surgical_case_id" "uuid" NOT NULL,
+    "name" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_by" "uuid"
+);
+
+
+ALTER TABLE "public"."surgical_case_external_tests" OWNER TO "postgres";
+
+COMMENT ON TABLE "public"."surgical_case_external_tests" IS 'Named external investigations (blood work, HIV test, etc -- not done
+   in-house). Each is a named placeholder; the actual report, once it
+   comes back, is a normal clinical_attachments row keyed to THIS row''s
+   id (entity_type=''surgical_case_external_test''). No status lifecycle
+   -- "has an attachment" IS the status.';
+
+
 CREATE TABLE IF NOT EXISTS "public"."surgical_cases" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "patient_id" "uuid" NOT NULL,
@@ -6091,3 +6109,91 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
+
+
+-- ── Tables added this session but missing from this reference file until
+--    now (created via direct migrations, not regenerated pg_dumps) --
+--    biometry_iol_recommendations, iol_approvals, external_investigations. ──
+
+CREATE TABLE IF NOT EXISTS "public"."biometry_iol_recommendations" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "biometry_record_id" "uuid" NOT NULL,
+    "iol_catalog_id" "uuid" NOT NULL,
+    "re_power" numeric,
+    "le_power" numeric,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+ALTER TABLE "public"."biometry_iol_recommendations" OWNER TO "postgres";
+COMMENT ON TABLE "public"."biometry_iol_recommendations" IS 'The device''s own printed recommendation table -- for each IOL
+   brand/model it evaluated, the power it recommends per eye. Not
+   calculated by this app; just recorded from the printout.';
+
+CREATE TABLE IF NOT EXISTS "public"."iol_approvals" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "surgical_case_id" "uuid" NOT NULL,
+    "biometry_record_id" "uuid",
+    "iol_catalog_id" "uuid",
+    "eye" "text",
+    "power" numeric,
+    "surgeon_id" "uuid",
+    "status" "text" DEFAULT 'Pending'::"text" NOT NULL,
+    "approved_at" timestamp with time zone,
+    "notes" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "iol_approvals_eye_check" CHECK (("eye" = ANY (ARRAY['OD'::"text", 'OS'::"text"]))),
+    CONSTRAINT "iol_approvals_status_check" CHECK (("status" = ANY (ARRAY['Pending'::"text", 'Approved'::"text"]))),
+    CONSTRAINT "iol_approvals_surgical_case_id_key" UNIQUE ("surgical_case_id")
+);
+ALTER TABLE "public"."iol_approvals" OWNER TO "postgres";
+COMMENT ON TABLE "public"."iol_approvals" IS 'The surgeon''s sign-off on the specific IOL brand/model/power to
+   actually use for a surgical case -- eye comes from
+   surgical_cases.eye, the recommended power comes from
+   biometry_iol_recommendations for the chosen brand. Separate from
+   Counselling (package/category) and Biometry (raw device
+   recommendations) by design.';
+
+CREATE TABLE IF NOT EXISTS "public"."external_investigations" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "surgical_case_id" "uuid" NOT NULL,
+    "test_name" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_by" "uuid"
+);
+ALTER TABLE "public"."external_investigations" OWNER TO "postgres";
+COMMENT ON TABLE "public"."external_investigations" IS 'Named tests done elsewhere (blood work, HIV test, etc -- not done
+   in-house). Each test''s report, once it comes back, is a normal
+   clinical_attachments row keyed to entity_type=''external_investigation''
+   and this row''s own id. Also printable as a referral slip.';
+
+ALTER TABLE ONLY "public"."biometry_iol_recommendations"
+    ADD CONSTRAINT "biometry_iol_recommendations_pkey" PRIMARY KEY ("id");
+ALTER TABLE ONLY "public"."biometry_iol_recommendations"
+    ADD CONSTRAINT "biometry_iol_recommendations_biometry_record_id_fkey" FOREIGN KEY ("biometry_record_id") REFERENCES "public"."biometry_records"("id") ON DELETE CASCADE;
+ALTER TABLE ONLY "public"."biometry_iol_recommendations"
+    ADD CONSTRAINT "biometry_iol_recommendations_iol_catalog_id_fkey" FOREIGN KEY ("iol_catalog_id") REFERENCES "public"."master_iol_catalog"("id");
+
+ALTER TABLE ONLY "public"."iol_approvals"
+    ADD CONSTRAINT "iol_approvals_pkey" PRIMARY KEY ("id");
+ALTER TABLE ONLY "public"."iol_approvals"
+    ADD CONSTRAINT "iol_approvals_surgical_case_id_fkey" FOREIGN KEY ("surgical_case_id") REFERENCES "public"."surgical_cases"("id");
+ALTER TABLE ONLY "public"."iol_approvals"
+    ADD CONSTRAINT "iol_approvals_biometry_record_id_fkey" FOREIGN KEY ("biometry_record_id") REFERENCES "public"."biometry_records"("id");
+ALTER TABLE ONLY "public"."iol_approvals"
+    ADD CONSTRAINT "iol_approvals_iol_catalog_id_fkey" FOREIGN KEY ("iol_catalog_id") REFERENCES "public"."master_iol_catalog"("id");
+ALTER TABLE ONLY "public"."iol_approvals"
+    ADD CONSTRAINT "iol_approvals_surgeon_id_fkey" FOREIGN KEY ("surgeon_id") REFERENCES "public"."profiles"("id");
+
+ALTER TABLE ONLY "public"."external_investigations"
+    ADD CONSTRAINT "external_investigations_pkey" PRIMARY KEY ("id");
+ALTER TABLE ONLY "public"."external_investigations"
+    ADD CONSTRAINT "external_investigations_surgical_case_id_fkey" FOREIGN KEY ("surgical_case_id") REFERENCES "public"."surgical_cases"("id");
+ALTER TABLE ONLY "public"."external_investigations"
+    ADD CONSTRAINT "external_investigations_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."profiles"("id");
+
+ALTER TABLE "public"."biometry_iol_recommendations" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "staff_all_access" ON "public"."biometry_iol_recommendations" TO "authenticated" USING (true) WITH CHECK (true);
+ALTER TABLE "public"."iol_approvals" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "staff_all_access" ON "public"."iol_approvals" TO "authenticated" USING (true) WITH CHECK (true);
+ALTER TABLE "public"."external_investigations" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "staff_all_access" ON "public"."external_investigations" TO "authenticated" USING (true) WITH CHECK (true);
