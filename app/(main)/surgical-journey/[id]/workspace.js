@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import {
   getSurgicalCaseDetail, orderBiometryForCase, setPreOpPanelNotes,
-  setProceedStatus, setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions,
+  setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions,
 } from '../actions';
 import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
@@ -14,7 +14,6 @@ import {
 } from '@/app/(main)/counselling/actions';
 import { getOTAvailability, rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
 
-const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
 // ── HEADER (editable) ──────────────────────────────────────────────
@@ -183,9 +182,9 @@ export default function Workspace({ caseId }) {
   // don't have a natural "done" state -- reports trickle in whenever,
   // notes are an ongoing log), so they're excluded.
   const stepDone = {
+    decision: sc.decision === 'Accepted',
     investigations: data.biometryRecords.length > 0,
-    proceeding: sc.proceed_status === 'Proceeding',
-    package: !!sc.package_id && sc.decision === 'Accepted',
+    package: !!sc.package_id,
     fitness: sc.fitness_cleared || sc.fitness_required === false || data.fitnessReferral?.status === 'Cleared',
     iolApproval: data.iolApproval?.status === 'Approved',
     iol: !!data.otSchedule,
@@ -205,11 +204,12 @@ export default function Workspace({ caseId }) {
       {error && <div className="msg-err" style={{ marginBottom: 12 }}>{error}</div>}
       {ok && <div className="msg-ok" style={{ marginBottom: 12 }}>{ok}</div>}
 
-      {/* 1. INVESTIGATIONS */}
-      <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} onAction={flash} active={currentStep === 'investigations'} />
+      {/* 1. PATIENT DECISION -- the very first step. Investigations (and
+          everything after) only unlock once this is Accepted. */}
+      <DecisionSection sc={sc} onAction={flash} active={currentStep === 'decision'} />
 
-      {/* 2. PROCEED STATUS */}
-      <ProceedSection sc={sc} onAction={flash} active={currentStep === 'proceeding'} />
+      {/* 2. INVESTIGATIONS */}
+      <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} onAction={flash} active={currentStep === 'investigations'} />
 
       {/* 3. PACKAGE & IOL DECISION */}
       <PackageDecisionSection sc={sc} onAction={flash} active={currentStep === 'package'} />
@@ -325,9 +325,18 @@ function InvestigationsSection({ sc, biometryRecords, onAction, active }) {
   const [instructions, setInstructions] = useState('');
   const [panelNotes, setPanelNotes] = useState(sc.notes || '');
   const biometryOrdered = biometryRecords.length > 0;
+  const decided = sc.decision === 'Accepted';
+
+  if (!decided) {
+    return (
+      <Section num={2} color="var(--purple)" title="Investigations (Biometry + Pre-Op Panel)" done={false}>
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first -- these are only ordered once the patient is willing to proceed.</div>
+      </Section>
+    );
+  }
 
   return (
-    <Section num={1} color="var(--purple)" title="Investigations (Biometry + Pre-Op Panel)" done={biometryOrdered} defaultOpen={!biometryOrdered} active={active}>
+    <Section num={2} color="var(--purple)" title="Investigations (Biometry + Pre-Op Panel)" done={biometryOrdered} defaultOpen={!biometryOrdered} active={active}>
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Biometry (both eyes, for IOL power)</div>
         {biometryRecords.length > 0 ? (
@@ -358,27 +367,49 @@ function InvestigationsSection({ sc, biometryRecords, onAction, active }) {
   );
 }
 
-// ── 2. PROCEED STATUS ──────────────────────────────────────────────
-function ProceedSection({ sc, onAction, active }) {
+// ── 1. PATIENT DECISION -- the first step. Set by the doctor at
+// advise-surgery time in OPD (Consultation), reflected here, and
+// updatable by Front Desk once the patient calls back. Uses the same
+// locked+reason semantics setDecision already enforces everywhere else
+// (locks automatically once Accepted; changing away from a locked
+// decision needs a reason). ──
+function DecisionSection({ sc, onAction, active }) {
+  const [reason, setReason] = useState('');
   const OPTIONS = [
-    { v: 'Deciding', label: 'Still deciding', color: 'var(--g500)' },
-    { v: 'Awaiting Return', label: 'Will come back another day', color: 'var(--amber)' },
-    { v: 'Proceeding', label: 'Proceeding now', color: 'var(--green)' },
+    { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
+    { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
+    { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
   ];
   return (
-    <Section num={2} color="var(--amber)" title="Is the patient proceeding?" done={sc.proceed_status === 'Proceeding'} active={active}>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+    <Section num={1} color="var(--amber)" title="Patient Decision" done={sc.decision === 'Accepted'} active={active}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
         {OPTIONS.map((o) => (
           <button
             key={o.v}
             className="btn btn-sm"
-            style={{ background: sc.proceed_status === o.v ? o.color : '', color: sc.proceed_status === o.v ? '#fff' : '', border: sc.proceed_status === o.v ? 'none' : undefined }}
-            onClick={() => onAction(setProceedStatus)(sc.id, o.v)}
+            style={{ background: sc.decision === o.v ? o.color : '', color: sc.decision === o.v ? '#fff' : '', border: sc.decision === o.v ? 'none' : undefined }}
+            onClick={() => onAction(setDecision)(sc.id, o.v, reason)}
           >
             {o.label}
           </button>
         ))}
       </div>
+      {sc.decision_locked && (
+        <input className="fi fi-sm" placeholder="Reason to change decision..." value={reason} onChange={(e) => setReason(e.target.value)} />
+      )}
+      {sc.decision === 'Wants Time to Decide' && (
+        <div style={{ fontSize: 11.5, color: 'var(--amber)', marginTop: 8 }}>
+          <i className="ti ti-clock-pause"></i> On Front Desk's follow-up list until this is updated.
+        </div>
+      )}
+      {sc.decision === 'Declined' && (
+        <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 8 }}>
+          <i className="ti ti-x"></i> Patient declined surgery.
+        </div>
+      )}
+      {!sc.decision && (
+        <div style={{ fontSize: 11.5, color: 'var(--g400)', marginTop: 8 }}>No decision recorded yet.</div>
+      )}
     </Section>
   );
 }
@@ -387,7 +418,6 @@ function ProceedSection({ sc, onAction, active }) {
 function PackageDecisionSection({ sc, onAction, active }) {
   const [packages, setPackages] = useState([]);
   const [selectedPackageId, setSelectedPackageId] = useState('');
-  const [decisionReason, setDecisionReason] = useState('');
   const [changeReason, setChangeReason] = useState('');
   const [changing, setChanging] = useState(false);
   const biometryReady = sc.biometry_done || sc.biometry_required === false;
@@ -398,14 +428,14 @@ function PackageDecisionSection({ sc, onAction, active }) {
 
   if (!biometryReady) {
     return (
-      <Section num={3} color="var(--indigo)" title="Package &amp; IOL Decision" done={false} active={active}>
+      <Section num={3} color="var(--indigo)" title="Package" done={false} active={active}>
         <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Biometry approval first.</div>
       </Section>
     );
   }
 
   return (
-    <Section num={3} color="var(--indigo)" title="Package &amp; IOL Decision" done={!!sc.package_id && sc.decision === 'Accepted'} defaultOpen={biometryReady && !sc.package_id} active={active}>
+    <Section num={3} color="var(--indigo)" title="Package" done={!!sc.package_id} defaultOpen={biometryReady && !sc.package_id} active={active}>
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Package</div>
         {sc.master_packages ? (
@@ -453,22 +483,6 @@ function PackageDecisionSection({ sc, onAction, active }) {
             <button className="btn btn-sm btn-primary" disabled={!selectedPackageId} onClick={() => onAction(selectPackage)(sc.id, selectedPackageId)}>Select</button>
           </div>
         )}
-      </div>
-
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Patient Decision</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          {DECISIONS.map((d) => (
-            <button
-              key={d} className="btn btn-sm"
-              style={{ background: sc.decision === d ? 'var(--indigo)' : '', color: sc.decision === d ? '#fff' : '' }}
-              onClick={() => onAction(setDecision)(sc.id, d, decisionReason)}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-        {sc.decision_locked && <input className="fi fi-sm" placeholder="Reason to change decision..." value={decisionReason} onChange={(e) => setDecisionReason(e.target.value)} />}
       </div>
     </Section>
   );

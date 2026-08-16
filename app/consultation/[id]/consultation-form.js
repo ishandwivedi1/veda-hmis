@@ -128,6 +128,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [surgeryEye, setSurgeryEye] = useState('OU');
   const [surgeryPreOp, setSurgeryPreOp] = useState('Both');
   const [surgeryNotes, setSurgeryNotes] = useState('');
+  const [surgeryDecision, setSurgeryDecision] = useState('');
   const [editingSurgicalCaseId, setEditingSurgicalCaseId] = useState(null);
   const [editSurgeryProcedure, setEditSurgeryProcedure] = useState('');
   const [editSurgeryEye, setEditSurgeryEye] = useState('OU');
@@ -414,13 +415,15 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleMarkForSurgery() {
     setError('');
     if (!surgeryProcedure) { setError('Select a surgery.'); return; }
+    if (!surgeryDecision) { setError("Select the patient's decision -- right now."); return; }
     setSurgeryLoading(true);
-    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryPreOp, surgeryNotes);
+    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryPreOp, surgeryNotes, surgeryDecision);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
     setSurgeryProcedure('');
     setSurgeryNotes('');
+    setSurgeryDecision('');
     refresh();
   }
 
@@ -1024,6 +1027,27 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                     <div style={{ marginBottom: 8 }}>
                       <label className="flbl">Notes</label>
                       <input className="fi" placeholder="Any notes for this surgery recommendation..." value={surgeryNotes} onChange={(e) => setSurgeryNotes(e.target.value)} />
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label className="flbl">Patient's Decision -- Right Now</label>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {[
+                          { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
+                          { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
+                          { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
+                        ].map((d) => (
+                          <button
+                            key={d.v} type="button" className="btn btn-sm"
+                            style={{ background: surgeryDecision === d.v ? d.color : '', color: surgeryDecision === d.v ? '#fff' : '', border: surgeryDecision === d.v ? 'none' : undefined }}
+                            onClick={() => setSurgeryDecision(d.v)}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
+                        "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way.
+                      </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>

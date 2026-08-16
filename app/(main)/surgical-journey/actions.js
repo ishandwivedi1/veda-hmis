@@ -74,16 +74,16 @@ export async function getMyActiveSurgicalCases() {
   return data || [];
 }
 
-// Patients who said they'd come back another day and haven't yet
-// (proceed_status stays 'Awaiting Return' until someone either moves
-// them to Proceeding or the case is cancelled). Ordered oldest-first so
-// the ones most overdue for a follow-up call surface at the top.
+// Patients whose decision is "Wants Time to Decide" and haven't
+// resolved it yet (accepted or declined). Front desk's follow-up list.
+// Ordered oldest-first so the ones most overdue for a call surface at
+// the top.
 export async function getAwaitingReturnCases() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('surgical_cases')
     .select('*, patients:patient_id(first_name, last_name, uhid, mobile)')
-    .eq('proceed_status', 'Awaiting Return')
+    .eq('decision', 'Wants Time to Decide')
     .not('status', 'in', '("Completed","Cancelled")')
     .order('created_at', { ascending: true });
   if (error) return [];

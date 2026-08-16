@@ -126,8 +126,10 @@ export async function updateSurgicalCase(caseId, procedureName, eye, preOpRequir
   return { success: true };
 }
 
-export async function markForSurgery(patientId, encounterId, procedureName, eye, preOpRequired, notes) {
+export async function markForSurgery(patientId, encounterId, procedureName, eye, preOpRequired, notes, decision) {
   const supabase = await createClient();
+
+  if (decision && !DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
 
   // Pull surgeon + visit + priority through so the case doesn't start
   // with everything null -- encounters already carries doctor_id.
@@ -177,6 +179,14 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     biometry_required: biometryRequired,
     fitness_required: fitnessRequired,
     notes: notes || null,
+    // Patient's initial reaction, captured right here in OPD -- the
+    // FIRST step of the surgical journey now, not something deferred to
+    // Counselling. 'Accepted' locks immediately (matches setDecision's
+    // own locking rule); anything else stays open for front desk to
+    // update once the patient calls back, no reason required for that
+    // first change.
+    decision: decision || null,
+    decision_locked: decision === 'Accepted',
   });
   if (error) return { error: error.message };
   return { success: true };

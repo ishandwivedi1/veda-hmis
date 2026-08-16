@@ -73,7 +73,7 @@ export default function SurgicalJourneyPage() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const proceeding = cases.filter((c) => c.proceed_status === 'Proceeding' || c.proceed_status === 'Deciding');
+  const proceeding = cases.filter((c) => c.decision !== 'Wants Time to Decide' && c.decision !== 'Declined');
 
   return (
     <div>
