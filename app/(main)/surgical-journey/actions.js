@@ -48,6 +48,48 @@ export async function editSurgicalCaseDetails(caseId, procedureName, eye, reason
   return { success: true };
 }
 
+// ── IN-HOUSE INVESTIGATIONS (Step 2) ───────────────────────────────
+// Flexible and optional -- add whatever this case actually needs, not
+// a fixed required panel. Routes through the same investigation_orders
+// table and Investigation module queue Doctor Consultation uses.
+// "Further investigations for a surgical case go through the surgery
+// module" -- this is that entry point, not a trip back to Consultation.
+export async function getInvestigationOptionsForCase() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_services').select('code, name').eq('status', 'Active').eq('dept', 'Investigation').neq('name', 'Biometry');
+  return data || [];
+}
+
+export async function addInHouseInvestigationForCase(caseId, name, eye) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!name || !name.trim()) return { error: 'Select an investigation.' };
+
+  const { data: sc } = await supabase.from('surgical_cases').select('encounter_id').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+  if (!sc.encounter_id) return { error: 'This case has no linked consultation encounter to attach investigations to.' };
+
+  const { error } = await supabase.from('investigation_orders').insert({
+    encounter_id: sc.encounter_id, name: name.trim(), eye: eye || 'OU', priority: 'Routine',
+  });
+  if (error) return { error: error.message };
+
+  await supabase.from('encounter_audit_log').insert({
+    encounter_id: sc.encounter_id,
+    message: `Investigation ordered from Surgical Journey: ${name.trim()} (${eye || 'OU'})`,
+    created_by: userData?.user?.id || null,
+  });
+
+  return { success: true };
+}
+
+export async function removeInHouseInvestigationForCase(investigationId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('investigation_orders').delete().eq('id', investigationId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── FURTHER INSTRUCTIONS (Treatment) ───────────────────────────────
 // Free text tied to the treatment itself (procedure + eye), distinct
 // from the pre-op panel notes in the Investigations step.
@@ -118,6 +160,23 @@ export async function getSurgicalCaseDetail(caseId) {
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: false });
 
+  // In-house investigations -- ordered against this case's own
+  // consultation encounter, same investigation_orders table Doctor
+  // Consultation uses and the same Investigation module queue picks
+  // them up from. Biometry is excluded here (it's patient-level and
+  // handled entirely separately above -- has its own dedicated flow,
+  // not a plain in-house investigation).
+  let inHouseInvestigations = [];
+  if (sc.encounter_id) {
+    const { data } = await supabase
+      .from('investigation_orders')
+      .select('*')
+      .eq('encounter_id', sc.encounter_id)
+      .neq('name', 'Biometry')
+      .order('created_at', { ascending: false });
+    inHouseInvestigations = data || [];
+  }
+
   // Day-of-surgery live status -- OT Schedule / Intraop / Recovery
   // already have solid, tested clinical workflows; this page doesn't
   // rebuild them, it just shows where the case currently stands and
@@ -170,6 +229,7 @@ export async function getSurgicalCaseDetail(caseId) {
   return {
     case: { ...sc, biometry_done: biometryRecords.some((b) => b.status === 'Measured') },
     biometryRecords,
+    inHouseInvestigations,
     fitnessReferral: fitnessReferral || null,
     iolApproval: iolApproval || null,
     otSchedule: otSchedule || null,

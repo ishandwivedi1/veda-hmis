@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import {
-  getSurgicalCaseDetail, orderBiometryForCase, setPreOpPanelNotes,
+  getSurgicalCaseDetail, orderBiometryForCase,
   setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions,
+  getInvestigationOptionsForCase, addInHouseInvestigationForCase, removeInHouseInvestigationForCase,
 } from '../actions';
 import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
@@ -58,6 +59,9 @@ function CaseHeader({ sc, patient, onAction }) {
               </button>
             </div>
             <div style={{ fontSize: 12, opacity: 0.85 }}>{EYE_LABEL[sc.eye] || sc.eye}</div>
+            <div style={{ fontSize: 10.5, opacity: 0.7, marginTop: 2 }}>
+              Advised: {new Date(sc.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
+            </div>
           </div>
         ) : null}
       </div>
@@ -209,7 +213,7 @@ export default function Workspace({ caseId }) {
       <DecisionSection sc={sc} onAction={flash} active={currentStep === 'decision'} />
 
       {/* 2. INVESTIGATIONS */}
-      <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} onAction={flash} active={currentStep === 'investigations'} />
+      <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} inHouseInvestigations={data.inHouseInvestigations} onAction={flash} active={currentStep === 'investigations'} />
 
       {/* 3. PACKAGE & IOL DECISION */}
       <PackageDecisionSection sc={sc} onAction={flash} active={currentStep === 'package'} />
@@ -238,15 +242,10 @@ export default function Workspace({ caseId }) {
         )}
       </Section>
 
-      {/* 8. REPORTS */}
-      <Section num={8} color="var(--blue)" title="Reports (Biometry printout, blood work, etc.)" done={false}>
-        <AttachmentUploader entityType="surgical_case" entityId={sc.id} title="" />
-      </Section>
+      {/* 8. DAY OF SURGERY */}
+      <DayOfSurgerySection sc={sc} otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} router={router} active={currentStep === 'dayof'} num={8} />
 
-      {/* 9. DAY OF SURGERY */}
-      <DayOfSurgerySection sc={sc} otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} router={router} active={currentStep === 'dayof'} num={9} />
-
-      {/* 10. NOTES / FOLLOW-UP */}
+      {/* 9. NOTES / FOLLOW-UP */}
       <NotesSection caseId={sc.id} notes={data.caseNotes} onAction={flash} />
     </div>
   );
@@ -320,24 +319,36 @@ function IolApprovalSection({ iolApproval, active }) {
   );
 }
 
-// ── 1. INVESTIGATIONS ──────────────────────────────────────────────
-function InvestigationsSection({ sc, biometryRecords, onAction, active }) {
+// ── 1. INVESTIGATIONS -- flexible and optional, not a fixed required
+// panel. Biometry stays its own thing (patient-level, dedicated flow).
+// Everything else splits into In-House (routes through our own
+// Investigation module, status + View Report) and External (done
+// elsewhere -- just upload whatever report comes back, view anytime). ──
+function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, onAction, active }) {
   const [instructions, setInstructions] = useState('');
-  const [panelNotes, setPanelNotes] = useState(sc.notes || '');
+  const [invOptions, setInvOptions] = useState([]);
+  const [selectedInv, setSelectedInv] = useState('');
+  const [invEye, setInvEye] = useState('OU');
   const biometryOrdered = biometryRecords.length > 0;
   const decided = sc.decision === 'Accepted';
 
+  useEffect(() => { if (decided) getInvestigationOptionsForCase().then(setInvOptions); }, [decided]);
+
   if (!decided) {
     return (
-      <Section num={2} color="var(--purple)" title="Investigations (Biometry + Pre-Op Panel)" done={false}>
-        <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first -- these are only ordered once the patient is willing to proceed.</div>
+      <Section num={2} color="var(--purple)" title="Investigations" done={false}>
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first.</div>
       </Section>
     );
   }
 
   return (
-    <Section num={2} color="var(--purple)" title="Investigations (Biometry + Pre-Op Panel)" done={biometryOrdered} defaultOpen={!biometryOrdered} active={active}>
-      <div style={{ marginBottom: 14 }}>
+    <Section num={2} color="var(--purple)" title="Investigations" done={biometryOrdered} active={active}>
+      <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 14 }}>
+        Optional -- add whatever this case actually needs, not a fixed checklist.
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Biometry (both eyes, for IOL power)</div>
         {biometryRecords.length > 0 ? (
           biometryRecords.map((b) => (
@@ -356,12 +367,47 @@ function InvestigationsSection({ sc, biometryRecords, onAction, active }) {
         )}
       </div>
 
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Pre-Op Panel (blood work, done externally -- just note where, report comes in later)</div>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>In-House Investigations</div>
+        {inHouseInvestigations.length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            {inHouseInvestigations.map((inv) => (
+              <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', background: 'var(--g50)', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
+                <span>{inv.name} -- {inv.eye}</span>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className={`badge ${inv.status === 'Available' ? 'b-green' : inv.status === 'Cancelled' ? 'b-red' : 'b-amber'}`} style={{ fontSize: 10 }}>{inv.status}</span>
+                  {inv.status === 'Available' && (
+                    <a href={`/investigation/${inv.id}?mode=view`} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 11, padding: '2px 8px', textDecoration: 'none' }}>View Report</a>
+                  )}
+                  {inv.status === 'Ordered' && (
+                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => onAction(removeInHouseInvestigationForCase)(inv.id)}>Remove</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8 }}>
-          <input className="fi fi-sm" style={{ flex: 1 }} placeholder='e.g. "Sent to XYZ Lab for CBC/RBS/ECG"' value={panelNotes} onChange={(e) => setPanelNotes(e.target.value)} />
-          <button className="btn btn-sm" onClick={() => onAction(setPreOpPanelNotes)(sc.id, panelNotes)}>Save</button>
+          <select className="fi fi-sm" style={{ flex: 1 }} value={selectedInv} onChange={(e) => setSelectedInv(e.target.value)}>
+            <option value="">Select investigation...</option>
+            {invOptions.map((o) => <option key={o.code} value={o.name}>{o.name}</option>)}
+          </select>
+          <select className="fi fi-sm" style={{ width: 90 }} value={invEye} onChange={(e) => setInvEye(e.target.value)}>
+            <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+          </select>
+          <button
+            className="btn btn-sm btn-primary" disabled={!selectedInv}
+            onClick={async () => { const r = await onAction(addInHouseInvestigationForCase)(sc.id, selectedInv, invEye); if (!r?.error) setSelectedInv(''); }}
+          >
+            <i className="ti ti-plus"></i> Add
+          </button>
         </div>
+      </div>
+
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>External Investigations (done elsewhere)</div>
+        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Upload whatever report comes back, whenever it comes back -- view anytime.</div>
+        <AttachmentUploader entityType="surgical_case" entityId={sc.id} title="" />
       </div>
     </Section>
   );
@@ -396,6 +442,11 @@ function DecisionSection({ sc, onAction, active }) {
       </div>
       {sc.decision_locked && (
         <input className="fi fi-sm" placeholder="Reason to change decision..." value={reason} onChange={(e) => setReason(e.target.value)} />
+      )}
+      {sc.decision === 'Accepted' && sc.decision_accepted_at && (
+        <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 8 }}>
+          <i className="ti ti-lock"></i> Accepted on {new Date(sc.decision_accepted_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })} -- locked.
+        </div>
       )}
       {sc.decision === 'Wants Time to Decide' && (
         <div style={{ fontSize: 11.5, color: 'var(--amber)', marginTop: 8 }}>
@@ -688,7 +739,7 @@ function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active, 
 function NotesSection({ caseId, notes, onAction }) {
   const [text, setText] = useState('');
   return (
-    <Section num={10} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
+    <Section num={9} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Add a note (e.g. follow-up call outcome)..." value={text} onChange={(e) => setText(e.target.value)} />
         <button

@@ -371,10 +371,19 @@ export async function setDecision(caseId, decision, reason) {
     });
   }
 
-  const { error } = await supabase.from('surgical_cases').update({
+  const update = {
     decision, decision_reason: reason || null,
     decision_locked: decision === 'Accepted',
-  }).eq('id', caseId);
+  };
+  // Stamped once, the first time this transitions to Accepted -- not
+  // touched on any other save, including re-saving Accepted again, so
+  // it reflects the actual date the patient said yes, not the last
+  // time this row happened to be updated.
+  if (decision === 'Accepted' && sc?.decision !== 'Accepted') {
+    update.decision_accepted_at = new Date().toISOString();
+  }
+
+  const { error } = await supabase.from('surgical_cases').update(update).eq('id', caseId);
   if (error) return { error: error.message };
   return { success: true };
 }
@@ -442,9 +451,7 @@ async function requirePostDecision(supabase, caseId) {
 export async function getInvestigationMasterOptions() {
   const supabase = await createClient();
   const { data } = await supabase.from('master_services').select('code, name').eq('status', 'Active').eq('dept', 'Investigation');
-  // Substring match, not exact -- the catalog entry is named
-  // "Biometry (Procedure Charge)", not literally "Biometry".
-  return (data || []).filter((s) => !s.name.toLowerCase().includes('biometry'));
+  return data || [];
 }
 
 // Distinct standard panels (e.g. "Cataract" -> Blood, Sugar, HIV...)
