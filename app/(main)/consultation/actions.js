@@ -133,7 +133,7 @@ export async function getConsultationData(queueEntryId) {
     // Biometry gets its own dedicated section in Diagnosis & Plan (not
     // folded into Investigations) -- same reasoning as its own
     // Financial Masters department: it's structurally its own thing.
-    supabase.from('biometry_records').select('id, status, surgical_eye, doctor_instructions, billing_status').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
+    supabase.from('biometry_records').select('id, status, doctor_instructions, billing_status').eq('patient_id', patientId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
     // So "Mark for Surgery" can show what's already been marked instead
     // of silently reverting to a blank button after saving. Scoped by
     // visit_id (one visit, one surgical case), not just this encounter,
@@ -772,26 +772,24 @@ export async function sendForProcedureFromConsultation(encounterId) {
 // Shared by both the "Add" button (advises Biometry without moving the
 // patient anywhere yet) and "Send for Biometry" (which also routes the
 // queue) -- creates the record if none exists yet for that eye, or
-// updates instructions on the existing one rather than duplicating it.
-// Matched per-eye (not just per-visit) since "Both Eyes" needs two
-// independent records -- the Biometry workspace itself is built around
-// one eye per record (separate measurements/IOL calc/approval each),
-// so bilateral cases genuinely need two rows, not one row meaning both.
-async function ensureBiometryRecordForEye(supabase, visitId, encounterId, eye, instructions) {
+// Biometry is patient-level now, not visit/case-level, and always
+// covers both eyes -- one session is reused across every future
+// surgical case for that patient (readings don't meaningfully change
+// for years). "Advise" just ensures a record exists for this patient,
+// updating instructions if one already does.
+async function ensureBiometryRecord(supabase, patientId, visitId, encounterId, instructions) {
   const { data: existing } = await supabase
     .from('biometry_records')
     .select('id')
-    .eq('visit_id', visitId)
-    .eq('surgical_eye', eye)
+    .eq('patient_id', patientId)
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: false })
     .limit(1);
 
   if (!existing || existing.length === 0) {
-    const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
     const { data: created } = await supabase.from('biometry_records').insert({
-      visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null,
-      surgical_eye: eye, doctor_instructions: instructions?.trim() || null,
+      patient_id: patientId, visit_id: visitId || null, encounter_id: encounterId || null,
+      doctor_instructions: instructions?.trim() || null,
     }).select('id').single();
     return created?.id;
   }
@@ -802,38 +800,27 @@ async function ensureBiometryRecordForEye(supabase, visitId, encounterId, eye, i
   return existing[0].id;
 }
 
-// "Both" fans out into one record per eye; RE/LE is just the one.
-async function ensureBiometryRecords(supabase, visitId, encounterId, eye, instructions) {
-  const eyes = eye === 'Both' ? ['RE', 'LE'] : [eye];
-  const ids = [];
-  for (const e of eyes) ids.push(await ensureBiometryRecordForEye(supabase, visitId, encounterId, e, instructions));
-  return ids;
-}
-
-// The "Add" step -- advises Biometry is needed (records eye + optional
-// instructions) without moving the patient's queue position at all.
-// Mirrors exactly how Investigations work: "Add" saves the order,
-// "Send for Investigation" is a separate, later action that routes the
-// patient. Shows up immediately in the Investigation Queue's merged
-// Biometry view either way, since that doesn't depend on queue status.
-export async function adviseBiometry(visitId, encounterId, eye, instructions) {
+// The "Add" step -- advises Biometry is needed (records instructions,
+// if any) without moving the patient's queue position at all. Mirrors
+// exactly how Investigations work: "Add" saves the order, "Send for
+// Investigation" is a separate, later action that routes the patient.
+export async function adviseBiometry(patientId, visitId, encounterId, instructions) {
   const supabase = await createClient();
-  if (!eye) return { error: 'Select which eye Biometry is required for.' };
   const { data: userData } = await supabase.auth.getUser();
-  await ensureBiometryRecords(supabase, visitId, encounterId, eye, instructions);
-  await addAudit(supabase, encounterId, `Biometry advised (${eye})`, userData?.user?.id);
+  await ensureBiometryRecord(supabase, patientId, visitId, encounterId, instructions);
+  await addAudit(supabase, encounterId, 'Biometry advised', userData?.user?.id);
   return { success: true };
 }
 
-export async function sendForBiometryFromConsultation(queueEntryId, encounterId, eye, instructions) {
+export async function sendForBiometryFromConsultation(queueEntryId, patientId, encounterId, instructions) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
   const result = await doctorSendOut(queueEntryId, 'biometry');
   if (result.error) return result;
-  await addAudit(supabase, encounterId, `Sent for Biometry (${eye})`, userData?.user?.id);
+  await addAudit(supabase, encounterId, 'Sent for Biometry', userData?.user?.id);
 
   const { data: entry } = await supabase.from('queue_entries').select('visit_id').eq('id', queueEntryId).single();
-  if (entry?.visit_id) await ensureBiometryRecords(supabase, entry.visit_id, encounterId, eye, instructions);
+  await ensureBiometryRecord(supabase, patientId, entry?.visit_id || null, encounterId, instructions);
 
   return result;
 }

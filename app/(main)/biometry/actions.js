@@ -3,64 +3,54 @@
 import { createClient } from '@/lib/supabase-server';
 import { logJourneyEvent } from '@/lib/journey-events';
 
-const MEAS_FIELDS = ['axl', 'k1', 'k2', 'acd', 'lt', 'wtw'];
 const REQUIRED_FIELDS = ['axl', 'k1', 'k2', 'acd'];
 
-// ── QUEUE ──
-// Reads biometry_records directly (not queue_entries.status), same
-// architecture as the Investigation Queue. This is deliberate: if it
-// depended on queue_entries.status, sending a patient for both an
-// investigation and Biometry in the same consultation would risk one
-// overwriting the other and the patient silently vanishing from this
-// screen. Reading the record itself means it always shows up here
-// regardless of whatever else the patient's front-desk status says.
+// ── QUEUE ──────────────────────────────────────────────────────────
+// Biometry is patient-level now, not visit/case-level -- a session is
+// reused across every future surgical case for that patient. The queue
+// just lists records not yet Measured, regardless of which visit
+// originally ordered them.
 export async function getBiometryQueue() {
   const supabase = await createClient();
 
   const { data: records, error } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, doctor_id, patients(first_name, last_name, uhid))')
-    .in('status', ['Awaiting Biometry', 'Measured', 'Calculated'])
+    .select('*, patients(first_name, last_name, uhid)')
+    .eq('status', 'Awaiting Biometry')
     .order('created_at', { ascending: true });
 
-  if (error) return { rows: [], stats: { awaiting: 0, measured: 0, calculated: 0, approvedToday: 0 } };
+  if (error) return { rows: [], stats: { awaiting: 0, measuredToday: 0 } };
 
   const rows = (records || [])
-    .filter((r) => r.visits)
+    .filter((r) => r.patients)
     .map((r) => ({
       recordId: r.id,
-      visitId: r.visit_id,
-      encounterId: r.encounter_id,
-      doctorId: r.visits?.doctor_id,
-      patient: r.visits?.patients,
+      patientId: r.patient_id,
+      patient: r.patients,
       status: r.status,
-      procedureName: r.procedure_name,
-      surgicalEye: r.surgical_eye,
+      doctorInstructions: r.doctor_instructions,
     }));
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const { data: approvedToday } = await supabase
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const startUTC = new Date(`${todayIst}T00:00:00+05:30`).toISOString();
+  const { data: measuredToday } = await supabase
     .from('biometry_records')
     .select('id')
-    .eq('status', 'Approved')
-    .gte('approved_at', todayStart.toISOString());
+    .eq('status', 'Measured')
+    .gte('updated_at', startUTC);
 
   const stats = {
-    awaiting: rows.filter((r) => r.status === 'Awaiting Biometry').length,
-    measured: rows.filter((r) => r.status === 'Measured').length,
-    calculated: rows.filter((r) => r.status === 'Calculated').length,
-    approvedToday: (approvedToday || []).length,
+    awaiting: rows.length,
+    measuredToday: (measuredToday || []).length,
   };
 
   return { rows, stats };
 }
 
-// ── COMPLETED TODAY -- Approved records from today, so a biometry
-// doesn't just disappear from the Queue the instant it's approved.
-// Moves to History (getBiometryHistory) once the day rolls over --
-// mirrors the same Dashboard/History split used in OT Intraop, OT
-// Recovery, and the Investigation Queue. ──
+// ── COMPLETED TODAY -- Measured records from today, so a session
+// doesn't disappear from the Queue the instant it's done. Moves to
+// History once the day rolls over -- same Dashboard/History split used
+// elsewhere. ──
 export async function getBiometryCompletedToday() {
   const supabase = await createClient();
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -69,80 +59,38 @@ export async function getBiometryCompletedToday() {
 
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, doctor_id, patients(first_name, last_name, uhid))')
-    .eq('status', 'Approved')
-    .gte('approved_at', startUTC)
-    .lte('approved_at', endUTC)
-    .order('approved_at', { ascending: false });
+    .select('*, patients(first_name, last_name, uhid)')
+    .eq('status', 'Measured')
+    .gte('updated_at', startUTC)
+    .lte('updated_at', endUTC)
+    .order('updated_at', { ascending: false });
   if (error) return [];
 
   return (data || [])
-    .filter((r) => r.visits)
-    .map((r) => ({
-      recordId: r.id,
-      visitId: r.visit_id,
-      encounterId: r.encounter_id,
-      doctorId: r.visits?.doctor_id,
-      patient: r.visits?.patients,
-      status: r.status,
-      procedureName: r.procedure_name,
-      surgicalEye: r.surgical_eye,
-      approvedAt: r.approved_at,
-    }));
+    .filter((r) => r.patients)
+    .map((r) => ({ recordId: r.id, patientId: r.patient_id, patient: r.patients, status: r.status }));
 }
 
-// Finds an in-flight record for this visit, or creates a fresh one --
-// same lazy-create pattern as the encounter/optometry assessment.
-export async function getOrCreateBiometryRecord(visitId, encounterId) {
+// Finds an existing biometry record for this PATIENT -- reused across
+// every future surgical case (readings don't meaningfully change for
+// years), so this is a lookup-or-create against patient_id, not
+// visit_id like most other "ensure a record" functions in this app.
+export async function getOrCreateBiometryRecord(patientId, visitId, encounterId) {
   const supabase = await createClient();
 
-  // Reuse ANY existing non-cancelled record for this visit -- including
-  // Approved ones. Previously this only matched in-flight statuses, so
-  // reopening an already-approved patient (e.g. from the Queue, since
-  // queue_entries.status doesn't change on approval) silently created a
-  // second, blank record for the same visit.
   const { data: existing } = await supabase
     .from('biometry_records')
     .select('id')
-    .eq('visit_id', visitId)
+    .eq('patient_id', patientId)
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: false })
     .limit(1);
 
   if (existing && existing.length > 0) return { id: existing[0].id };
 
-  const { data: visit } = await supabase.from('visits').select('doctor_id').eq('id', visitId).maybeSingle();
-
-  // Procedure + eye come from the surgical case (set when the doctor
-  // marked the patient for surgery) rather than being re-typed by hand
-  // in Biometry -- one source of truth, no risk of the two drifting
-  // apart. Falls back to blank only if biometry is genuinely being done
-  // before any surgical case exists yet for this visit.
-  const { data: surgicalCase } = await supabase
-    .from('surgical_cases')
-    .select('id, procedure_name, eye')
-    .eq('visit_id', visitId)
-    .neq('status', 'Cancelled')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  // OU (bilateral) can't be represented on a single record --
-  // verifyBiometryMeasurements only supports one eye per record. This
-  // fallback path only ever creates ONE record (unlike Counselling's
-  // sendForBiometry, which fans an OU case out into two), so for OU we
-  // deliberately leave surgical_eye blank here rather than writing an
-  // unsupported value -- the technician sets it explicitly instead.
-  const surgicalEye = surgicalCase?.eye === 'OD' ? 'RE' : surgicalCase?.eye === 'OS' ? 'LE' : null;
-
   const { data: created, error } = await supabase
     .from('biometry_records')
-    .insert({
-      visit_id: visitId, encounter_id: encounterId || null, surgeon_id: visit?.doctor_id || null,
-      surgical_case_id: surgicalCase?.id || null,
-      procedure_name: surgicalCase?.procedure_name || null,
-      surgical_eye: surgicalEye,
-    })
+    .insert({ patient_id: patientId, visit_id: visitId || null, encounter_id: encounterId || null })
     .select('id')
     .single();
 
@@ -155,36 +103,23 @@ export async function getBiometryDetail(id) {
 
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid, age, gender)), master_iol_catalog(brand, model, manufacturer)')
+    .select('*, patients(first_name, last_name, uhid, age, gender)')
     .eq('id', id)
     .single();
 
   if (error) return { error: error.message };
 
-  let surgeonName = '--';
-  if (data.surgeon_id) {
-    const { data: doc } = await supabase.from('profiles').select('full_name').eq('id', data.surgeon_id).maybeSingle();
-    surgeonName = doc?.full_name || '--';
-  }
+  const { data: recommendations } = await supabase
+    .from('biometry_iol_recommendations')
+    .select('*, master_iol_catalog(brand, model, manufacturer, category)')
+    .eq('biometry_record_id', id)
+    .order('created_at', { ascending: true });
 
-  return { record: data, surgeonName };
+  return { record: data, recommendations: recommendations || [] };
 }
 
-// Sets/updates the procedure + surgical eye for this record -- captured
-// here rather than assumed from elsewhere, since Biometry may be the
-// first place this gets confirmed with the technician.
-export async function setBiometrySurgicalDetails(id, procedureName, surgicalEye) {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from('biometry_records')
-    .update({ procedure_name: procedureName, surgical_eye: surgicalEye, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) return { error: error.message };
-  return { success: true };
-}
-
-// Persists whatever's been entered so far without changing status --
-// technician can leave and resume later.
+// Persists measurement readings without changing status -- technician
+// can leave and resume later.
 export async function saveBiometryDraft(id, measurements) {
   const supabase = await createClient();
   const { error } = await supabase
@@ -195,43 +130,41 @@ export async function saveBiometryDraft(id, measurements) {
   return { success: true };
 }
 
-// BR-BIO-002: only verified measurements may be used for calculation.
-// AUTO-BIO-001: verification is what triggers calculation eligibility --
-// there's no separate persisted "Measured" state in practice, mirroring
-// the source workflow (jumps straight to Calculated).
-export async function verifyBiometryMeasurements(id, measurements, surgicalEye, remarks) {
+function isComplete(set) {
+  return REQUIRED_FIELDS.every((f) => set[f] && String(set[f]).trim());
+}
+
+// Marks the session done -- requires at least one complete reading for
+// EACH eye (biometry is always done for both eyes now) and at least
+// one IOL recommendation row entered, plus the device report attached
+// (checked by the caller via AttachmentUploader's own listing, not
+// re-verified here -- consistent with how other modules treat
+// attachments as informational rather than a hard DB gate).
+export async function markBiometryMeasured(id, measurements, remarks) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
-  if (!surgicalEye) return { error: 'Set the surgical eye before verifying.' };
-
-  const eyeKey = surgicalEye === 'RE' ? 're' : surgicalEye === 'LE' ? 'le' : null;
-  if (!eyeKey) return { error: 'Surgical eye must be RE or LE to verify (OU not supported for a single IOL calculation).' };
-
-  // Each eye can now hold multiple tagged readings (e.g. Manual A-Scan
-  // AND an optical biometer, when both were used) -- verification just
-  // needs at least ONE complete reading for the surgical eye, not every
-  // reading filled in.
-  const eyeSets = Array.isArray(measurements[eyeKey]) ? measurements[eyeKey] : [];
-  const completeSet = eyeSets.find((set) => REQUIRED_FIELDS.every((f) => set[f] && String(set[f]).trim()));
-  if (!completeSet) {
-    return { error: `At least one complete reading (AXL, K1, K2, ACD) is required for the surgical eye (${surgicalEye}) before verification.` };
+  const reHasComplete = (measurements.re || []).some(isComplete);
+  const leHasComplete = (measurements.le || []).some(isComplete);
+  if (!reHasComplete || !leHasComplete) {
+    return { error: 'At least one complete reading (AXL, K1, K2, ACD) is required for BOTH eyes.' };
   }
 
-  // Summarize which device(s) actually produced complete readings for
-  // the surgical eye, for a readable record -- e.g. "Manual A-Scan,
-  // ZEISS IOLMaster 700" if both were used.
-  const devicesUsed = [...new Set(
-    eyeSets.filter((set) => REQUIRED_FIELDS.every((f) => set[f] && String(set[f]).trim())).map((set) => set.device)
-  )];
+  const { count } = await supabase
+    .from('biometry_iol_recommendations')
+    .select('id', { count: 'exact', head: true })
+    .eq('biometry_record_id', id);
+  if (!count) return { error: 'Add at least one IOL recommendation from the device printout before marking as measured.' };
+
+  const devicesUsed = [...new Set([...(measurements.re || []), ...(measurements.le || [])].map((s) => s.device).filter(Boolean))];
 
   const { data, error } = await supabase
     .from('biometry_records')
     .update({
-      status: 'Calculated',
+      status: 'Measured',
       measurements,
       verify_device: devicesUsed.join(', '),
-      verify_remarks: remarks,
+      verify_remarks: remarks || null,
       verified_by: userData?.user?.id || null,
       verified_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -241,126 +174,41 @@ export async function verifyBiometryMeasurements(id, measurements, surgicalEye, 
     .single();
 
   if (error) return { error: error.message };
-  await logJourneyEvent(supabase, data?.visit_id, 'biometry_completed');
+  if (data?.visit_id) await logJourneyEvent(supabase, data.visit_id, 'biometry_completed');
   return { success: true };
 }
 
-// ── IOL CALCULATION ──
-// Formula results are NOT computed by this system -- real IOL power
-// formulas (Barrett Universal II, SRK/T, Haigis, etc.) are complex and
-// in some cases proprietary. These numbers come from the biometry
-// device's own built-in formula software (the same printout captured
-// in Device Reports); staff transcribes each formula's result here so
-// the surgeon has a structured side-by-side comparison to choose from.
-export async function saveFormulaResults(id, targetRefraction, formulaResults, selectedFormula) {
+// ── IOL RECOMMENDATIONS ──────────────────────────────────────────
+// The device's own printed table -- for each brand/model it evaluated,
+// what power it recommends per eye. This app records what the printout
+// says; it does not calculate anything itself.
+export async function addIolRecommendation(biometryRecordId, iolCatalogId, rePower, lePower) {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from('biometry_records')
-    .update({
-      target_refraction: targetRefraction,
-      formula_results: formulaResults,
-      selected_formula: selectedFormula,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id);
-  if (error) return { error: error.message };
-  return { success: true };
-}
-
-// ── SURGEON APPROVAL ──
-// BR-BIO-003: only surgeon sign-off finalizes a plan (soft UX check
-// only -- see note in the Approval tab; not DB-enforced by role).
-// BR-BIO-005: approval supersedes but never deletes a prior version --
-// every approve call adds a new biometry_iol_versions row and marks
-// any previous Approved version for this record as Superseded.
-// ── Used by the Doctor Dashboard's Biometry Approvals widget --
-// records ready for surgeon sign-off, mapped to today's visits only. ──
-export async function getBiometryApprovalsToday() {
-  const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await supabase
-    .from('biometry_records')
-    .select('id, surgical_eye, status, visits(id, visit_type, created_at, patients(first_name, last_name, uhid))')
-    .eq('status', 'Calculated')
-    .gte('visits.created_at', today);
-  if (error) return [];
-  // The visits filter above can't be applied as a proper join filter via
-  // PostgREST here, so double-check in JS that the visit really is today's.
-  return (data || []).filter((r) => r.visits && r.visits.created_at?.slice(0, 10) === today);
-}
-
-export async function approveIolPlan(id, plan) {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  const { data: approverProfile } = await supabase.from('profiles').select('designation').eq('id', userData?.user?.id).maybeSingle();
-  const isDoctor = approverProfile?.designation === 'Doctor';
-  if (!isDoctor) return { error: 'Only a doctor can approve a biometry / IOL plan.' };
-
-  if (!plan.finalPower || !plan.finalCategory) return { error: 'Final IOL power and category are required.' };
-
-  const { data: priorVersions } = await supabase
-    .from('biometry_iol_versions')
-    .select('id, version_no')
-    .eq('biometry_record_id', id)
-    .order('version_no', { ascending: false });
-
-  const nextVersionNo = (priorVersions?.[0]?.version_no || 0) + 1;
-
-  if (priorVersions && priorVersions.length > 0) {
-    await supabase.from('biometry_iol_versions').update({ status: 'Superseded' }).eq('biometry_record_id', id).eq('status', 'Approved');
-  }
-
-  const { error: versionError } = await supabase.from('biometry_iol_versions').insert({
-    biometry_record_id: id,
-    version_no: nextVersionNo,
-    power: plan.finalPower,
-    formula: plan.finalFormula,
-    status: 'Approved',
-    created_by: userData?.user?.id || null,
+  if (!iolCatalogId) return { error: 'Select an IOL brand/model.' };
+  if (!rePower && !lePower) return { error: 'Enter at least one power (RE or LE).' };
+  const { error } = await supabase.from('biometry_iol_recommendations').insert({
+    biometry_record_id: biometryRecordId, iol_catalog_id: iolCatalogId,
+    re_power: rePower || null, le_power: lePower || null,
   });
-  if (versionError) return { error: versionError.message };
-
-  const { error } = await supabase
-    .from('biometry_records')
-    .update({
-      status: 'Approved',
-      final_iol_power: plan.finalPower,
-      final_iol_category: plan.finalCategory,
-      final_iol_catalog_id: plan.iolCatalogId || null,
-      target_refraction: plan.finalTarget,
-      surgeon_notes: plan.surgeonNotes,
-      approved_by: userData?.user?.id || null,
-      approved_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id);
-
   if (error) return { error: error.message };
-  return { success: true, versionNo: nextVersionNo };
+  return { success: true };
 }
 
-export async function getIolVersionHistory(id) {
+export async function removeIolRecommendation(id) {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('biometry_iol_versions')
-    .select('*, profiles(full_name)')
-    .eq('biometry_record_id', id)
-    .order('version_no', { ascending: false });
-  if (error) return [];
-  return data || [];
+  const { error } = await supabase.from('biometry_iol_recommendations').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
 }
 
-// ── HISTORY (Section 17.15) -- cross-patient, all statuses past
-// Awaiting Biometry. BR-BIO-005: nothing here is ever overwritten;
-// re-approvals just add rows to biometry_iol_versions. ──
+// ── HISTORY -- cross-patient, Measured or Cancelled. ──
 export async function getBiometryHistory(patientFilter) {
   const supabase = await createClient();
 
   let query = supabase
     .from('biometry_records')
-    .select('*, visits(visit_number, patients(id, first_name, last_name, uhid))')
-    .in('status', ['Calculated', 'Approved'])
+    .select('*, patients(id, first_name, last_name, uhid)')
+    .eq('status', 'Measured')
     .order('updated_at', { ascending: false });
 
   const { data, error } = await query;
@@ -369,12 +217,12 @@ export async function getBiometryHistory(patientFilter) {
   let rows = data || [];
   const patientsMap = {};
   rows.forEach((r) => {
-    const p = r.visits?.patients;
+    const p = r.patients;
     if (p) patientsMap[p.id] = `${p.first_name} ${p.last_name}`;
   });
 
   if (patientFilter) {
-    rows = rows.filter((r) => r.visits?.patients?.id === patientFilter);
+    rows = rows.filter((r) => r.patients?.id === patientFilter);
   }
 
   return {
@@ -384,24 +232,19 @@ export async function getBiometryHistory(patientFilter) {
 }
 
 // ── FRONT OFFICE BILLING QUEUE ──
-// Every biometry lands here the moment Counselling sends the patient
-// for it (the stub row is created right then), regardless of how far
-// the actual measurement/calculation/approval workflow has gotten --
-// same "bill upfront, don't wait for completion" principle used for
-// investigations and prescriptions.
 export async function getPendingBiometryBilling() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, visit_number, patients(id, first_name, last_name, uhid))')
+    .select('*, patients(id, first_name, last_name, uhid)')
     .in('billing_status', ['Pending', 'Deferred'])
     .order('created_at', { ascending: true });
 
   if (error) return [];
 
   return (data || [])
-    .filter((r) => r.visit_id && r.visits)
-    .map((r) => ({ visitId: r.visit_id, visitNumber: r.visits.visit_number, patient: r.visits.patients, items: [r] }));
+    .filter((r) => r.patients)
+    .map((r) => ({ patientId: r.patient_id, patient: r.patients, items: [r] }));
 }
 
 async function setBiometryBillingStatus(id, billingStatus, note) {
@@ -431,4 +274,3 @@ export async function markBiometryDeferred(id, note) {
 export async function resetBiometryBilling(id) {
   return setBiometryBillingStatus(id, 'Pending', null);
 }
-

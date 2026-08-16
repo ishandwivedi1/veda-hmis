@@ -45,16 +45,18 @@ export async function getInvestigationQueue() {
   });
 
   // Biometry is structurally its own thing (device measurements, IOL
-  // formulas, surgeon approval -- not a text-field investigation), so it
-  // stays in its own table and dedicated workspace. But per the doctor's
-  // actual usage, it belongs in the same "what's outstanding for this
-  // patient" queue as any other investigation, not off in a separate
-  // module people forget to check. Approved/Cancelled are done, so left
-  // out here the same way Available/Cancelled investigations are.
+  // recommendations, surgeon approval -- not a text-field investigation),
+  // so it stays in its own table and dedicated workspace/dashboard. But
+  // per the doctor's actual usage, it belongs in the same "what's
+  // outstanding for this patient" queue as any other investigation, not
+  // off in a separate module people forget to check. Only "Awaiting
+  // Biometry" is pending now -- "Measured" means done (there's no more
+  // Calculated/Approved in between; those concepts moved to the
+  // separate IOL Approval module).
   const { data: bio } = await supabase
     .from('biometry_records')
     .select('*, visits(id, patients(first_name, last_name, uhid))')
-    .in('status', ['Awaiting Biometry', 'Measured', 'Calculated'])
+    .eq('status', 'Awaiting Biometry')
     .order('created_at', { ascending: true });
 
   const bioInvoiceIds = [...new Set((bio || []).map((r) => r.invoice_id).filter(Boolean))];
@@ -72,6 +74,11 @@ export async function getInvestigationQueue() {
   }
 
   (bio || []).forEach((r) => {
+    // Biometry is patient-level and reusable now, not visit-scoped, so
+    // visit_id can legitimately be null (e.g. ordered a while back, or
+    // a case registered directly). Skip merging into this per-visit
+    // queue in that case -- it still shows up in Biometry's own queue
+    // either way.
     const visitId = r.visit_id;
     const patient = r.visits?.patients;
     if (!visitId || !patient) return;
@@ -79,7 +86,7 @@ export async function getInvestigationQueue() {
       groups[visitId] = { visitId, patient, items: [] };
     }
     groups[visitId].items.push({
-      id: r.id, kind: 'biometry', name: 'Biometry', eye: r.surgical_eye || 'OU', priority: 'Routine',
+      id: r.id, kind: 'biometry', name: 'Biometry', eye: 'OU', priority: 'Routine',
       status: r.status, created_at: r.created_at, payment: bioPaymentInfo(r),
     });
   });

@@ -1186,19 +1186,14 @@ export async function renderBiometryReportHtml(recordId) {
 
   const { data: record, error } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, visit_number, patients(uhid, first_name, last_name, age, gender)), master_iol_catalog(brand, model, manufacturer)')
+    .select('*, visits(id, visit_number, patients(uhid, first_name, last_name, age, gender))')
     .eq('id', recordId)
     .single();
   if (error || !record) return { error: 'Biometry record not found.' };
 
-  // The report is only printable once approved, so prefer whoever
-  // actually approved the plan (approved_by is guaranteed set at that
-  // point) over surgeon_id, which is only set from the visit's assigned
-  // doctor at record-creation time and is often still empty.
   let surgeon = null;
-  const doctorProfileId = record.approved_by || record.surgeon_id;
-  if (doctorProfileId) {
-    const { data: doc } = await supabase.from('profiles').select('full_name, registration_no').eq('id', doctorProfileId).maybeSingle();
+  if (record.verified_by) {
+    const { data: doc } = await supabase.from('profiles').select('full_name, registration_no').eq('id', record.verified_by).maybeSingle();
     surgeon = doc;
   }
 
@@ -1208,7 +1203,7 @@ export async function renderBiometryReportHtml(recordId) {
     visit: record.visits,
     record,
     surgeon,
-    catalogItem: record.master_iol_catalog,
+    catalogItem: null,
   });
 
   const template = await getPrintTemplate('biometry_report');
@@ -1486,9 +1481,11 @@ export async function renderDischargeSummaryHtml(episodeId) {
 
   const sc = episode.surgical_cases;
 
-  const [{ data: intraop }, { data: biometry }, { data: meds }, { data: followups }] = await Promise.all([
+  const [{ data: intraop }, { data: approval }, { data: meds }, { data: followups }] = await Promise.all([
     supabase.from('ot_intraop_records').select('implant_power, implant_manufacturer, implant_model').eq('ot_schedule_id', episode.ot_schedule_id).maybeSingle(),
-    supabase.from('biometry_records').select('final_iol_power, final_iol_category, surgical_eye').eq('visit_id', sc?.visit_id).eq('status', 'Approved'),
+    // Planned IOL comes from the surgeon's IOL Approval now, not
+    // biometry_records (which no longer has any "approved" concept).
+    supabase.from('iol_approvals').select('power, eye, master_iol_catalog(brand, model, category)').eq('surgical_case_id', sc?.id).eq('status', 'Approved').maybeSingle(),
     supabase.from('recovery_medications').select('*').eq('recovery_episode_id', episodeId).order('added_at'),
     supabase.from('recovery_followups').select('*').eq('recovery_episode_id', episodeId).order('scheduled_date'),
   ]);
@@ -1501,7 +1498,7 @@ export async function renderDischargeSummaryHtml(episodeId) {
     eye: sc?.eye,
     episode,
     intraop,
-    biometry: biometry || [],
+    biometry: approval ? [approval] : [],
     meds: meds || [],
     followups: followups || [],
   });
@@ -1528,8 +1525,8 @@ function buildDischargeSummaryContext(settings, { patient, surgeon, procedureNam
 
     procedure_name: procedureName, eye,
     iol_lines: biometry.map((p) => ({
-      eye: p.surgical_eye,
-      text: `${intraop?.implant_power || p.final_iol_power} D -- ${p.final_iol_category}${intraop?.implant_manufacturer ? ` -- ${intraop.implant_manufacturer} ${intraop.implant_model || ''}` : ''}`,
+      eye: p.eye,
+      text: `${intraop?.implant_power || p.power} D -- ${p.master_iol_catalog?.category || ''}${intraop?.implant_manufacturer ? ` -- ${intraop.implant_manufacturer} ${intraop.implant_model || ''}` : ''}`,
     })),
 
     hasMedications: meds.length > 0,

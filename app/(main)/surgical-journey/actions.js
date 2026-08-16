@@ -97,29 +97,16 @@ export async function getSurgicalCaseDetail(caseId) {
     .single();
   if (error || !sc) return { error: 'Case not found.' };
 
-  // Biometry status -- read live rather than trusting the denormalized
-  // iol_category alone, so the page can show "Awaiting measurement" vs
-  // "Awaiting surgeon approval" vs "Approved" distinctly.
-  //
-  // Matches on surgical_case_id (the robust link, set by
-  // orderBiometryForCase/Counselling's sendForBiometry) OR visit_id
-  // (catches records ordered from a plain OPD consultation before this
-  // case existed, or older records from before surgical_case_id was
-  // introduced). visit_id alone was the fragile version of this query
-  // that caused the "next patient didn't move to Recovery" bug earlier
-  // -- keeping it only as a fallback, not the primary match.
-  let biometryRecords = [];
-  {
-    const orParts = [`surgical_case_id.eq.${caseId}`];
-    if (sc.visit_id) orParts.push(`visit_id.eq.${sc.visit_id}`);
-    const { data } = await supabase
-      .from('biometry_records')
-      .select('id, surgical_eye, status, final_iol_power, final_iol_category, approved_at')
-      .or(orParts.join(','))
-      .neq('status', 'Cancelled')
-      .order('created_at', { ascending: false });
-    biometryRecords = data || [];
-  }
+  // Biometry is patient-level now, not case-scoped -- reused across
+  // every future surgical case for that patient (readings don't
+  // meaningfully change for years). No more per-eye/per-case matching
+  // needed; just look up whatever's on file for this patient.
+  const { data: biometryRecords } = await supabase
+    .from('biometry_records')
+    .select('id, status, verify_remarks, verified_at')
+    .eq('patient_id', sc.patient_id)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false });
 
   // Day-of-surgery live status -- OT Schedule / Intraop / Recovery
   // already have solid, tested clinical workflows; this page doesn't
@@ -161,10 +148,20 @@ export async function getSurgicalCaseDetail(caseId) {
     .eq('surgical_case_id', caseId)
     .order('created_at', { ascending: false });
 
+  // The surgeon's final IOL choice -- separate module/step from both
+  // Biometry (raw device recommendations) and this page's own package
+  // selection (billing category only).
+  const { data: iolApproval } = await supabase
+    .from('iol_approvals')
+    .select('*, master_iol_catalog(brand, model, manufacturer, category)')
+    .eq('surgical_case_id', caseId)
+    .maybeSingle();
+
   return {
-    case: sc,
+    case: { ...sc, biometry_done: biometryRecords.some((b) => b.status === 'Measured') },
     biometryRecords,
     fitnessReferral: fitnessReferral || null,
+    iolApproval: iolApproval || null,
     otSchedule: otSchedule || null,
     recoveryEpisode,
     caseNotes: caseNotes || [],
@@ -180,45 +177,20 @@ export async function adviseSurgery(patientId, encounterId, procedureName, eye, 
 }
 
 // ── INVESTIGATIONS (Step 3) ────────────────────────────────────────
-// Biometry is real, in-house, tracked work -- goes through the same
-// mechanism a doctor uses during a normal consultation, landing in the
-// actual Biometry Queue. The pre-op panel (blood work etc.) is done
-// entirely by a third party -- there's nothing to "order" in this
+// Biometry is real, in-house, tracked work, always covers both eyes,
+// and is reused across every future surgical case for the patient
+// (readings don't meaningfully change for years). Goes through the
+// same mechanism a doctor uses during a normal consultation, landing
+// in the actual Biometry Queue. The pre-op panel (blood work etc.) is
+// done entirely by a third party -- there's nothing to "order" in this
 // system, so it's just a free-text note here; the report itself comes
 // in later as an attachment (see AttachmentUploader on the page).
-export async function orderBiometryForCase(caseId, eye, instructions) {
+export async function orderBiometryForCase(caseId, instructions) {
   const supabase = await createClient();
-  const { data: sc } = await supabase.from('surgical_cases').select('visit_id, encounter_id, eye').eq('id', caseId).single();
+  const { data: sc } = await supabase.from('surgical_cases').select('patient_id, visit_id, encounter_id').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
-  if (!sc.visit_id) return { error: 'This case has no linked visit -- Biometry needs one to attach the order to.' };
 
-  // adviseBiometry expects RE/LE/Both -- surgical_cases.eye uses
-  // OD/OS/OU. Translate once here so callers of THIS function keep
-  // using OD/OS/OU consistently with the rest of the case.
-  const eyeMap = { OD: 'RE', OS: 'LE', OU: 'Both' };
-  const mappedEye = eyeMap[eye || sc.eye] || null;
-  if (!mappedEye) return { error: 'Select which eye needs Biometry.' };
-
-  const result = await adviseBiometry(sc.visit_id, sc.encounter_id, mappedEye, instructions);
-  if (result.error) return result;
-
-  // adviseBiometry doesn't know about surgical cases at all -- it's
-  // also used standalone from a regular OPD consultation with no
-  // surgery involved. Link the record(s) it just created/touched back
-  // to this case here, same fix as Counselling's sendForBiometry
-  // (biometry_records.surgical_case_id, not the fragile visit_id-only
-  // matching that caused the earlier "next patient didn't move to
-  // Recovery" bug).
-  const eyesToLink = mappedEye === 'Both' ? ['RE', 'LE'] : [mappedEye];
-  await supabase
-    .from('biometry_records')
-    .update({ surgical_case_id: caseId })
-    .eq('visit_id', sc.visit_id)
-    .in('surgical_eye', eyesToLink)
-    .neq('status', 'Cancelled')
-    .is('surgical_case_id', null);
-
-  return result;
+  return adviseBiometry(sc.patient_id, sc.visit_id, sc.encounter_id, instructions);
 }
 
 export async function setPreOpPanelNotes(caseId, notes) {

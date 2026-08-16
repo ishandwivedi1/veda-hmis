@@ -167,7 +167,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [invName, setInvName] = useState('');
   const [invEye, setInvEye] = useState('OU');
   const invPriority = 'Routine'; // selector removed -- no longer needed
-  const [bioEye, setBioEye] = useState('');
   const [bioInstructions, setBioInstructions] = useState('');
   const [editingBioId, setEditingBioId] = useState(null);
   const [editBioInstructions, setEditBioInstructions] = useState('');
@@ -243,15 +242,13 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     }
     if (data.biometryRecords && data.biometryRecords.length > 0) {
       const first = data.biometryRecords[0];
-      setBioEye(data.biometryRecords.length === 2 ? 'Both' : (first.surgical_eye || ''));
       setBioInstructions(first.doctor_instructions || '');
     }
   }, [data]);
 
   async function handleAdviseBiometry() {
     setError('');
-    if (!bioEye) { setError('Select which eye Biometry is required for.'); return; }
-    const result = await adviseBiometry(data.entry.visits.id, data.encounter.id, bioEye, bioInstructions);
+    const result = await adviseBiometry(data.entry.visits.patients.id, data.entry.visits.id, data.encounter.id, bioInstructions);
     if (result.error) { setError(result.error); return; }
     refresh();
   }
@@ -485,12 +482,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   async function handleSendOut(kind) {
     setError('');
-    if (kind === 'biometry' && !bioEye) { setError('Select which eye Biometry is required for before sending.'); return; }
     setLoading(true);
     const result = kind === 'dilate'
       ? await sendForDilationFromConsultation(queueEntryId, data.encounter.id)
       : kind === 'biometry'
-      ? await sendForBiometryFromConsultation(queueEntryId, data.encounter.id, bioEye, bioInstructions)
+      ? await sendForBiometryFromConsultation(queueEntryId, data.entry.visits.patients.id, data.encounter.id, bioInstructions)
       : await sendForInvestigationFromConsultation(queueEntryId, data.encounter.id);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
@@ -733,10 +729,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                     {data.biometryRecords.map((r) => (
                       <div key={r.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                          <span className={`badge ${r.status === 'Approved' ? 'b-green' : r.status === 'Calculated' ? 'b-purple' : r.status === 'Measured' ? 'b-blue' : 'b-amber'}`}>
+                          <span className={`badge ${r.status === 'Measured' ? 'b-green' : 'b-amber'}`}>
                             {r.status}
                           </span>
-                          <span className="badge b-indigo">{r.surgical_eye}</span>
                           <a href={`/biometry/${r.id}`} target="_blank" rel="noopener noreferrer" className="btn" style={{ fontSize: 12, textDecoration: 'none' }}>
                             <i className="ti ti-external-link"></i> Open Biometry
                           </a>
@@ -771,7 +766,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <div style={{ marginBottom: 10 }}>
                         {data.biometryRecords.map((r) => (
                           <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                            <span className="badge b-indigo"><i className="ti ti-check"></i> Advised -- {r.surgical_eye}</span>
+                            <span className="badge b-indigo"><i className="ti ti-check"></i> Advised</span>
                             {r.billing_status !== 'Billed' ? (
                               <button className="btn" style={{ fontSize: 10 }} onClick={() => handleRemoveBiometry(r.id)}>
                                 <i className="ti ti-trash" style={{ color: 'var(--red)' }}></i> Remove
@@ -785,18 +780,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                      <div>
-                        <label className="flbl">Eye required</label>
-                        <select className="fi" style={{ width: 130 }} value={bioEye} onChange={(e) => setBioEye(e.target.value)}>
-                          <option value="">Select</option>
-                          <option value="RE">Right (OD)</option>
-                          <option value="LE">Left (OS)</option>
-                          <option value="Both">Both (OU)</option>
-                        </select>
-                      </div>
                       <div style={{ flex: 1, minWidth: 200 }}>
                         <label className="flbl">Instructions for technician (optional)</label>
-                        <input className="fi" placeholder="e.g. prior RK surgery, use formula X" value={bioInstructions} onChange={(e) => setBioInstructions(e.target.value)} />
+                        <input className="fi" placeholder="e.g. prior RK surgery, dense cataract" value={bioInstructions} onChange={(e) => setBioInstructions(e.target.value)} />
                       </div>
                       <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAdviseBiometry}>
                         {data.biometryRecords.length > 0 ? 'Update' : 'Add'}

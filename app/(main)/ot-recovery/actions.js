@@ -85,22 +85,20 @@ export async function getRecoveryEpisodeDetail(episodeId) {
 
   const sc = episode.surgical_cases;
 
-  const [{ data: intraop }, { data: biometry }, { data: meds }, { data: followups }, { data: complications }] = await Promise.all([
+  const [{ data: intraop }, { data: approval }, { data: meds }, { data: followups }, { data: complications }] = await Promise.all([
     supabase.from('ot_intraop_records').select('implant_power, implant_manufacturer, implant_model, surgical_outcome, outcome_remarks').eq('ot_schedule_id', episode.ot_schedule_id).maybeSingle(),
-    // visit_id may be null for a directly-registered surgical case (no
-    // biometry plan to show either way, since biometry was skipped for
-    // that kind of case) -- skip the lookup entirely rather than
-    // querying with a null value.
-    episode.visit_id
-      ? supabase.from('biometry_records').select('final_iol_power, final_iol_category, surgical_eye').eq('visit_id', episode.visit_id).eq('status', 'Approved')
-      : Promise.resolve({ data: [] }),
+    // Planned IOL comes from the surgeon's IOL Approval now, matched by
+    // surgical_case_id (a real FK, always available) -- not biometry,
+    // which no longer has any "approved" concept and isn't scoped to a
+    // visit/case anymore either.
+    supabase.from('iol_approvals').select('power, eye, master_iol_catalog(brand, model, category)').eq('surgical_case_id', sc.id).eq('status', 'Approved').maybeSingle(),
     supabase.from('recovery_medications').select('*').eq('recovery_episode_id', episodeId).order('added_at'),
     supabase.from('recovery_followups').select('*').eq('recovery_episode_id', episodeId).order('scheduled_date'),
     supabase.from('recovery_complications').select('*').eq('recovery_episode_id', episodeId).order('occurred_at'),
   ]);
 
   return {
-    episode, sc, intraop: intraop || null, biometryPlans: biometry || [],
+    episode, sc, intraop: intraop || null, biometryPlans: approval ? [approval] : [],
     meds: meds || [], followups: followups || [], complications: complications || [],
   };
 }

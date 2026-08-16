@@ -104,8 +104,8 @@ export default function Workspace({ otScheduleId, onBack }) {
       // to "Other" mode so that data is immediately visible instead of
       // silently disappearing behind an unselected dropdown.
       setImIolMode(io.implant_catalog_id ? 'catalog' : (io.implant_manufacturer || io.implant_model) ? 'other' : 'catalog');
-      setImPower(io.implant_power || result.biometryPlans[0]?.final_iol_power || '');
-      setImCategory(io.implant_category || result.biometryPlans[0]?.final_iol_category || '');
+      setImPower(io.implant_power || result.biometryPlans[0]?.power || '');
+      setImCategory(io.implant_category || result.biometryPlans[0]?.master_iol_catalog?.category || '');
       setImSerial(io.implant_serial || '');
       setImExpiry(io.implant_expiry || '');
       // Eye to be implanted is always derived from the Surgery section
@@ -124,8 +124,8 @@ export default function Workspace({ otScheduleId, onBack }) {
       setRecoveryInstructions(io.recovery_instructions || '');
       setRecoveryConcerns(io.recovery_concerns || '');
     } else {
-      setImPower(result.biometryPlans[0]?.final_iol_power || '');
-      setImCategory(result.biometryPlans[0]?.final_iol_category || '');
+      setImPower(result.biometryPlans[0]?.power || '');
+      setImCategory(result.biometryPlans[0]?.master_iol_catalog?.category || '');
       setImEye(result.booking.surgical_cases.eye || 'OD');
     }
   }, [otScheduleId]);
@@ -262,9 +262,13 @@ export default function Workspace({ otScheduleId, onBack }) {
   }
 
   const plannedPlan = biometryPlans[0];
-  const plannedPower = plannedPlan?.final_iol_power;
-  const plannedCategory = plannedPlan?.final_iol_category;
-  const plannedEyeNorm = plannedPlan?.surgical_eye === 'RE' ? 'OD' : plannedPlan?.surgical_eye === 'LE' ? 'OS' : plannedPlan?.surgical_eye === 'Both' ? 'OU' : null;
+  const plannedPower = plannedPlan?.power;
+  const plannedCategory = plannedPlan?.master_iol_catalog?.category;
+  // eye now comes from the same source on both sides (surgical_cases.eye)
+  // -- iol_approvals.eye is set from it directly at approval time, and
+  // imEye is derived from it here too, so this stays as a defensive
+  // check rather than something that can meaningfully drift anymore.
+  const plannedEyeNorm = plannedPlan?.eye || null;
   const plannedSpecificIol = plannedPlan?.master_iol_catalog
     ? `${plannedPlan.master_iol_catalog.manufacturer || ''} ${plannedPlan.master_iol_catalog.brand || ''} ${plannedPlan.master_iol_catalog.model || ''}`.trim().toLowerCase()
     : '';
@@ -277,8 +281,8 @@ export default function Workspace({ otScheduleId, onBack }) {
   // far more reliable than comparing reconstructed text. Falls back to
   // text comparison only when one side has no catalog link at all (an
   // older record, or a plan/implant that was custom-typed).
-  const specificIolMismatch = (plannedPlan?.final_iol_catalog_id && imCatalogId)
-    ? plannedPlan.final_iol_catalog_id !== imCatalogId
+  const specificIolMismatch = (plannedPlan?.iol_catalog_id && imCatalogId)
+    ? plannedPlan.iol_catalog_id !== imCatalogId
     : !!(plannedSpecificIol && actualSpecificIol && plannedSpecificIol !== actualSpecificIol);
   const variancePresent = !!(plannedPlan && (eyeMismatch || powerMismatch || categoryMismatch || specificIolMismatch));
 
@@ -512,7 +516,7 @@ export default function Workspace({ otScheduleId, onBack }) {
                 <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 8 }}>Approved IOL Plan</div>
                 {plannedPlan ? (
                   <div style={{ fontSize: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>Eye</span><strong>{EYE_LABEL[plannedPlan.surgical_eye] || plannedPlan.surgical_eye}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>Eye</span><strong>{EYE_LABEL[plannedPlan.eye] || plannedPlan.eye}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>IOL Power</span><strong>{plannedPower || '--'} D</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>IOL Category</span><strong>{plannedCategory || '--'}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>Specific IOL</span><strong style={{ textAlign: 'right' }}>{plannedPlan.master_iol_catalog ? `${plannedPlan.master_iol_catalog.manufacturer} ${plannedPlan.master_iol_catalog.brand || ''} ${plannedPlan.master_iol_catalog.model || ''}`.trim() : '--'}</strong></div>

@@ -163,6 +163,7 @@ export default function Workspace({ caseId }) {
     proceeding: sc.proceed_status === 'Proceeding',
     package: !!sc.package_id && sc.decision === 'Accepted',
     fitness: sc.fitness_cleared || sc.fitness_required === false || data.fitnessReferral?.status === 'Cleared',
+    iolApproval: data.iolApproval?.status === 'Approved',
     iol: !!data.otSchedule,
     advance: !!sc.advance_payment_id,
     dayof: !!data.recoveryEpisode?.discharge_date,
@@ -192,11 +193,15 @@ export default function Workspace({ caseId }) {
       {/* 4. MEDICAL FITNESS */}
       <FitnessSection sc={sc} fitnessReferral={data.fitnessReferral} onAction={flash} active={currentStep === 'fitness'} />
 
-      {/* 5. IOL PROCUREMENT + DATE + BOOK */}
-      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} onAction={flash} active={currentStep === 'iol'} />
+      {/* 5. IOL APPROVAL -- separate module: surgeon's final brand/power
+          sign-off, based on Biometry's device recommendations. */}
+      <IolApprovalSection iolApproval={data.iolApproval} active={currentStep === 'iolApproval'} />
 
-      {/* 6. ADVANCE */}
-      <Section num={6} color="var(--teal)" title="Advance Payment" done={stepDone.advance} active={currentStep === 'advance'}>
+      {/* 6. IOL PROCUREMENT + DATE + BOOK */}
+      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} onAction={flash} active={currentStep === 'iol'} num={6} />
+
+      {/* 7. ADVANCE */}
+      <Section num={7} color="var(--teal)" title="Advance Payment" done={stepDone.advance} active={currentStep === 'advance'}>
         {sc.advance_payment_id ? (
           <div style={{ fontSize: 12.5, color: 'var(--green)' }}><i className="ti ti-check"></i> Advance collected.</div>
         ) : (
@@ -209,15 +214,15 @@ export default function Workspace({ caseId }) {
         )}
       </Section>
 
-      {/* 7. REPORTS */}
-      <Section num={7} color="var(--blue)" title="Reports (Biometry printout, blood work, etc.)" done={false}>
+      {/* 8. REPORTS */}
+      <Section num={8} color="var(--blue)" title="Reports (Biometry printout, blood work, etc.)" done={false}>
         <AttachmentUploader entityType="surgical_case" entityId={sc.id} title="" />
       </Section>
 
-      {/* 8. DAY OF SURGERY */}
-      <DayOfSurgerySection sc={sc} otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} router={router} active={currentStep === 'dayof'} />
+      {/* 9. DAY OF SURGERY */}
+      <DayOfSurgerySection sc={sc} otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} router={router} active={currentStep === 'dayof'} num={9} />
 
-      {/* 9. NOTES / FOLLOW-UP */}
+      {/* 10. NOTES / FOLLOW-UP */}
       <NotesSection caseId={sc.id} notes={data.caseNotes} onAction={flash} />
     </div>
   );
@@ -263,15 +268,36 @@ function FitnessSection({ sc, fitnessReferral, onAction, active }) {
   );
 }
 
+// ── IOL APPROVAL -- separate module, deep-link only (same treatment as
+// Medical Fitness and Day of Surgery). The surgeon's actual approve
+// action happens in /iol-approval, not embedded here. ──
+function IolApprovalSection({ iolApproval, active }) {
+  const approved = iolApproval?.status === 'Approved';
+  return (
+    <Section num={5} color="var(--indigo)" title="IOL Approval" done={approved} active={active}>
+      {approved ? (
+        <div style={{ fontSize: 12.5 }}>
+          <span className="badge b-green" style={{ marginBottom: 6 }}><i className="ti ti-check"></i> Approved</span>
+          <div style={{ marginTop: 6 }}>
+            {iolApproval.master_iol_catalog?.brand} {iolApproval.master_iol_catalog?.model} -- {iolApproval.power}D ({iolApproval.eye})
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}>
+            The surgeon needs to review Biometry's device recommendations and confirm the specific brand/power for this case.
+          </div>
+          <a href="/iol-approval" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>
+            <i className="ti ti-lens"></i> Open IOL Approval
+          </a>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 // ── 1. INVESTIGATIONS ──────────────────────────────────────────────
 function InvestigationsSection({ sc, biometryRecords, onAction, active }) {
-  // Biometry is almost always done for both eyes regardless of which
-  // eye (if any) is actually having surgery -- the fellow eye's
-  // measurements matter for comparison and IOL choice. "Both" is the
-  // default, one-click action; a single eye is the rare exception, not
-  // an equally-weighted choice.
-  const [singleEyeMode, setSingleEyeMode] = useState(false);
-  const [eye, setEye] = useState('OD');
   const [instructions, setInstructions] = useState('');
   const [panelNotes, setPanelNotes] = useState(sc.notes || '');
   const biometryOrdered = biometryRecords.length > 0;
@@ -279,40 +305,20 @@ function InvestigationsSection({ sc, biometryRecords, onAction, active }) {
   return (
     <Section num={1} color="var(--purple)" title="Investigations (Biometry + Pre-Op Panel)" done={biometryOrdered} defaultOpen={!biometryOrdered} active={active}>
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Biometry (for IOL power)</div>
+        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Biometry (both eyes, for IOL power)</div>
         {biometryRecords.length > 0 ? (
           biometryRecords.map((b) => (
             <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 8px', background: 'var(--g50)', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
-              <span>{b.surgical_eye} -- {b.status}{b.final_iol_power ? ` -- ${b.final_iol_power}D ${b.final_iol_category || ''}` : ''}</span>
-              {b.status !== 'Approved' && <a href="/biometry" style={{ color: 'var(--blue)', fontWeight: 600 }}>Open Biometry &rarr;</a>}
+              <span>{b.status}{b.verified_at ? ` -- ${new Date(b.verified_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}` : ''}</span>
+              <a href="/biometry" style={{ color: 'var(--blue)', fontWeight: 600 }}>Open Biometry &rarr;</a>
             </div>
           ))
-        ) : !singleEyeMode ? (
-          <div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Instructions (optional)" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-              <button className="btn btn-sm btn-primary" onClick={() => onAction(orderBiometryForCase)(sc.id, 'OU', instructions)}>
-                <i className="ti ti-ruler-measure"></i> Order Biometry -- Both Eyes
-              </button>
-            </div>
-            <button
-              className="btn btn-sm" style={{ background: 'none', border: 'none', color: 'var(--g400)', padding: 0, fontSize: 11 }}
-              onClick={() => setSingleEyeMode(true)}
-            >
-              Only one eye needed? &rarr;
-            </button>
-          </div>
         ) : (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select className="fi fi-sm" style={{ width: 100 }} value={eye} onChange={(e) => setEye(e.target.value)}>
-              <option value="OD">RE only</option>
-              <option value="OS">LE only</option>
-            </select>
             <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Instructions (optional)" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-            <button className="btn btn-sm btn-primary" onClick={() => onAction(orderBiometryForCase)(sc.id, eye, instructions)}>
-              <i className="ti ti-ruler-measure"></i> Order
+            <button className="btn btn-sm btn-primary" onClick={() => onAction(orderBiometryForCase)(sc.id, instructions)}>
+              <i className="ti ti-ruler-measure"></i> Order Biometry
             </button>
-            <button className="btn btn-sm" onClick={() => setSingleEyeMode(false)}>Cancel</button>
           </div>
         )}
       </div>
@@ -445,7 +451,7 @@ function PackageDecisionSection({ sc, onAction, active }) {
 }
 
 // ── 4. IOL PROCUREMENT + DATE + BOOK SLOT ──────────────────────────
-function IolAndBookingSection({ sc, otSchedule, onAction, active }) {
+function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
   const [iolNotes, setIolNotesLocal] = useState(sc.iol_order_notes || '');
   const [surgeons, setSurgeons] = useState([]);
   const [surgeonId, setSurgeonId] = useState(sc.surgeon_id || '');
@@ -471,7 +477,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active }) {
 
   if (otSchedule) {
     return (
-      <Section num={5} color="var(--teal)" title="IOL Order &amp; Surgery Date" done active={active}>
+      <Section num={num} color="var(--teal)" title="IOL Order &amp; Surgery Date" done active={active}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <input className="fi fi-sm" style={{ flex: 1 }} value={iolNotes} onChange={(e) => setIolNotesLocal(e.target.value)} />
           <button className="btn btn-sm" onClick={() => onAction(setIolOrderNotes)(sc.id, iolNotes)}>Save</button>
@@ -521,7 +527,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active }) {
   }
 
   return (
-    <Section num={5} color="var(--teal)" title="IOL Order &amp; Surgery Date" done={false} defaultOpen={readyGateMet} active={active}>
+    <Section num={num} color="var(--teal)" title="IOL Order &amp; Surgery Date" done={false} defaultOpen={readyGateMet} active={active}>
       <div style={{ marginBottom: 12 }}>
         <label className="flbl">IOL Order Notes</label>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -595,7 +601,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active }) {
 
 // ── 7. DAY OF SURGERY (live status, deep-links only -- OT Intraop and
 // Recovery remain their own solid clinical workflows) ──
-function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active }) {
+function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active, num }) {
   let status = 'Not yet booked';
   let color = 'var(--g400)';
   let action = null;
@@ -626,7 +632,7 @@ function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active }
   }
 
   return (
-    <Section num={8} color={color} title="Day of Surgery" done={!!recoveryEpisode?.discharge_date} defaultOpen={!!otSchedule} active={active}>
+    <Section num={num} color={color} title="Day of Surgery" done={!!recoveryEpisode?.discharge_date} defaultOpen={!!otSchedule} active={active}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{status}</div>
       <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
         Balance payment, consent, the surgery itself, and discharge all happen in the Operation Theatre / Recovery modules -- that clinical documentation stays where it is. This just shows where the case currently stands.
@@ -644,7 +650,7 @@ function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active }
 function NotesSection({ caseId, notes, onAction }) {
   const [text, setText] = useState('');
   return (
-    <Section num={9} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
+    <Section num={10} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Add a note (e.g. follow-up call outcome)..." value={text} onChange={(e) => setText(e.target.value)} />
         <button

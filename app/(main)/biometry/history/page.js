@@ -4,6 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getBiometryHistory } from '../actions';
 
+function bestReading(sets) {
+  if (!Array.isArray(sets) || sets.length === 0) return {};
+  return sets.find((s) => s.axl && s.k1 && s.k2 && s.acd) || sets[0] || {};
+}
+
 export default function BiometryHistoryPage() {
   const [rows, setRows] = useState([]);
   const [patients, setPatients] = useState([]);
@@ -29,7 +34,7 @@ export default function BiometryHistoryPage() {
           </select>
         </div>
         <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 8 }}>
-          Historical measurements are never overwritten. Recalculations and re-approvals create new versions, visible in each record's Surgeon Approval tab.
+          One record per patient, reused across every future surgical case -- readings don't meaningfully change for years. IOL brand/power recommendations and the surgeon's final approval are on each record's own page.
         </div>
       </div>
 
@@ -37,15 +42,14 @@ export default function BiometryHistoryPage() {
         <table className="tbl">
           <thead>
             <tr>
-              <th>Date</th><th>Patient</th><th>Eye</th><th>AXL</th><th>K1/K2</th><th>ACD</th><th>Device</th><th>Formula</th><th>Approved IOL</th><th>Status</th>
+              <th>Date</th><th>Patient</th><th>RE: AXL / K1/K2 / ACD</th><th>LE: AXL / K1/K2 / ACD</th><th>Device</th><th>Status</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => {
-              const patient = r.visits?.patients;
-              const eyeKey = r.surgical_eye === 'RE' ? 're' : r.surgical_eye === 'LE' ? 'le' : null;
-              const eyeSets = eyeKey && Array.isArray(r.measurements?.[eyeKey]) ? r.measurements[eyeKey] : [];
-              const m = eyeSets.find((s) => s.axl && s.k1 && s.k2 && s.acd) || eyeSets[0] || {};
+              const patient = r.patients;
+              const reReading = bestReading(r.measurements?.re);
+              const leReading = bestReading(r.measurements?.le);
               return (
                 <tr key={r.id} onClick={() => router.push(`/biometry/${r.id}`)} style={{ cursor: 'pointer' }}>
                   <td style={{ fontSize: 11 }}>{new Date(r.updated_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
@@ -53,19 +57,15 @@ export default function BiometryHistoryPage() {
                     <strong>{patient?.first_name} {patient?.last_name}</strong>
                     <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{patient?.uhid}</span>
                   </td>
-                  <td>{r.surgical_eye || '--'}</td>
-                  <td style={{ fontFamily: 'monospace' }}>{m.axl || '--'}</td>
-                  <td style={{ fontFamily: 'monospace' }}>{m.k1 || '--'}/{m.k2 || '--'}</td>
-                  <td style={{ fontFamily: 'monospace' }}>{m.acd || '--'}</td>
-                  <td style={{ fontSize: 11 }}>{m.device || '--'}</td>
-                  <td>{r.selected_formula || r.final_iol_power ? (r.selected_formula || '--') : '--'}</td>
-                  <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.final_iol_power ? `${r.final_iol_power} D` : '--'}</td>
-                  <td><span className={`badge ${r.status === 'Approved' ? 'b-green' : 'b-blue'}`}>{r.status}</span></td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{reReading.axl || '--'} / {reReading.k1 || '--'}/{reReading.k2 || '--'} / {reReading.acd || '--'}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{leReading.axl || '--'} / {leReading.k1 || '--'}/{leReading.k2 || '--'} / {leReading.acd || '--'}</td>
+                  <td style={{ fontSize: 11 }}>{r.verify_device || '--'}</td>
+                  <td><span className="badge b-green">{r.status}</span></td>
                 </tr>
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={10} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No biometry history found.</td></tr>
+              <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No biometry history found.</td></tr>
             )}
           </tbody>
         </table>
