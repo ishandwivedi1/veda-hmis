@@ -34,7 +34,7 @@ import {
   carryForwardDiagnosis,
 } from '@/app/(main)/consultation/actions';
 import { openPopup } from '@/lib/popup';
-import { markForSurgery, updateSurgicalCase } from '@/app/(main)/counselling/actions';
+import { markForSurgery, updateSurgicalCase, setDecision } from '@/app/(main)/counselling/actions';
 import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import OptometryWorkspace from '@/app/(main)/optometry/[id]/optometry-workspace';
@@ -955,15 +955,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                               </select>
                             </div>
                             <div style={{ marginBottom: 8 }}>
-                              <label className="flbl">Pre-op Required</label>
-                              <select className="fi" value={editSurgeryPreOp} onChange={(e) => setEditSurgeryPreOp(e.target.value)}>
-                                <option value="None">None</option>
-                                <option value="Biometry">Biometry</option>
-                                <option value="Medical Fitness">Medical Fitness</option>
-                                <option value="Both">Both</option>
-                              </select>
-                            </div>
-                            <div style={{ marginBottom: 8 }}>
                               <label className="flbl">Notes</label>
                               <input className="fi" placeholder="Any notes for this surgery recommendation..." value={editSurgeryNotes} onChange={(e) => setEditSurgeryNotes(e.target.value)} />
                             </div>
@@ -980,9 +971,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                               <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
                               <span style={{ flex: 1 }}>
                                 <strong>{sc.procedure_name}</strong> -- {sc.eye === 'OD' ? 'Right (OD)' : sc.eye === 'OS' ? 'Left (OS)' : sc.eye === 'OU' ? 'Both (OU)' : sc.eye}
-                                <span style={{ marginLeft: 8, fontSize: 10.5, color: 'var(--g500)' }}>
-                                  Pre-op: {sc.biometry_required !== false && sc.fitness_required !== false ? 'Both' : sc.biometry_required !== false ? 'Biometry' : sc.fitness_required !== false ? 'Medical Fitness' : 'None'}
-                                </span>
                               </span>
                               <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
                               {sc.status === 'Pending Workup' && (
@@ -994,6 +982,29 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                             {sc.notes && (
                               <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3, marginLeft: 22 }}><i className="ti ti-notes"></i> {sc.notes}</div>
                             )}
+                            <div style={{ marginTop: 6, marginLeft: 22 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Patient's Decision</div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                {[
+                                  { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
+                                  { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
+                                  { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
+                                ].map((d) => (
+                                  <button
+                                    key={d.v} type="button" className="btn" style={{ padding: '3px 9px', fontSize: 11, background: sc.decision === d.v ? d.color : '', color: sc.decision === d.v ? '#fff' : '', border: sc.decision === d.v ? 'none' : undefined }}
+                                    onClick={async () => {
+                                      const reason = sc.decision_locked && sc.decision !== d.v ? window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it:`) : null;
+                                      if (sc.decision_locked && sc.decision !== d.v && !reason) return;
+                                      const result = await setDecision(sc.id, d.v, reason);
+                                      if (result.error) { setError(result.error); return; }
+                                      refresh();
+                                    }}
+                                  >
+                                    {d.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1013,15 +1024,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       </select>
                       <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 110 }}>
                         <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
-                      </select>
-                    </div>
-                    <div style={{ marginBottom: 8 }}>
-                      <label className="flbl">Pre-op Required</label>
-                      <select className="fi" value={surgeryPreOp} onChange={(e) => setSurgeryPreOp(e.target.value)}>
-                        <option value="None">None</option>
-                        <option value="Biometry">Biometry</option>
-                        <option value="Medical Fitness">Medical Fitness</option>
-                        <option value="Both">Both</option>
                       </select>
                     </div>
                     <div style={{ marginBottom: 8 }}>
