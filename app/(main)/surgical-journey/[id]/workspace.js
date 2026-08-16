@@ -190,9 +190,9 @@ export default function Workspace({ caseId }) {
     decision: sc.decision === 'Accepted',
     investigations: data.biometryRecords.length > 0,
     package: !!sc.package_id,
-    fitness: sc.fitness_cleared || sc.fitness_required === false || data.fitnessReferral?.status === 'Cleared',
     iolApproval: data.iolApproval?.status === 'Approved',
     iol: !!data.otSchedule,
+    fitness: sc.fitness_cleared || sc.fitness_required === false || data.fitnessReferral?.status === 'Cleared',
     advance: !!sc.advance_payment_id,
     dayof: !!data.recoveryEpisode?.discharge_date,
   };
@@ -219,15 +219,17 @@ export default function Workspace({ caseId }) {
       {/* 3. PACKAGE & IOL DECISION */}
       <PackageDecisionSection sc={sc} onAction={flash} active={currentStep === 'package'} />
 
-      {/* 4. MEDICAL FITNESS */}
-      <FitnessSection sc={sc} fitnessReferral={data.fitnessReferral} onAction={flash} active={currentStep === 'fitness'} />
-
-      {/* 5. IOL APPROVAL -- separate module: surgeon's final brand/power
+      {/* 4. IOL APPROVAL -- separate module: surgeon's final brand/power
           sign-off, based on Biometry's device recommendations. */}
       <IolApprovalSection iolApproval={data.iolApproval} active={currentStep === 'iolApproval'} />
 
-      {/* 6. IOL PROCUREMENT + DATE + BOOK */}
-      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} onAction={flash} active={currentStep === 'iol'} num={6} />
+      {/* 5. IOL PROCUREMENT + DATE + BOOK */}
+      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} onAction={flash} active={currentStep === 'iol'} num={5} />
+
+      {/* 6. MEDICAL FITNESS -- comes after the surgery date is booked
+          (pre-anaesthesia clearance closer to the actual surgery date
+          is more clinically useful than clearing weeks in advance). */}
+      <FitnessSection sc={sc} fitnessReferral={data.fitnessReferral} onAction={flash} active={currentStep === 'fitness'} num={6} />
 
       {/* 7. ADVANCE */}
       <Section num={7} color="var(--teal)" title="Advance Payment" done={stepDone.advance} active={currentStep === 'advance'}>
@@ -257,10 +259,10 @@ export default function Workspace({ caseId }) {
 // self-certify checkbox -- clearing a patient for anaesthesia is a
 // genuine clinical judgment, not paperwork. Deep-links to the Medical
 // Fitness module for the actual review.
-function FitnessSection({ sc, fitnessReferral, onAction, active }) {
+function FitnessSection({ sc, fitnessReferral, onAction, active, num }) {
   const cleared = sc.fitness_cleared || sc.fitness_required === false || fitnessReferral?.status === 'Cleared';
   return (
-    <Section num={4} color="var(--red)" title="Medical Fitness" done={cleared} active={active}>
+    <Section num={num} color="var(--red)" title="Medical Fitness" done={cleared} active={active}>
       {sc.fitness_required === false && !fitnessReferral ? (
         <span className="badge b-purple"><i className="ti ti-player-skip-forward"></i> Not required for this case</span>
       ) : !fitnessReferral ? (
@@ -637,7 +639,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
   }, [date]);
 
   const canBook = sc.status === 'Ready for Scheduling';
-  const readyGateMet = sc.package_id && sc.decision === 'Accepted' && (sc.biometry_done || sc.biometry_required === false) && (sc.fitness_cleared || sc.fitness_required === false);
+  const readyGateMet = sc.package_id && sc.decision === 'Accepted' && (sc.biometry_done || sc.biometry_required === false);
 
   const [rescheduling, setRescheduling] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState('');
@@ -705,7 +707,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
 
       {!readyGateMet && (
         <div style={{ fontSize: 11.5, color: 'var(--g400)', marginBottom: 10 }}>
-          <i className="ti ti-info-circle"></i> Package, decision, biometry, and fitness must all be settled before booking a date.
+          <i className="ti ti-info-circle"></i> Package, decision, and biometry must all be settled before booking a date. Medical Fitness clearance happens after the date is booked.
         </div>
       )}
 

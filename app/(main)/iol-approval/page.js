@@ -27,6 +27,17 @@ function ApproveModal({ item, onClose, onDone }) {
     setPower(eyeKey ? (rec[eyeKey] ?? '') : '');
   }
 
+  // Flags when the doctor's choice doesn't match any device
+  // recommendation on file -- either a brand/model with no
+  // recommendation row at all, or a power that differs from what the
+  // device recommended for this eye. A genuine clinical call either
+  // way, but worth surfacing rather than silently letting it slide.
+  const matchingRec = catalogId ? detail?.recommendations.find((r) => r.master_iol_catalog.id === catalogId) : null;
+  const recommendedPower = matchingRec && eyeKey ? matchingRec[eyeKey] : null;
+  const deviatesNoRec = !!catalogId && !matchingRec && (detail?.recommendations.length || 0) > 0;
+  const deviatesPower = !!matchingRec && !!power && recommendedPower != null && String(power).trim() !== String(recommendedPower).trim();
+  const deviates = deviatesNoRec || deviatesPower;
+
   async function handleApprove() {
     setError('');
     if (!detail?.biometry) { setError('No measured biometry on file for this patient.'); return; }
@@ -40,8 +51,15 @@ function ApproveModal({ item, onClose, onDone }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }} onClick={onClose}>
       <div className="card" style={{ width: 520, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
-        <div className="card-title" style={{ marginBottom: 4 }}>
-          <i className="ti ti-lens" style={{ color: 'var(--indigo)' }}></i> IOL Approval
+        <div className="card-head" style={{ marginBottom: 4, alignItems: 'flex-start' }}>
+          <div className="card-title">
+            <i className="ti ti-lens" style={{ color: 'var(--indigo)' }}></i> IOL Approval
+          </div>
+          {detail?.biometry && (
+            <a href={`/biometry/${detail.biometry.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+              <i className="ti ti-file-report"></i> View Biometry Report
+            </a>
+          )}
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--g600)', marginBottom: 12 }}>
           {item.patient?.first_name} {item.patient?.last_name} ({item.patient?.uhid}) -- {item.procedureName} -- {EYE_LABEL[item.eye] || item.eye}
@@ -86,6 +104,16 @@ function ApproveModal({ item, onClose, onDone }) {
               </select>
               <input className="fi fi-sm" placeholder="Power" value={power} onChange={(e) => setPower(e.target.value)} />
             </div>
+
+            {deviates && (
+              <div className="msg-warn" style={{ background: 'var(--amber-lt)', color: 'var(--amber)', padding: '8px 12px', borderRadius: 8, fontSize: 11.5, marginBottom: 10 }}>
+                <i className="ti ti-alert-triangle"></i>{' '}
+                {deviatesNoRec
+                  ? 'This brand/model has no device recommendation on file for this patient -- deviating from the biometry report.'
+                  : `Device recommended ${recommendedPower ?? '--'} D for ${EYE_LABEL[item.eye] || item.eye}, but ${power} D is being approved -- deviating from the biometry report.`}
+              </div>
+            )}
+
             <input className="fi fi-sm" style={{ marginBottom: 12 }} placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
