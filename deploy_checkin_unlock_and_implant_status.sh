@@ -1,3 +1,9 @@
+#!/bin/bash
+set -e
+echo "Deploying: single page-level unlock for Check-In, Implant Status summary + deep link fix for VAL-OT-003 in Intraop"
+
+mkdir -p "app/(main)/ot-intraop"
+cat > "app/(main)/ot-intraop/workspace.js" << 'VEDA_EOF_1'
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -937,3 +943,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   );
 }
 
+VEDA_EOF_1
+
+echo "Files written. No DB migration needed for this change."
+echo "Deploy script done."
