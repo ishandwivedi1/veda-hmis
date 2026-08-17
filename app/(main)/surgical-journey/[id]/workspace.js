@@ -15,7 +15,7 @@ import {
   setDecision, referForMedicalFitness, markReadyForScheduling, bookOTSlot, getSurgeons, addCaseNote,
 } from '@/app/(main)/counselling/actions';
 import { getOTAvailability, rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
-import OTCalendarPicker from './ot-calendar-picker';
+import { openPopup } from '@/lib/popup';
 
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
@@ -628,6 +628,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
   const [date, setDate] = useState('');
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState('');
+  const [sessionName, setSessionName] = useState('');
   const [loadingSessions, setLoadingSessions] = useState(false);
 
   useEffect(() => { getSurgeons().then(setSurgeons); }, []);
@@ -638,6 +639,28 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
     setLoadingSessions(true);
     getOTAvailability(date).then((rows) => { setSessions(rows); setLoadingSessions(false); });
   }, [date]);
+
+  // The date+session picker lives in the OT Schedule module's own
+  // Calendar tab (prior bookings visible there, one place instead of
+  // duplicating a calendar here) -- opened as a real popup window, and
+  // the chosen slot comes back via postMessage instead of a page
+  // redirect, since this is a multi-step form the user shouldn't lose.
+  useEffect(() => {
+    function handleMessage(e) {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type !== 'ot-slot-picked' || e.data.caseId !== sc.id) return;
+      setDate(e.data.date);
+      setSessionId(e.data.sessionId);
+      setSessionName(e.data.sessionName || '');
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [sc.id]);
+
+  function openCalendarPicker() {
+    const label = encodeURIComponent(`${sc.patients?.first_name || ''} ${sc.patients?.last_name || ''} -- ${sc.procedure_name || ''} (${sc.eye || ''})`.trim());
+    openPopup(`/ot-schedule?pickFor=${sc.id}&pickLabel=${label}`, `ot-calendar-${sc.id}`);
+  }
 
   const canBook = sc.status === 'Ready for Scheduling';
   const readyGateMet = sc.package_id && sc.decision === 'Accepted' && (sc.biometry_done || sc.biometry_required === false);
@@ -661,7 +684,16 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
         ) : (
           <div>
             <div style={{ marginBottom: 8 }}>
-              <OTCalendarPicker value={date} onSelect={setDate} />
+              {date ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--g50)', border: '1px solid var(--g200)', borderRadius: 8, padding: '8px 10px', fontSize: 12.5 }}>
+                  <span><i className="ti ti-calendar"></i> {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}{sessionName ? ` -- ${sessionName}` : ''}</span>
+                  <button className="btn btn-sm" onClick={openCalendarPicker}>Change</button>
+                </div>
+              ) : (
+                <button className="btn btn-sm" onClick={openCalendarPicker}>
+                  <i className="ti ti-calendar"></i> Open OT Calendar
+                </button>
+              )}
             </div>
             {date && (
               <div style={{ marginBottom: 8 }}>
@@ -688,7 +720,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
                 onClick={async () => {
                   const r = await onAction(rescheduleOTSlot)(otSchedule.id, date, sessionId, rescheduleReason);
                   if (r?.error) return;
-                  setRescheduling(false); setRescheduleReason(''); setDate(''); setSessionId('');
+                  setRescheduling(false); setRescheduleReason(''); setDate(''); setSessionId(''); setSessionName('');
                 }}
               >
                 Confirm
@@ -730,7 +762,16 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
           </div>
           <div style={{ marginBottom: 10 }}>
             <label className="flbl">Date</label>
-            <OTCalendarPicker value={date} onSelect={setDate} />
+            {date ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--g50)', border: '1px solid var(--g200)', borderRadius: 8, padding: '8px 10px', fontSize: 12.5 }}>
+                <span><i className="ti ti-calendar"></i> {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}{sessionName ? ` -- ${sessionName}` : ''}</span>
+                <button className="btn btn-sm" onClick={openCalendarPicker}>Change</button>
+              </div>
+            ) : (
+              <button className="btn btn-sm" onClick={openCalendarPicker}>
+                <i className="ti ti-calendar"></i> Open OT Calendar
+              </button>
+            )}
           </div>
           {date && (
             <div style={{ marginBottom: 10 }}>

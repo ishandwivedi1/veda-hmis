@@ -1,13 +1,209 @@
 'use client';
 
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, Fragment, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
-  getScheduledOT, getOTHistory, getOTAvailability, rescheduleOTSlot, completeOT, undoCompleteOT,
+  getScheduledOT, getOTHistory, getOTAvailability, getOTMonthSummary, rescheduleOTSlot, completeOT, undoCompleteOT,
   searchPatientsForDirectSurgery, getPackagesForDirectSurgery, getSurgeonsForDirectSurgery, registerSurgeryDirect,
 } from './actions';
 import { getSurgeries } from '@/app/(main)/master-data/actions';
 
 const STATUS_BADGE = { Scheduled: 'b-blue', 'In Progress': 'b-amber', Completed: 'b-green', Cancelled: 'b-red' };
+const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function toISODate(d) {
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+function loadColor(count, capacity) {
+  if (!capacity || count <= 0) return null;
+  const ratio = count / capacity;
+  if (ratio >= 1) return 'var(--red)';
+  if (ratio >= 0.6) return 'var(--amber)';
+  return 'var(--green)';
+}
+
+// Month-grid calendar of OT bookings. Doubles as a "picker": opened as
+// a popup window from Surgical Journey with ?pickFor=<caseId>&pickLabel=..,
+// clicking a date and then a session posts the choice back to the
+// window that opened it and closes itself, instead of duplicating the
+// booking UI in two places.
+function CalendarTab() {
+  const searchParams = useSearchParams();
+  const pickFor = searchParams.get('pickFor');
+  const pickLabel = searchParams.get('pickLabel') || '';
+  const isPicker = !!pickFor;
+
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [summary, setSummary] = useState({ dailyCapacity: 0, byDate: {} });
+  const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+
+  const todayISO = toISODate(today);
+
+  const loadMonth = useCallback(async (year, month) => {
+    setLoading(true);
+    const start = new Date(year, month, 1);
+    const end = new Date(year, month + 1, 0);
+    const result = await getOTMonthSummary(toISODate(start), toISODate(end));
+    setSummary(result);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadMonth(viewYear, viewMonth); }, [viewYear, viewMonth, loadMonth]);
+
+  useEffect(() => {
+    if (!selectedDate) { setSessions([]); return; }
+    setLoadingSessions(true);
+    getOTAvailability(selectedDate).then((rows) => { setSessions(rows); setLoadingSessions(false); });
+  }, [selectedDate]);
+
+  function changeMonth(delta) {
+    let m = viewMonth + delta;
+    let y = viewYear;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setViewYear(y); setViewMonth(m);
+  }
+
+  function pickSlot(session) {
+    if (window.opener) {
+      window.opener.postMessage({ type: 'ot-slot-picked', caseId: pickFor, date: selectedDate, sessionId: session.session_id, sessionName: session.name }, window.location.origin);
+    }
+    window.close();
+  }
+
+  const firstOfMonth = new Date(viewYear, viewMonth, 1);
+  const startWeekday = firstOfMonth.getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const dayBookings = selectedDate ? (summary.byDate[selectedDate] || []) : [];
+
+  return (
+    <div>
+      {isPicker && (
+        <div style={{ background: 'var(--indigo-lt, var(--blue-lt))', border: '1px solid var(--indigo)', borderRadius: 8, padding: '8px 12px', fontSize: 12.5, marginBottom: 14 }}>
+          <i className="ti ti-calendar-plus"></i> Picking a surgery date{pickLabel ? ` for ${pickLabel}` : ''} -- pick a date, then a session, to send it back.
+        </div>
+      )}
+
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <button type="button" className="btn" onClick={() => changeMonth(-1)}><i className="ti ti-chevron-left"></i></button>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
+          <button type="button" className="btn" onClick={() => changeMonth(1)}><i className="ti ti-chevron-right"></i></button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+          {DOW.map((d, i) => (
+            <div key={i} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--g400)', padding: '3px 0' }}>{d}</div>
+          ))}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, opacity: loading ? 0.5 : 1 }}>
+          {cells.map((day, idx) => {
+            if (day === null) return <div key={`e${idx}`} />;
+            const dateISO = toISODate(new Date(viewYear, viewMonth, day));
+            const isPast = dateISO < todayISO;
+            const bookings = summary.byDate[dateISO] || [];
+            const count = bookings.length;
+            const color = loadColor(count, summary.dailyCapacity);
+            const isSelected = selectedDate === dateISO;
+
+            return (
+              <button
+                type="button"
+                key={dateISO}
+                disabled={isPast}
+                onClick={() => setSelectedDate(dateISO)}
+                style={{
+                  aspectRatio: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  border: isSelected ? '2px solid var(--teal)' : '1px solid var(--g100)',
+                  borderRadius: 8, background: isSelected ? 'var(--teal-lt, var(--green-lt))' : isPast ? 'var(--g50)' : '#fff',
+                  cursor: isPast ? 'default' : 'pointer', color: isPast ? 'var(--g300)' : 'var(--g700)', fontSize: 13, fontWeight: 600, padding: 2,
+                }}
+              >
+                {day}
+                {count > 0 && !isPast && (
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, marginTop: 2 }}></span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {summary.dailyCapacity > 0 && (
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 10, fontSize: 11, color: 'var(--g400)' }}>
+            <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', marginRight: 4 }}></span>Light</span>
+            <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'var(--amber)', marginRight: 4 }}></span>Busy</span>
+            <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', marginRight: 4 }}></span>Full</span>
+            <span style={{ marginLeft: 'auto' }}>{summary.dailyCapacity} slots/day total</span>
+          </div>
+        )}
+      </div>
+
+      {selectedDate && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            <i className="ti ti-calendar-event"></i> {new Date(`${selectedDate}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
+          </div>
+
+          <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Prior bookings</div>
+          {dayBookings.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--g400)', marginBottom: 14 }}>Nothing booked yet on this date.</div>
+          ) : (
+            <div style={{ marginBottom: 14 }}>
+              {dayBookings.map((b) => (
+                <div key={b.id} style={{ fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--g50)' }}>
+                  <strong>{b.patientName}</strong> ({b.uhid}) -- {b.procedureName}{b.eye ? ` (${b.eye})` : ''} -- <span style={{ color: 'var(--g500)' }}>{b.sessionName}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Sessions</div>
+          {loadingSessions ? (
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>Checking availability...</div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {sessions.map((s) => {
+                const full = s.remaining <= 0;
+                return (
+                  <button
+                    key={s.session_id}
+                    type="button"
+                    disabled={full}
+                    onClick={() => isPicker && pickSlot(s)}
+                    className="btn btn-sm"
+                    style={{
+                      textAlign: 'left', minWidth: 160,
+                      background: full ? 'var(--g100)' : '',
+                      color: full ? 'var(--g400)' : '',
+                      cursor: full ? 'not-allowed' : isPicker ? 'pointer' : 'default',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>{s.name}</div>
+                    <div style={{ fontSize: 10.5, opacity: .85 }}>{s.start_time?.slice(0, 5)}--{s.end_time?.slice(0, 5)} -- {s.default_room || 'Room TBD'}</div>
+                    <div style={{ fontSize: 10.5, opacity: .85 }}>{full ? 'FULL' : `${s.remaining} of ${s.capacity} slots left`}</div>
+                    {isPicker && !full && <div style={{ fontSize: 10.5, marginTop: 3, fontWeight: 700 }}><i className="ti ti-arrow-back"></i> Use this slot</div>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
@@ -485,20 +681,37 @@ function RegisterSurgeryDirectForm({ onDone }) {
 }
 
 export default function OTSchedulePage() {
-  const [activeTab, setActiveTab] = useState('scheduled');
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--g400)' }}>Loading...</div>}>
+      <OTScheduleInner />
+    </Suspense>
+  );
+}
+
+function OTScheduleInner() {
+  const searchParams = useSearchParams();
+  const isPicker = !!searchParams.get('pickFor');
+  const [activeTab, setActiveTab] = useState(isPicker ? 'calendar' : 'scheduled');
   const [showDirectForm, setShowDirectForm] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 4, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 400 }}>
+        <div style={{ display: 'flex', gap: 4, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 480 }}>
           <button
             type="button"
             onClick={() => setActiveTab('scheduled')}
             style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'scheduled' ? '#fff' : 'transparent', color: activeTab === 'scheduled' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'scheduled' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
           >
             <i className="ti ti-calendar-event"></i> Scheduled OT
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('calendar')}
+            style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: activeTab === 'calendar' ? '#fff' : 'transparent', color: activeTab === 'calendar' ? 'var(--blue)' : 'var(--g500)', cursor: 'pointer', boxShadow: activeTab === 'calendar' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+          >
+            <i className="ti ti-calendar"></i> Calendar
           </button>
           <button
             type="button"
@@ -509,9 +722,11 @@ export default function OTSchedulePage() {
           </button>
         </div>
 
-        <button type="button" className="btn" style={{ borderColor: 'var(--amber)', color: 'var(--amber)' }} onClick={() => setShowDirectForm(!showDirectForm)}>
-          <i className="ti ti-calendar-plus"></i> {showDirectForm ? 'Close' : 'Register Surgery Directly'}
-        </button>
+        {!isPicker && (
+          <button type="button" className="btn" style={{ borderColor: 'var(--amber)', color: 'var(--amber)' }} onClick={() => setShowDirectForm(!showDirectForm)}>
+            <i className="ti ti-calendar-plus"></i> {showDirectForm ? 'Close' : 'Register Surgery Directly'}
+          </button>
+        )}
       </div>
 
       {showDirectForm && (
@@ -524,6 +739,7 @@ export default function OTSchedulePage() {
       )}
 
       {activeTab === 'scheduled' && <ScheduledOTTab key={refreshKey} />}
+      {activeTab === 'calendar' && <CalendarTab />}
       {activeTab === 'history' && <OTHistoryTab />}
     </div>
   );
