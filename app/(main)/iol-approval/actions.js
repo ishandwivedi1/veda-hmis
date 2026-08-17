@@ -112,7 +112,7 @@ export async function getIolApprovalDetail(caseId) {
 
   const { data: sc, error } = await supabase
     .from('surgical_cases')
-    .select('id, patient_id, procedure_name, eye, package_id, patients:patient_id(first_name, last_name, uhid, age, gender), master_packages:package_id(name, iol_category)')
+    .select('id, patient_id, procedure_name, eye, package_id, surgery_code, status, patients:patient_id(first_name, last_name, uhid, age, gender, mobile), master_packages:package_id(name, iol_category), profiles:surgeon_id(full_name)')
     .eq('id', caseId)
     .single();
   if (error || !sc) return { error: 'Case not found.' };
