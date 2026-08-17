@@ -1,3 +1,9 @@
+#!/bin/bash
+set -e
+echo "Deploying: revert Implant Verification/Anaesthesia to Check-In, add Save Implant + Unlock-to-Edit for check-in, header now shows surgery code"
+
+mkdir -p "app/(main)/ot-intraop"
+cat > "app/(main)/ot-intraop/workspace.js" << 'VEDA_EOF_1'
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -887,3 +893,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   );
 }
 
+VEDA_EOF_1
+
+echo "Files written. No DB migration needed for this change."
+echo "Deploy script done."
