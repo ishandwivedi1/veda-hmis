@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase-server';
 import { adviseBiometry } from '@/app/(main)/consultation/actions';
 import { markForSurgery } from '@/app/(main)/counselling/actions';
+import { getAdvanceBalance } from '@/app/(main)/payments/actions';
 
 // This module deliberately does NOT reimplement package selection,
 // biometry skip/unskip, decision recording, ready-for-scheduling, or OT
@@ -312,6 +313,11 @@ export async function getSurgicalCaseDetail(caseId) {
 
   const externalTests = await getExternalTestsForCase(caseId);
 
+  // Payment step (M11's held advance balance, live) -- checked against
+  // the net package amount (price - discount) rather than the old
+  // never-actually-set advance_payment_id flag. See workspace.js.
+  const advanceBalance = sc.patient_id ? await getAdvanceBalance(sc.patient_id) : 0;
+
   return {
     case: { ...sc, biometry_done: biometryRecords.some((b) => b.status === 'Measured') },
     biometryRecords,
@@ -323,6 +329,7 @@ export async function getSurgicalCaseDetail(caseId) {
     checkinCompletedAt,
     recoveryEpisode,
     caseNotes: caseNotes || [],
+    advanceBalance: Number(advanceBalance) || 0,
   };
 }
 

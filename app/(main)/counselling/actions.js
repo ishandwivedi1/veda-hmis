@@ -307,8 +307,15 @@ export async function getPackagesForCase(iolCategory) {
 }
 
 // ── Package selection (BR-SCC-002: only after Biometry & IOL advice) ──
-export async function selectPackage(caseId, packageId) {
+// discount is an absolute Rs. amount off the package's list price,
+// recorded alongside the selection since it's decided at the same
+// moment ("sometimes we need to give discount also"). Net payable
+// (price - discount) is what the Payment step checks the collected
+// advance against.
+export async function selectPackage(caseId, packageId, discount = 0) {
   const supabase = await createClient();
+  const disc = Number(discount) || 0;
+  if (disc < 0) return { error: 'Discount cannot be negative.' };
 
   const { data: sc } = await supabase.from('surgical_cases').select('patient_id, biometry_required').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
@@ -321,8 +328,41 @@ export async function selectPackage(caseId, packageId) {
     if (!count) return { error: 'BR-SCC-002: Biometry must be complete before selecting a package.' };
   }
 
-  const { error } = await supabase.from('surgical_cases').update({ package_id: packageId, package_locked: true }).eq('id', caseId);
+  const { data: pkg } = await supabase.from('master_packages').select('price').eq('id', packageId).single();
+  if (pkg && disc > Number(pkg.price)) return { error: 'Discount cannot exceed the package price.' };
+
+  const { error } = await supabase.from('surgical_cases').update({ package_id: packageId, package_locked: true, package_discount: disc }).eq('id', caseId);
   if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Change an already-locked package's discount without changing the
+// package itself (e.g. management approves a bigger discount later).
+// Always requires a reason -- same audit-trail pattern as changePackage
+// and setDecision -- logged as a case note. ──
+export async function updatePackageDiscount(caseId, discount, reason) {
+  const supabase = await createClient();
+  const disc = Number(discount);
+  if (Number.isNaN(disc) || disc < 0) return { error: 'Enter a valid discount amount.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required to change the discount.' };
+
+  const { data: sc } = await supabase
+    .from('surgical_cases')
+    .select('package_id, package_discount, master_packages:package_id(name, price)')
+    .eq('id', caseId)
+    .single();
+  if (!sc?.package_id) return { error: 'No package selected for this case.' };
+  if (disc > Number(sc.master_packages.price)) return { error: 'Discount cannot exceed the package price.' };
+
+  const { error } = await supabase.from('surgical_cases').update({ package_discount: disc }).eq('id', caseId);
+  if (error) return { error: error.message };
+
+  const { data: userData } = await supabase.auth.getUser();
+  await supabase.from('surgical_case_notes').insert({
+    surgical_case_id: caseId,
+    note: `Package discount changed from Rs.${Number(sc.package_discount || 0).toLocaleString('en-IN')} to Rs.${disc.toLocaleString('en-IN')} (${sc.master_packages?.name || 'package'}) -- Reason: ${reason.trim()}`,
+    created_by: userData?.user?.id || null,
+  });
   return { success: true };
 }
 
@@ -336,7 +376,7 @@ export async function changePackage(caseId, reason) {
     return { error: 'A reason is required to change a locked package.' };
   }
 
-  const { error } = await supabase.from('surgical_cases').update({ package_id: null, package_locked: false }).eq('id', caseId);
+  const { error } = await supabase.from('surgical_cases').update({ package_id: null, package_locked: false, package_discount: 0 }).eq('id', caseId);
   if (error) return { error: error.message };
 
   if (sc?.package_locked && reason) {

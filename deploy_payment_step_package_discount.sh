@@ -1,3 +1,1131 @@
+#!/bin/bash
+set -e
+echo "Deploying: Payment step rename + Package discount + net-amount-based Payment completion"
+
+cat > "app/(main)/counselling/actions.js" << 'VEDA_EOF_1'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+
+// This file replaces the old "Surgical Coordination" module's actions file.
+// Booking an OT slot is the last step of the counselling workspace (see
+// bookOTSlot/getOTAvailability below). The calendar view itself, plus
+// rescheduling and OT History, now live in their own module at
+// app/(main)/ot-schedule (getScheduledOT/getOTHistory/rescheduleOTSlot/
+// completeOT), not here.
+// The following exports are used by OTHER modules and MUST keep the same
+// name + signature:
+//   markForSurgery, updateSurgicalCase
+//     -- imported by app/(main)/consultation/[id]/consultation-form.js
+// Everything else below is used only within the Counselling module.
+
+// ── Sending a patient to an ancillary service (Biometry, Dilation, ...)
+//    from Counselling. Once a doctor completes a consultation, ALL of
+//    that visit's queue_entries get marked 'Done' -- so by the time a
+//    case reaches Counselling (even same-day), there's nothing left to
+//    "update". send_case_to_department_queue() (see migration 027)
+//    issues a FRESH queue token against the patient's still-open visit
+//    (found via ist_date(), so it's IST-correct rather than doing UTC
+//    date math here) and flips it straight to the target status.
+async function sendCaseToQueueStatus(caseId, queueStatus, auditMessage) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase.rpc('send_case_to_department_queue', {
+    p_case_id: caseId,
+    p_queue_status: queueStatus,
+    p_audit_message: auditMessage,
+    p_user_id: userData?.user?.id || null,
+  });
+
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function sendForBiometry(caseId) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { data: sc } = await supabase.from('surgical_cases').select('id, patient_id, encounter_id').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  const { data: queueEntry, error } = await supabase.rpc('send_case_to_department_queue', {
+    p_case_id: caseId,
+    p_queue_status: 'Awaiting Biometry',
+    p_audit_message: 'Sent for Biometry (from Counselling)',
+    p_user_id: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+
+  // Biometry is patient-level and reused across every future surgical
+  // case (readings don't meaningfully change for years) -- ensure a
+  // record exists for this PATIENT, not this case. If one already
+  // exists (from an earlier case, or a plain OPD order), there's
+  // nothing more to do here -- it'll get mapped to this case at IOL
+  // Approval time.
+  const { data: existing } = await supabase
+    .from('biometry_records')
+    .select('id')
+    .eq('patient_id', sc.patient_id)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (!existing || existing.length === 0) {
+    await supabase.from('biometry_records').insert({
+      patient_id: sc.patient_id, visit_id: queueEntry?.visit_id || null, encounter_id: sc.encounter_id || null,
+    });
+  }
+
+  return { success: true };
+}
+
+// For surgeries where biometry genuinely doesn't apply (retina,
+// glaucoma, oculoplasty...) -- a reason is required so there's an
+// audit trail for why this case skipped a normally-required step.
+export async function skipBiometry(caseId, reason) {
+  const supabase = await createClient();
+  if (!reason || !reason.trim()) return { error: 'A reason is required to skip Biometry.' };
+  const { error } = await supabase
+    .from('surgical_cases')
+    .update({ biometry_required: false, biometry_skip_reason: reason.trim() })
+    .eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Undo a skip -- puts Biometry back as a required step for this case.
+export async function unskipBiometry(caseId) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('surgical_cases')
+    .update({ biometry_required: true, biometry_skip_reason: null })
+    .eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function sendForDilation(caseId) {
+  return sendCaseToQueueStatus(caseId, 'Awaiting Dilation', 'Sent for Dilation (from Counselling)');
+}
+
+// ── Case creation (called from Consultation when doctor recommends surgery) ──
+// Doctor can correct the procedure/eye on a case they marked for
+// surgery, as long as Counselling hasn't already started working with
+// it -- once package/decision work is underway, changes should go
+// through Counselling instead to avoid corrupting what's already locked.
+export async function updateSurgicalCase(caseId, procedureName, eye, preOpRequired, notes) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('status').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+  if (sc.status !== 'Pending Workup') {
+    return { error: `This case has already moved to "${sc.status}" -- further changes should go through Counselling.` };
+  }
+  const update = { procedure_name: procedureName, eye, notes: notes || null };
+  if (preOpRequired !== undefined) {
+    update.biometry_required = preOpRequired === 'Biometry' || preOpRequired === 'Both';
+    update.fitness_required = preOpRequired === 'Medical Fitness' || preOpRequired === 'Both';
+  }
+  const { error } = await supabase.from('surgical_cases').update(update).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function markForSurgery(patientId, encounterId, procedureName, eye, preOpRequired, notes, decision) {
+  const supabase = await createClient();
+
+  if (decision && !DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
+
+  // Pull surgeon + visit + priority through so the case doesn't start
+  // with everything null -- encounters already carries doctor_id.
+  const { data: encounter } = await supabase
+    .from('encounters')
+    .select('id, visit_id, doctor_id')
+    .eq('id', encounterId)
+    .single();
+
+  // BR: one visit, one surgical case -- checked against visit_id (not
+  // just this encounter), since a visit can span more than one
+  // encounter (e.g. consultation reopened) and the case should still
+  // only be created once.
+  if (encounter?.visit_id) {
+    const { data: existing } = await supabase
+      .from('surgical_cases')
+      .select('id, procedure_name, eye')
+      .eq('visit_id', encounter.visit_id)
+      .neq('status', 'Cancelled')
+      .limit(1);
+    if (existing && existing.length > 0) {
+      return { error: `This visit already has a surgical case marked (${existing[0].procedure_name} -- ${existing[0].eye}). Only one is allowed per visit.` };
+    }
+  }
+
+  let priority = 'Routine';
+  if (encounter?.visit_id) {
+    const { data: visit } = await supabase.from('visits').select('priority').eq('id', encounter.visit_id).single();
+    if (visit?.priority) priority = visit.priority;
+  }
+
+  // Doctor's call on what pre-op workup this case actually needs --
+  // carried forward to Counselling, which reads biometry_required /
+  // fitness_required the same way for both (see readiness() and
+  // markReadyForScheduling).
+  const biometryRequired = preOpRequired === 'Biometry' || preOpRequired === 'Both';
+  const fitnessRequired = preOpRequired === 'Medical Fitness' || preOpRequired === 'Both';
+
+  const { error } = await supabase.from('surgical_cases').insert({
+    patient_id: patientId,
+    encounter_id: encounterId,
+    visit_id: encounter?.visit_id || null,
+    surgeon_id: encounter?.doctor_id || null,
+    procedure_name: procedureName,
+    eye,
+    priority,
+    biometry_required: biometryRequired,
+    fitness_required: fitnessRequired,
+    notes: notes || null,
+    // Patient's initial reaction, captured right here in OPD -- the
+    // FIRST step of the surgical journey now, not something deferred to
+    // Counselling. 'Accepted' locks immediately (matches setDecision's
+    // own locking rule); anything else stays open for front desk to
+    // update once the patient calls back, no reason required for that
+    // first change.
+    decision: decision || null,
+    decision_locked: decision === 'Accepted',
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Cases list for the Counselling workspace (richer -- surgeon, decision, IOL type) ──
+export async function getCounsellingCases() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select(`
+      id, patient_id, encounter_id, procedure_name, eye, priority, status,
+      iol_category, decision, decision_reason,
+      biometry_done, biometry_required, biometry_skip_reason,
+      fitness_cleared, fitness_required, investigations_complete,
+      package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
+      patients:patient_id ( id, first_name, last_name, uhid, age, gender, mobile ),
+      profiles:surgeon_id ( id, full_name ),
+      master_packages:package_id ( id, name, price )
+    `)
+    .in('status', ['Pending Workup', 'Ready for Scheduling'])
+    .order('created_at', { ascending: false });
+  if (error) return [];
+
+  // surgical_cases.biometry_done is a stored flag that (pre-existing
+  // gap, found while redesigning Biometry) nothing in this codebase
+  // ever actually SET -- it was always false unless biometry was
+  // explicitly skipped, silently blocking package selection. Computed
+  // live here instead: biometry is patient-level now (reused across
+  // cases), so "done" means this PATIENT has a Measured record, not
+  // anything scoped to this case's encounter.
+  const patientIds = [...new Set((data || []).map((c) => c.patient_id).filter(Boolean))];
+  let measuredByPatient = {};
+  if (patientIds.length > 0) {
+    const { data: records } = await supabase
+      .from('biometry_records')
+      .select('id, patient_id, status')
+      .in('patient_id', patientIds)
+      .eq('status', 'Measured');
+    (records || []).forEach((r) => { measuredByPatient[r.patient_id] = r; });
+  }
+  let anyRecordByPatient = {};
+  if (patientIds.length > 0) {
+    const { data: records } = await supabase
+      .from('biometry_records')
+      .select('id, patient_id, status')
+      .in('patient_id', patientIds)
+      .neq('status', 'Cancelled');
+    (records || []).forEach((r) => { if (!anyRecordByPatient[r.patient_id]) anyRecordByPatient[r.patient_id] = r; });
+  }
+
+  // Same batching pattern for the medical fitness referral -- one per
+  // case at most (re-referring resets the same row rather than piling
+  // up history), so a simple map by surgical_case_id is enough.
+  const caseIds = (data || []).map((c) => c.id);
+  let fitnessByCase = {};
+  if (caseIds.length > 0) {
+    const { data: referrals } = await supabase
+      .from('medical_fitness_referrals')
+      .select('id, surgical_case_id, status, referred_at, fitness_notes')
+      .in('surgical_case_id', caseIds);
+    (referrals || []).forEach((r) => { fitnessByCase[r.surgical_case_id] = r; });
+  }
+
+  return (data || []).map((c) => ({
+    ...c,
+    biometry_done: !!measuredByPatient[c.patient_id],
+    biometry_record: anyRecordByPatient[c.patient_id] || null,
+    fitness_referral: fitnessByCase[c.id] || null,
+  }));
+}
+
+// ── History -- cases that have left the active Dashboard (Scheduled,
+//    Completed, Cancelled). Read-only lookup, same underlying data shape
+//    as getCounsellingCases minus the biometry/fitness batching, which
+//    only matters for cases still in active workup. ──
+export async function getCounsellingHistory() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select(`
+      id, patient_id, encounter_id, procedure_name, eye, priority, status,
+      iol_category, decision, decision_reason,
+      biometry_done, biometry_required, biometry_skip_reason,
+      fitness_cleared, fitness_required, investigations_complete,
+      package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
+      patients:patient_id ( id, first_name, last_name, uhid, age, gender ),
+      profiles:surgeon_id ( id, full_name ),
+      master_packages:package_id ( id, name, price )
+    `)
+    .not('status', 'in', '("Pending Workup","Ready for Scheduling")')
+    .order('created_at', { ascending: false })
+    .limit(300);
+  if (error) return [];
+  return data || [];
+}
+
+// ── Packages for a case ──
+// Previously filtered by the IOL category advised at Biometry -- but
+// surgical_cases.iol_category was never actually written anywhere in
+// this codebase (a pre-existing gap), so this filter was silently
+// hiding every IOL-specific package from the picker the whole time.
+// Under the new model, IOL category is chosen alongside the package
+// here in Counselling (informed by whatever biometry recommends), and
+// formally confirmed later as its own step in IOL Approval -- there
+// isn't a single upstream "the" category to filter by before that
+// choice is made. Shows everything active; iolCategory is accepted for
+// API compatibility but currently unused.
+export async function getPackagesForCase(iolCategory) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('master_packages')
+    .select('id, code, name, price, includes, iol_category, origin')
+    .eq('status', 'Active')
+    .order('name');
+  if (error) return [];
+  return data || [];
+}
+
+// ── Package selection (BR-SCC-002: only after Biometry & IOL advice) ──
+// discount is an absolute Rs. amount off the package's list price,
+// recorded alongside the selection since it's decided at the same
+// moment ("sometimes we need to give discount also"). Net payable
+// (price - discount) is what the Payment step checks the collected
+// advance against.
+export async function selectPackage(caseId, packageId, discount = 0) {
+  const supabase = await createClient();
+  const disc = Number(discount) || 0;
+  if (disc < 0) return { error: 'Discount cannot be negative.' };
+
+  const { data: sc } = await supabase.from('surgical_cases').select('patient_id, biometry_required').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+  if (sc.biometry_required !== false) {
+    const { count } = await supabase
+      .from('biometry_records')
+      .select('id', { count: 'exact', head: true })
+      .eq('patient_id', sc.patient_id)
+      .eq('status', 'Measured');
+    if (!count) return { error: 'BR-SCC-002: Biometry must be complete before selecting a package.' };
+  }
+
+  const { data: pkg } = await supabase.from('master_packages').select('price').eq('id', packageId).single();
+  if (pkg && disc > Number(pkg.price)) return { error: 'Discount cannot exceed the package price.' };
+
+  const { error } = await supabase.from('surgical_cases').update({ package_id: packageId, package_locked: true, package_discount: disc }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Change an already-locked package's discount without changing the
+// package itself (e.g. management approves a bigger discount later).
+// Always requires a reason -- same audit-trail pattern as changePackage
+// and setDecision -- logged as a case note. ──
+export async function updatePackageDiscount(caseId, discount, reason) {
+  const supabase = await createClient();
+  const disc = Number(discount);
+  if (Number.isNaN(disc) || disc < 0) return { error: 'Enter a valid discount amount.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required to change the discount.' };
+
+  const { data: sc } = await supabase
+    .from('surgical_cases')
+    .select('package_id, package_discount, master_packages:package_id(name, price)')
+    .eq('id', caseId)
+    .single();
+  if (!sc?.package_id) return { error: 'No package selected for this case.' };
+  if (disc > Number(sc.master_packages.price)) return { error: 'Discount cannot exceed the package price.' };
+
+  const { error } = await supabase.from('surgical_cases').update({ package_discount: disc }).eq('id', caseId);
+  if (error) return { error: error.message };
+
+  const { data: userData } = await supabase.auth.getUser();
+  await supabase.from('surgical_case_notes').insert({
+    surgical_case_id: caseId,
+    note: `Package discount changed from Rs.${Number(sc.package_discount || 0).toLocaleString('en-IN')} to Rs.${disc.toLocaleString('en-IN')} (${sc.master_packages?.name || 'package'}) -- Reason: ${reason.trim()}`,
+    created_by: userData?.user?.id || null,
+  });
+  return { success: true };
+}
+
+// Changing a package once it's locked needs a reason -- logged as a
+// counselling note so there's an audit trail for why it changed.
+export async function changePackage(caseId, reason) {
+  const supabase = await createClient();
+
+  const { data: sc } = await supabase.from('surgical_cases').select('package_locked, master_packages:package_id(name)').eq('id', caseId).single();
+  if (sc?.package_locked && (!reason || !reason.trim())) {
+    return { error: 'A reason is required to change a locked package.' };
+  }
+
+  const { error } = await supabase.from('surgical_cases').update({ package_id: null, package_locked: false, package_discount: 0 }).eq('id', caseId);
+  if (error) return { error: error.message };
+
+  if (sc?.package_locked && reason) {
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from('surgical_case_notes').insert({
+      surgical_case_id: caseId,
+      note: `Package unlocked and changed${sc.master_packages?.name ? ` (was: ${sc.master_packages.name})` : ''} -- Reason: ${reason.trim()}`,
+      created_by: userData?.user?.id || null,
+    });
+  }
+  return { success: true };
+}
+
+// ── Patient decision ──
+const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
+
+export async function setDecision(caseId, decision, reason) {
+  if (!DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
+  const supabase = await createClient();
+
+  const { data: sc } = await supabase.from('surgical_cases').select('decision, decision_locked').eq('id', caseId).single();
+
+  if (sc?.decision_locked && decision !== sc.decision) {
+    if (!reason || !reason.trim()) {
+      return { error: 'A reason is required to change a locked decision.' };
+    }
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from('surgical_case_notes').insert({
+      surgical_case_id: caseId,
+      note: `Decision unlocked and changed from "${sc.decision}" to "${decision}" -- Reason: ${reason.trim()}`,
+      created_by: userData?.user?.id || null,
+    });
+  }
+
+  const update = {
+    decision, decision_reason: reason || null,
+    decision_locked: decision === 'Accepted',
+  };
+  // Stamped once, the first time this transitions to Accepted -- not
+  // touched on any other save, including re-saving Accepted again, so
+  // it reflects the actual date the patient said yes, not the last
+  // time this row happened to be updated.
+  if (decision === 'Accepted' && sc?.decision !== 'Accepted') {
+    update.decision_accepted_at = new Date().toISOString();
+  }
+
+  const { error } = await supabase.from('surgical_cases').update(update).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Counselling notes log ──
+export async function getCaseNotes(caseId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_case_notes')
+    .select('id, note, created_at, profiles:created_by ( id, full_name )')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: false });
+  if (error) return [];
+  return data;
+}
+
+export async function addCaseNote(caseId, note) {
+  if (!note || !note.trim()) return { error: 'Note cannot be empty.' };
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('surgical_case_notes').insert({
+    surgical_case_id: caseId,
+    note: note.trim(),
+    created_by: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Patient education topics (populated by the doctor's plan, M17/M19) ──
+export async function getCounsellingItems(encounterId) {
+  if (!encounterId) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('plan_counselling_items')
+    .select('id, topic, status')
+    .eq('encounter_id', encounterId)
+    .order('created_at', { ascending: true });
+  if (error) return [];
+  return data;
+}
+
+export async function toggleCounsellingItem(itemId, done) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('plan_counselling_items').update({ status: done ? 'Done' : 'Pending' }).eq('id', itemId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Post-decision checklist (BR-SCC-004: only after package + Accepted) ──
+async function requirePostDecision(supabase, caseId) {
+  const { data: sc } = await supabase.from('surgical_cases').select('package_id, decision').eq('id', caseId).single();
+  if (!(sc?.package_id && sc.decision === 'Accepted')) {
+    return 'BR-SCC-004: Package must be confirmed and the patient decision must be Accepted first.';
+  }
+  return null;
+}
+
+// ── PRE-OP INVESTIGATIONS (usually blood work) ──
+// Same master list Consultation's investigation picker uses (dept =
+// Investigation in Financial Masters, Biometry excluded since that's
+// its own dedicated step above) -- so an order placed here is the same
+// kind of thing a doctor orders during a regular consultation, and
+// lands in the same Investigation module queue for the lab to process.
+export async function getInvestigationMasterOptions() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_services').select('code, name').eq('status', 'Active').eq('dept', 'Investigation');
+  return data || [];
+}
+
+// Distinct standard panels (e.g. "Cataract" -> Blood, Sugar, HIV...)
+// set up in Financial Masters against Investigation services, so
+// Counselling can order a whole panel in one action instead of one
+// investigation at a time.
+export async function getInvestigationPackages() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_services').select('investigation_package').eq('status', 'Active').eq('dept', 'Investigation').not('investigation_package', 'is', null);
+  return [...new Set((data || []).map((s) => s.investigation_package).filter(Boolean))].sort();
+}
+
+export async function orderInvestigationPackage(caseId, encounterId, packageName) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+  if (!packageName) return { error: 'Select a package.' };
+
+  const { data: services, error: svcError } = await supabase
+    .from('master_services')
+    .select('name')
+    .eq('status', 'Active')
+    .eq('dept', 'Investigation')
+    .eq('investigation_package', packageName);
+  if (svcError) return { error: svcError.message };
+  if (!services || services.length === 0) return { error: 'No investigations found for this package.' };
+
+  const { error } = await supabase.from('investigation_orders').insert(
+    services.map((s) => ({ encounter_id: encounterId, name: s.name, eye: 'N/A', priority: 'Routine' }))
+  );
+  if (error) return { error: error.message };
+  return { success: true, count: services.length };
+}
+
+export async function getCounsellingInvestigationOrders(encounterId) {
+  const supabase = await createClient();
+  if (!encounterId) return [];
+  const { data } = await supabase
+    .from('investigation_orders')
+    .select('*')
+    .eq('encounter_id', encounterId)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+export async function orderCounsellingInvestigation(caseId, encounterId, values) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+  if (!values.name?.trim()) return { error: 'Select or enter an investigation.' };
+
+  const { error } = await supabase.from('investigation_orders').insert({
+    encounter_id: encounterId,
+    name: values.name,
+    eye: values.eye || 'OU',
+    priority: values.priority || 'Routine',
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function removeCounsellingInvestigation(id) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('investigation_orders').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function markInvestigationsComplete(caseId) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+  const { error } = await supabase.from('surgical_cases').update({ investigations_complete: true }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function markFitnessCleared(caseId) {
+  const supabase = await createClient();
+  const gateError = await requirePostDecision(supabase, caseId);
+  if (gateError) return { error: gateError };
+  const { error } = await supabase.from('surgical_cases').update({ fitness_cleared: true }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Medical fitness enters the workflow automatically once an OT date is
+// booked (see ensureFitnessReferral / bookOTSlot above) -- no manual
+// "Refer to Doctor" step needed anywhere.
+
+// ── Ready for Scheduling ──
+// NOTE: this intentionally does NOT require consent_taken. Per BR-SCC-005,
+// consent is taken day-of-surgery (day-care model), not a pre-scheduling
+// gate here -- that belongs to the Intraoperative module (M25). This is a
+// behavior change from the previous version of this function, which did
+// require consent_taken.
+export async function markReadyForScheduling(caseId) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('*').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  if (sc.biometry_required !== false) {
+    const { count } = await supabase
+      .from('biometry_records')
+      .select('id', { count: 'exact', head: true })
+      .eq('patient_id', sc.patient_id)
+      .eq('status', 'Measured');
+    if (!count) return { error: 'VAL-SCC-002: Biometry must be complete.' };
+
+    // Can't book an OT slot without knowing which specific IOL is going
+    // in -- that's the surgeon's IOL Approval, a separate step/module
+    // from both Biometry (raw device recommendations) and this package
+    // selection (billing category only).
+    const { data: approval } = await supabase.from('iol_approvals').select('status').eq('surgical_case_id', caseId).maybeSingle();
+    if (approval?.status !== 'Approved') return { error: 'VAL-SCC-002: Surgeon IOL Approval must be complete.' };
+  }
+  if (!sc.package_id) return { error: 'VAL-SCC-002: Select a package first.' };
+  if (sc.decision !== 'Accepted') return { error: 'VAL-SCC-002: Patient decision must be Accepted.' };
+  // Medical Fitness clearance now happens *after* the OT date is
+  // booked (closer to the actual surgery date is more clinically
+  // useful than clearing weeks in advance), so it's intentionally not
+  // gated here anymore -- see FitnessSection in Surgical Journey.
+
+  const { error } = await supabase.from('surgical_cases').update({ status: 'Ready for Scheduling' }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function referBackToDoctor(caseId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ status: 'Pending Workup' }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Surgeons ──
+export async function getSurgeons() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('profiles').select('id, full_name').eq('designation', 'Doctor').eq('status', 'Active');
+  return data || [];
+}
+
+// ── OT Booking -- last step of the Counselling workspace. Availability is
+//    checked against master_ot_sessions.capacity (Financial Masters -- OT
+//    Sessions), not free-form date/time like the old standalone OT
+//    Scheduling module. Capacity check + insert happen atomically in the
+//    book_ot_slot() DB function (see migration ot_booking_functions) so two
+//    counsellors booking the same session at once can't both overbook it. ──
+export async function getOTAvailability(date) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('get_ot_availability', { p_date: date });
+  if (error) return [];
+  return data || [];
+}
+
+// Shared core used both by the (now-removed-from-UI) manual referral
+// path and by the auto-referral that fires once an OT date is booked.
+async function ensureFitnessReferral(supabase, caseId) {
+  const { data: sc } = await supabase.from('surgical_cases').select('visit_id, encounter_id, fitness_required').eq('id', caseId).single();
+  if (!sc || sc.fitness_required === false) return;
+
+  const { data: existing } = await supabase
+    .from('medical_fitness_referrals')
+    .select('id, status')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (existing && existing.length > 0 && (existing[0].status === 'Pending Review' || existing[0].status === 'Cleared')) return;
+
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (existing && existing.length > 0 && existing[0].status === 'Not Fit') {
+    await supabase.from('medical_fitness_referrals').update({
+      status: 'Pending Review', referred_by: userData?.user?.id || null, referred_at: new Date().toISOString(),
+      reviewing_doctor_id: null, fitness_notes: null, cleared_by: null, cleared_at: null,
+    }).eq('id', existing[0].id);
+    return;
+  }
+
+  await supabase.from('medical_fitness_referrals').insert({
+    surgical_case_id: caseId, visit_id: sc.visit_id, encounter_id: sc.encounter_id, referred_by: userData?.user?.id || null,
+    referred_at: new Date().toISOString(), status: 'Pending Review',
+  });
+}
+
+export async function bookOTSlot(caseId, date, sessionId, surgeonId, notes) {
+  const supabase = await createClient();
+  if (!date) return { error: 'Date is required.' };
+  if (!sessionId) return { error: 'Select an OT session.' };
+
+  const { data, error } = await supabase.rpc('book_ot_slot', {
+    p_case_id: caseId,
+    p_date: date,
+    p_session_id: sessionId,
+    p_surgeon_id: surgeonId || null,
+    p_notes: notes || null,
+  });
+  if (error) return { error: error.message };
+  if (data?.error) return { error: data.error };
+
+  // Medical Fitness now enters the workflow automatically once a
+  // surgery date exists, instead of needing a separate "Refer to
+  // Doctor" click -- closer to the actual surgery date is when
+  // clearance is clinically useful anyway.
+  await ensureFitnessReferral(supabase, caseId);
+
+  return { success: true };
+}
+
+
+
+VEDA_EOF_1
+
+cat > "app/(main)/surgical-journey/actions.js" << 'VEDA_EOF_2'
+'use server';
+
+import { createClient } from '@/lib/supabase-server';
+import { adviseBiometry } from '@/app/(main)/consultation/actions';
+import { markForSurgery } from '@/app/(main)/counselling/actions';
+import { getAdvanceBalance } from '@/app/(main)/payments/actions';
+
+// This module deliberately does NOT reimplement package selection,
+// biometry skip/unskip, decision recording, ready-for-scheduling, or OT
+// booking -- the page imports those directly from Counselling and OT
+// Schedule (same pattern Consultation already uses to call into
+// Counselling), since that logic is already built, tested, and
+// correct. What THIS file adds is a single page that walks through all
+// of it for one patient without switching modules, plus a few
+// genuinely new pieces (proceed status, IOL order notes, manual
+// reminder tracking) that didn't exist anywhere before.
+
+// ── EDIT PROCEDURE / EYE (any stage) ───────────────────────────────
+// counselling's updateSurgicalCase only allows this while status is
+// still 'Pending Workup' and refuses otherwise with no real
+// alternative -- there was no actual place "further changes should go
+// through Counselling" could happen. This lets a genuine correction
+// (wrong eye picked, procedure name needs fixing) happen at ANY stage,
+// same principle as changePackage/setDecision: once the case has
+// progressed, a reason is required and logged, rather than the edit
+// being refused outright.
+export async function editSurgicalCaseDetails(caseId, procedureName, eye, reason) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('status, procedure_name, eye').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  const progressed = sc.status !== 'Pending Workup';
+  if (progressed && (!reason || !reason.trim())) {
+    return { error: `A reason is required to change the procedure/eye once the case has moved to "${sc.status}".` };
+  }
+
+  const { error } = await supabase.from('surgical_cases').update({ procedure_name: procedureName, eye }).eq('id', caseId);
+  if (error) return { error: error.message };
+
+  if (progressed) {
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from('surgical_case_notes').insert({
+      surgical_case_id: caseId,
+      note: `Procedure/eye corrected -- was "${sc.procedure_name}" (${sc.eye}), now "${procedureName}" (${eye}). Reason: ${reason.trim()}`,
+      created_by: userData?.user?.id || null,
+    });
+  }
+
+  return { success: true };
+}
+
+// ── IN-HOUSE INVESTIGATIONS (Step 2) ───────────────────────────────
+// Flexible and optional -- add whatever this case actually needs, not
+// a fixed required panel. Fully generic -- Biometry is just one more
+// option in the same list, not a separate hardcoded section, per your
+// instruction. Routes through the same investigation_orders table and
+// Investigation module queue Doctor Consultation uses. "Further
+// investigations for a surgical case go through the surgery module" --
+// this is that entry point, not a trip back to Consultation.
+export async function getInvestigationOptionsForCase() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_services').select('code, name').eq('status', 'Active').eq('dept', 'Investigation');
+  return data || [];
+}
+
+export async function addInHouseInvestigationForCase(caseId, name, eye) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!name || !name.trim()) return { error: 'Select an investigation.' };
+
+  const { data: sc } = await supabase.from('surgical_cases').select('encounter_id, patient_id, visit_id').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+  if (!sc.encounter_id) return { error: 'This case has no linked consultation encounter to attach investigations to.' };
+
+  const resolvedEye = eye || 'OU';
+
+  // Don't let the same investigation get ordered twice for this case
+  // while an earlier order is still open (Ordered/In Progress).
+  const { data: dupe } = await supabase
+    .from('investigation_orders')
+    .select('id')
+    .eq('encounter_id', sc.encounter_id)
+    .eq('eye', resolvedEye)
+    .ilike('name', name.trim())
+    .in('status', ['Ordered', 'In Progress'])
+    .limit(1);
+  if (dupe && dupe.length > 0) {
+    return { error: `"${name.trim()}" (${resolvedEye}) is already ordered and still pending for this case.` };
+  }
+
+  // Biometry is patient-level and fulfilled through its own dedicated
+  // module -- same special-case Doctor Consultation's addInvestigation
+  // already does. A normal investigation_orders row is still created so
+  // it shows up in this same list with a status badge, but the actual
+  // biometry_records row (device readings, IOL recommendations) is what
+  // makes it real -- ensured here, same as everywhere else biometry
+  // gets ordered from.
+  if (name.trim().toLowerCase() === 'biometry') {
+    const result = await adviseBiometry(sc.patient_id, sc.visit_id, sc.encounter_id, null);
+    if (result.error) return result;
+  }
+
+  const { error } = await supabase.from('investigation_orders').insert({
+    encounter_id: sc.encounter_id, name: name.trim(), eye: resolvedEye, priority: 'Routine',
+  });
+  if (error) return { error: error.message };
+
+  await supabase.from('encounter_audit_log').insert({
+    encounter_id: sc.encounter_id,
+    message: `Investigation ordered from Surgical Journey: ${name.trim()} (${resolvedEye})`,
+    created_by: userData?.user?.id || null,
+  });
+
+  return { success: true };
+}
+
+export async function removeInHouseInvestigationForCase(investigationId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('investigation_orders').delete().eq('id', investigationId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── EXTERNAL INVESTIGATIONS ─────────────────────────────────────────
+// Named tests done elsewhere (blood work, HIV test -- not done
+// in-house). Each is added by name; the report, once it comes back, is
+// a normal clinical_attachments upload keyed to that specific test, not
+// a generic unlabeled bucket. Also printable as a referral slip to
+// hand the patient.
+export async function getExternalTestsForCase(caseId) {
+  const supabase = await createClient();
+  const { data: tests, error } = await supabase
+    .from('external_investigations')
+    .select('*')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: true });
+  if (error) return [];
+
+  const testIds = (tests || []).map((t) => t.id);
+  let attachmentCountByTest = {};
+  if (testIds.length > 0) {
+    const { data: attachments } = await supabase
+      .from('clinical_attachments')
+      .select('entity_id')
+      .eq('entity_type', 'external_investigation')
+      .in('entity_id', testIds);
+    (attachments || []).forEach((a) => { attachmentCountByTest[a.entity_id] = (attachmentCountByTest[a.entity_id] || 0) + 1; });
+  }
+
+  return (tests || []).map((t) => ({ ...t, attachmentCount: attachmentCountByTest[t.id] || 0 }));
+}
+
+export async function addExternalTest(caseId, name) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!name || !name.trim()) return { error: 'Enter a test name.' };
+  const { error } = await supabase.from('external_investigations').insert({
+    surgical_case_id: caseId, test_name: name.trim(), created_by: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function removeExternalTest(testId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('external_investigations').delete().eq('id', testId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── FURTHER INSTRUCTIONS (Treatment) ───────────────────────────────
+// Free text tied to the treatment itself (procedure + eye), distinct
+// from the pre-op panel notes in the Investigations step.
+export async function setTreatmentInstructions(caseId, instructions) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ treatment_instructions: instructions || null }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── DASHBOARD ────────────────────────────────────────────────────────
+
+// Every open surgical case (any staff member -- a small setup doesn't
+// have per-doctor case ownership walls). "Open" = not yet Completed or
+// Cancelled.
+export async function getMyActiveSurgicalCases() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
+    .not('status', 'in', '("Completed","Cancelled")')
+    .order('created_at', { ascending: false });
+  if (error) return [];
+  return data || [];
+}
+
+// Patients whose decision is "Wants Time to Decide" and haven't
+// resolved it yet (accepted or declined). Front desk's follow-up list.
+// Ordered oldest-first so the ones most overdue for a call surface at
+// the top.
+export async function getAwaitingReturnCases() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select('*, patients:patient_id(first_name, last_name, uhid, mobile)')
+    .eq('decision', 'Wants Time to Decide')
+    .not('status', 'in', '("Completed","Cancelled")')
+    .order('created_at', { ascending: true });
+  if (error) return [];
+  return data || [];
+}
+
+// ── CASE DETAIL ─────────────────────────────────────────────────────
+
+export async function getSurgicalCaseDetail(caseId) {
+  const supabase = await createClient();
+
+  const { data: sc, error } = await supabase
+    .from('surgical_cases')
+    .select(`
+      *,
+      patients:patient_id(id, first_name, last_name, uhid, mobile, age, gender),
+      master_packages:package_id(id, name, price, iol_category),
+      profiles:surgeon_id(full_name)
+    `)
+    .eq('id', caseId)
+    .single();
+  if (error || !sc) return { error: 'Case not found.' };
+
+  // Biometry is patient-level now, not case-scoped -- reused across
+  // every future surgical case for that patient (readings don't
+  // meaningfully change for years). No more per-eye/per-case matching
+  // needed; just look up whatever's on file for this patient.
+  const { data: biometryRecords } = await supabase
+    .from('biometry_records')
+    .select('id, status, verify_remarks, verified_at')
+    .eq('patient_id', sc.patient_id)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false });
+
+  // In-house investigations -- ordered against this case's own
+  // consultation encounter, same investigation_orders table Doctor
+  // Consultation uses and the same Investigation module queue picks
+  // them up from. Fully generic -- Biometry shows up here too now,
+  // same as anything else (whatever the doctor feels like), not a
+  // separate hardcoded section.
+  let inHouseInvestigations = [];
+  if (sc.encounter_id) {
+    const { data } = await supabase
+      .from('investigation_orders')
+      .select('*')
+      .eq('encounter_id', sc.encounter_id)
+      .order('created_at', { ascending: false });
+    inHouseInvestigations = data || [];
+  }
+
+  // Day-of-surgery live status -- OT Schedule / Intraop / Recovery
+  // already have solid, tested clinical workflows; this page doesn't
+  // rebuild them, it just shows where the case currently stands and
+  // deep-links into whichever one applies.
+  const { data: otSchedule } = await supabase
+    .from('ot_schedule')
+    .select('id, scheduled_date, status, master_ot_sessions(name)')
+    .eq('surgical_case_id', caseId)
+    .order('scheduled_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let recoveryEpisode = null;
+  let checkinCompletedAt = null;
+  if (otSchedule) {
+    const { data } = await supabase
+      .from('recovery_episodes')
+      .select('id, discharge_date')
+      .eq('ot_schedule_id', otSchedule.id)
+      .maybeSingle();
+    recoveryEpisode = data;
+
+    const { data: intraopRecord } = await supabase
+      .from('ot_intraop_records')
+      .select('checkin_completed_at')
+      .eq('ot_schedule_id', otSchedule.id)
+      .maybeSingle();
+    checkinCompletedAt = intraopRecord?.checkin_completed_at || null;
+  }
+
+  // Medical fitness stays a real doctor referral/review, same as
+  // Counselling -- this isn't a rubber-stamp checkbox, so it keeps its
+  // own dedicated review step rather than being folded into a form
+  // field here.
+  const { data: fitnessReferral } = await supabase
+    .from('medical_fitness_referrals')
+    .select('id, status, referred_at, fitness_notes')
+    .eq('surgical_case_id', caseId)
+    .order('referred_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data: caseNotes } = await supabase
+    .from('surgical_case_notes')
+    .select('*, profiles:created_by(full_name)')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: false });
+
+  // The surgeon's final IOL choice -- separate module/step from both
+  // Biometry (raw device recommendations) and this page's own package
+  // selection (billing category only).
+  const { data: iolApproval } = await supabase
+    .from('iol_approvals')
+    .select('*, master_iol_catalog(brand, model, manufacturer, category)')
+    .eq('surgical_case_id', caseId)
+    .maybeSingle();
+
+  const externalTests = await getExternalTestsForCase(caseId);
+
+  // Payment step (M11's held advance balance, live) -- checked against
+  // the net package amount (price - discount) rather than the old
+  // never-actually-set advance_payment_id flag. See workspace.js.
+  const advanceBalance = sc.patient_id ? await getAdvanceBalance(sc.patient_id) : 0;
+
+  return {
+    case: { ...sc, biometry_done: biometryRecords.some((b) => b.status === 'Measured') },
+    biometryRecords,
+    inHouseInvestigations,
+    externalTests,
+    fitnessReferral: fitnessReferral || null,
+    iolApproval: iolApproval || null,
+    otSchedule: otSchedule || null,
+    checkinCompletedAt,
+    recoveryEpisode,
+    caseNotes: caseNotes || [],
+    advanceBalance: Number(advanceBalance) || 0,
+  };
+}
+
+// ── ADVISE SURGERY (Step 1-2) ──────────────────────────────────────
+// Thin wrapper so the new page's "Advise Surgery" button doesn't need
+// to import from Consultation directly -- same underlying function,
+// same surgical_cases row Counselling already reads.
+export async function adviseSurgery(patientId, encounterId, procedureName, eye, preOpRequired, notes) {
+  return markForSurgery(patientId, encounterId, procedureName, eye, preOpRequired, notes);
+}
+
+// ── INVESTIGATIONS (Step 3) ────────────────────────────────────────
+// Biometry is real, in-house, tracked work, always covers both eyes,
+// and is reused across every future surgical case for the patient
+// (readings don't meaningfully change for years). Goes through the
+// same mechanism a doctor uses during a normal consultation, landing
+// in the actual Biometry Queue. The pre-op panel (blood work etc.) is
+// done entirely by a third party -- there's nothing to "order" in this
+// system, so it's just a free-text note here; the report itself comes
+// in later as an attachment (see AttachmentUploader on the page).
+export async function orderBiometryForCase(caseId, instructions) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('patient_id, visit_id, encounter_id').eq('id', caseId).single();
+  if (!sc) return { error: 'Case not found.' };
+
+  return adviseBiometry(sc.patient_id, sc.visit_id, sc.encounter_id, instructions);
+}
+
+export async function setPreOpPanelNotes(caseId, notes) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ notes: notes || null }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── PROCEED STATUS (Step 4) ────────────────────────────────────────
+export async function setProceedStatus(caseId, status) {
+  const supabase = await createClient();
+  if (!['Deciding', 'Awaiting Return', 'Proceeding'].includes(status)) return { error: 'Invalid status.' };
+  const { error } = await supabase.from('surgical_cases').update({ proceed_status: status }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── IOL PROCUREMENT + INFORMAL DATE (Step 6-7) ─────────────────────
+// Free text by design -- "Ordered Alcon monofocal +21D from XYZ
+// Optics, expected Friday". No structured supplier/PO tracking yet.
+export async function setIolOrderNotes(caseId, notes) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ iol_order_notes: notes || null }).eq('id', caseId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── AWAITING-RETURN REMINDERS (manual for now -- WhatsApp template not
+// yet approved, see conversation) -- just tracks that someone called,
+// for the front-desk follow-up list. Also drops a case note so there's
+// a record of what was said, reusing the same notes trail as everything
+// else on the case. ──
+export async function recordManualReminder(caseId, note) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { data: sc } = await supabase.from('surgical_cases').select('reminder_count').eq('id', caseId).single();
+  const { error } = await supabase.from('surgical_cases').update({
+    last_reminder_sent_at: new Date().toISOString(),
+    reminder_count: (sc?.reminder_count || 0) + 1,
+  }).eq('id', caseId);
+  if (error) return { error: error.message };
+
+  await supabase.from('surgical_case_notes').insert({
+    surgical_case_id: caseId,
+    note: `Follow-up call -- ${note || 'no details recorded'}`,
+    created_by: userData?.user?.id || null,
+  });
+
+  return { success: true };
+}
+VEDA_EOF_2
+
+mkdir -p "app/(main)/surgical-journey/[id]"
+cat > "app/(main)/surgical-journey/[id]/workspace.js" << 'VEDA_EOF_3'
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -1022,3 +2150,7 @@ function NotesSection({ caseId, notes, onAction }) {
     </Section>
   );
 }
+VEDA_EOF_3
+
+echo "Files written. Note: DB migration (package_discount column) was already applied directly to both Supabase projects (production + training) — no SQL to run here."
+echo "Deploy script done."
