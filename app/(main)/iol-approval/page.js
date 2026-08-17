@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getPendingIolApprovals, getApprovedToday, getIolApprovalDetail, approveIol } from './actions';
+import { getPendingIolApprovals, getApprovedToday, getIolApprovalHistory, getIolApprovalDetail, approveIol } from './actions';
 import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
 
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
@@ -230,8 +230,86 @@ export default function IolApprovalPage() {
         )}
       </div>
 
+      <IolApprovalHistorySection onEdit={setApproving} />
+
       {approving && (
         <ApproveModal item={approving} onClose={() => setApproving(null)} onDone={() => { setApproving(null); refresh(); }} />
+      )}
+    </div>
+  );
+}
+
+function IolApprovalHistorySection({ onEdit }) {
+  const [rows, setRows] = useState([]);
+  const [search, setSearch] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setRows(await getIolApprovalHistory(fromDate || undefined, toDate || undefined, search || undefined));
+    setLoading(false);
+  }, [fromDate, toDate, search]);
+
+  useEffect(() => { if (expanded) refresh(); }, [expanded, refresh]);
+
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div
+        className="card-title"
+        style={{ marginBottom: expanded ? 10 : 0, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span><i className="ti ti-history" style={{ color: 'var(--indigo)' }}></i> Approval History</span>
+        <i className={`ti ti-chevron-${expanded ? 'up' : 'down'}`}></i>
+      </div>
+
+      {expanded && (
+        <>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <input className="fi fi-sm" style={{ flex: 1, minWidth: 160 }} placeholder="Search patient name or UHID..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input type="date" className="fi fi-sm" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <input type="date" className="fi fi-sm" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            {(fromDate || toDate || search) && (
+              <button className="btn btn-sm" onClick={() => { setSearch(''); setFromDate(''); setToDate(''); }}>Clear</button>
+            )}
+          </div>
+
+          {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Loading...</div>}
+
+          {!loading && rows.map((a) => (
+            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--g300)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                {a.surgical_cases?.patients?.first_name?.charAt(0)}
+              </div>
+              <div style={{ flex: 1 }}>
+                <span style={{ fontWeight: 700, fontSize: 12.5 }}>{a.surgical_cases?.patients?.first_name} {a.surgical_cases?.patients?.last_name}</span>
+                <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>{EYE_LABEL[a.eye] || a.eye}</span>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+                  {a.surgical_cases?.patients?.uhid} -- {a.master_iol_catalog?.brand} {a.master_iol_catalog?.model} -- {a.power}D
+                  {a.approved_at && <> -- {new Date(a.approved_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</>}
+                </div>
+              </div>
+              <button
+                className="btn btn-sm"
+                onClick={() => onEdit({
+                  caseId: a.surgical_case_id,
+                  patient: a.surgical_cases?.patients,
+                  procedureName: a.surgical_cases?.procedure_name,
+                  eye: a.eye,
+                  packageName: a.surgical_cases?.master_packages?.name || null,
+                })}
+              >
+                <i className="ti ti-edit"></i> Edit
+              </button>
+            </div>
+          ))}
+          {!loading && rows.length === 0 && (
+            <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>No approvals found.</div>
+          )}
+        </>
       )}
     </div>
   );

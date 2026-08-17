@@ -71,6 +71,41 @@ export async function getApprovedToday() {
   return (data || []).filter((a) => a.surgical_cases);
 }
 
+// ── HISTORY: every approval ever made, newest first, with optional
+// date range + patient search. Approved Today only ever showed the
+// current day, so anything from yesterday or earlier had no way to be
+// found again in this module. ──
+export async function getIolApprovalHistory(fromDate, toDate, search) {
+  const supabase = await createClient();
+
+  let query = supabase
+    .from('iol_approvals')
+    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(name)), master_iol_catalog(brand, model)')
+    .eq('status', 'Approved')
+    .order('approved_at', { ascending: false })
+    .limit(300);
+
+  if (fromDate) query = query.gte('approved_at', new Date(`${fromDate}T00:00:00+05:30`).toISOString());
+  if (toDate) query = query.lte('approved_at', new Date(`${toDate}T23:59:59.999+05:30`).toISOString());
+
+  const { data, error } = await query;
+  if (error) return [];
+  let rows = (data || []).filter((a) => a.surgical_cases);
+
+  if (search && search.trim()) {
+    const q = search.trim().toLowerCase();
+    rows = rows.filter((a) => {
+      const p = a.surgical_cases?.patients;
+      return p && (
+        `${p.first_name} ${p.last_name}`.toLowerCase().includes(q) ||
+        (p.uhid || '').toLowerCase().includes(q)
+      );
+    });
+  }
+
+  return rows;
+}
+
 // ── DETAIL: a case's recommendation table + current approval ──────
 export async function getIolApprovalDetail(caseId) {
   const supabase = await createClient();
