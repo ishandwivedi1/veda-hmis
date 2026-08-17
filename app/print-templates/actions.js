@@ -348,8 +348,8 @@ const DEFAULT_TEMPLATES = {
   </table>
 
   <div style="text-align: center; border-top: 1.5px solid #333; border-bottom: 1.5px solid #333; padding: 8px 0; margin: 10px 0 14px;">
-    <div style="font-size: 15px; font-weight: 700;">Medical Fitness Form for Cataract Surgery</div>
-    <div style="font-size: 13px; font-weight: 600; margin-top: 2px;">मोतीयाबिंद सर्जरी हेतु चिकित्सकीय फिटनेस प्रमाणपत्र</div>
+    <div style="font-size: 15px; font-weight: 700;">Medical Fitness Form for Eye Surgery</div>
+    <div style="font-size: 13px; font-weight: 600; margin-top: 2px;">नेत्र सर्जरी हेतु चिकित्सकीय फिटनेस प्रमाणपत्र</div>
   </div>
 
   <table style="width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 14px;">
@@ -360,6 +360,9 @@ const DEFAULT_TEMPLATES = {
     <tr>
       <td style="padding: 8px 12px; font-size: 12px; border-right: 1px solid #999; border-top: 1px solid #999;">UHID/रजिस्ट्रेशन संख्या: <strong>{{patient_uhid}}</strong></td>
       <td style="padding: 8px 12px; font-size: 12px; border-top: 1px solid #999;">GENDER/ लिंग: <strong>{{patient_gender}}</strong></td>
+    </tr>
+    <tr>
+      <td colspan="2" style="padding: 8px 12px; font-size: 12px; border-top: 1px solid #999;">TYPE OF SURGERY/ शल्य चिकित्सा का प्रकार: <strong>{{surgery_type}}</strong></td>
     </tr>
   </table>
 
@@ -403,6 +406,7 @@ const DEFAULT_TEMPLATES = {
     <div style="font-weight: 700; font-size: 12.5px; margin-bottom: 4px;">4. DRUG ALLERGIES/ दवाओं से एलर्जी</div>
     <div style="padding: 2px 0;">{{box_allergy_none}} No Known Allergy</div>
     <div style="padding: 2px 0;">{{box_allergy_yes}} Yes / हां &rarr; {{allergy_details}}</div>
+    {{#if allergy_notes}}<div style="padding: 2px 0; font-size: 11.5px; color: #444;">Notes: {{allergy_notes}}</div>{{/if}}
   </div>
 
   <div style="margin-bottom: 10px;">
@@ -417,6 +421,7 @@ const DEFAULT_TEMPLATES = {
         <td style="padding: 2px 0;">Blood Sugar (if diabetic): <strong>{{vital_blood_sugar}}</strong> mg/dl</td>
       </tr>
     </table>
+    {{#if vital_notes}}<div style="padding: 2px 0; font-size: 11.5px; color: #444;">Notes: {{vital_notes}}</div>{{/if}}
   </div>
 
   <div style="margin-bottom: 12px;">
@@ -1929,7 +1934,7 @@ export async function renderMedicalFitnessFormHtml(referralId) {
 
   const { data: referral, error } = await supabase
     .from('medical_fitness_referrals')
-    .select('*, visits(patients(first_name, last_name, uhid, age, gender))')
+    .select('*, visits(patients(first_name, last_name, uhid, age, gender)), surgical_cases(procedure_name)')
     .eq('id', referralId)
     .single();
   if (error || !referral) return { error: 'Referral not found.' };
@@ -1953,6 +1958,7 @@ export async function renderMedicalFitnessFormHtml(referralId) {
 
     patient_name: `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim() || '--',
     patient_age: patient?.age ?? '--', patient_gender: patient?.gender || '--', patient_uhid: patient?.uhid || '--',
+    surgery_type: referral.surgical_cases?.procedure_name || '--',
 
     box_diabetes: chk(sys.diabetes), box_hypertension: chk(sys.hypertension),
     box_heart: chk(sys.heartDisease), box_thyroid: chk(sys.thyroid),
@@ -1966,9 +1972,11 @@ export async function renderMedicalFitnessFormHtml(referralId) {
     box_med_other: chk(!!med.other), med_other_text: med.other || '',
 
     box_allergy_none: chk(allergy.none), box_allergy_yes: chk(allergy.yes), allergy_details: allergy.details || '',
+    allergy_notes: allergy.notes || '',
 
     vital_bp: vitals.bp || '--', vital_pulse: vitals.pulse || '--',
     vital_spo2: vitals.spo2 || '--', vital_blood_sugar: vitals.bloodSugar || '--',
+    vital_notes: vitals.notes || '',
 
     inv_hb: inv.hb || '--', inv_rbs: inv.rbs || '--', inv_fbs: inv.fbs || '--', inv_ppbs: inv.ppbs || '--',
     box_hiv_nonreactive: chk(inv.hiv === 'Non-Reactive'), box_hiv_reactive: chk(inv.hiv === 'Reactive'),

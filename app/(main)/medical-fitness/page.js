@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getMedicalFitnessQueue, getMedicalFitnessHistory, getMedicalFitnessDetail,
+  getMedicalFitnessQueue, getMedicalFitnessHistory, getMedicalFitnessClearedToday, getMedicalFitnessDetail,
   getInvestigationMasterOptions, orderFitnessInvestigation, removeFitnessInvestigation,
   clearFitness, markNotFit, saveFitnessFormDraft, submitFitnessForm, getCurrentDoctorProfile,
 } from './actions';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
 import { openPopup } from '@/lib/popup';
 import { openPrintPopup } from '@/lib/printPopup';
+import AttachmentUploader from '@/app/components/AttachmentUploader';
 
 const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 const HISTORY_STATUS_BADGE = { Cleared: 'b-green', 'Not Fit': 'b-red' };
@@ -104,6 +105,36 @@ function QueueTab({ rows, loading, onOpen }) {
   );
 }
 
+// ── CLEARED TODAY -- same-day decisions, shown separately from the
+// full History so a doctor can see what's been decided today at a
+// glance, matching the pattern IOL Approval uses. ──
+function ClearedTodayCard({ rows, loading, onOpen }) {
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Cleared Today</div>
+      {loading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 16, textAlign: 'center' }}>Loading...</div>}
+      {!loading && rows.map((r) => (
+        <div key={r.id} onClick={() => onOpen(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
+          <div style={{ width: 34, height: 34, borderRadius: '50%', background: r.status === 'Cleared' ? 'var(--green)' : 'var(--red)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+            {r.visits?.patients?.first_name?.charAt(0) || '?'}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>{r.visits?.patients?.first_name} {r.visits?.patients?.last_name}</span>
+            <span className={`badge ${HISTORY_STATUS_BADGE[r.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{r.status}</span>
+            <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+              {r.visits?.patients?.uhid} -- {r.surgical_cases?.procedure_name} ({r.surgical_cases?.eye}) -- by {r.clearedByName}
+            </div>
+          </div>
+          <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+        </div>
+      ))}
+      {!loading && rows.length === 0 && (
+        <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nothing decided yet today.</div>
+      )}
+    </div>
+  );
+}
+
 // ── TAB 3: HISTORY (completed referrals) ──
 function HistoryTab({ rows, loading, onOpen }) {
   const [statusFilter, setStatusFilter] = useState('');
@@ -171,8 +202,8 @@ function emptyFitnessForm() {
     systemicHistory: { diabetes: false, hypertension: false, heartDisease: false, thyroid: false, asthma: false, kidneyDisease: false, other: '' },
     previousSurgeryHistory: '',
     currentMedications: { antiDiabetic: false, bpMedicines: false, bloodThinners: false, other: '' },
-    allergies: { none: false, yes: false, details: '' },
-    vitals: { bp: '', pulse: '', spo2: '', bloodSugar: '' },
+    allergies: { none: false, yes: false, details: '', notes: '' },
+    vitals: { bp: '', pulse: '', spo2: '', bloodSugar: '', notes: '' },
     investigations: { hb: '', rbs: '', fbs: '', ppbs: '', hiv: '', hbsag: '', other: '' },
     certification: { doctorName: '', qualification: '', registrationNo: '', notes: '' },
   };
@@ -203,6 +234,7 @@ export function WorkspaceTab({ referralId, onDone }) {
   const [invEye, setInvEye] = useState('N/A');
   const [invPriority, setInvPriority] = useState('Routine');
   const [ordering, setOrdering] = useState(false);
+  const [expandedExternalId, setExpandedExternalId] = useState(null);
 
   const [form, setForm] = useState(emptyFitnessForm());
   const [saving, setSaving] = useState(false);
@@ -277,7 +309,7 @@ export function WorkspaceTab({ referralId, onDone }) {
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;
 
-  const { referral, currentDiagnoses, investigations, diagnosisHistory, referredByName, clearedByName } = data;
+  const { referral, currentDiagnoses, investigations, externalTests, diagnosisHistory, referredByName, clearedByName } = data;
   const patient = referral.visits.patients;
   const sc = referral.surgical_cases;
   const isPending = referral.status === 'Pending Review';
@@ -317,7 +349,7 @@ export function WorkspaceTab({ referralId, onDone }) {
         <div>
           <div style={{ display: 'flex', gap: 2, marginBottom: 12, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
             <TabButton active={subTab === 'summary'} onClick={() => setSubTab('summary')} icon="ti-report-medical" label="Clinical Summary" />
-            <TabButton active={subTab === 'investigations'} onClick={() => setSubTab('investigations')} icon="ti-flask" label={`Investigations${investigations.length > 0 ? ` (${investigations.length})` : ''}`} />
+            <TabButton active={subTab === 'investigations'} onClick={() => setSubTab('investigations')} icon="ti-flask" label={`Investigations${(investigations.length + externalTests.length) > 0 ? ` (${investigations.length + externalTests.length})` : ''}`} />
             <TabButton active={subTab === 'form'} onClick={() => setSubTab('form')} icon="ti-file-certificate" label="Fitness Form" />
           </div>
 
@@ -402,6 +434,31 @@ export function WorkspaceTab({ referralId, onDone }) {
                   </button>
                 </div>
               )}
+
+              <div style={{ borderTop: '1px solid var(--g100)', marginTop: 16, paddingTop: 12 }}>
+                <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 2 }}>External Investigations</div>
+                <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 8 }}>Blood work, HIV test, etc -- ordered from Surgical Journey, not done in-house. Reports shown here as they come back.</div>
+                {externalTests.length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>None ordered.</div>
+                ) : (
+                  externalTests.map((t) => (
+                    <div key={t.id} style={{ background: 'var(--g50)', borderRadius: 6, marginBottom: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', fontSize: 12, cursor: 'pointer' }} onClick={() => setExpandedExternalId(expandedExternalId === t.id ? null : t.id)}>
+                        <span>{t.test_name}</span>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <span className="badge b-gray" style={{ fontSize: 10 }}>{t.attachmentCount > 0 ? `${t.attachmentCount} file${t.attachmentCount > 1 ? 's' : ''}` : 'No report yet'}</span>
+                          <i className={`ti ${expandedExternalId === t.id ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ color: 'var(--g400)' }}></i>
+                        </div>
+                      </div>
+                      {expandedExternalId === t.id && (
+                        <div style={{ padding: '0 8px 10px' }}>
+                          <AttachmentUploader entityType="external_investigation" entityId={t.id} title="" />
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
 
@@ -417,7 +474,7 @@ export function WorkspaceTab({ referralId, onDone }) {
               {okMsg && <div className="msg-ok" style={{ marginBottom: 10 }}><i className="ti ti-circle-check"></i> {okMsg}</div>}
 
               <fieldset disabled={!isPending} style={{ border: 'none', padding: 0, margin: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>1. Systemic History / \u0938\u093e\u092e\u093e\u0928\u094d\u092f \u091a\u093f\u0915\u093f\u0924\u094d\u0938\u093e \u0907\u0924\u093f\u0939\u093e\u0938</div>
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>1. Systemic History</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 6, fontSize: 12.5 }}>
                   {[
                     ['diabetes', 'Diabetes'], ['hypertension', 'Hypertension'],
@@ -464,16 +521,18 @@ export function WorkspaceTab({ referralId, onDone }) {
                   </label>
                 </div>
                 {form.allergies.yes && (
-                  <input className="fi fi-sm" placeholder="Allergy details..." value={form.allergies.details} onChange={(e) => setForm((f) => ({ ...f, allergies: { ...f.allergies, details: e.target.value } }))} style={{ marginBottom: 14 }} />
+                  <input className="fi fi-sm" placeholder="Allergy details..." value={form.allergies.details} onChange={(e) => setForm((f) => ({ ...f, allergies: { ...f.allergies, details: e.target.value } }))} style={{ marginBottom: 6 }} />
                 )}
+                <input className="fi fi-sm" placeholder="Notes (optional)..." value={form.allergies.notes} onChange={(e) => setForm((f) => ({ ...f, allergies: { ...f.allergies, notes: e.target.value } }))} style={{ marginBottom: 14 }} />
 
                 <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>5. Vital Signs</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginBottom: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginBottom: 6 }}>
                   <div><label className="flbl">BP (mmHg)</label><input className="fi fi-sm" value={form.vitals.bp} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, bp: e.target.value } }))} /></div>
                   <div><label className="flbl">Pulse (/min)</label><input className="fi fi-sm" value={form.vitals.pulse} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, pulse: e.target.value } }))} /></div>
                   <div><label className="flbl">SpO2 (%)</label><input className="fi fi-sm" value={form.vitals.spo2} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, spo2: e.target.value } }))} /></div>
                   <div><label className="flbl">Blood Sugar</label><input className="fi fi-sm" value={form.vitals.bloodSugar} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, bloodSugar: e.target.value } }))} /></div>
                 </div>
+                <input className="fi fi-sm" placeholder="Notes (optional)..." value={form.vitals.notes} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, notes: e.target.value } }))} style={{ marginBottom: 14 }} />
 
                 <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>6. Investigations</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
@@ -553,8 +612,10 @@ export function WorkspaceTab({ referralId, onDone }) {
 // ── PAGE: single SPA with client-side tab switching, matching Counselling ──
 export default function MedicalFitnessPage() {
   const [queueRows, setQueueRows] = useState([]);
+  const [clearedTodayRows, setClearedTodayRows] = useState([]);
   const [historyRows, setHistoryRows] = useState([]);
   const [loadingQueue, setLoadingQueue] = useState(true);
+  const [loadingClearedToday, setLoadingClearedToday] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [activeTab, setActiveTab] = useState('queue');
   const [selectedReferralId, setSelectedReferralId] = useState(null);
@@ -563,12 +624,16 @@ export default function MedicalFitnessPage() {
     setQueueRows(await getMedicalFitnessQueue());
     setLoadingQueue(false);
   }, []);
+  const refreshClearedToday = useCallback(async () => {
+    setClearedTodayRows(await getMedicalFitnessClearedToday());
+    setLoadingClearedToday(false);
+  }, []);
   const refreshHistory = useCallback(async () => {
     setHistoryRows(await getMedicalFitnessHistory());
     setLoadingHistory(false);
   }, []);
 
-  useEffect(() => { refreshQueue(); refreshHistory(); }, [refreshQueue, refreshHistory]);
+  useEffect(() => { refreshQueue(); refreshClearedToday(); refreshHistory(); }, [refreshQueue, refreshClearedToday, refreshHistory]);
 
   function openReferral(id) {
     setSelectedReferralId(id);
@@ -576,9 +641,10 @@ export default function MedicalFitnessPage() {
   }
 
   function handleWorkspaceDone() {
-    // A decision was just made -- refresh both lists (patient moves out
-    // of Queue and into History) and go back to the Queue.
+    // A decision was just made -- refresh all three lists (patient
+    // moves out of Queue and into Cleared Today) and go back to the Queue.
     refreshQueue();
+    refreshClearedToday();
     refreshHistory();
     setSelectedReferralId(null);
     setActiveTab('queue');
@@ -592,7 +658,12 @@ export default function MedicalFitnessPage() {
         <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
       </div>
 
-      {activeTab === 'queue' && <QueueTab rows={queueRows} loading={loadingQueue} onOpen={openReferral} />}
+      {activeTab === 'queue' && (
+        <>
+          <QueueTab rows={queueRows} loading={loadingQueue} onOpen={openReferral} />
+          <ClearedTodayCard rows={clearedTodayRows} loading={loadingClearedToday} onOpen={openReferral} />
+        </>
+      )}
       {activeTab === 'history' && <HistoryTab rows={historyRows} loading={loadingHistory} onOpen={openReferral} />}
       {activeTab === 'workspace' && selectedReferralId && <WorkspaceTab referralId={selectedReferralId} onDone={handleWorkspaceDone} />}
       {activeTab === 'workspace' && !selectedReferralId && (

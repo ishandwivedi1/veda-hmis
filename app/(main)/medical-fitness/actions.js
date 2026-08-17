@@ -8,10 +8,49 @@ import { createClient } from '@/lib/supabase-server';
 // ── HISTORY: completed referrals (Cleared / Not Fit) ──
 export async function getMedicalFitnessHistory() {
   const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const todayStartUTC = new Date(`${todayIst}T00:00:00+05:30`).toISOString();
+
   const { data, error } = await supabase
     .from('medical_fitness_referrals')
     .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
     .in('status', ['Cleared', 'Not Fit'])
+    // Cases cleared today live in the "Cleared Today" section instead
+    // (see getMedicalFitnessClearedToday) -- History is everything
+    // before today, so a same-day clearance isn't buried in a long
+    // list right after being decided.
+    .lt('cleared_at', todayStartUTC)
+    .order('cleared_at', { ascending: false });
+
+  if (error) return [];
+
+  const doctorIds = [...new Set((data || []).map((r) => r.cleared_by).filter(Boolean))];
+  let doctorMap = {};
+  if (doctorIds.length > 0) {
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', doctorIds);
+    (profiles || []).forEach((p) => { doctorMap[p.id] = p.full_name; });
+  }
+
+  return (data || [])
+    .filter((r) => r.visits)
+    .map((r) => ({ ...r, clearedByName: doctorMap[r.cleared_by] || '--' }));
+}
+
+// ── CLEARED TODAY -- same-day decisions (Cleared or Not Fit), kept
+// separate from full History (see above) so today's outcomes are
+// visible at a glance without scrolling a long list. ──
+export async function getMedicalFitnessClearedToday() {
+  const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const startUTC = new Date(`${todayIst}T00:00:00+05:30`).toISOString();
+  const endUTC = new Date(`${todayIst}T23:59:59.999+05:30`).toISOString();
+
+  const { data, error } = await supabase
+    .from('medical_fitness_referrals')
+    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
+    .in('status', ['Cleared', 'Not Fit'])
+    .gte('cleared_at', startUTC)
+    .lte('cleared_at', endUTC)
     .order('cleared_at', { ascending: false });
 
   if (error) return [];
@@ -65,12 +104,20 @@ export async function getMedicalFitnessDetail(referralId) {
 
   const patientId = referral.visits.patients.id;
 
-  const [{ data: currentDiagnoses }, { data: investigations }, { data: diagnosisHistoryRaw }, { data: referredByProfile }, { data: clearedByProfile }] = await Promise.all([
+  const [{ data: currentDiagnoses }, { data: investigations }, { data: externalTestsRaw }, { data: diagnosisHistoryRaw }, { data: referredByProfile }, { data: clearedByProfile }] = await Promise.all([
     referral.encounter_id
       ? supabase.from('diagnoses').select('*').eq('encounter_id', referral.encounter_id).order('created_at')
       : Promise.resolve({ data: [] }),
     referral.encounter_id
       ? supabase.from('investigation_orders').select('*').eq('encounter_id', referral.encounter_id).order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
+    // External investigations (blood work, HIV test, etc) live on the
+    // surgical case, not the encounter -- same table Surgical Journey
+    // uses. Without this, anything ordered there was invisible here,
+    // even though it's exactly the kind of pre-op workup a doctor
+    // reviews before signing off on fitness.
+    referral.surgical_case_id
+      ? supabase.from('external_investigations').select('*').eq('surgical_case_id', referral.surgical_case_id).order('created_at', { ascending: true })
       : Promise.resolve({ data: [] }),
     // Longitudinal (cross-visit) diagnosis history, same pattern as Consultation.
     supabase
@@ -85,6 +132,18 @@ export async function getMedicalFitnessDetail(referralId) {
       : Promise.resolve({ data: null }),
   ]);
 
+  const externalTestIds = (externalTestsRaw || []).map((t) => t.id);
+  let externalAttachmentCounts = {};
+  if (externalTestIds.length > 0) {
+    const { data: attachments } = await supabase
+      .from('clinical_attachments')
+      .select('entity_id')
+      .eq('entity_type', 'external_investigation')
+      .in('entity_id', externalTestIds);
+    (attachments || []).forEach((a) => { externalAttachmentCounts[a.entity_id] = (externalAttachmentCounts[a.entity_id] || 0) + 1; });
+  }
+  const externalTests = (externalTestsRaw || []).map((t) => ({ ...t, attachmentCount: externalAttachmentCounts[t.id] || 0 }));
+
   const diagnosisHistory = (diagnosisHistoryRaw || [])
     .flatMap((v) => v.encounters || [])
     .filter((e) => e.id !== referral.encounter_id)
@@ -95,6 +154,7 @@ export async function getMedicalFitnessDetail(referralId) {
     referral,
     currentDiagnoses: currentDiagnoses || [],
     investigations: investigations || [],
+    externalTests,
     diagnosisHistory,
     referredByName: referredByProfile?.full_name || '--',
     clearedByName: clearedByProfile?.full_name || null,
