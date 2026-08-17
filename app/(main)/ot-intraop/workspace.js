@@ -23,7 +23,7 @@ function fmtTime(secs) {
   return `${m}:${s}`;
 }
 
-export default function Workspace({ otScheduleId, onBack }) {
+export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
@@ -86,7 +86,8 @@ export default function Workspace({ otScheduleId, onBack }) {
     setData(result);
     if (!initializedTabRef.current) {
       initializedTabRef.current = true;
-      if (result.intraop?.checkin_completed_at || result.booking.status === 'Completed') setSubTab('intraop');
+      if (restrictTab) setSubTab(restrictTab);
+      else if (result.intraop?.checkin_completed_at || result.booking.status === 'Completed') setSubTab('intraop');
     }
     const io = result.intraop;
     if (io) {
@@ -205,7 +206,11 @@ export default function Workspace({ otScheduleId, onBack }) {
     addLog('OT Check-In completed');
     setOk('Check-in complete -- patient confirmed in OT.');
     await refresh();
-    setSubTab('intraop');
+    // The Patient Check-In module doesn't have an Intraoperative tab to
+    // switch to -- send staff back to the queue instead, where the case
+    // now shows as checked-in and ready for the OT team.
+    if (restrictTab === 'checkin') onBack();
+    else setSubTab('intraop');
   }
 
   async function handleRecordAnaesthesia() {
@@ -425,24 +430,38 @@ export default function Workspace({ otScheduleId, onBack }) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 2, marginBottom: 12, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
-            <button
-              type="button"
-              onClick={() => setSubTab('checkin')}
-              style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: subTab === 'checkin' ? '#fff' : 'transparent', color: subTab === 'checkin' ? 'var(--red)' : 'var(--g500)', cursor: 'pointer', boxShadow: subTab === 'checkin' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
-            >
-              <i className="ti ti-clipboard-check"></i> Patient Check-In
-            </button>
-            <button
-              type="button"
-              onClick={() => (intraop?.checkin_completed_at || isCompleted) && setSubTab('intraop')}
-              disabled={!intraop?.checkin_completed_at && !isCompleted}
-              title={!intraop?.checkin_completed_at && !isCompleted ? 'Complete Patient Check-In first' : ''}
-              style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: subTab === 'intraop' ? '#fff' : 'transparent', color: !intraop?.checkin_completed_at && !isCompleted ? 'var(--g300)' : subTab === 'intraop' ? 'var(--red)' : 'var(--g500)', cursor: !intraop?.checkin_completed_at && !isCompleted ? 'not-allowed' : 'pointer', boxShadow: subTab === 'intraop' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
-            >
-              <i className="ti ti-building-hospital"></i> Intraoperative Management {!intraop?.checkin_completed_at && !isCompleted && <i className="ti ti-lock" style={{ fontSize: 10 }}></i>}
-            </button>
-          </div>
+          {!restrictTab && (
+            <div style={{ display: 'flex', gap: 2, marginBottom: 12, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
+              <button
+                type="button"
+                onClick={() => setSubTab('checkin')}
+                style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: subTab === 'checkin' ? '#fff' : 'transparent', color: subTab === 'checkin' ? 'var(--red)' : 'var(--g500)', cursor: 'pointer', boxShadow: subTab === 'checkin' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+              >
+                <i className="ti ti-clipboard-check"></i> Patient Check-In
+              </button>
+              <button
+                type="button"
+                onClick={() => (intraop?.checkin_completed_at || isCompleted) && setSubTab('intraop')}
+                disabled={!intraop?.checkin_completed_at && !isCompleted}
+                title={!intraop?.checkin_completed_at && !isCompleted ? 'Complete Patient Check-In first' : ''}
+                style={{ flex: 1, padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: subTab === 'intraop' ? '#fff' : 'transparent', color: !intraop?.checkin_completed_at && !isCompleted ? 'var(--g300)' : subTab === 'intraop' ? 'var(--red)' : 'var(--g500)', cursor: !intraop?.checkin_completed_at && !isCompleted ? 'not-allowed' : 'pointer', boxShadow: subTab === 'intraop' ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+              >
+                <i className="ti ti-building-hospital"></i> Intraoperative Management {!intraop?.checkin_completed_at && !isCompleted && <i className="ti ti-lock" style={{ fontSize: 10 }}></i>}
+              </button>
+            </div>
+          )}
+
+          {restrictTab === 'intraop' && !intraop?.checkin_completed_at && !isCompleted ? (
+            <div className="card" style={{ textAlign: 'center', padding: 30 }}>
+              <i className="ti ti-lock" style={{ fontSize: 22, display: 'block', marginBottom: 8, color: 'var(--g400)' }}></i>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Patient Check-In not complete</div>
+              <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>This case needs to be checked in before Intraoperative Management can be recorded.</div>
+              <a href="/patient-checkin" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+                <i className="ti ti-clipboard-check"></i> Go to Patient Check-In
+              </a>
+            </div>
+          ) : (
+          <>
 
           {subTab === 'checkin' && (
           <>
@@ -805,6 +824,8 @@ export default function Workspace({ otScheduleId, onBack }) {
                 <i className="ti ti-device-floppy"></i> Save Changes
               </button>
             </div>
+          )}
+          </>
           )}
           </>
           )}

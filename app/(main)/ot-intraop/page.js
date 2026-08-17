@@ -7,7 +7,7 @@ import Workspace from './workspace';
 
 const STATUS_BADGE = { Scheduled: 'b-amber', 'In Progress': 'b-blue' };
 
-function TabButton({ active, onClick, icon, label, disabled }) {
+export function TabButton({ active, onClick, icon, label, disabled }) {
   return (
     <button
       type="button"
@@ -20,7 +20,7 @@ function TabButton({ active, onClick, icon, label, disabled }) {
   );
 }
 
-function DashboardTab({ cases, loading, onOpen, onRefresh }) {
+export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot-intraop' }) {
   const [busyId, setBusyId] = useState(null);
 
   async function handleToggleReported(e, otId, currentlyReported) {
@@ -100,7 +100,7 @@ function DashboardTab({ cases, loading, onOpen, onRefresh }) {
                 <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Open</button>
               ) : (
                 <Link
-                  href={`/payments/advance?patientId=${sc.patient_id}&amount=${c.amountPayable.toFixed(2)}&returnTo=ot-intraop`}
+                  href={`/payments/advance?patientId=${sc.patient_id}&amount=${c.amountPayable.toFixed(2)}&returnTo=${returnTo}`}
                   onClick={(e) => e.stopPropagation()}
                   className="btn btn-sm"
                   style={{ background: 'var(--amber)', color: '#fff', border: 'none', textDecoration: 'none' }}
@@ -230,7 +230,7 @@ export default function OTIntraopPage() {
 
       {activeTab === 'dashboard' && <DashboardTab cases={cases} loading={loadingCases} onOpen={openCase} onRefresh={refreshCases} />}
       {activeTab === 'history' && <HistoryTab rows={history} loading={loadingHistory} onOpen={openCase} />}
-      {activeTab === 'workspace' && selectedId && <Workspace otScheduleId={selectedId} onBack={handleBack} />}
+      {activeTab === 'workspace' && selectedId && <Workspace otScheduleId={selectedId} onBack={handleBack} restrictTab="intraop" />}
       {activeTab === 'workspace' && !selectedId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a case from the Dashboard or History.</div>
       )}

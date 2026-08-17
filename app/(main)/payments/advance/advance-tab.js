@@ -8,7 +8,7 @@ import TodaysVisitsWidget from '../todays-visits-widget';
 const ADVANCE_TYPES = ['Surgery Advance', 'General Advance', 'Package Advance', 'Other'];
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 
-const RETURN_LABELS = { 'ot-intraop': 'Operation Theatre' };
+const RETURN_LABELS = { 'ot-intraop': 'Intraoperative Management', 'patient-checkin': 'Patient Check-In' };
 
 export default function AdvanceTab() {
   const searchParams = useSearchParams();

@@ -821,11 +821,11 @@ function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active, 
     if (otSchedule.status === 'Scheduled') {
       status = `Scheduled -- ${new Date(otSchedule.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}`;
       color = 'var(--blue)';
-      action = { label: 'Open in OT Intraop', onClick: () => router.push('/ot-intraop') };
+      action = { label: 'Open in Patient Check-In', onClick: () => router.push('/patient-checkin') };
     } else if (otSchedule.status === 'In Progress') {
       status = 'In surgery now';
       color = 'var(--red)';
-      action = { label: 'Continue in OT Intraop', onClick: () => router.push('/ot-intraop') };
+      action = { label: 'Continue in Intraoperative Management', onClick: () => router.push('/ot-intraop') };
     } else if (otSchedule.status === 'Completed') {
       if (recoveryEpisode && !recoveryEpisode.discharge_date) {
         status = 'Surgery done -- in Recovery';
@@ -846,7 +846,7 @@ function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active, 
     <Section num={num} color={color} title="Day of Surgery" done={!!recoveryEpisode?.discharge_date} defaultOpen={!!otSchedule} active={active}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{status}</div>
       <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
-        Balance payment, consent, the surgery itself, and discharge all happen in the Operation Theatre / Recovery modules -- that clinical documentation stays where it is. This just shows where the case currently stands.
+        Balance payment, consent, the surgery itself, and discharge all happen in the Patient Check-In / Intraoperative Management / Recovery modules -- that clinical documentation stays where it is. This just shows where the case currently stands.
       </div>
       {action && (
         <button className="btn btn-sm btn-primary" onClick={action.onClick}>
