@@ -240,6 +240,7 @@ export function WorkspaceTab({ referralId, onDone }) {
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [okMsg, setOkMsg] = useState('');
+  const [unlocked, setUnlocked] = useState(false);
 
   const refresh = useCallback(async () => {
     const result = await getMedicalFitnessDetail(referralId);
@@ -249,7 +250,7 @@ export function WorkspaceTab({ referralId, onDone }) {
   }, [referralId]);
 
   useEffect(() => {
-    setData(null); setLoadError(''); setSubTab('summary');
+    setData(null); setLoadError(''); setSubTab('summary'); setUnlocked(false);
     refresh();
     getInvestigationMasterOptions().then(setInvOptions);
     getCurrentDoctorProfile().then((profile) => {
@@ -306,6 +307,20 @@ export function WorkspaceTab({ referralId, onDone }) {
     onDone();
   }
 
+  // Correcting an already-decided form (same status, e.g. fixing a
+  // vitals typo) instead of re-running the Cleared/Not Fit decision.
+  async function handleUpdateDecided() {
+    setError(''); setOkMsg('');
+    setSaving(true);
+    const result = await submitFitnessForm(referralId, form, data.referral.status, form.certification.notes);
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setOkMsg('Updated.');
+    setUnlocked(false);
+    refresh();
+    setTimeout(() => setOkMsg(''), 2000);
+  }
+
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;
 
@@ -313,6 +328,9 @@ export function WorkspaceTab({ referralId, onDone }) {
   const patient = referral.visits.patients;
   const sc = referral.surgical_cases;
   const isPending = referral.status === 'Pending Review';
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const isTodayDecision = !!referral.cleared_at && new Date(referral.cleared_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === todayIst;
+  const formEditable = isPending || unlocked;
 
   return (
     <div>
@@ -465,15 +483,27 @@ export function WorkspaceTab({ referralId, onDone }) {
           {subTab === 'form' && (
             <div className="card" style={{ marginBottom: 0 }}>
               <div className="card-head" style={{ marginBottom: 4, alignItems: 'flex-start' }}>
-                <div className="card-title"><i className="ti ti-file-certificate" style={{ color: 'var(--amber)' }}></i> Medical Fitness Form for Cataract Surgery</div>
-                <button className="btn btn-sm" onClick={() => setSubTab('investigations')}>
-                  <i className="ti ti-flask"></i> View Investigation Reports
-                </button>
+                <div className="card-title"><i className="ti ti-file-certificate" style={{ color: 'var(--amber)' }}></i> Medical Fitness Form for Eye Surgery</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {!isPending && isTodayDecision && !unlocked && (
+                    <button className="btn btn-sm" onClick={() => setUnlocked(true)}>
+                      <i className="ti ti-edit"></i> Edit
+                    </button>
+                  )}
+                  <button className="btn btn-sm" onClick={() => setSubTab('investigations')}>
+                    <i className="ti ti-flask"></i> View Investigation Reports
+                  </button>
+                </div>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 12 }}>Review the patient&apos;s investigation reports before filling in the values below.</div>
               {okMsg && <div className="msg-ok" style={{ marginBottom: 10 }}><i className="ti ti-circle-check"></i> {okMsg}</div>}
+              {!isPending && !unlocked && (
+                <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+                  <i className="ti ti-lock"></i> This form is finalized{isTodayDecision ? ' -- use Edit above to correct it.' : '.'}
+                </div>
+              )}
 
-              <fieldset disabled={!isPending} style={{ border: 'none', padding: 0, margin: 0 }}>
+              <fieldset disabled={!formEditable} style={{ border: 'none', padding: 0, margin: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>1. Systemic History</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 6, fontSize: 12.5 }}>
                   {[
@@ -578,6 +608,15 @@ export function WorkspaceTab({ referralId, onDone }) {
                     <i className="ti ti-x"></i> Not Fit
                   </button>
                 </div>
+              ) : unlocked ? (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleUpdateDecided} disabled={saving}>
+                    <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button className="btn" onClick={() => { setUnlocked(false); setForm(mergeFitnessForm(data.referral.form_data)); }}>
+                    Cancel
+                  </button>
+                </div>
               ) : (
                 <button className="btn btn-primary" onClick={() => openPrintPopup(`/medical-fitness-print/${referralId}`)}>
                   <i className="ti ti-printer"></i> Print / PDF Certificate
@@ -598,9 +637,14 @@ export function WorkspaceTab({ referralId, onDone }) {
           ) : (
             <div className="card" style={{ marginBottom: 0 }}>
               <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-file-certificate" style={{ color: 'var(--green)' }}></i> Certificate</div>
-              <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => openPrintPopup(`/medical-fitness-print/${referralId}`)}>
+              <button className="btn btn-primary" style={{ width: '100%', marginBottom: isTodayDecision ? 8 : 0 }} onClick={() => openPrintPopup(`/medical-fitness-print/${referralId}`)}>
                 <i className="ti ti-printer"></i> Print / PDF
               </button>
+              {isTodayDecision && (
+                <button className="btn" style={{ width: '100%' }} onClick={() => { setUnlocked(true); setSubTab('form'); }}>
+                  <i className="ti ti-edit"></i> Edit Today&apos;s Form
+                </button>
+              )}
             </div>
           )}
         </div>
