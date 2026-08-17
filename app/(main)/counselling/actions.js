@@ -306,27 +306,23 @@ export async function getPackagesForCase(iolCategory) {
   return data || [];
 }
 
-// ── Package selection (BR-SCC-002: only after Biometry & IOL advice) ──
+// ── Package selection -- no longer hard-gated on Biometry being
+// Measured first (Surgical Journey unlocks this as soon as the patient
+// has given assent in Step 1; Counselling's own flow picks a package
+// even earlier, alongside deciding). Each module enforces its own
+// UI-level gate; this action stays permissive so it works for both.
 // discount is an absolute Rs. amount off the package's list price,
 // recorded alongside the selection since it's decided at the same
 // moment ("sometimes we need to give discount also"). Net payable
 // (price - discount) is what the Payment step checks the collected
-// advance against.
+// advance against. ──
 export async function selectPackage(caseId, packageId, discount = 0) {
   const supabase = await createClient();
   const disc = Number(discount) || 0;
   if (disc < 0) return { error: 'Discount cannot be negative.' };
 
-  const { data: sc } = await supabase.from('surgical_cases').select('patient_id, biometry_required').eq('id', caseId).single();
+  const { data: sc } = await supabase.from('surgical_cases').select('patient_id').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
-  if (sc.biometry_required !== false) {
-    const { count } = await supabase
-      .from('biometry_records')
-      .select('id', { count: 'exact', head: true })
-      .eq('patient_id', sc.patient_id)
-      .eq('status', 'Measured');
-    if (!count) return { error: 'BR-SCC-002: Biometry must be complete before selecting a package.' };
-  }
 
   const { data: pkg } = await supabase.from('master_packages').select('price').eq('id', packageId).single();
   if (pkg && disc > Number(pkg.price)) return { error: 'Discount cannot exceed the package price.' };
