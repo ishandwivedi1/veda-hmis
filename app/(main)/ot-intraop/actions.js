@@ -45,7 +45,34 @@ export async function getOTIntraopHistory() {
   return (data || []).filter((b) => b.surgical_cases).map((b) => ({ ...b, intraopSummary: intraopByBooking[b.id] || null }));
 }
 
-// ── CASE SELECTOR ──
+// ── CHECK-IN HISTORY: every case checked in before today, regardless of
+// whether the surgery itself has happened yet -- distinct from
+// getOTIntraopHistory (which tracks completed SURGERIES). Today's
+// checked-in patients stay on the live Dashboard's "Checked-In
+// Patients (Today)" list until the day rolls over. ──
+export async function getCheckinHistory() {
+  const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const { data, error } = await supabase
+    .from('ot_schedule')
+    .select('*, master_ot_sessions(name), surgical_cases(surgery_code, procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .lt('scheduled_date', todayIst)
+    .order('scheduled_date', { ascending: false });
+  if (error) return [];
+
+  const ids = (data || []).map((b) => b.id);
+  let intraopByBooking = {};
+  if (ids.length > 0) {
+    const { data: records } = await supabase.from('ot_intraop_records').select('ot_schedule_id, checkin_completed_at').in('ot_schedule_id', ids).not('checkin_completed_at', 'is', null);
+    (records || []).forEach((r) => { intraopByBooking[r.ot_schedule_id] = r; });
+  }
+
+  return (data || [])
+    .filter((b) => b.surgical_cases && intraopByBooking[b.id])
+    .map((b) => ({ ...b, checkinSummary: intraopByBooking[b.id] }));
+}
+
+
 // Today's (and any overdue) bookings that haven't been completed or
 // cancelled, PLUS today's already-completed cases -- so a case doesn't
 // disappear from the Dashboard the instant it's marked Completed. It
