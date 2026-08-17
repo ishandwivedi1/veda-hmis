@@ -4,16 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getMedicalFitnessQueue, getMedicalFitnessHistory, getMedicalFitnessDetail,
   getInvestigationMasterOptions, orderFitnessInvestigation, removeFitnessInvestigation,
-  clearFitness, markNotFit,
+  clearFitness, markNotFit, saveFitnessFormDraft, submitFitnessForm, getCurrentDoctorProfile,
 } from './actions';
-import { getPatientTimeline } from '@/app/(main)/patient-timeline/actions';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
 import { openPopup } from '@/lib/popup';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 const HISTORY_STATUS_BADGE = { Cleared: 'b-green', 'Not Fit': 'b-red' };
-const TIMELINE_TYPE_COLOR = { Visit: 'var(--blue)', Diagnosis: 'var(--red)', Investigation: 'var(--teal)', Prescription: 'var(--purple)', Surgery: 'var(--amber)' };
-const TIMELINE_TYPE_ICON = { Visit: 'ti-door-enter', Diagnosis: 'ti-clipboard-list', Investigation: 'ti-flask', Prescription: 'ti-pill', Surgery: 'ti-scalpel' };
 
 function daysWaiting(referral) {
   const ms = new Date() - new Date(referral.referred_at);
@@ -168,6 +166,32 @@ function HistoryTab({ rows, loading, onOpen }) {
 }
 
 // ── TAB 2: WORKSPACE (per-patient clinical review) ──
+function emptyFitnessForm() {
+  return {
+    systemicHistory: { diabetes: false, hypertension: false, heartDisease: false, thyroid: false, asthma: false, kidneyDisease: false, other: '' },
+    previousSurgeryHistory: '',
+    currentMedications: { antiDiabetic: false, bpMedicines: false, bloodThinners: false, other: '' },
+    allergies: { none: false, yes: false, details: '' },
+    vitals: { bp: '', pulse: '', spo2: '', bloodSugar: '' },
+    investigations: { hb: '', rbs: '', fbs: '', ppbs: '', hiv: '', hbsag: '', other: '' },
+    certification: { doctorName: '', qualification: '', registrationNo: '', notes: '' },
+  };
+}
+
+function mergeFitnessForm(saved) {
+  const base = emptyFitnessForm();
+  if (!saved) return base;
+  return {
+    systemicHistory: { ...base.systemicHistory, ...saved.systemicHistory },
+    previousSurgeryHistory: saved.previousSurgeryHistory || '',
+    currentMedications: { ...base.currentMedications, ...saved.currentMedications },
+    allergies: { ...base.allergies, ...saved.allergies },
+    vitals: { ...base.vitals, ...saved.vitals },
+    investigations: { ...base.investigations, ...saved.investigations },
+    certification: { ...base.certification, ...saved.certification },
+  };
+}
+
 export function WorkspaceTab({ referralId, onDone }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -180,30 +204,30 @@ export function WorkspaceTab({ referralId, onDone }) {
   const [invPriority, setInvPriority] = useState('Routine');
   const [ordering, setOrdering] = useState(false);
 
-  const [timeline, setTimeline] = useState(null);
-  const [timelineLoading, setTimelineLoading] = useState(false);
-
-  const [decisionNotes, setDecisionNotes] = useState('');
+  const [form, setForm] = useState(emptyFitnessForm());
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [okMsg, setOkMsg] = useState('');
 
   const refresh = useCallback(async () => {
     const result = await getMedicalFitnessDetail(referralId);
     if (result.error) { setLoadError(result.error); return; }
     setData(result);
+    setForm(mergeFitnessForm(result.referral.form_data));
   }, [referralId]);
 
   useEffect(() => {
-    setData(null); setLoadError(''); setSubTab('summary'); setTimeline(null); setDecisionNotes('');
+    setData(null); setLoadError(''); setSubTab('summary');
     refresh();
     getInvestigationMasterOptions().then(setInvOptions);
+    getCurrentDoctorProfile().then((profile) => {
+      if (profile) {
+        setForm((f) => (f.certification.doctorName ? f : {
+          ...f, certification: { ...f.certification, doctorName: profile.full_name || '', registrationNo: profile.registration_no || '' },
+        }));
+      }
+    });
   }, [referralId, refresh]);
-
-  useEffect(() => {
-    if (subTab === 'timeline' && !timeline && data) {
-      setTimelineLoading(true);
-      getPatientTimeline(data.referral.visits.patients.id).then((t) => { setTimeline(t); setTimelineLoading(false); });
-    }
-  }, [subTab, timeline, data]);
 
   async function handleOrderInvestigation() {
     setError('');
@@ -221,10 +245,20 @@ export function WorkspaceTab({ referralId, onDone }) {
     refresh();
   }
 
+  async function handleSaveDraft() {
+    setError(''); setOkMsg('');
+    setSavingDraft(true);
+    const result = await saveFitnessFormDraft(referralId, form);
+    setSavingDraft(false);
+    if (result.error) { setError(result.error); return; }
+    setOkMsg('Draft saved.');
+    setTimeout(() => setOkMsg(''), 2000);
+  }
+
   async function handleClear() {
     setError('');
     setSaving(true);
-    const result = await clearFitness(referralId, decisionNotes);
+    const result = await submitFitnessForm(referralId, form, 'Cleared', form.certification.notes);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     onDone();
@@ -232,9 +266,9 @@ export function WorkspaceTab({ referralId, onDone }) {
 
   async function handleMarkNotFit() {
     setError('');
-    if (!decisionNotes.trim()) { setError('Notes are required when marking not fit.'); return; }
+    if (!form.certification.notes?.trim()) { setError('Notes are required when marking not fit.'); return; }
     setSaving(true);
-    const result = await markNotFit(referralId, decisionNotes);
+    const result = await submitFitnessForm(referralId, form, 'Not Fit', form.certification.notes);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     onDone();
@@ -283,8 +317,8 @@ export function WorkspaceTab({ referralId, onDone }) {
         <div>
           <div style={{ display: 'flex', gap: 2, marginBottom: 12, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
             <TabButton active={subTab === 'summary'} onClick={() => setSubTab('summary')} icon="ti-report-medical" label="Clinical Summary" />
-            <TabButton active={subTab === 'timeline'} onClick={() => setSubTab('timeline')} icon="ti-timeline" label="Visit Timeline" />
             <TabButton active={subTab === 'investigations'} onClick={() => setSubTab('investigations')} icon="ti-flask" label={`Investigations${investigations.length > 0 ? ` (${investigations.length})` : ''}`} />
+            <TabButton active={subTab === 'form'} onClick={() => setSubTab('form')} icon="ti-file-certificate" label="Fitness Form" />
           </div>
 
           {subTab === 'summary' && (
@@ -313,44 +347,6 @@ export function WorkspaceTab({ referralId, onDone }) {
                 </div>
               </div>
             </>
-          )}
-
-          {subTab === 'timeline' && (
-            <div className="card" style={{ marginBottom: 0 }}>
-              <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-timeline" style={{ color: 'var(--blue)' }}></i> Visit Timeline</div>
-              <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Every visit this patient has had. Click a Visit to open the doctor&apos;s full clinical record for it, read-only.</div>
-
-              {timelineLoading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 16, textAlign: 'center' }}>Loading timeline...</div>}
-
-              {!timelineLoading && timeline && (
-                <div style={{ maxHeight: 420, overflowY: 'auto' }}>
-                  {timeline.events.map((ev, i) => {
-                    const isVisit = ev.type === 'Visit';
-                    const clickable = isVisit && ev.queueEntryId;
-                    return (
-                      <div
-                        key={i}
-                        onClick={clickable ? () => window.open(`/consultation/${ev.queueEntryId}`, '_blank', 'noopener,noreferrer') : undefined}
-                        style={{
-                          border: clickable ? '1.5px solid var(--blue)' : '1px solid var(--g200)', borderRadius: 8, padding: '8px 10px', marginBottom: 6,
-                          display: 'flex', alignItems: 'center', gap: 8, cursor: clickable ? 'pointer' : 'default',
-                        }}
-                      >
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 10, color: 'var(--g400)', marginBottom: 2 }}>{new Date(ev.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</div>
-                          <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <i className={`ti ${TIMELINE_TYPE_ICON[ev.type]}`} style={{ color: TIMELINE_TYPE_COLOR[ev.type] }}></i> {ev.type} -- {ev.title}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>{ev.detail}</div>
-                        </div>
-                        {clickable && <i className="ti ti-external-link" style={{ color: 'var(--blue)' }}></i>}
-                      </div>
-                    );
-                  })}
-                  {timeline.events.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', textAlign: 'center', padding: 16 }}>No prior events.</div>}
-                </div>
-              )}
-            </div>
           )}
 
           {subTab === 'investigations' && (
@@ -408,21 +404,144 @@ export function WorkspaceTab({ referralId, onDone }) {
               )}
             </div>
           )}
+
+          {subTab === 'form' && (
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-head" style={{ marginBottom: 4, alignItems: 'flex-start' }}>
+                <div className="card-title"><i className="ti ti-file-certificate" style={{ color: 'var(--amber)' }}></i> Medical Fitness Form for Cataract Surgery</div>
+                <button className="btn btn-sm" onClick={() => setSubTab('investigations')}>
+                  <i className="ti ti-flask"></i> View Investigation Reports
+                </button>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 12 }}>Review the patient&apos;s investigation reports before filling in the values below.</div>
+              {okMsg && <div className="msg-ok" style={{ marginBottom: 10 }}><i className="ti ti-circle-check"></i> {okMsg}</div>}
+
+              <fieldset disabled={!isPending} style={{ border: 'none', padding: 0, margin: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>1. Systemic History / \u0938\u093e\u092e\u093e\u0928\u094d\u092f \u091a\u093f\u0915\u093f\u0924\u094d\u0938\u093e \u0907\u0924\u093f\u0939\u093e\u0938</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 6, fontSize: 12.5 }}>
+                  {[
+                    ['diabetes', 'Diabetes'], ['hypertension', 'Hypertension'],
+                    ['heartDisease', 'Heart Disease'], ['thyroid', 'Thyroid Disorder'],
+                    ['asthma', 'Asthma'], ['kidneyDisease', 'Kidney Disease'],
+                  ].map(([key, label]) => (
+                    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: isPending ? 'pointer' : 'default' }}>
+                      <input type="checkbox" checked={!!form.systemicHistory[key]} onChange={(e) => setForm((f) => ({ ...f, systemicHistory: { ...f.systemicHistory, [key]: e.target.checked } }))} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <input className="fi fi-sm" placeholder="Other systemic history..." value={form.systemicHistory.other} onChange={(e) => setForm((f) => ({ ...f, systemicHistory: { ...f.systemicHistory, other: e.target.value } }))} style={{ marginBottom: 14 }} />
+
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>2. Previous Surgery / Hospitalization</div>
+                <textarea className="fi fi-sm" rows={2} value={form.previousSurgeryHistory} onChange={(e) => setForm((f) => ({ ...f, previousSurgeryHistory: e.target.value }))} style={{ marginBottom: 14, width: '100%' }} />
+
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>3. Current Medications</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 6, fontSize: 12.5 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="checkbox" checked={form.currentMedications.antiDiabetic} onChange={(e) => setForm((f) => ({ ...f, currentMedications: { ...f.currentMedications, antiDiabetic: e.target.checked } }))} />
+                    Anti-diabetic / Insulin
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="checkbox" checked={form.currentMedications.bpMedicines} onChange={(e) => setForm((f) => ({ ...f, currentMedications: { ...f.currentMedications, bpMedicines: e.target.checked } }))} />
+                    Blood pressure medicines
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="checkbox" checked={form.currentMedications.bloodThinners} onChange={(e) => setForm((f) => ({ ...f, currentMedications: { ...f.currentMedications, bloodThinners: e.target.checked } }))} />
+                    Blood thinners
+                  </label>
+                </div>
+                <input className="fi fi-sm" placeholder="Other medicines..." value={form.currentMedications.other} onChange={(e) => setForm((f) => ({ ...f, currentMedications: { ...f.currentMedications, other: e.target.value } }))} style={{ marginBottom: 14 }} />
+
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>4. Drug Allergies</div>
+                <div style={{ display: 'flex', gap: 14, marginBottom: 6, fontSize: 12.5 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="radio" name={`allergy-${referralId}`} checked={form.allergies.none} onChange={() => setForm((f) => ({ ...f, allergies: { ...f.allergies, none: true, yes: false } }))} />
+                    No Known Allergy
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="radio" name={`allergy-${referralId}`} checked={form.allergies.yes} onChange={() => setForm((f) => ({ ...f, allergies: { ...f.allergies, none: false, yes: true } }))} />
+                    Yes
+                  </label>
+                </div>
+                {form.allergies.yes && (
+                  <input className="fi fi-sm" placeholder="Allergy details..." value={form.allergies.details} onChange={(e) => setForm((f) => ({ ...f, allergies: { ...f.allergies, details: e.target.value } }))} style={{ marginBottom: 14 }} />
+                )}
+
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>5. Vital Signs</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginBottom: 14 }}>
+                  <div><label className="flbl">BP (mmHg)</label><input className="fi fi-sm" value={form.vitals.bp} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, bp: e.target.value } }))} /></div>
+                  <div><label className="flbl">Pulse (/min)</label><input className="fi fi-sm" value={form.vitals.pulse} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, pulse: e.target.value } }))} /></div>
+                  <div><label className="flbl">SpO2 (%)</label><input className="fi fi-sm" value={form.vitals.spo2} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, spo2: e.target.value } }))} /></div>
+                  <div><label className="flbl">Blood Sugar</label><input className="fi fi-sm" value={form.vitals.bloodSugar} onChange={(e) => setForm((f) => ({ ...f, vitals: { ...f.vitals, bloodSugar: e.target.value } }))} /></div>
+                </div>
+
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>6. Investigations</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+                  <div><label className="flbl">Hemoglobin (Hb)</label><input className="fi fi-sm" value={form.investigations.hb} onChange={(e) => setForm((f) => ({ ...f, investigations: { ...f.investigations, hb: e.target.value } }))} /></div>
+                  <div><label className="flbl">Random Blood Sugar (RBS)</label><input className="fi fi-sm" value={form.investigations.rbs} onChange={(e) => setForm((f) => ({ ...f, investigations: { ...f.investigations, rbs: e.target.value } }))} /></div>
+                  <div><label className="flbl">Fasting Blood Sugar (FBS)</label><input className="fi fi-sm" value={form.investigations.fbs} onChange={(e) => setForm((f) => ({ ...f, investigations: { ...f.investigations, fbs: e.target.value } }))} /></div>
+                  <div><label className="flbl">PPBS</label><input className="fi fi-sm" value={form.investigations.ppbs} onChange={(e) => setForm((f) => ({ ...f, investigations: { ...f.investigations, ppbs: e.target.value } }))} /></div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8, fontSize: 12 }}>
+                  <div>
+                    <label className="flbl">HIV I &amp; II</label>
+                    <select className="fi fi-sm" value={form.investigations.hiv} onChange={(e) => setForm((f) => ({ ...f, investigations: { ...f.investigations, hiv: e.target.value } }))}>
+                      <option value="">--</option><option value="Non-Reactive">Non-Reactive</option><option value="Reactive">Reactive</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="flbl">HBsAg</label>
+                    <select className="fi fi-sm" value={form.investigations.hbsag} onChange={(e) => setForm((f) => ({ ...f, investigations: { ...f.investigations, hbsag: e.target.value } }))}>
+                      <option value="">--</option><option value="Non-Reactive">Non-Reactive</option><option value="Reactive">Reactive</option>
+                    </select>
+                  </div>
+                </div>
+                <input className="fi fi-sm" placeholder="Other investigations..." value={form.investigations.other} onChange={(e) => setForm((f) => ({ ...f, investigations: { ...f.investigations, other: e.target.value } }))} style={{ marginBottom: 14 }} />
+
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>7. Physician Certification</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+                  <div><label className="flbl">Doctor Name</label><input className="fi fi-sm" value={form.certification.doctorName} onChange={(e) => setForm((f) => ({ ...f, certification: { ...f.certification, doctorName: e.target.value } }))} /></div>
+                  <div><label className="flbl">Qualification</label><input className="fi fi-sm" value={form.certification.qualification} onChange={(e) => setForm((f) => ({ ...f, certification: { ...f.certification, qualification: e.target.value } }))} /></div>
+                  <div><label className="flbl">Registration Number</label><input className="fi fi-sm" value={form.certification.registrationNo} onChange={(e) => setForm((f) => ({ ...f, certification: { ...f.certification, registrationNo: e.target.value } }))} /></div>
+                </div>
+                <textarea className="fi fi-sm" rows={2} placeholder="Clinical notes / certificate remarks (required if marking not fit, optional if clearing)" value={form.certification.notes} onChange={(e) => setForm((f) => ({ ...f, certification: { ...f.certification, notes: e.target.value } }))} style={{ marginBottom: 10, width: '100%' }} />
+              </fieldset>
+
+              {isPending ? (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn" onClick={handleSaveDraft} disabled={savingDraft}>
+                    <i className="ti ti-device-floppy"></i> {savingDraft ? 'Saving...' : 'Save Draft'}
+                  </button>
+                  <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleClear} disabled={saving}>
+                    <i className="ti ti-circle-check"></i> {saving ? 'Saving...' : 'Give Clearance'}
+                  </button>
+                  <button className="btn" style={{ flex: 1, color: 'var(--red)' }} onClick={handleMarkNotFit} disabled={saving}>
+                    <i className="ti ti-x"></i> Not Fit
+                  </button>
+                </div>
+              ) : (
+                <button className="btn btn-primary" onClick={() => openPrintPopup(`/medical-fitness-print/${referralId}`)}>
+                  <i className="ti ti-printer"></i> Print / PDF Certificate
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div>
-          {isPending && (
+          {isPending ? (
             <div className="card" style={{ marginBottom: 0 }}>
               <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-clipboard-check" style={{ color: 'var(--amber)' }}></i> Fitness Decision</div>
-              <textarea className="fi" rows={3} placeholder="Clinical notes / certificate remarks (required if marking not fit, optional if clearing)" value={decisionNotes} onChange={(e) => setDecisionNotes(e.target.value)} style={{ marginBottom: 8 }} />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleClear} disabled={saving}>
-                  <i className="ti ti-circle-check"></i> {saving ? 'Saving...' : 'Clear for Surgery'}
-                </button>
-                <button className="btn" style={{ flex: 1, color: 'var(--red)' }} onClick={handleMarkNotFit} disabled={saving}>
-                  <i className="ti ti-x"></i> Not Fit
-                </button>
+              <div style={{ fontSize: 11.5, color: 'var(--g500)' }}>
+                Fill in the <button className="btn btn-sm" style={{ display: 'inline', padding: '1px 6px' }} onClick={() => setSubTab('form')}>Fitness Form</button> tab, then Give Clearance or mark Not Fit from there.
               </div>
+            </div>
+          ) : (
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-file-certificate" style={{ color: 'var(--green)' }}></i> Certificate</div>
+              <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => openPrintPopup(`/medical-fitness-print/${referralId}`)}>
+                <i className="ti ti-printer"></i> Print / PDF
+              </button>
             </div>
           )}
         </div>

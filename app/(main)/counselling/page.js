@@ -5,7 +5,6 @@ import {
   getCounsellingCases, getCounsellingHistory, getPackagesForCase, selectPackage, changePackage,
   setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
   markReadyForScheduling, referBackToDoctor,
-  referForMedicalFitness,
   sendForBiometry, skipBiometry, unskipBiometry,
   getSurgeons, getOTAvailability, bookOTSlot,
 } from './actions';
@@ -347,16 +346,6 @@ function CaseWorkspace({ sc, onUpdate }) {
   const [openSections, setOpenSections] = useState({ surgery: true, biometry: true, decision: true, fitness: true });
   const { items, pct } = readiness(sc);
   const stage2Unlocked = !!sc.package_id && sc.decision === 'Accepted';
-  const [referringFitness, setReferringFitness] = useState(false);
-
-  async function handleReferFitness() {
-    setError('');
-    setReferringFitness(true);
-    const result = await referForMedicalFitness(sc.id);
-    setReferringFitness(false);
-    if (result.error) { setError(result.error); return; }
-    onUpdate();
-  }
 
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -564,13 +553,8 @@ function CaseWorkspace({ sc, onUpdate }) {
         ) : (
           <>
             {!sc.fitness_referral && (
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-                  Refer this patient to a doctor to review clinical data, order any investigations needed, and clear for surgery.
-                </div>
-                <button className="btn btn-sm" onClick={handleReferFitness} disabled={referringFitness}>
-                  <i className="ti ti-heart-rate-monitor"></i> {referringFitness ? 'Referring...' : 'Refer to Doctor'}
-                </button>
+              <div style={{ fontSize: 11.5, color: 'var(--g500)' }}>
+                <i className="ti ti-info-circle"></i> Will appear in the Medical Fitness module automatically once the OT date is booked.
               </div>
             )}
             {sc.fitness_referral?.status === 'Pending Review' && (
@@ -586,10 +570,8 @@ function CaseWorkspace({ sc, onUpdate }) {
               <div>
                 <span className="badge b-red"><i className="ti ti-x"></i> Not Fit</span>
                 {sc.fitness_referral.fitness_notes && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 6 }}>{sc.fitness_referral.fitness_notes}</div>}
-                <div style={{ marginTop: 8 }}>
-                  <button className="btn btn-sm" onClick={handleReferFitness} disabled={referringFitness}>
-                    <i className="ti ti-refresh"></i> {referringFitness ? 'Referring...' : 'Refer Again'}
-                  </button>
+                <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 8 }}>
+                  <i className="ti ti-info-circle"></i> Doctor can review again from the Medical Fitness module.
                 </div>
               </div>
             )}

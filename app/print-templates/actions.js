@@ -327,7 +327,147 @@ const DEFAULT_TEMPLATES = {
 `,
   discharge_summary: "<div style=\"max-width: 780px; margin: 0 auto; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 13px;\">\n\n  <!-- HEADER -->\n  <table style=\"width: 100%; border-collapse: collapse; margin-bottom: 6px;\">\n    <tr>\n      <td style=\"width: 100px; vertical-align: top;\">{{{logo_html}}}</td>\n      <td style=\"vertical-align: top;\">\n        <div style=\"font-size: 24px; font-weight: 800; letter-spacing: .3px; text-decoration: underline; color: #0f766e;\">{{hospital_name}}</div>\n        <div style=\"font-size: 11px; font-weight: 700; margin-top: 2px;\">{{hospital_unit_line}}</div>\n        <div style=\"font-size: 10px; font-weight: 700;\">REGN NO : {{hospital_regn_no}}</div>\n      </td>\n      <td style=\"text-align: right; vertical-align: top; font-size: 10.5px; line-height: 1.5;\">\n        {{hospital_address_line1}}<br/>\n        {{hospital_address_line2}}<br/>\n        {{hospital_city_state_pin}}<br/>\n        Tel: {{hospital_phone}}\n      </td>\n    </tr>\n  </table>\n\n  <div style=\"text-align: center; font-size: 16px; font-weight: 700; border-top: 1.5px solid #0f766e; border-bottom: 1.5px solid #0f766e; padding: 8px 0; margin: 10px 0 16px; color: #0f766e;\">\n    DISCHARGE SUMMARY\n  </div>\n\n  <!-- PATIENT / SURGEON INFO -->\n  <table style=\"width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 16px;\">\n    <tr>\n      <td style=\"width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;\">\n        <table style=\"width: 100%; font-size: 12px;\">\n          <tr><td style=\"width: 100px; color: #444;\">PATIENT ID</td><td>: <strong>{{patient_id}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">NAME</td><td>: <strong>{{patient_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">AGE/GENDER</td><td>: <strong>{{patient_age}} / {{patient_gender}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">MOBILE</td><td>: <strong>{{patient_mobile}}</strong></td></tr>\n        </table>\n      </td>\n      <td style=\"width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9;\">\n        <table style=\"width: 100%; font-size: 12px;\">\n          <tr><td style=\"width: 100px; color: #444;\">SURGEON</td><td>: <strong>Dr. {{surgeon_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">ADMISSION</td><td>: <strong>{{admission_date}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">SURGERY DATE</td><td>: <strong>{{surgery_date}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">DISCHARGE DATE</td><td>: <strong>{{discharge_date}}</strong></td></tr>\n        </table>\n      </td>\n    </tr>\n  </table>\n\n  <!-- PROCEDURE SUMMARY -->\n  <div style=\"margin-bottom: 14px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;\">Procedure Summary</div>\n    <div style=\"font-size: 13px; padding: 2px 0;\">Procedure: <strong>{{procedure_name}}</strong> ({{eye}})</div>\n    {{#each iol_lines}}\n    <div style=\"font-size: 13px; padding: 2px 0;\">IOL ({{eye}}): <strong>{{text}}</strong></div>\n    {{/each}}\n  </div>\n\n  <!-- MEDICATIONS -->\n  <div style=\"margin-bottom: 14px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;\">Medications</div>\n    {{#unless hasMedications}}<div style=\"font-size: 12px; color: #9ca3af;\">None prescribed.</div>{{/unless}}\n    <table style=\"width: 100%; border-collapse: collapse; font-size: 12px;\">\n      <tbody>\n        {{#each medications}}\n        <tr>\n          <td style=\"padding: 4px 8px 4px 0; font-weight: 600;\">{{name}}</td>\n          <td style=\"padding: 4px 0; color: #4b5563;\">{{sig}}</td>\n        </tr>\n        {{/each}}\n      </tbody>\n    </table>\n  </div>\n\n  {{#if hasDischargeNotes}}\n  <div style=\"margin-bottom: 14px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;\">Discharge Notes (Doctor)</div>\n    <div style=\"font-size: 13px; white-space: pre-wrap;\">{{discharge_notes}}</div>\n  </div>\n  {{/if}}\n\n  <div style=\"margin-bottom: 14px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;\">Discharge Instructions</div>\n    <div style=\"font-size: 13px; white-space: pre-wrap;\">{{discharge_instructions}}</div>\n  </div>\n\n  <div style=\"margin-bottom: 14px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;\">Follow-up Schedule</div>\n    <table style=\"width: 100%; border-collapse: collapse; font-size: 12px;\">\n      <thead>\n        <tr style=\"background: #f0fdfa;\">\n          <th style=\"text-align: left; padding: 5px 8px; color: #0f766e;\">Visit</th>\n          <th style=\"text-align: left; padding: 5px 8px; color: #0f766e;\">Date</th>\n          <th style=\"text-align: left; padding: 5px 8px; color: #0f766e;\">Status</th>\n        </tr>\n      </thead>\n      <tbody>\n        {{#each followups}}\n        <tr>\n          <td style=\"padding: 4px 8px;\">{{visit_label}}</td>\n          <td style=\"padding: 4px 8px; color: #4b5563;\">{{date}}</td>\n          <td style=\"padding: 4px 8px; color: #4b5563;\">{{status}}</td>\n        </tr>\n        {{/each}}\n      </tbody>\n    </table>\n  </div>\n\n  <div style=\"margin-top: 50px; display: flex; justify-content: flex-end;\">\n    <div style=\"text-align: center; border-top: 1px solid #9ca3af; padding-top: 6px; width: 220px;\">\n      <div style=\"font-size: 12px; font-weight: 600;\">Dr. {{surgeon_name}}</div>\n      <div style=\"font-size: 10px; color: #9ca3af;\">Signature</div>\n    </div>\n  </div>\n\n  <div style=\"margin-top: 30px; text-align: center; font-size: 11px; color: #9ca3af;\">\n    This is a computer-generated discharge summary -- {{hospital_name}}.\n  </div>\n</div>\n",
   investigation_report: "<div style=\"max-width: 780px; margin: 0 auto; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 13px;\">\n\n  <table style=\"width: 100%; border-collapse: collapse; margin-bottom: 6px;\">\n    <tr>\n      <td style=\"width: 100px; vertical-align: top;\">{{{logo_html}}}</td>\n      <td style=\"vertical-align: top;\">\n        <div style=\"font-size: 24px; font-weight: 800; letter-spacing: .3px; text-decoration: underline;\">{{hospital_name}}</div>\n        <div style=\"font-size: 11px; font-weight: 700; margin-top: 2px;\">{{hospital_unit_line}}</div>\n        <div style=\"font-size: 10px; font-weight: 700;\">REGN NO : {{hospital_regn_no}}</div>\n      </td>\n      <td style=\"text-align: right; vertical-align: top; font-size: 10.5px; line-height: 1.5;\">\n        {{hospital_address_line1}}<br/>\n        {{hospital_address_line2}}<br/>\n        {{hospital_city_state_pin}}<br/>\n        Tel: {{hospital_phone}}\n      </td>\n    </tr>\n  </table>\n\n  <div style=\"text-align: center; font-size: 16px; font-weight: 700; border-top: 1.5px solid #333; border-bottom: 1.5px solid #333; padding: 8px 0; margin: 10px 0 16px;\">\n    INVESTIGATION REPORT\n  </div>\n\n  <table style=\"width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 16px;\">\n    <tr>\n      <td style=\"width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;\">\n        <table style=\"width: 100%; font-size: 12px;\">\n          <tr><td style=\"width: 100px; color: #444;\">PATIENT ID</td><td>: <strong>{{patient_id}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">NAME</td><td>: <strong>{{patient_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">AGE/GENDER</td><td>: <strong>{{patient_age}} / {{patient_gender}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">MOBILE</td><td>: <strong>{{patient_mobile}}</strong></td></tr>\n        </table>\n      </td>\n      <td style=\"width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9;\">\n        <table style=\"width: 100%; font-size: 12px;\">\n          <tr><td style=\"width: 110px; color: #444;\">INVESTIGATION</td><td>: <strong>{{investigation_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">TYPE</td><td>: <strong>{{investigation_type}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">EYE</td><td>: <strong>{{eye}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">ORDERED BY</td><td>: <strong>Dr. {{doctor_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">ORDERED ON</td><td>: <strong>{{ordered_date}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">COMPLETED ON</td><td>: <strong>{{completed_date}}</strong></td></tr>\n        </table>\n      </td>\n    </tr>\n  </table>\n\n  {{#if isUnable}}\n  <div style=\"background: #fef2f2; border: 1px solid #b91c1c; border-radius: 8px; padding: 10px 14px; font-size: 12.5px; color: #b91c1c; margin-bottom: 16px;\">\n    <strong>Unable to perform:</strong> {{unable_reason}}\n  </div>\n  {{else}}\n\n  <div style=\"margin-bottom: 16px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #444; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;\">Findings</div>\n    {{#if hasFields}}\n    <table style=\"width: 100%; border-collapse: collapse; font-size: 12.5px;\">\n      <tbody>\n        {{#each fields}}\n        <tr>\n          <td style=\"padding: 5px 8px 5px 0; width: 45%; color: #444; border-bottom: 1px solid #f3f4f6;\">{{label}}</td>\n          <td style=\"padding: 5px 0; font-weight: 600; border-bottom: 1px solid #f3f4f6;\">{{value}}</td>\n        </tr>\n        {{/each}}\n      </tbody>\n    </table>\n    {{else}}\n    <div style=\"font-size: 12px; color: #9ca3af;\">No measurements recorded.</div>\n    {{/if}}\n  </div>\n\n  {{#if hasNotes}}\n  <div style=\"margin-bottom: 16px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #444; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;\">Notes</div>\n    <div style=\"font-size: 13px; white-space: pre-wrap;\">{{result_notes}}</div>\n  </div>\n  {{/if}}\n  {{/if}}\n\n  <table style=\"width: 100%; margin-top: 50px; border-collapse: collapse;\">\n    <tr>\n      <td style=\"width: 50%; vertical-align: bottom; font-size: 12px;\">\n        <div style=\"border-top: 1px solid #9ca3af; padding-top: 6px; width: 200px;\">\n          <div style=\"font-weight: 600;\">{{technician_name}}</div>\n          <div style=\"font-size: 10px; color: #9ca3af;\">Performed by</div>\n        </div>\n      </td>\n      {{#if hasVerifiedBy}}\n      <td style=\"width: 50%; vertical-align: bottom; text-align: right; font-size: 12px;\">\n        <div style=\"border-top: 1px solid #9ca3af; padding-top: 6px; width: 200px; margin-left: auto;\">\n          <div style=\"font-weight: 600;\">{{verified_by_name}}</div>\n          <div style=\"font-size: 10px; color: #9ca3af;\">Verified by</div>\n        </div>\n      </td>\n      {{/if}}\n    </tr>\n  </table>\n\n  <div style=\"margin-top: 30px; text-align: center; font-size: 10.5px; color: #999;\">\n    This is a computer-generated report -- {{hospital_name}}.\n  </div>\n</div>\n",
-  medicine_prescription: "<div style=\"max-width: 780px; margin: 0 auto; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 13px;\">\n\n  <table style=\"width: 100%; border-collapse: collapse; margin-bottom: 6px;\">\n    <tr>\n      <td style=\"width: 100px; vertical-align: top;\">{{{logo_html}}}</td>\n      <td style=\"vertical-align: top;\">\n        <div style=\"font-size: 24px; font-weight: 800; letter-spacing: .3px; text-decoration: underline;\">{{hospital_name}}</div>\n        <div style=\"font-size: 11px; font-weight: 700; margin-top: 2px;\">{{hospital_unit_line}}</div>\n        <div style=\"font-size: 10px; font-weight: 700;\">REGN NO : {{hospital_regn_no}}</div>\n      </td>\n      <td style=\"text-align: right; vertical-align: top; font-size: 10.5px; line-height: 1.5;\">\n        {{hospital_address_line1}}<br/>\n        {{hospital_address_line2}}<br/>\n        {{hospital_city_state_pin}}<br/>\n        Tel: {{hospital_phone}}\n      </td>\n    </tr>\n  </table>\n\n  <div style=\"text-align: center; font-size: 16px; font-weight: 700; border-top: 1.5px solid #333; border-bottom: 1.5px solid #333; padding: 8px 0; margin: 10px 0 16px;\">\n    MEDICINE PRESCRIPTION\n  </div>\n\n  <table style=\"width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 16px;\">\n    <tr>\n      <td style=\"width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;\">\n        <table style=\"width: 100%; font-size: 12px;\">\n          <tr><td style=\"width: 110px; color: #444;\">PATIENT ID</td><td>: <strong>{{patient_id}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">NAME</td><td>: <strong>{{patient_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">AGE/GENDER</td><td>: <strong>{{patient_age}} / {{patient_gender}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">MOBILE</td><td>: <strong>{{patient_mobile}}</strong></td></tr>\n        </table>\n      </td>\n      <td style=\"width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9;\">\n        <table style=\"width: 100%; font-size: 12px;\">\n          <tr><td style=\"width: 110px; color: #444;\">VISIT NO</td><td>: <strong>{{visit_number}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">DATE</td><td>: <strong>{{print_date}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">DOCTOR</td><td>: <strong>Dr. {{doctor_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">DOCTOR REGN NO</td><td>: <strong>{{doctor_regn_no}}</strong></td></tr>\n        </table>\n      </td>\n    </tr>\n  </table>\n\n  {{#if hasPrescriptions}}\n  <div style=\"margin-bottom: 14px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #444; margin-bottom: 6px;\">Medicines Prescribed</div>\n    <table style=\"width: 100%; border-collapse: collapse; font-size: 12.5px;\">\n      <tr style=\"background: #e9edf2;\">\n        <th style=\"border: 1px solid #999; padding: 7px; text-align: left;\">Medicine</th>\n        <th style=\"border: 1px solid #999; padding: 7px;\">Eye</th>\n        <th style=\"border: 1px solid #999; padding: 7px;\">Dosage</th>\n        <th style=\"border: 1px solid #999; padding: 7px;\">How Often</th>\n        <th style=\"border: 1px solid #999; padding: 7px;\">Duration</th>\n      </tr>\n      {{#each prescriptions}}\n      <tr>\n        <td style=\"border: 1px solid #999; padding: 7px; font-weight: 600;\">{{drug}}{{#if isTaper}} <span style=\"font-size: 9px; font-weight: 700; color: #7c3aed; text-transform: uppercase;\">(Taper)</span>{{/if}}</td>\n        <td style=\"border: 1px solid #999; padding: 7px; text-align: center;\">{{eye}}</td>\n        <td style=\"border: 1px solid #999; padding: 7px; text-align: center;\">{{dosage}}</td>\n        {{#if isTaper}}\n        <td colspan=\"2\" style=\"border: 1px solid #999; padding: 7px; text-align: center; font-size: 11.5px;\">{{frequency}}</td>\n        {{else}}\n        <td style=\"border: 1px solid #999; padding: 7px; text-align: center;\">{{frequency}}</td>\n        <td style=\"border: 1px solid #999; padding: 7px; text-align: center;\">{{duration}}</td>\n        {{/if}}\n      </tr>\n      {{/each}}\n    </table>\n  </div>\n  {{else}}\n  <div style=\"font-size: 12.5px; color: #9ca3af; margin-bottom: 14px;\">No medicines prescribed for this visit.</div>\n  {{/if}}\n\n  <div style=\"background: #eef4fb; border: 1px solid #1e4e8c; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #123a66; margin-bottom: 20px;\">\n    Please take medicines exactly as instructed above. If you have any doubt about how to use a medicine, ask the pharmacist before you leave.\n  </div>\n\n  <table style=\"width: 100%; margin-top: 40px;\">\n    <tr>\n      <td style=\"font-size: 12px;\">&nbsp;</td>\n      <td style=\"text-align: right; font-size: 12px;\">\n        <div>Dr. {{doctor_name}}</div>\n        <div style=\"font-size: 10.5px; color: #666;\">Reg No: {{doctor_regn_no}}</div>\n      </td>\n    </tr>\n  </table>\n\n  <div style=\"text-align: center; margin-top: 20px; font-size: 10.5px; color: #999;\">\n    For any Queries please contact us at {{hospital_phone}} or Email us at {{hospital_email}}\n  </div>\n</div>\n"
+  medicine_prescription: "<div style=\"max-width: 780px; margin: 0 auto; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 13px;\">\n\n  <table style=\"width: 100%; border-collapse: collapse; margin-bottom: 6px;\">\n    <tr>\n      <td style=\"width: 100px; vertical-align: top;\">{{{logo_html}}}</td>\n      <td style=\"vertical-align: top;\">\n        <div style=\"font-size: 24px; font-weight: 800; letter-spacing: .3px; text-decoration: underline;\">{{hospital_name}}</div>\n        <div style=\"font-size: 11px; font-weight: 700; margin-top: 2px;\">{{hospital_unit_line}}</div>\n        <div style=\"font-size: 10px; font-weight: 700;\">REGN NO : {{hospital_regn_no}}</div>\n      </td>\n      <td style=\"text-align: right; vertical-align: top; font-size: 10.5px; line-height: 1.5;\">\n        {{hospital_address_line1}}<br/>\n        {{hospital_address_line2}}<br/>\n        {{hospital_city_state_pin}}<br/>\n        Tel: {{hospital_phone}}\n      </td>\n    </tr>\n  </table>\n\n  <div style=\"text-align: center; font-size: 16px; font-weight: 700; border-top: 1.5px solid #333; border-bottom: 1.5px solid #333; padding: 8px 0; margin: 10px 0 16px;\">\n    MEDICINE PRESCRIPTION\n  </div>\n\n  <table style=\"width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 16px;\">\n    <tr>\n      <td style=\"width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;\">\n        <table style=\"width: 100%; font-size: 12px;\">\n          <tr><td style=\"width: 110px; color: #444;\">PATIENT ID</td><td>: <strong>{{patient_id}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">NAME</td><td>: <strong>{{patient_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">AGE/GENDER</td><td>: <strong>{{patient_age}} / {{patient_gender}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">MOBILE</td><td>: <strong>{{patient_mobile}}</strong></td></tr>\n        </table>\n      </td>\n      <td style=\"width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9;\">\n        <table style=\"width: 100%; font-size: 12px;\">\n          <tr><td style=\"width: 110px; color: #444;\">VISIT NO</td><td>: <strong>{{visit_number}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">DATE</td><td>: <strong>{{print_date}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">DOCTOR</td><td>: <strong>Dr. {{doctor_name}}</strong></td></tr>\n          <tr><td style=\"color: #444;\">DOCTOR REGN NO</td><td>: <strong>{{doctor_regn_no}}</strong></td></tr>\n        </table>\n      </td>\n    </tr>\n  </table>\n\n  {{#if hasPrescriptions}}\n  <div style=\"margin-bottom: 14px;\">\n    <div style=\"font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #444; margin-bottom: 6px;\">Medicines Prescribed</div>\n    <table style=\"width: 100%; border-collapse: collapse; font-size: 12.5px;\">\n      <tr style=\"background: #e9edf2;\">\n        <th style=\"border: 1px solid #999; padding: 7px; text-align: left;\">Medicine</th>\n        <th style=\"border: 1px solid #999; padding: 7px;\">Eye</th>\n        <th style=\"border: 1px solid #999; padding: 7px;\">Dosage</th>\n        <th style=\"border: 1px solid #999; padding: 7px;\">How Often</th>\n        <th style=\"border: 1px solid #999; padding: 7px;\">Duration</th>\n      </tr>\n      {{#each prescriptions}}\n      <tr>\n        <td style=\"border: 1px solid #999; padding: 7px; font-weight: 600;\">{{drug}}{{#if isTaper}} <span style=\"font-size: 9px; font-weight: 700; color: #7c3aed; text-transform: uppercase;\">(Taper)</span>{{/if}}</td>\n        <td style=\"border: 1px solid #999; padding: 7px; text-align: center;\">{{eye}}</td>\n        <td style=\"border: 1px solid #999; padding: 7px; text-align: center;\">{{dosage}}</td>\n        {{#if isTaper}}\n        <td colspan=\"2\" style=\"border: 1px solid #999; padding: 7px; text-align: center; font-size: 11.5px;\">{{frequency}}</td>\n        {{else}}\n        <td style=\"border: 1px solid #999; padding: 7px; text-align: center;\">{{frequency}}</td>\n        <td style=\"border: 1px solid #999; padding: 7px; text-align: center;\">{{duration}}</td>\n        {{/if}}\n      </tr>\n      {{/each}}\n    </table>\n  </div>\n  {{else}}\n  <div style=\"font-size: 12.5px; color: #9ca3af; margin-bottom: 14px;\">No medicines prescribed for this visit.</div>\n  {{/if}}\n\n  <div style=\"background: #eef4fb; border: 1px solid #1e4e8c; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #123a66; margin-bottom: 20px;\">\n    Please take medicines exactly as instructed above. If you have any doubt about how to use a medicine, ask the pharmacist before you leave.\n  </div>\n\n  <table style=\"width: 100%; margin-top: 40px;\">\n    <tr>\n      <td style=\"font-size: 12px;\">&nbsp;</td>\n      <td style=\"text-align: right; font-size: 12px;\">\n        <div>Dr. {{doctor_name}}</div>\n        <div style=\"font-size: 10.5px; color: #666;\">Reg No: {{doctor_regn_no}}</div>\n      </td>\n    </tr>\n  </table>\n\n  <div style=\"text-align: center; margin-top: 20px; font-size: 10.5px; color: #999;\">\n    For any Queries please contact us at {{hospital_phone}} or Email us at {{hospital_email}}\n  </div>\n</div>\n",
+  medical_fitness_form: `<div style="max-width: 780px; margin: 0 auto; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 12.5px; line-height: 1.5;">
+
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 6px;">
+    <tr>
+      <td style="width: 90px; vertical-align: top;">{{{logo_html}}}</td>
+      <td style="vertical-align: top;">
+        <div style="font-size: 20px; font-weight: 800; letter-spacing: .3px; text-decoration: underline;">{{hospital_name}}</div>
+        <div style="font-size: 10px; font-weight: 700; margin-top: 2px;">{{hospital_unit_line}}</div>
+        <div style="font-size: 9px; font-weight: 700;">REGN NO : {{hospital_regn_no}}</div>
+      </td>
+      <td style="text-align: right; vertical-align: top; font-size: 9.5px; line-height: 1.5;">
+        {{hospital_address_line1}}<br/>
+        {{hospital_address_line2}}<br/>
+        {{hospital_city_state_pin}}<br/>
+        Tel: {{hospital_phone}}
+      </td>
+    </tr>
+  </table>
+
+  <div style="text-align: center; border-top: 1.5px solid #333; border-bottom: 1.5px solid #333; padding: 8px 0; margin: 10px 0 14px;">
+    <div style="font-size: 15px; font-weight: 700;">Medical Fitness Form for Cataract Surgery</div>
+    <div style="font-size: 13px; font-weight: 600; margin-top: 2px;">मोतीयाबिंद सर्जरी हेतु चिकित्सकीय फिटनेस प्रमाणपत्र</div>
+  </div>
+
+  <table style="width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 14px;">
+    <tr>
+      <td style="width: 50%; padding: 8px 12px; font-size: 12px; border-right: 1px solid #999;">PATIENT NAME/ रोगी का नाम: <strong>{{patient_name}}</strong></td>
+      <td style="width: 50%; padding: 8px 12px; font-size: 12px;">AGE/आयु: <strong>{{patient_age}}</strong></td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 12px; font-size: 12px; border-right: 1px solid #999; border-top: 1px solid #999;">UHID/रजिस्ट्रेशन संख्या: <strong>{{patient_uhid}}</strong></td>
+      <td style="padding: 8px 12px; font-size: 12px; border-top: 1px solid #999;">GENDER/ लिंग: <strong>{{patient_gender}}</strong></td>
+    </tr>
+  </table>
+
+  <div style="margin-bottom: 10px;">
+    <div style="font-weight: 700; font-size: 12.5px; margin-bottom: 4px;">1. SYSTEMIC HISTORY / सामान्य चिकित्सा इतिहास</div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <tr>
+        <td style="width: 50%; padding: 2px 0;">{{box_diabetes}} Diabetes / मधुमेह</td>
+        <td style="width: 50%; padding: 2px 0;">{{box_hypertension}} Hypertension / उच्च रक्तचाप</td>
+      </tr>
+      <tr>
+        <td style="padding: 2px 0;">{{box_heart}} Heart Disease / हृदय रोग</td>
+        <td style="padding: 2px 0;">{{box_thyroid}} Thyroid Disorder/ थायराइड विकार</td>
+      </tr>
+      <tr>
+        <td style="padding: 2px 0;">{{box_asthma}} Asthma / दमा रोग</td>
+        <td style="padding: 2px 0;">{{box_kidney}} Kidney Disease/ गुर्दे की बीमारी</td>
+      </tr>
+    </table>
+    <div style="padding: 2px 0;">{{box_systemic_other}} Other: {{systemic_other_text}}</div>
+  </div>
+
+  <div style="margin-bottom: 10px;">
+    <div style="font-weight: 700; font-size: 12.5px; margin-bottom: 4px;">2. PREVIOUS SURGERY /HOSPITALIZATION/ पूर्व सर्जरी / अस्पताल में भर्ती</div>
+    <div style="min-height: 30px; border-bottom: 1px solid #999; font-size: 12px; white-space: pre-wrap;">{{previous_surgery}}</div>
+  </div>
+
+  <div style="margin-bottom: 10px;">
+    <div style="font-weight: 700; font-size: 12.5px; margin-bottom: 4px;">3. CURRENT MEDICATIONS/ वर्तमान दवाइयां</div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <tr>
+        <td style="width: 60%; padding: 2px 0;">{{box_med_antidiabetic}} Anti-diabetic medicines / Insulin</td>
+        <td style="width: 40%; padding: 2px 0;">{{box_med_bp}} Blood pressure medicines</td>
+      </tr>
+    </table>
+    <div style="padding: 2px 0;">{{box_med_bloodthinners}} Blood thinners (Aspirin / Clopidogrel / Warfarin etc.)</div>
+    <div style="padding: 2px 0;">{{box_med_other}} Other medicines: {{med_other_text}}</div>
+  </div>
+
+  <div style="margin-bottom: 10px;">
+    <div style="font-weight: 700; font-size: 12.5px; margin-bottom: 4px;">4. DRUG ALLERGIES/ दवाओं से एलर्जी</div>
+    <div style="padding: 2px 0;">{{box_allergy_none}} No Known Allergy</div>
+    <div style="padding: 2px 0;">{{box_allergy_yes}} Yes / हां &rarr; {{allergy_details}}</div>
+  </div>
+
+  <div style="margin-bottom: 10px;">
+    <div style="font-weight: 700; font-size: 12.5px; margin-bottom: 4px;">5. VITAL SIGNS/ महत्वपूर्ण शारीरिक संकेत</div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <tr>
+        <td style="width: 50%; padding: 2px 0;">Blood Pressure: <strong>{{vital_bp}}</strong> mmHg</td>
+        <td style="width: 50%; padding: 2px 0;">Pulse: <strong>{{vital_pulse}}</strong> / min</td>
+      </tr>
+      <tr>
+        <td style="padding: 2px 0;">SpO&#8322;: <strong>{{vital_spo2}}</strong> %</td>
+        <td style="padding: 2px 0;">Blood Sugar (if diabetic): <strong>{{vital_blood_sugar}}</strong> mg/dl</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="margin-bottom: 12px;">
+    <div style="font-weight: 700; font-size: 12.5px; margin-bottom: 4px;">6. INVESTIGATIONS/ जांच</div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <tr>
+        <td style="width: 50%; padding: 2px 0;">Hemoglobin (Hb): <strong>{{inv_hb}}</strong></td>
+        <td style="width: 50%; padding: 2px 0;">Random Blood Sugar (RBS): <strong>{{inv_rbs}}</strong></td>
+      </tr>
+      <tr>
+        <td style="padding: 2px 0;">Fasting Blood Sugar (FBS): <strong>{{inv_fbs}}</strong></td>
+        <td style="padding: 2px 0;">PPBS: <strong>{{inv_ppbs}}</strong></td>
+      </tr>
+      <tr>
+        <td style="padding: 2px 0;">HIV I &amp; II: {{box_hiv_nonreactive}} Non-Reactive &nbsp; {{box_hiv_reactive}} Reactive</td>
+        <td style="padding: 2px 0;">HBsAg: {{box_hbsag_nonreactive}} Non-Reactive &nbsp; {{box_hbsag_reactive}} Reactive</td>
+      </tr>
+    </table>
+    <div style="padding: 2px 0;">Other: {{inv_other}}</div>
+  </div>
+
+  <div style="border-top: 1px solid #999; padding-top: 10px;">
+    <div style="font-weight: 700; font-size: 12.5px; margin-bottom: 6px;">7. PHYSICIAN CERTIFICATION/ चिकित्सक प्रमाणन</div>
+    <div style="font-size: 11.5px; margin-bottom: 4px;">
+      I have examined the patient and certify that the patient is medically <strong>{{fitness_word}}</strong> for cataract surgery under local / topical anesthesia.
+    </div>
+    <div style="font-size: 11.5px; margin-bottom: 10px;">
+      मैंने रोगी का परीक्षण किया है और प्रमाणित करता / करती हूं कि रोगी लोकल / टॉपिकल एनेस्थीसिया में मोतीयाबिंद सर्जरी के लिए चिकित्सकीय रूप से <strong>{{fitness_word_hi}}</strong> है।
+    </div>
+    {{#if fitness_notes}}
+    <div style="font-size: 11.5px; margin-bottom: 10px; color: #b91c1c;"><strong>Remarks:</strong> {{fitness_notes}}</div>
+    {{/if}}
+
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px;">
+      <tr>
+        <td style="width: 50%; padding: 4px 0;">Doctor Name / चिकित्सक का नाम: <strong>{{doctor_name}}</strong></td>
+        <td style="width: 50%; padding: 4px 0;">Qualification / योग्यता: <strong>{{doctor_qualification}}</strong></td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0;">Registration Number / पंजीकरण संख्या: <strong>{{doctor_regn_no}}</strong></td>
+        <td style="padding: 4px 0;">Date / दिनांक: <strong>{{cert_date}}</strong></td>
+      </tr>
+    </table>
+
+    <div style="margin-top: 30px;">
+      Signature / हस्ताक्षर: ______________________
+    </div>
+  </div>
+
+</div>
+`
 };
 
 const PRINT_TEMPLATE_CATALOG = [
@@ -343,6 +483,7 @@ const PRINT_TEMPLATE_CATALOG = [
   { key: 'consent_form', name: 'Consent Form', description: 'Coming soon.', comingSoon: true },
   { key: 'discharge_summary', name: 'Discharge Summary', description: 'Printed at Post-op discharge -- procedure, IOL, medications, instructions, follow-up schedule.' },
   { key: 'external_tests_requisition', name: 'External Tests Requisition', description: 'Printed from Surgical Journey -- list of external tests (blood work, HIV test, etc) for the patient to take to an outside lab.' },
+  { key: 'medical_fitness_form', name: 'Medical Fitness Form (Cataract Surgery)', description: 'Bilingual pre-op fitness certificate, printed from Medical Fitness once the doctor gives clearance -- goes in the patient file.' },
 ];
 
 // ── Hospital Settings -- the "actual fields to edit" form (name,
@@ -1772,6 +1913,78 @@ export async function renderMedicinePrescriptionHtml(visitId) {
   };
 
   const template = await getPrintTemplate('medicine_prescription');
+  const compiled = Handlebars.compile(template.html);
+  return { html: compiled(context) };
+}
+
+// ── MEDICAL FITNESS FORM -- bilingual pre-op certificate, printed from
+// the Medical Fitness module once a decision is made. Checkboxes are
+// rendered as filled/empty Unicode box characters based on form_data. ──
+function chk(flag) {
+  return flag ? '\u2611' : '\u2610';
+}
+
+export async function renderMedicalFitnessFormHtml(referralId) {
+  const supabase = await createClient();
+
+  const { data: referral, error } = await supabase
+    .from('medical_fitness_referrals')
+    .select('*, visits(patients(first_name, last_name, uhid, age, gender))')
+    .eq('id', referralId)
+    .single();
+  if (error || !referral) return { error: 'Referral not found.' };
+
+  const patient = referral.visits?.patients;
+  const fd = referral.form_data || {};
+  const sys = fd.systemicHistory || {};
+  const med = fd.currentMedications || {};
+  const allergy = fd.allergies || {};
+  const vitals = fd.vitals || {};
+  const inv = fd.investigations || {};
+  const cert = fd.certification || {};
+
+  const settings = await getHospitalSettings();
+
+  const context = {
+    hospital_name: settings.name, hospital_unit_line: settings.unit_line, hospital_regn_no: settings.regn_no,
+    hospital_address_line1: settings.address_line1, hospital_address_line2: settings.address_line2,
+    hospital_city_state_pin: settings.city_state_pin, hospital_phone: settings.phone,
+    logo_html: logoHtml(settings),
+
+    patient_name: `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim() || '--',
+    patient_age: patient?.age ?? '--', patient_gender: patient?.gender || '--', patient_uhid: patient?.uhid || '--',
+
+    box_diabetes: chk(sys.diabetes), box_hypertension: chk(sys.hypertension),
+    box_heart: chk(sys.heartDisease), box_thyroid: chk(sys.thyroid),
+    box_asthma: chk(sys.asthma), box_kidney: chk(sys.kidneyDisease),
+    box_systemic_other: chk(!!sys.other), systemic_other_text: sys.other || '',
+
+    previous_surgery: fd.previousSurgeryHistory || '',
+
+    box_med_antidiabetic: chk(med.antiDiabetic), box_med_bp: chk(med.bpMedicines),
+    box_med_bloodthinners: chk(med.bloodThinners),
+    box_med_other: chk(!!med.other), med_other_text: med.other || '',
+
+    box_allergy_none: chk(allergy.none), box_allergy_yes: chk(allergy.yes), allergy_details: allergy.details || '',
+
+    vital_bp: vitals.bp || '--', vital_pulse: vitals.pulse || '--',
+    vital_spo2: vitals.spo2 || '--', vital_blood_sugar: vitals.bloodSugar || '--',
+
+    inv_hb: inv.hb || '--', inv_rbs: inv.rbs || '--', inv_fbs: inv.fbs || '--', inv_ppbs: inv.ppbs || '--',
+    box_hiv_nonreactive: chk(inv.hiv === 'Non-Reactive'), box_hiv_reactive: chk(inv.hiv === 'Reactive'),
+    box_hbsag_nonreactive: chk(inv.hbsag === 'Non-Reactive'), box_hbsag_reactive: chk(inv.hbsag === 'Reactive'),
+    inv_other: inv.other || '--',
+
+    fitness_word: referral.status === 'Not Fit' ? 'not fit' : 'fit',
+    fitness_word_hi: referral.status === 'Not Fit' ? '\u0905\u0928\u092b\u093f\u091f' : '\u092b\u093f\u091f',
+    fitness_notes: referral.fitness_notes || '',
+
+    doctor_name: cert.doctorName || '--', doctor_qualification: cert.qualification || '--',
+    doctor_regn_no: cert.registrationNo || '--',
+    cert_date: referral.cleared_at ? fmtDate(referral.cleared_at) : fmtDate(new Date().toISOString()),
+  };
+
+  const template = await getPrintTemplate('medical_fitness_form');
   const compiled = Handlebars.compile(template.html);
   return { html: compiled(context) };
 }

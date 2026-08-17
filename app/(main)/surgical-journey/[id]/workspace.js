@@ -12,7 +12,7 @@ import {
 import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
   selectPackage, changePackage, getPackagesForCase,
-  setDecision, referForMedicalFitness, markReadyForScheduling, bookOTSlot, getSurgeons, addCaseNote,
+  setDecision, markReadyForScheduling, bookOTSlot, getSurgeons, addCaseNote,
 } from '@/app/(main)/counselling/actions';
 import { getOTAvailability, rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
 import { openPopup } from '@/lib/popup';
@@ -267,11 +267,8 @@ function FitnessSection({ sc, fitnessReferral, onAction, active, num }) {
       {sc.fitness_required === false && !fitnessReferral ? (
         <span className="badge b-purple"><i className="ti ti-player-skip-forward"></i> Not required for this case</span>
       ) : !fitnessReferral ? (
-        <div>
-          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}>Refer to a doctor to review and clear for anaesthesia/surgery.</div>
-          <button className="btn btn-sm" onClick={() => onAction(referForMedicalFitness)(sc.id)}>
-            <i className="ti ti-heart-rate-monitor"></i> Refer to Doctor
-          </button>
+        <div style={{ fontSize: 11.5, color: 'var(--g500)' }}>
+          <i className="ti ti-info-circle"></i> Will appear in the Medical Fitness module automatically once the OT date is booked.
         </div>
       ) : fitnessReferral.status === 'Pending Review' ? (
         <span className="badge b-amber"><i className="ti ti-clock"></i> Awaiting doctor review (referred {new Date(fitnessReferral.referred_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}) -- <a href="/medical-fitness" style={{ color: 'var(--blue)', fontWeight: 600 }}>Open Medical Fitness &rarr;</a></span>
@@ -284,10 +281,8 @@ function FitnessSection({ sc, fitnessReferral, onAction, active, num }) {
         <div>
           <span className="badge b-red"><i className="ti ti-x"></i> Not Fit</span>
           {fitnessReferral.fitness_notes && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 6 }}>{fitnessReferral.fitness_notes}</div>}
-          <div style={{ marginTop: 8 }}>
-            <button className="btn btn-sm" onClick={() => onAction(referForMedicalFitness)(sc.id)}>
-              <i className="ti ti-refresh"></i> Refer Again
-            </button>
+          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 6 }}>
+            <i className="ti ti-info-circle"></i> Doctor can review again from the <a href="/medical-fitness" style={{ color: 'var(--blue)', fontWeight: 600 }}>Medical Fitness module</a>.
           </div>
         </div>
       )}

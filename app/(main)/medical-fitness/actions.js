@@ -166,3 +166,50 @@ export async function markNotFit(referralId, notes) {
   return { success: true };
 }
 
+// ── FITNESS FORM (Medical Fitness Form for Cataract Surgery) --
+// structured bilingual form data saved as the doctor fills it in
+// (systemic history, medications, allergies, vitals, investigation
+// summary values, physician certification). Printed as a PDF for the
+// patient file once a decision is made. ──
+export async function saveFitnessFormDraft(referralId, formData) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('medical_fitness_referrals').update({ form_data: formData }).eq('id', referralId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Saves the form and records the clearance decision in one step --
+// what the doctor actually uses day to day, instead of a separate
+// save-then-decide flow.
+export async function submitFitnessForm(referralId, formData, decision, notes) {
+  const supabase = await createClient();
+  if (!['Cleared', 'Not Fit'].includes(decision)) return { error: 'Invalid decision.' };
+  if (decision === 'Not Fit' && !notes?.trim()) return { error: 'Notes are required when marking not fit.' };
+
+  const { data: userData } = await supabase.auth.getUser();
+  const { data: referral } = await supabase.from('medical_fitness_referrals').select('surgical_case_id').eq('id', referralId).single();
+  if (!referral) return { error: 'Referral not found.' };
+
+  const { error } = await supabase.from('medical_fitness_referrals').update({
+    status: decision, fitness_notes: notes?.trim() || null, form_data: formData,
+    cleared_by: userData?.user?.id || null, cleared_at: new Date().toISOString(),
+    reviewing_doctor_id: userData?.user?.id || null,
+  }).eq('id', referralId);
+  if (error) return { error: error.message };
+
+  if (decision === 'Cleared') {
+    await supabase.from('surgical_cases').update({ fitness_cleared: true }).eq('id', referral.surgical_case_id);
+  }
+  return { success: true };
+}
+
+// Pre-fills the physician certification block with whoever's signed
+// in -- doctor still confirms/edits before printing.
+export async function getCurrentDoctorProfile() {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) return null;
+  const { data } = await supabase.from('profiles').select('full_name, registration_no').eq('id', userData.user.id).maybeSingle();
+  return data || null;
+}
+

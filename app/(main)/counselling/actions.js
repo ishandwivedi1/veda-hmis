@@ -538,47 +538,9 @@ export async function markFitnessCleared(caseId) {
   return { success: true };
 }
 
-// Medical fitness is no longer self-certified by the counsellor --
-// it's referred to a doctor, who reviews clinical data, orders any
-// investigations needed, and clears (or doesn't) via the Medical
-// Fitness Dashboard/Workspace. This creates that referral, or -- if
-// the case was previously marked Not Fit -- resets the same row back
-// to Pending Review rather than creating a duplicate.
-export async function referForMedicalFitness(caseId) {
-  const supabase = await createClient();
-  const gateError = await requirePostDecision(supabase, caseId);
-  if (gateError) return { error: gateError };
-
-  const { data: sc } = await supabase.from('surgical_cases').select('visit_id, encounter_id').eq('id', caseId).single();
-  if (!sc) return { error: 'Case not found.' };
-
-  const { data: userData } = await supabase.auth.getUser();
-  const { data: existing } = await supabase
-    .from('medical_fitness_referrals')
-    .select('id, status')
-    .eq('surgical_case_id', caseId)
-    .order('created_at', { ascending: false })
-    .limit(1);
-
-  if (existing && existing.length > 0 && existing[0].status === 'Pending Review') {
-    return { error: 'Already referred and awaiting doctor review.' };
-  }
-
-  if (existing && existing.length > 0 && existing[0].status === 'Not Fit') {
-    const { error } = await supabase.from('medical_fitness_referrals').update({
-      status: 'Pending Review', referred_by: userData?.user?.id || null, referred_at: new Date().toISOString(),
-      reviewing_doctor_id: null, fitness_notes: null, cleared_by: null, cleared_at: null,
-    }).eq('id', existing[0].id);
-    if (error) return { error: error.message };
-    return { success: true };
-  }
-
-  const { error } = await supabase.from('medical_fitness_referrals').insert({
-    surgical_case_id: caseId, visit_id: sc.visit_id, encounter_id: sc.encounter_id, referred_by: userData?.user?.id || null,
-  });
-  if (error) return { error: error.message };
-  return { success: true };
-}
+// Medical fitness enters the workflow automatically once an OT date is
+// booked (see ensureFitnessReferral / bookOTSlot above) -- no manual
+// "Refer to Doctor" step needed anywhere.
 
 // ── Ready for Scheduling ──
 // NOTE: this intentionally does NOT require consent_taken. Per BR-SCC-005,
@@ -645,6 +607,37 @@ export async function getOTAvailability(date) {
   return data || [];
 }
 
+// Shared core used both by the (now-removed-from-UI) manual referral
+// path and by the auto-referral that fires once an OT date is booked.
+async function ensureFitnessReferral(supabase, caseId) {
+  const { data: sc } = await supabase.from('surgical_cases').select('visit_id, encounter_id, fitness_required').eq('id', caseId).single();
+  if (!sc || sc.fitness_required === false) return;
+
+  const { data: existing } = await supabase
+    .from('medical_fitness_referrals')
+    .select('id, status')
+    .eq('surgical_case_id', caseId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (existing && existing.length > 0 && (existing[0].status === 'Pending Review' || existing[0].status === 'Cleared')) return;
+
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (existing && existing.length > 0 && existing[0].status === 'Not Fit') {
+    await supabase.from('medical_fitness_referrals').update({
+      status: 'Pending Review', referred_by: userData?.user?.id || null, referred_at: new Date().toISOString(),
+      reviewing_doctor_id: null, fitness_notes: null, cleared_by: null, cleared_at: null,
+    }).eq('id', existing[0].id);
+    return;
+  }
+
+  await supabase.from('medical_fitness_referrals').insert({
+    surgical_case_id: caseId, visit_id: sc.visit_id, encounter_id: sc.encounter_id, referred_by: userData?.user?.id || null,
+    referred_at: new Date().toISOString(), status: 'Pending Review',
+  });
+}
+
 export async function bookOTSlot(caseId, date, sessionId, surgeonId, notes) {
   const supabase = await createClient();
   if (!date) return { error: 'Date is required.' };
@@ -659,6 +652,13 @@ export async function bookOTSlot(caseId, date, sessionId, surgeonId, notes) {
   });
   if (error) return { error: error.message };
   if (data?.error) return { error: data.error };
+
+  // Medical Fitness now enters the workflow automatically once a
+  // surgery date exists, instead of needing a separate "Refer to
+  // Doctor" click -- closer to the actual surgery date is when
+  // clearance is clinically useful anyway.
+  await ensureFitnessReferral(supabase, caseId);
+
   return { success: true };
 }
 
