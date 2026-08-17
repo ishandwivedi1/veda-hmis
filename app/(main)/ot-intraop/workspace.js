@@ -57,7 +57,6 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   const [consumableName, setConsumableName] = useState('');
   const [consumableOptions, setConsumableOptions] = useState([]);
   const [iolCatalog, setIolCatalog] = useState([]);
-  const [checkinConsumableId, setCheckinConsumableId] = useState('');
   const [eventName, setEventName] = useState('');
   const [eventSeverity, setEventSeverity] = useState('Mild');
   const [complName, setComplName] = useState('');
@@ -415,6 +414,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid var(--red)' }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 4 }}><i className="ti ti-scalpel"></i> Procedure</div>
               <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>{sc.procedure_name}</div>
+              {sc.surgery_code && <div style={{ fontSize: 10.5, color: 'var(--g500)', marginTop: 2 }}>{sc.surgery_code}</div>}
             </div>
             <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid var(--blue)' }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 4 }}><i className="ti ti-eye"></i> Eye</div>
@@ -648,40 +648,6 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
               <button className="btn btn-sm" style={{ background: 'var(--blue)', color: '#fff', border: 'none', marginTop: 8 }} onClick={handleRecordAnaesthesia}><i className="ti ti-check"></i> Record anaesthesia</button>
             )}
             {intraop?.anaesthesia_recorded_at && <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6 }}><i className="ti ti-check"></i> Recorded</div>}
-          </div>
-
-          {/* Surgical Consumables -- pre-op selection via dropdown from
-              the Clinical Master; same underlying list as the quick-pick
-              badges in Intraoperative Management. */}
-          <div className="card">
-            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-box" style={{ color: 'var(--amber)' }}></i> Surgical Consumables</div>
-            {!isCompleted && (
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                <select className="fi fi-sm" style={{ flex: 1 }} value={checkinConsumableId} onChange={(e) => setCheckinConsumableId(e.target.value)}>
-                  <option value="">-- Select consumable --</option>
-                  {consumableOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <button
-                  className="btn btn-sm"
-                  style={{ background: 'var(--amber)', color: '#fff', border: 'none' }}
-                  onClick={() => {
-                    const selected = consumableOptions.find((c) => c.id === checkinConsumableId);
-                    if (!selected) return;
-                    handleAddConsumable(selected.name);
-                    setCheckinConsumableId('');
-                  }}
-                >
-                  <i className="ti ti-plus"></i> Add
-                </button>
-              </div>
-            )}
-            {consumables.map((c) => (
-              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', background: 'var(--g50)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
-                <i className="ti ti-box" style={{ color: 'var(--amber)' }}></i><span style={{ flex: 1 }}>{c.name}</span>
-                {!isCompleted && <button onClick={() => removeConsumable(c.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
-              </div>
-            ))}
-            {consumables.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>None selected yet.</div>}
           </div>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

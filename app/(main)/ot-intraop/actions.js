@@ -61,14 +61,14 @@ export async function getOTCaseList() {
   const [{ data: pending, error: pendingError }, { data: completedToday, error: completedError }] = await Promise.all([
     supabase
       .from('ot_schedule')
-      .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+      .select('*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
       .in('status', ['Scheduled', 'In Progress'])
       .lte('scheduled_date', todayIst)
       .order('scheduled_date', { ascending: true })
       .order('sequence_number', { ascending: true, nullsFirst: false }),
     supabase
       .from('ot_schedule')
-      .select('*, master_ot_sessions(name), surgical_cases(id, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+      .select('*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
       .eq('status', 'Completed')
       .eq('scheduled_date', todayIst)
       .order('scheduled_date', { ascending: true }),

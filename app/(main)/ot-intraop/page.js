@@ -93,7 +93,7 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
                 </button>
                 {!canOpen && <span className="badge b-red" style={{ marginLeft: 6, fontSize: 10 }}>Advance Due: Rs.{c.amountPayable.toFixed(0)}</span>}
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
-                  {patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
+                  {sc.surgery_code ? `${sc.surgery_code} -- ` : ''}{patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
                 </div>
               </div>
               {canOpen ? (

@@ -103,7 +103,7 @@ export default function SurgicalJourneyPage() {
                 <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>
                 {c.reminder_count > 0 && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>{c.reminder_count} call{c.reminder_count > 1 ? 's' : ''} logged</span>}
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
-                  {c.patients?.uhid} -- {c.procedure_name} -- {c.eye} -- {c.patients?.mobile}
+                  {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye} -- {c.patients?.mobile}
                 </div>
               </div>
               <button className="btn btn-sm" onClick={() => setReminderFor(c)}>
@@ -132,7 +132,7 @@ export default function SurgicalJourneyPage() {
               <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
               <span className={`badge ${STAGE_BADGE[c.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{STAGE_LABEL[c.status] || c.status}</span>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
-                {c.patients?.uhid} -- {c.procedure_name} -- {c.eye}{c.master_packages ? ` -- ${c.master_packages.name}` : ''}
+                {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye}{c.master_packages ? ` -- ${c.master_packages.name}` : ''}
               </div>
             </div>
             <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
