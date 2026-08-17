@@ -271,7 +271,30 @@ export async function recordAnaesthesia(otScheduleId, surgicalCaseId, values) {
   return { success: true };
 }
 
-// ── PROCEDURE / IMPLANT / NOTES / OUTCOME / RECOVERY (draft save) ──
+// ── CHECK-IN IOL VERIFICATION -- confirms the physical IOL on hand
+// matches the surgeon's approved plan, BEFORE surgery starts. Distinct
+// from implant_* (what was actually implanted, recorded in Intraop --
+// can differ if a complication forces a substitution mid-case). ──
+export async function saveCheckinIolVerification(otScheduleId, surgicalCaseId, values) {
+  const supabase = await createClient();
+  const recordId = await ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId);
+  if (!recordId) return { error: 'Could not create intraop record.' };
+  const { error } = await supabase.from('ot_intraop_records').update({
+    verified_iol_manufacturer: values.manufacturer || null,
+    verified_iol_model: values.model || null,
+    verified_iol_catalog_id: values.catalogId || null,
+    verified_iol_power: values.power || null,
+    verified_iol_category: values.category || null,
+    verified_iol_serial: values.serial || null,
+    verified_iol_expiry: values.expiry || null,
+    verified_iol_eye: values.eye || null,
+    verified_iol_at: new Date().toISOString(),
+  }).eq('id', recordId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+
 export async function saveIntraopDraft(otScheduleId, surgicalCaseId, values) {
   const supabase = await createClient();
   const recordId = await ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId);
