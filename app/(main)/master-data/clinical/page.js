@@ -25,6 +25,7 @@ const TABS = [
 ];
 
 const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
+const IOL_ORIGINS = ['Imported', 'Indian'];
 
 const HISTORY_CATEGORY_LABELS = {
   chief_complaint: 'Chief Complaint',
@@ -121,7 +122,7 @@ export default function ClinicalMastersPage() {
     setError('');
     setEditingId(record.id);
     if (activeTab === 'surgeries' || activeTab === 'diagnoses') setEditForm({ name: record.name, category: record.category });
-    else if (activeTab === 'iolCatalog') setEditForm({ brand: record.brand, model: record.model, manufacturer: record.manufacturer, category: record.category });
+    else if (activeTab === 'iolCatalog') setEditForm({ brand: record.brand, model: record.model, manufacturer: record.manufacturer, category: record.category, origin: record.origin || '' });
     else setEditForm({ name: record.name });
   }
   function cancelEdit() {
@@ -401,7 +402,7 @@ export default function ClinicalMastersPage() {
             </div>
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Brand (e.g. Alcon)" onChange={update('brand')} />
                   <input className="fi" placeholder="Model (e.g. AcrySof IQ)" onChange={update('model')} />
                   <input className="fi" placeholder="Manufacturer" onChange={update('manufacturer')} />
@@ -409,12 +410,16 @@ export default function ClinicalMastersPage() {
                     <option value="" disabled>Category</option>
                     {IOL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
+                  <select className="fi" onChange={update('origin')} defaultValue="">
+                    <option value="" disabled>Origin</option>
+                    {IOL_ORIGINS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
                 </div>
                 <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
               </div>
             )}
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Brand</th><th>Model</th><th>Manufacturer</th><th>Category</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Brand</th><th>Model</th><th>Manufacturer</th><th>Category</th><th>Origin</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {iolCatalog.map((i) => (
                   editingId === i.id ? (
@@ -426,6 +431,12 @@ export default function ClinicalMastersPage() {
                       <td>
                         <select className="fi fi-sm" value={editForm.category} onChange={updateEdit('category')}>
                           {IOL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select className="fi fi-sm" value={editForm.origin || ''} onChange={updateEdit('origin')}>
+                          <option value="">--</option>
+                          {IOL_ORIGINS.map((o) => <option key={o} value={o}>{o}</option>)}
                         </select>
                       </td>
                       <td><span className={`badge ${i.status === 'Active' ? 'b-green' : 'b-gray'}`}>{i.status}</span></td>
@@ -441,6 +452,7 @@ export default function ClinicalMastersPage() {
                       <td>{i.model}</td>
                       <td style={{ color: 'var(--g500)' }}>{i.manufacturer || '--'}</td>
                       <td><span className="badge b-gray">{i.category}</span></td>
+                      <td>{i.origin ? <span className={`badge ${i.origin === 'Imported' ? 'b-blue' : 'b-green'}`}>{i.origin}</span> : <span style={{ color: 'var(--g400)' }}>--</span>}</td>
                       <td><StatusToggle record={i} table="master_iol_catalog" onUpdate={refresh} /></td>
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => startEdit(i)}><i className="ti ti-edit"></i></button>
@@ -450,7 +462,7 @@ export default function ClinicalMastersPage() {
                   )
                 ))}
                 {iolCatalog.length === 0 && (
-                  <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No IOL catalog items added yet.</td></tr>
+                  <tr><td colSpan={8} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No IOL catalog items added yet.</td></tr>
                 )}
               </tbody>
             </table>
