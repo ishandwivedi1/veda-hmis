@@ -225,7 +225,7 @@ export default function Workspace({ caseId }) {
       <IolApprovalSection iolApproval={data.iolApproval} active={currentStep === 'iolApproval'} />
 
       {/* 5. IOL PROCUREMENT + DATE + BOOK */}
-      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} onAction={flash} active={currentStep === 'iol'} num={5} />
+      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} iolApproval={data.iolApproval} onAction={flash} active={currentStep === 'iol'} num={5} />
 
       {/* 6. MEDICAL FITNESS -- comes after the surgery date is booked
           (pre-anaesthesia clearance closer to the actual surgery date
@@ -621,7 +621,7 @@ function PackageDecisionSection({ sc, onAction, active }) {
 }
 
 // ── 4. IOL PROCUREMENT + DATE + BOOK SLOT ──────────────────────────
-function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
+function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, num }) {
   const [iolNotes, setIolNotesLocal] = useState(sc.iol_order_notes || '');
   const [surgeons, setSurgeons] = useState([]);
   const [surgeonId, setSurgeonId] = useState(sc.surgeon_id || '');
@@ -659,11 +659,11 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
 
   function openCalendarPicker() {
     const label = encodeURIComponent(`${sc.patients?.first_name || ''} ${sc.patients?.last_name || ''} -- ${sc.procedure_name || ''} (${sc.eye || ''})`.trim());
-    openPopup(`/ot-schedule?pickFor=${sc.id}&pickLabel=${label}`, `ot-calendar-${sc.id}`);
+    openPopup(`/ot-calendar-picker?pickFor=${sc.id}&pickLabel=${label}`, `ot-calendar-${sc.id}`, { width: 460, height: 680 });
   }
 
   const canBook = sc.status === 'Ready for Scheduling';
-  const readyGateMet = sc.package_id && sc.decision === 'Accepted' && (sc.biometry_done || sc.biometry_required === false);
+  const readyGateMet = sc.package_id && sc.decision === 'Accepted' && (sc.biometry_done || sc.biometry_required === false) && (iolApproval?.status === 'Approved' || sc.biometry_required === false);
 
   const [rescheduling, setRescheduling] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState('');
@@ -745,7 +745,7 @@ function IolAndBookingSection({ sc, otSchedule, onAction, active, num }) {
 
       {!readyGateMet && (
         <div style={{ fontSize: 11.5, color: 'var(--g400)', marginBottom: 10 }}>
-          <i className="ti ti-info-circle"></i> Package, decision, and biometry must all be settled before booking a date. Medical Fitness clearance happens after the date is booked.
+          <i className="ti ti-info-circle"></i> Package, decision, biometry, and IOL Approval must all be settled before booking a date. Medical Fitness clearance happens after the date is booked.
         </div>
       )}
 

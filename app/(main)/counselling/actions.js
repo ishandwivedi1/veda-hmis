@@ -608,7 +608,10 @@ export async function markReadyForScheduling(caseId) {
   }
   if (!sc.package_id) return { error: 'VAL-SCC-002: Select a package first.' };
   if (sc.decision !== 'Accepted') return { error: 'VAL-SCC-002: Patient decision must be Accepted.' };
-  if (!sc.fitness_cleared && sc.fitness_required !== false) return { error: 'VAL-SCC-002: Medical fitness must be cleared.' };
+  // Medical Fitness clearance now happens *after* the OT date is
+  // booked (closer to the actual surgery date is more clinically
+  // useful than clearing weeks in advance), so it's intentionally not
+  // gated here anymore -- see FitnessSection in Surgical Journey.
 
   const { error } = await supabase.from('surgical_cases').update({ status: 'Ready for Scheduling' }).eq('id', caseId);
   if (error) return { error: error.message };
