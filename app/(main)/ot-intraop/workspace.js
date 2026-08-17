@@ -275,7 +275,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   // check rather than something that can meaningfully drift anymore.
   const plannedEyeNorm = plannedPlan?.eye || null;
   const plannedSpecificIol = plannedPlan?.master_iol_catalog
-    ? `${plannedPlan.master_iol_catalog.manufacturer || ''} ${plannedPlan.master_iol_catalog.brand || ''} ${plannedPlan.master_iol_catalog.model || ''}`.trim().toLowerCase()
+    ? `${plannedPlan.master_iol_catalog.brand || ''} ${plannedPlan.master_iol_catalog.model || ''}`.trim().toLowerCase()
     : '';
   const actualSpecificIol = `${imMfr} ${imModel}`.trim().toLowerCase();
 
@@ -539,7 +539,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>Eye</span><strong>{EYE_LABEL[plannedPlan.eye] || plannedPlan.eye}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>IOL Power</span><strong>{plannedPower || '--'} D</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>IOL Category</span><strong>{plannedCategory || '--'}</strong></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>Specific IOL</span><strong style={{ textAlign: 'right' }}>{plannedPlan.master_iol_catalog ? `${plannedPlan.master_iol_catalog.manufacturer} ${plannedPlan.master_iol_catalog.brand || ''} ${plannedPlan.master_iol_catalog.model || ''}`.trim() : '--'}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}><span style={{ color: 'var(--g500)' }}>Specific IOL</span><strong style={{ textAlign: 'right' }}>{plannedPlan.master_iol_catalog ? `${plannedPlan.master_iol_catalog.brand || ''} ${plannedPlan.master_iol_catalog.model || ''}`.trim() : '--'}</strong></div>
                   </div>
                 ) : <div style={{ fontSize: 11, color: 'var(--g400)' }}>No IOL plan (non-IOL procedure)</div>}
               </div>
@@ -592,7 +592,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
                         onChange={(e) => {
                           const item = iolCatalog.find((c) => c.id === e.target.value);
                           setImCatalogId(e.target.value);
-                          setImMfr(item?.manufacturer || '');
+                          setImMfr(item?.brand || '');
                           setImModel(item ? `${item.brand}${item.model ? ' ' + item.model : ''}` : '');
                         }}
                         disabled={isReadOnly}
@@ -600,7 +600,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
                       >
                         <option value="">-- Select IOL --</option>
                         {(imCategory ? iolCatalog.filter((c) => c.category === imCategory) : iolCatalog).map((c) => (
-                          <option key={c.id} value={c.id}>{c.manufacturer} -- {c.brand}{c.model ? ` ${c.model}` : ''} ({c.code})</option>
+                          <option key={c.id} value={c.id}>{c.brand}{c.model ? ` ${c.model}` : ''} ({c.code})</option>
                         ))}
                       </select>
                       {imCategory && iolCatalog.length > 0 && iolCatalog.filter((c) => c.category === imCategory).length === 0 && (

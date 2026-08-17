@@ -748,7 +748,7 @@ const SAMPLE_BIOMETRY_RAW = {
     surgeon_notes: 'Aim for slight myopia. Standard monofocal, no toric correction needed.',
   },
   surgeon: { full_name: 'Dr. Nisha Bachkheti', registration_no: 'UKMC-3436' },
-  catalogItem: { brand: 'Alcon', model: 'AcrySof IQ', manufacturer: 'Alcon Laboratories' },
+  catalogItem: { brand: 'Alcon', model: 'AcrySof IQ' },
 };
 
 // ── Renders the actual invoice HTML for a given invoiceId. Picks the
@@ -1439,7 +1439,7 @@ function buildBiometryReportContext(settings, { patient, visit, record, surgeon,
     final_iol_power: record.final_iol_power || '--',
     final_iol_formula: record.selected_formula || '--',
     final_iol_category: record.final_iol_category || '--',
-    final_iol_lens: catalogItem ? `${catalogItem.brand || ''} -- ${catalogItem.model || ''}${catalogItem.manufacturer ? ` (${catalogItem.manufacturer})` : ''}`.trim() : '--',
+    final_iol_lens: catalogItem ? `${catalogItem.brand || ''} -- ${catalogItem.model || ''}`.trim() : '--',
     target_refraction: record.target_refraction || '--',
     surgeon_notes: record.surgeon_notes || null,
     approved_date: record.approved_at ? fmtDate(record.approved_at) : '--',

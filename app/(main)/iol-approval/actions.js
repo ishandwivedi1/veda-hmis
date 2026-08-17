@@ -130,7 +130,7 @@ export async function getIolApprovalDetail(caseId) {
   if (biometry) {
     const { data } = await supabase
       .from('biometry_iol_recommendations')
-      .select('*, master_iol_catalog(id, brand, model, manufacturer, category)')
+      .select('*, master_iol_catalog(id, brand, model, category)')
       .eq('biometry_record_id', biometry.id)
       .order('created_at', { ascending: true });
     recommendations = data || [];
@@ -138,7 +138,7 @@ export async function getIolApprovalDetail(caseId) {
 
   const { data: approval } = await supabase
     .from('iol_approvals')
-    .select('*, master_iol_catalog(brand, model, manufacturer, category)')
+    .select('*, master_iol_catalog(brand, model, category)')
     .eq('surgical_case_id', caseId)
     .maybeSingle();
 

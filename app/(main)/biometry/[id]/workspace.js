@@ -120,7 +120,7 @@ function RecommendationsSection({ recordId, recommendations, catalog, disabled, 
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8 }}>
           <select className="fi fi-sm" value={catalogId} onChange={(e) => setCatalogId(e.target.value)}>
             <option value="">Select brand/model...</option>
-            {catalog.map((c) => <option key={c.id} value={c.id}>{c.brand} {c.model}{c.manufacturer ? ` (${c.manufacturer})` : ''}</option>)}
+            {catalog.map((c) => <option key={c.id} value={c.id}>{c.brand} {c.model}</option>)}
           </select>
           <input className="fi fi-sm" placeholder="RE power" value={rePower} onChange={(e) => setRePower(e.target.value)} />
           <input className="fi fi-sm" placeholder="LE power" value={lePower} onChange={(e) => setLePower(e.target.value)} />

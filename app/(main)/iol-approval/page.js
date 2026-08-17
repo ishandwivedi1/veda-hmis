@@ -111,7 +111,7 @@ function ApproveModal({ item, onClose, onDone }) {
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
               <select className="fi fi-sm" value={catalogId} onChange={(e) => setCatalogId(e.target.value)}>
                 <option value="">Select brand/model...</option>
-                {catalog.map((c) => <option key={c.id} value={c.id}>{c.brand} {c.model}{c.manufacturer ? ` (${c.manufacturer})` : ''}</option>)}
+                {catalog.map((c) => <option key={c.id} value={c.id}>{c.brand} {c.model}</option>)}
               </select>
               <input className="fi fi-sm" placeholder="Power" value={power} onChange={(e) => setPower(e.target.value)} />
             </div>

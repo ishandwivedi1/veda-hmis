@@ -111,7 +111,7 @@ export async function getBiometryDetail(id) {
 
   const { data: recommendations } = await supabase
     .from('biometry_iol_recommendations')
-    .select('*, master_iol_catalog(brand, model, manufacturer, category)')
+    .select('*, master_iol_catalog(brand, model, category)')
     .eq('biometry_record_id', id)
     .order('created_at', { ascending: true });
 

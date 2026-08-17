@@ -122,7 +122,7 @@ export default function ClinicalMastersPage() {
     setError('');
     setEditingId(record.id);
     if (activeTab === 'surgeries' || activeTab === 'diagnoses') setEditForm({ name: record.name, category: record.category });
-    else if (activeTab === 'iolCatalog') setEditForm({ brand: record.brand, model: record.model, manufacturer: record.manufacturer, category: record.category, origin: record.origin || '' });
+    else if (activeTab === 'iolCatalog') setEditForm({ brand: record.brand, model: record.model, category: record.category, origin: record.origin || '', price: record.price ?? '' });
     else setEditForm({ name: record.name });
   }
   function cancelEdit() {
@@ -405,7 +405,7 @@ export default function ClinicalMastersPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Brand (e.g. Alcon)" onChange={update('brand')} />
                   <input className="fi" placeholder="Model (e.g. AcrySof IQ)" onChange={update('model')} />
-                  <input className="fi" placeholder="Manufacturer" onChange={update('manufacturer')} />
+                  <input className="fi" type="number" placeholder="Price (Rs.)" onChange={update('price')} />
                   <select className="fi" onChange={update('category')} defaultValue="">
                     <option value="" disabled>Category</option>
                     {IOL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -419,7 +419,7 @@ export default function ClinicalMastersPage() {
               </div>
             )}
             <table className="tbl">
-              <thead><tr><th>Code</th><th>Brand</th><th>Model</th><th>Manufacturer</th><th>Category</th><th>Origin</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Brand</th><th>Model</th><th>Price</th><th>Category</th><th>Origin</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {iolCatalog.map((i) => (
                   editingId === i.id ? (
@@ -427,7 +427,7 @@ export default function ClinicalMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{i.code}</td>
                       <td><input className="fi fi-sm" value={editForm.brand} onChange={updateEdit('brand')} /></td>
                       <td><input className="fi fi-sm" value={editForm.model} onChange={updateEdit('model')} /></td>
-                      <td><input className="fi fi-sm" value={editForm.manufacturer || ''} onChange={updateEdit('manufacturer')} /></td>
+                      <td><input className="fi fi-sm" type="number" value={editForm.price} onChange={updateEdit('price')} /></td>
                       <td>
                         <select className="fi fi-sm" value={editForm.category} onChange={updateEdit('category')}>
                           {IOL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -450,7 +450,7 @@ export default function ClinicalMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{i.code}</td>
                       <td style={{ fontWeight: 600 }}>{i.brand}</td>
                       <td>{i.model}</td>
-                      <td style={{ color: 'var(--g500)' }}>{i.manufacturer || '--'}</td>
+                      <td style={{ fontWeight: 600 }}>{i.price != null ? `Rs.${Number(i.price).toLocaleString('en-IN')}` : '--'}</td>
                       <td><span className="badge b-gray">{i.category}</span></td>
                       <td>{i.origin ? <span className={`badge ${i.origin === 'Imported' ? 'b-blue' : 'b-green'}`}>{i.origin}</span> : <span style={{ color: 'var(--g400)' }}>--</span>}</td>
                       <td><StatusToggle record={i} table="master_iol_catalog" onUpdate={refresh} /></td>

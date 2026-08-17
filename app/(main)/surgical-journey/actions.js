@@ -307,7 +307,7 @@ export async function getSurgicalCaseDetail(caseId) {
   // selection (billing category only).
   const { data: iolApproval } = await supabase
     .from('iol_approvals')
-    .select('*, master_iol_catalog(brand, model, manufacturer, category)')
+    .select('*, master_iol_catalog(brand, model, category)')
     .eq('surgical_case_id', caseId)
     .maybeSingle();
 

@@ -148,7 +148,7 @@ export default function ApprovalTab({ record, recordId, surgeonName, onSaved }) 
               <label className="flbl">Specific IOL (Master Data -- IOL Catalog)</label>
               <select className="fi fi-sm" value={iolCatalogId} onChange={(e) => setIolCatalogId(e.target.value)} disabled={isApproved}>
                 <option value="">-- Not specified --</option>
-                {catalogForCategory.map((c) => <option key={c.id} value={c.id}>{c.brand} -- {c.model}{c.manufacturer ? ` (${c.manufacturer})` : ''}</option>)}
+                {catalogForCategory.map((c) => <option key={c.id} value={c.id}>{c.brand} -- {c.model}</option>)}
               </select>
               {catalogForCategory.length === 0 && (
                 <div style={{ fontSize: 10, color: 'var(--g400)', marginTop: 3 }}>No catalog items for {finalCategory} yet -- add them in Master Data -&gt; Clinical -&gt; IOL Catalog.</div>

@@ -137,7 +137,7 @@ export async function getOTCaseDetail(otScheduleId) {
   // doctor, not from biometry at all (biometry doesn't track eye
   // anymore since it's always done for both).
   const [{ data: approval }, { data: intraop }, { data: consumables }, { data: events }] = await Promise.all([
-    supabase.from('iol_approvals').select('*, master_iol_catalog(brand, model, manufacturer, category)').eq('surgical_case_id', sc.id).eq('status', 'Approved').maybeSingle(),
+    supabase.from('iol_approvals').select('*, master_iol_catalog(brand, model, category)').eq('surgical_case_id', sc.id).eq('status', 'Approved').maybeSingle(),
     supabase.from('ot_intraop_records').select('*').eq('ot_schedule_id', otScheduleId).maybeSingle(),
     supabase.from('ot_intraop_consumables').select('*').eq('ot_schedule_id', otScheduleId).order('added_at'),
     supabase.from('ot_intraop_events').select('*').eq('ot_schedule_id', otScheduleId).order('occurred_at'),
@@ -197,21 +197,20 @@ export async function completeCheckin(otScheduleId, surgicalCaseId) {
   if (checked < CHECKIN_ITEMS.length - 1) return { error: `Complete all check-in items first (${checked}/${CHECKIN_ITEMS.length - 1}).` };
 
   // VAL-OT-IOL-001: if an approved IOL exists for this case, its power
-  // and manufacturer must both be present. Check-in is the last point
-  // this can still be corrected -- discovering it missing only after
-  // the implant is already in the eye is too late to act on. A case
-  // with no approval at all is left alone (non-IOL procedures
-  // legitimately have none). Sourced from iol_approvals now, not
-  // biometry_records -- biometry no longer has an "approved" concept
-  // of its own.
+  // and brand must both be present. Check-in is the last point this can
+  // still be corrected -- discovering it missing only after the implant
+  // is already in the eye is too late to act on. A case with no
+  // approval at all is left alone (non-IOL procedures legitimately have
+  // none). Sourced from iol_approvals now, not biometry_records --
+  // biometry no longer has an "approved" concept of its own.
   const { data: approval } = await supabase
     .from('iol_approvals')
-    .select('eye, power, master_iol_catalog:iol_catalog_id(manufacturer)')
+    .select('eye, power, master_iol_catalog:iol_catalog_id(brand)')
     .eq('surgical_case_id', surgicalCaseId)
     .eq('status', 'Approved')
     .maybeSingle();
-  if (approval && (!approval.power || !approval.master_iol_catalog?.manufacturer)) {
-    const missing = !approval.power ? 'power' : 'manufacturer';
+  if (approval && (!approval.power || !approval.master_iol_catalog?.brand)) {
+    const missing = !approval.power ? 'power' : 'brand';
     return { error: `Approved IOL for ${approval.eye} is missing its ${missing} -- fix this in IOL Approval before check-in can be completed.` };
   }
 

@@ -697,10 +697,11 @@ export async function addIolCatalogItem(values) {
   const supabase = await createClient();
   const brand = normalizeName(values.brand);
   const model = normalizeName(values.model);
-  const manufacturer = normalizeName(values.manufacturer);
+  const price = values.price === '' || values.price == null ? null : Number(values.price);
+  if (price != null && (Number.isNaN(price) || price < 0)) return { error: 'Enter a valid price.' };
   const code = await generateCategoryCode(supabase, 'master_iol_catalog', 'IOL');
   const { error } = await supabase.from('master_iol_catalog').insert({
-    code, brand, model, manufacturer, category: values.category, origin: values.origin || null, status: 'Active',
+    code, brand, model, price, category: values.category, origin: values.origin || null, status: 'Active',
   });
   if (error) return { error: error.message };
   await logMasterAudit(supabase, 'master_iol_catalog', code, 'Create', `${brand} -- ${model} (${values.category}${values.origin ? `, ${values.origin}` : ''}) created`);
@@ -710,14 +711,16 @@ export async function updateIolCatalogItem(id, oldValues, values) {
   const supabase = await createClient();
   const brand = normalizeName(values.brand);
   const model = normalizeName(values.model);
-  const manufacturer = normalizeName(values.manufacturer);
-  const { error } = await supabase.from('master_iol_catalog').update({ brand, model, manufacturer, category: values.category, origin: values.origin || null }).eq('id', id);
+  const price = values.price === '' || values.price == null ? null : Number(values.price);
+  if (price != null && (Number.isNaN(price) || price < 0)) return { error: 'Enter a valid price.' };
+  const { error } = await supabase.from('master_iol_catalog').update({ brand, model, price, category: values.category, origin: values.origin || null }).eq('id', id);
   if (error) return { error: error.message };
   const changes = [];
   if (oldValues.brand !== brand) changes.push(`Brand ${oldValues.brand} -> ${brand}`);
   if (oldValues.model !== model) changes.push(`Model ${oldValues.model} -> ${model}`);
   if (oldValues.category !== values.category) changes.push(`Category ${oldValues.category} -> ${values.category}`);
   if ((oldValues.origin || '') !== (values.origin || '')) changes.push(`Origin ${oldValues.origin || '--'} -> ${values.origin || '--'}`);
+  if (Number(oldValues.price || 0) !== Number(price || 0)) changes.push(`Price ${oldValues.price ?? '--'} -> ${price ?? '--'}`);
   await logMasterAudit(supabase, 'master_iol_catalog', oldValues.code, 'Edit', changes.join('; ') || 'No field changes');
   return { success: true };
 }
@@ -732,7 +735,7 @@ export async function getActiveIolCatalog() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('master_iol_catalog')
-    .select('id, code, brand, model, manufacturer, category, origin')
+    .select('id, code, brand, model, category, origin, price')
     .eq('status', 'Active')
     .order('brand');
   return data || [];
