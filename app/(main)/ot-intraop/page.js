@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getOTCaseList, getOTIntraopHistory, markPatientReported, unmarkPatientReported } from './actions';
 import Workspace from './workspace';
@@ -204,9 +205,16 @@ function HistoryTab({ rows, loading, onOpen }) {
   );
 }
 
-export default function OTIntraopPage() {
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedId, setSelectedId] = useState(null);
+// Deep-linkable via ?otScheduleId=... -- Surgical Journey's
+// Intraoperative Management step links straight here with the case's
+// OT schedule id so it opens the patient's own record instead of
+// dropping onto the Dashboard for a manual pick.
+function OTIntraopInner() {
+  const searchParams = useSearchParams();
+  const deepLinkId = searchParams.get('otScheduleId');
+
+  const [activeTab, setActiveTab] = useState(deepLinkId ? 'workspace' : 'dashboard');
+  const [selectedId, setSelectedId] = useState(deepLinkId || null);
   const [cases, setCases] = useState([]);
   const [history, setHistory] = useState([]);
   const [loadingCases, setLoadingCases] = useState(true);
@@ -243,6 +251,14 @@ export default function OTIntraopPage() {
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a case from the Dashboard or History.</div>
       )}
     </div>
+  );
+}
+
+export default function OTIntraopPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>}>
+      <OTIntraopInner />
+    </Suspense>
   );
 }
 

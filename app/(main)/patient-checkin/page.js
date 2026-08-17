@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { getOTCaseList } from '../ot-intraop/actions';
 import { DashboardTab, TabButton } from '../ot-intraop/page';
 import Workspace from '../ot-intraop/workspace';
@@ -11,9 +12,17 @@ import Workspace from '../ot-intraop/workspace';
 // underlying case list, data, and check-in checklist itself are
 // unchanged -- only the navigation/entry point is split; Intraoperative
 // Management lives at /ot-intraop.
-export default function PatientCheckinPage() {
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedId, setSelectedId] = useState(null);
+//
+// Deep-linkable via ?otScheduleId=... -- Surgical Journey's Patient
+// Check-In step links straight here with the case's OT schedule id so
+// it opens the patient's own record instead of dropping onto the
+// Dashboard for a manual pick.
+function PatientCheckinInner() {
+  const searchParams = useSearchParams();
+  const deepLinkId = searchParams.get('otScheduleId');
+
+  const [activeTab, setActiveTab] = useState(deepLinkId ? 'workspace' : 'dashboard');
+  const [selectedId, setSelectedId] = useState(deepLinkId || null);
   const [cases, setCases] = useState([]);
   const [loadingCases, setLoadingCases] = useState(true);
 
@@ -45,5 +54,13 @@ export default function PatientCheckinPage() {
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a case from the Dashboard.</div>
       )}
     </div>
+  );
+}
+
+export default function PatientCheckinPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>}>
+      <PatientCheckinInner />
+    </Suspense>
   );
 }
