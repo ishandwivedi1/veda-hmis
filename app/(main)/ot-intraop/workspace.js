@@ -199,6 +199,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   }
 
   async function handleCompleteCheckin() {
+    if (!window.confirm(`Confirm patient check-in for ${patient?.first_name} ${patient?.last_name}?`)) return;
     setError('');
     const result = await completeCheckin(otScheduleId, sc.id);
     if (result.error) { setError(result.error); return; }

@@ -20,7 +20,7 @@ export function TabButton({ active, onClick, icon, label, disabled }) {
   );
 }
 
-export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot-intraop' }) {
+export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot-intraop', variant = 'intraop' }) {
   const [busyId, setBusyId] = useState(null);
 
   async function handleToggleReported(e, otId, currentlyReported) {
@@ -32,13 +32,21 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
     onRefresh();
   }
 
-  const pendingCases = cases.filter((c) => c.status !== 'Completed');
-  const completedToday = cases.filter((c) => c.status === 'Completed');
+  // Patient Check-In cares about a different split than Intraoperative
+  // Management: "checked in" here just means check-in is done (status
+  // moves Scheduled -> In Progress the moment check-in completes, see
+  // completeCheckin), not that the surgery itself is finished.
+  const isCheckin = variant === 'checkin';
+  const topCases = isCheckin ? cases.filter((c) => c.status === 'Scheduled') : cases.filter((c) => c.status !== 'Completed');
+  const bottomCases = isCheckin ? cases.filter((c) => c.status !== 'Scheduled') : cases.filter((c) => c.status === 'Completed');
+  const topTitle = isCheckin ? 'Pending Check-In' : "Today's Pending Cases";
+  const bottomTitle = isCheckin ? 'Checked-In Patients (Today)' : "Today's Completed Cases";
+  const bottomSubtitle = isCheckin ? 'Already checked in and handed off to the OT team.' : 'Moves to OT History tomorrow -- still editable from here today if a correction is needed.';
 
   const counts = {
     Scheduled: cases.filter((c) => c.status === 'Scheduled').length,
     'In Progress': cases.filter((c) => c.status === 'In Progress').length,
-    Completed: completedToday.length,
+    Completed: cases.filter((c) => c.status === 'Completed').length,
   };
 
   return (
@@ -63,9 +71,9 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-building-hospital" style={{ color: 'var(--red)' }}></i> Today&apos;s Pending Cases</div>
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-building-hospital" style={{ color: 'var(--red)' }}></i> {topTitle}</div>
         {loading && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 20, textAlign: 'center' }}>Loading...</div>}
-        {!loading && pendingCases.map((c) => {
+        {!loading && topCases.map((c) => {
           const sc = c.surgical_cases;
           const patient = sc.patients;
           const canOpen = c.advanceCleared;
@@ -112,15 +120,15 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
             </div>
           );
         })}
-        {!loading && pendingCases.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No pending OT cases for today.</div>
+        {!loading && topCases.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>{isCheckin ? 'No patients pending check-in.' : 'No pending OT cases for today.'}</div>
         )}
       </div>
 
       <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Today&apos;s Completed Cases</div>
-        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Moves to OT History tomorrow -- still editable from here today if a correction is needed.</div>
-        {!loading && completedToday.map((c) => {
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> {bottomTitle}</div>
+        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>{bottomSubtitle}</div>
+        {!loading && bottomCases.map((c) => {
           const sc = c.surgical_cases;
           const patient = sc.patients;
           return (
@@ -134,17 +142,17 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
               </div>
               <div style={{ flex: 1 }}>
                 <span style={{ fontWeight: 700, fontSize: 13 }}>{patient?.first_name} {patient?.last_name}</span>
-                <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>Completed</span>
+                <span className={`badge ${isCheckin ? (STATUS_BADGE[c.status] || 'b-gray') : 'b-green'}`} style={{ marginLeft: 8, fontSize: 10 }}>{isCheckin ? c.status : 'Completed'}</span>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
-                  {patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
+                  {sc.surgery_code ? `${sc.surgery_code} -- ` : ''}{patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
                 </div>
               </div>
               <button className="btn btn-sm"><i className="ti ti-edit"></i> View / Edit</button>
             </div>
           );
         })}
-        {!loading && completedToday.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nothing completed yet today.</div>
+        {!loading && bottomCases.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>{isCheckin ? 'Nothing checked in yet today.' : 'Nothing completed yet today.'}</div>
         )}
       </div>
     </div>
