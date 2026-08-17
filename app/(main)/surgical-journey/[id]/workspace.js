@@ -196,7 +196,8 @@ export default function Workspace({ caseId }) {
     iol: !!data.otSchedule,
     fitness: sc.fitness_cleared || sc.fitness_required === false || data.fitnessReferral?.status === 'Cleared',
     advance: !!sc.advance_payment_id,
-    dayof: !!data.recoveryEpisode?.discharge_date,
+    checkin: !!data.checkinCompletedAt,
+    intraop: !!data.recoveryEpisode?.discharge_date,
   };
   const currentStep = Object.keys(stepDone).find((k) => !stepDone[k]) || null;
 
@@ -247,10 +248,13 @@ export default function Workspace({ caseId }) {
         )}
       </Section>
 
-      {/* 8. DAY OF SURGERY */}
-      <DayOfSurgerySection sc={sc} otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} router={router} active={currentStep === 'dayof'} num={8} />
+      {/* 8. PATIENT CHECK-IN */}
+      <PatientCheckinSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} router={router} active={currentStep === 'checkin'} num={8} />
 
-      {/* 9. NOTES / FOLLOW-UP */}
+      {/* 9. INTRAOPERATIVE MANAGEMENT */}
+      <IntraopManagementSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} recoveryEpisode={data.recoveryEpisode} router={router} active={currentStep === 'intraop'} num={9} />
+
+      {/* 10. NOTES / FOLLOW-UP */}
       <NotesSection caseId={sc.id} notes={data.caseNotes} onAction={flash} />
     </div>
   );
@@ -811,19 +815,52 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
   );
 }
 
-// ── 7. DAY OF SURGERY (live status, deep-links only -- OT Intraop and
-// Recovery remain their own solid clinical workflows) ──
-function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active, num }) {
+// ── 7. PATIENT CHECK-IN (live status, deep-link only) ──
+function PatientCheckinSection({ otSchedule, checkinCompletedAt, router, active, num }) {
   let status = 'Not yet booked';
   let color = 'var(--g400)';
   let action = null;
+  const done = !!checkinCompletedAt;
 
   if (otSchedule) {
-    if (otSchedule.status === 'Scheduled') {
-      status = `Scheduled -- ${new Date(otSchedule.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}`;
+    if (done) {
+      status = 'Checked in';
+      color = 'var(--green)';
+      action = { label: 'View in Patient Check-In', onClick: () => router.push('/patient-checkin') };
+    } else {
+      status = `Scheduled -- ${new Date(otSchedule.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })} -- not yet checked in`;
       color = 'var(--blue)';
       action = { label: 'Open in Patient Check-In', onClick: () => router.push('/patient-checkin') };
-    } else if (otSchedule.status === 'In Progress') {
+    }
+  }
+
+  return (
+    <Section num={num} color={color} title="Patient Check-In" done={done} defaultOpen={!!otSchedule && !done} active={active}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{status}</div>
+      <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+        Balance payment, consent, and pre-op checklist all happen in the Patient Check-In module -- that clinical documentation stays where it is. This just shows where the case currently stands.
+      </div>
+      {action && (
+        <button className="btn btn-sm btn-primary" onClick={action.onClick}>
+          <i className="ti ti-arrow-right"></i> {action.label}
+        </button>
+      )}
+    </Section>
+  );
+}
+
+// ── 8. INTRAOPERATIVE MANAGEMENT (live status, deep-links only -- OT
+// Intraop and Recovery remain their own solid clinical workflows;
+// Recovery/Post-Op are a natural continuation of this same chain, so
+// their status is shown here too rather than yet another section) ──
+function IntraopManagementSection({ otSchedule, checkinCompletedAt, recoveryEpisode, router, active, num }) {
+  let status = 'Waiting on Patient Check-In';
+  let color = 'var(--g400)';
+  let action = null;
+  const locked = !checkinCompletedAt;
+
+  if (otSchedule && checkinCompletedAt) {
+    if (otSchedule.status === 'In Progress') {
       status = 'In surgery now';
       color = 'var(--red)';
       action = { label: 'Continue in Intraoperative Management', onClick: () => router.push('/ot-intraop') };
@@ -840,29 +877,39 @@ function DayOfSurgerySection({ sc, otSchedule, recoveryEpisode, router, active, 
         status = 'Surgery completed';
         color = 'var(--green)';
       }
+    } else {
+      status = 'Checked in -- ready for OT';
+      color = 'var(--blue)';
+      action = { label: 'Open in Intraoperative Management', onClick: () => router.push('/ot-intraop') };
     }
   }
 
   return (
-    <Section num={num} color={color} title="Day of Surgery" done={!!recoveryEpisode?.discharge_date} defaultOpen={!!otSchedule} active={active}>
+    <Section num={num} color={color} title="Intraoperative Management" done={!!recoveryEpisode?.discharge_date} defaultOpen={!!checkinCompletedAt} active={active}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{status}</div>
-      <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
-        Balance payment, consent, the surgery itself, and discharge all happen in the Patient Check-In / Intraoperative Management / Recovery modules -- that clinical documentation stays where it is. This just shows where the case currently stands.
-      </div>
-      {action && (
-        <button className="btn btn-sm btn-primary" onClick={action.onClick}>
-          <i className="ti ti-arrow-right"></i> {action.label}
-        </button>
+      {locked ? (
+        <div style={{ fontSize: 11.5, color: 'var(--g500)' }}><i className="ti ti-lock"></i> Complete Patient Check-In first.</div>
+      ) : (
+        <>
+          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+            The surgery itself and discharge happen in the Intraoperative Management / Recovery modules -- that clinical documentation stays where it is. This just shows where the case currently stands.
+          </div>
+          {action && (
+            <button className="btn btn-sm btn-primary" onClick={action.onClick}>
+              <i className="ti ti-arrow-right"></i> {action.label}
+            </button>
+          )}
+        </>
       )}
     </Section>
   );
 }
 
-// ── 8. NOTES / FOLLOW-UP LOG ──────────────────────────────────────
+// ── 9. NOTES / FOLLOW-UP LOG ──────────────────────────────────────
 function NotesSection({ caseId, notes, onAction }) {
   const [text, setText] = useState('');
   return (
-    <Section num={9} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
+    <Section num={10} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Add a note (e.g. follow-up call outcome)..." value={text} onChange={(e) => setText(e.target.value)} />
         <button

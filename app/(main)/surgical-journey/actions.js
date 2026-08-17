@@ -266,6 +266,7 @@ export async function getSurgicalCaseDetail(caseId) {
     .maybeSingle();
 
   let recoveryEpisode = null;
+  let checkinCompletedAt = null;
   if (otSchedule) {
     const { data } = await supabase
       .from('recovery_episodes')
@@ -273,6 +274,13 @@ export async function getSurgicalCaseDetail(caseId) {
       .eq('ot_schedule_id', otSchedule.id)
       .maybeSingle();
     recoveryEpisode = data;
+
+    const { data: intraopRecord } = await supabase
+      .from('ot_intraop_records')
+      .select('checkin_completed_at')
+      .eq('ot_schedule_id', otSchedule.id)
+      .maybeSingle();
+    checkinCompletedAt = intraopRecord?.checkin_completed_at || null;
   }
 
   // Medical fitness stays a real doctor referral/review, same as
@@ -312,6 +320,7 @@ export async function getSurgicalCaseDetail(caseId) {
     fitnessReferral: fitnessReferral || null,
     iolApproval: iolApproval || null,
     otSchedule: otSchedule || null,
+    checkinCompletedAt,
     recoveryEpisode,
     caseNotes: caseNotes || [],
   };
