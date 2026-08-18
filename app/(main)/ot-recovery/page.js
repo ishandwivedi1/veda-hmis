@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { getRecoveryCaseList, getRecoveryHistory } from './actions';
 import Workspace from './workspace';
 
@@ -133,9 +134,16 @@ function HistoryTab({ rows, loading, onOpen }) {
   );
 }
 
-export default function RecoveryPage() {
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedId, setSelectedId] = useState(null);
+// Deep-linkable via ?episodeId=... -- Surgical Journey's Recovery &
+// Discharge step links straight here with the recovery episode's id so
+// it opens that patient's own record instead of dropping onto the
+// Dashboard for a manual pick.
+function RecoveryInner() {
+  const searchParams = useSearchParams();
+  const deepLinkId = searchParams.get('episodeId');
+
+  const [activeTab, setActiveTab] = useState(deepLinkId ? 'workspace' : 'dashboard');
+  const [selectedId, setSelectedId] = useState(deepLinkId || null);
   const [cases, setCases] = useState([]);
   const [history, setHistory] = useState([]);
   const [loadingCases, setLoadingCases] = useState(true);
@@ -176,6 +184,14 @@ export default function RecoveryPage() {
       )}
       {activeTab === 'history' && <HistoryTab rows={history} loading={loadingHistory} onOpen={openCase} />}
     </div>
+  );
+}
+
+export default function RecoveryPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>}>
+      <RecoveryInner />
+    </Suspense>
   );
 }
 

@@ -178,10 +178,11 @@ export default function Workspace({ caseId }) {
       if (t === 'advance-collected' && e.data.patientId === data?.case?.patients?.id) refresh();
       else if (t === 'checkin-updated' && e.data.otScheduleId === data?.otSchedule?.id) refresh();
       else if (t === 'intraop-updated' && e.data.otScheduleId === data?.otSchedule?.id) refresh();
+      else if (t === 'recovery-updated' && e.data.episodeId === data?.recoveryEpisode?.id) refresh();
     }
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [data?.case?.patients?.id, data?.otSchedule?.id, refresh]);
+  }, [data?.case?.patients?.id, data?.otSchedule?.id, data?.recoveryEpisode?.id, refresh]);
 
   function flash(fn) {
     return async (...args) => {
@@ -223,7 +224,8 @@ export default function Workspace({ caseId }) {
     fitness: sc.fitness_cleared || sc.fitness_required === false || data.fitnessReferral?.status === 'Cleared',
     payment: netPackageAmount > 0 && advanceBalance >= netPackageAmount - 0.01,
     checkin: !!data.checkinCompletedAt,
-    intraop: !!data.recoveryEpisode?.discharge_date,
+    intraop: data.otSchedule?.status === 'Completed',
+    recovery: !!data.recoveryEpisode?.discharge_date,
   };
   const currentStep = Object.keys(stepDone).find((k) => !stepDone[k]) || null;
 
@@ -310,9 +312,13 @@ export default function Workspace({ caseId }) {
       <PatientCheckinSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} paymentDone={stepDone.payment} active={currentStep === 'checkin'} num={8} />
 
       {/* 9. INTRAOPERATIVE MANAGEMENT */}
-      <IntraopManagementSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} recoveryEpisode={data.recoveryEpisode} router={router} active={currentStep === 'intraop'} num={9} />
+      <IntraopManagementSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} active={currentStep === 'intraop'} num={9} />
 
-      {/* 10. NOTES / FOLLOW-UP */}
+      {/* 10. RECOVERY & DISCHARGE -- separate module: post-op recovery
+          monitoring through to discharge. */}
+      <RecoveryDischargeSection otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} active={currentStep === 'recovery'} num={10} />
+
+      {/* 11. NOTES / FOLLOW-UP */}
       <NotesSection caseId={sc.id} notes={data.caseNotes} onAction={flash} />
     </div>
   );
@@ -992,15 +998,15 @@ function PatientCheckinSection({ otSchedule, checkinCompletedAt, paymentDone, ac
   );
 }
 
-// ── 8. INTRAOPERATIVE MANAGEMENT (live status, deep-links only -- OT
-// Intraop and Recovery remain their own solid clinical workflows;
-// Recovery/Post-Op are a natural continuation of this same chain, so
-// their status is shown here too rather than yet another section) ──
-function IntraopManagementSection({ otSchedule, checkinCompletedAt, recoveryEpisode, router, active, num }) {
+// ── 8. INTRAOPERATIVE MANAGEMENT (live status, deep-links only) --
+// covers Check-In through the surgery itself. Recovery and discharge
+// are their own dedicated step below (9), not folded in here. ──
+function IntraopManagementSection({ otSchedule, checkinCompletedAt, active, num }) {
   let status = 'Waiting on Patient Check-In';
   let color = 'var(--g400)';
   let action = null;
   const locked = !checkinCompletedAt;
+  const done = otSchedule?.status === 'Completed';
 
   if (otSchedule && checkinCompletedAt) {
     if (otSchedule.status === 'In Progress') {
@@ -1008,18 +1014,8 @@ function IntraopManagementSection({ otSchedule, checkinCompletedAt, recoveryEpis
       color = 'var(--red)';
       action = { label: 'Continue in Intraoperative Management', onClick: () => openTab(`/ot-intraop?otScheduleId=${otSchedule.id}`, `intraop-${otSchedule.id}`) };
     } else if (otSchedule.status === 'Completed') {
-      if (recoveryEpisode && !recoveryEpisode.discharge_date) {
-        status = 'Surgery done -- in Recovery';
-        color = 'var(--teal)';
-        action = { label: 'Open in Recovery', onClick: () => router.push('/ot-recovery') };
-      } else if (recoveryEpisode?.discharge_date) {
-        status = `Discharged -- ${new Date(recoveryEpisode.discharge_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}`;
-        color = 'var(--green)';
-        action = { label: 'Open in Post-Op', onClick: () => router.push('/ot-postop') };
-      } else {
-        status = 'Surgery completed';
-        color = 'var(--green)';
-      }
+      status = 'Surgery completed';
+      color = 'var(--green)';
     } else {
       status = 'Checked in -- ready for OT';
       color = 'var(--blue)';
@@ -1028,14 +1024,14 @@ function IntraopManagementSection({ otSchedule, checkinCompletedAt, recoveryEpis
   }
 
   return (
-    <Section num={num} color={color} title="Intraoperative Management" done={!!recoveryEpisode?.discharge_date} defaultOpen={!!checkinCompletedAt} active={active}>
+    <Section num={num} color={color} title="Intraoperative Management" done={done} defaultOpen={!!checkinCompletedAt} active={active}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{status}</div>
       {locked ? (
         <div style={{ fontSize: 11.5, color: 'var(--g500)' }}><i className="ti ti-lock"></i> Complete Patient Check-In first.</div>
       ) : (
         <>
           <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
-            The surgery itself and discharge happen in the Intraoperative Management / Recovery modules -- that clinical documentation stays where it is. This just shows where the case currently stands.
+            The surgery itself happens in the Intraoperative Management module -- that clinical documentation stays where it is. This just shows where the case currently stands.
           </div>
           {action && (
             <button className="btn btn-sm btn-primary" onClick={action.onClick}>
@@ -1048,11 +1044,51 @@ function IntraopManagementSection({ otSchedule, checkinCompletedAt, recoveryEpis
   );
 }
 
-// ── 9. NOTES / FOLLOW-UP LOG ──────────────────────────────────────
+// ── 9. RECOVERY & DISCHARGE -- separate module: post-op recovery
+// monitoring through to discharge. Deep-links straight to the
+// patient's recovery episode, opened as a real new tab (window.opener
+// intact) so it can signal back and close itself once discharge is
+// confirmed -- same pattern as IOL Approval, Medical Fitness, Patient
+// Check-In, and Intraoperative Management above. ──
+function RecoveryDischargeSection({ otSchedule, recoveryEpisode, active, num }) {
+  const surgeryDone = otSchedule?.status === 'Completed';
+  const discharged = !!recoveryEpisode?.discharge_date;
+
+  if (!surgeryDone) {
+    return (
+      <Section num={num} color="var(--g400)" title="Recovery &amp; Discharge" done={false} active={active}>
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Complete Intraoperative Management first.</div>
+      </Section>
+    );
+  }
+
+  const status = discharged
+    ? `Discharged -- ${new Date(recoveryEpisode.discharge_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}`
+    : 'In Recovery -- not yet discharged';
+
+  return (
+    <Section num={num} color={discharged ? 'var(--green)' : 'var(--teal)'} title="Recovery &amp; Discharge" done={discharged} defaultOpen={!discharged} active={active}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{status}</div>
+      <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+        Recovery monitoring, discharge instructions, and the follow-up schedule happen in the Recovery module -- that clinical documentation stays where it is. This just shows where the case currently stands.
+      </div>
+      {recoveryEpisode && (
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={() => openTab(`/ot-recovery?episodeId=${recoveryEpisode.id}`, `recovery-${recoveryEpisode.id}`)}
+        >
+          <i className="ti ti-arrow-right"></i> {discharged ? 'View Recovery Record' : 'Open Recovery & Discharge'}
+        </button>
+      )}
+    </Section>
+  );
+}
+
+// ── 10. NOTES / FOLLOW-UP LOG ──────────────────────────────────────
 function NotesSection({ caseId, notes, onAction }) {
   const [text, setText] = useState('');
   return (
-    <Section num={10} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
+    <Section num={11} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Add a note (e.g. follow-up call outcome)..." value={text} onChange={(e) => setText(e.target.value)} />
         <button

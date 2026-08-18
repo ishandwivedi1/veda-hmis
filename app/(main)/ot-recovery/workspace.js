@@ -148,6 +148,15 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     if (!dischargeDate) { setError('Discharge date is required.'); return; }
     const result = await confirmDischarge(episodeId, checklist, dischargeNotes, instructions, dischargeDate, followupPlan);
     if (result.error) { setError(result.error); return; }
+    // Opened as a deep link from Surgical Journey (a real opener window
+    // exists) -- signal completion back and close this tab. Same
+    // close-on-complete pattern as IOL Approval, Medical Fitness,
+    // Patient Check-In, and Intraoperative Management.
+    if (typeof window !== 'undefined' && window.opener) {
+      window.opener.postMessage({ type: 'recovery-updated', episodeId }, window.location.origin);
+      window.close();
+      return;
+    }
     setOk('Patient discharged. Discharge summary is ready to print. Follow-up schedule generated.');
     onUpdate();
     refresh();
