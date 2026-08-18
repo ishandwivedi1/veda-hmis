@@ -126,6 +126,15 @@ export async function getOTCaseList() {
     balanceByPatient[pid] = bal || 0;
   }));
 
+  // hasVisitToday only matters for cases still awaiting check-in
+  // (Scheduled) -- an In Progress/Completed case has already cleared
+  // that gate by definition. Computed per-patient once, not per-case.
+  const visitTodayByPatient = {};
+  const scheduledPatientIds = [...new Set((scheduledToday || []).map((b) => b.surgical_cases?.patient_id).filter(Boolean))];
+  await Promise.all(scheduledPatientIds.map(async (pid) => {
+    visitTodayByPatient[pid] = await hasActiveVisitToday(supabase, pid, todayIst);
+  }));
+
   return cases.map((b) => {
     // Net payable = package price minus whatever discount was recorded
     // at Package Selection / Payment step in Surgical Journey --
@@ -137,6 +146,7 @@ export async function getOTCaseList() {
     const packageDiscount = Number(b.surgical_cases.package_discount || 0);
     const netPackageAmount = Math.max(0, packagePrice - packageDiscount);
     const advanceBalance = balanceByPatient[b.surgical_cases.patient_id] || 0;
+    const isScheduled = b.status === 'Scheduled';
     return {
       ...b,
       packagePrice,
@@ -145,8 +155,21 @@ export async function getOTCaseList() {
       advanceBalance,
       amountPayable: Math.max(0, netPackageAmount - advanceBalance),
       advanceCleared: netPackageAmount <= 0 || advanceBalance >= netPackageAmount,
+      hasVisitToday: isScheduled ? !!visitTodayByPatient[b.surgical_cases.patient_id] : true,
     };
   });
+}
+
+// ── ACTIVE VISIT TODAY -- checked in at the front desk (Visits module)
+// today, not just scheduled in OT. These are two genuinely separate
+// facts that used to only ever get compared by accident: a surgery
+// visit could be created without the patient ever landing anywhere
+// near Check-In, and Check-In itself never actually verified a visit
+// existed at all. This closes that gap directly.
+async function hasActiveVisitToday(supabase, patientId, todayIst) {
+  if (!patientId) return false;
+  const { data: openVisits } = await supabase.from('visits').select('id, created_at').eq('patient_id', patientId).eq('status', 'Open');
+  return (openVisits || []).some((v) => new Date(v.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === todayIst);
 }
 
 // ── CHECK-IN DAY LOCK -- server-side gate, not just a list filter. The
@@ -158,8 +181,15 @@ export async function getOTCaseList() {
 // while status is still 'Scheduled' -- once check-in is actually
 // completed and the case has moved to 'In Progress', it must be free
 // to keep going regardless of the clock.
+//
+// Two independent conditions, both required: (1) today is the actual
+// scheduled OT day, and (2) the patient has an active (Open) visit
+// created today in the Visits module -- i.e. they've genuinely arrived
+// and been registered today, not just that OT Schedule happens to say
+// "today". A patient can't be checked in on the strength of the OT
+// booking alone.
 async function assertCheckinDayLock(supabase, otScheduleId) {
-  const { data: booking } = await supabase.from('ot_schedule').select('scheduled_date, status').eq('id', otScheduleId).single();
+  const { data: booking } = await supabase.from('ot_schedule').select('scheduled_date, status, surgical_cases(patient_id)').eq('id', otScheduleId).single();
   if (!booking) return { error: 'OT booking not found.' };
   if (booking.status !== 'Scheduled') return null;
 
@@ -170,7 +200,60 @@ async function assertCheckinDayLock(supabase, otScheduleId) {
       : `this surgery was scheduled for ${booking.scheduled_date} and was never checked in on that day`;
     return { error: `Check-in is locked -- ${detail}. Check-in can only happen on the scheduled day itself. Use OT Schedule to reschedule this case if the date needs to change.` };
   }
+
+  const hasVisit = await hasActiveVisitToday(supabase, booking.surgical_cases?.patient_id, todayIst);
+  if (!hasVisit) {
+    return { error: 'Check-in is locked -- this patient has no active visit today. Create a visit for them (Visit Type: Surgery) in Visits before checking in.' };
+  }
+
   return null;
+}
+
+// ── SURGERY LANDING RESOLVER -- where a patient should go when a
+// Surgery-type visit gets created for them (see visits/new/page.js,
+// which now sends every Surgery visit straight to Patient Check-In
+// instead of the Front Office Dashboard). This is the single place
+// that answers "what's actually going on with this patient's surgery
+// today" so staff aren't left guessing:
+//   - an OT booking that matches today -> hand back its id so the
+//     caller can go straight into the normal check-in workspace.
+//   - a booking that exists but for a different day -> flag it as
+//     needing a reschedule decision, with enough detail to act on.
+//   - no surgical case at all -> flag that OT Schedule's "Register
+//     Surgery Directly" is what's actually needed here.
+export async function getSurgeryLandingForPatient(patientId) {
+  const supabase = await createClient();
+  if (!patientId) return { noCase: true };
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+  const { data: cases } = await supabase.from('surgical_cases').select('id, procedure_name, eye').eq('patient_id', patientId).neq('status', 'Cancelled');
+  const caseIds = (cases || []).map((c) => c.id);
+  if (caseIds.length === 0) return { noCase: true };
+
+  const { data: schedules } = await supabase
+    .from('ot_schedule')
+    .select('id, scheduled_date, status, surgical_case_id, master_ot_sessions(name)')
+    .in('surgical_case_id', caseIds)
+    .in('status', ['Scheduled', 'In Progress'])
+    .order('scheduled_date', { ascending: true });
+  if (!schedules || schedules.length === 0) return { noCase: true };
+
+  const todayMatch = schedules.find((s) => s.status === 'In Progress' || (s.status === 'Scheduled' && s.scheduled_date === todayIst));
+  if (todayMatch) return { otScheduleId: todayMatch.id };
+
+  // Nothing lines up with today -- surface the nearest booking so staff
+  // can decide right here whether it needs to move to today or stay
+  // where it is.
+  const next = schedules[0];
+  const caseInfo = (cases || []).find((c) => c.id === next.surgical_case_id);
+  return {
+    needsReschedule: true,
+    otScheduleId: next.id,
+    scheduledDate: next.scheduled_date,
+    sessionName: next.master_ot_sessions?.name || null,
+    procedureName: caseInfo?.procedure_name || null,
+    eye: caseInfo?.eye || null,
+  };
 }
 
 

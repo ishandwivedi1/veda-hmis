@@ -111,6 +111,7 @@ export async function createWalkInVisit(values) {
   // Schedule with no indication anything went wrong. Surface that here
   // instead of letting it be discovered later in OT.
   let surgeryNotScheduled = false;
+  let otScheduleId = null;
   if (values.visitType === 'Surgery' && data?.patient_id) {
     const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     const { data: cases } = await supabase.from('surgical_cases').select('id').eq('patient_id', data.patient_id).neq('status', 'Cancelled');
@@ -126,10 +127,11 @@ export async function createWalkInVisit(values) {
         .in('status', ['Scheduled', 'In Progress'])
         .limit(1);
       surgeryNotScheduled = !match || match.length === 0;
+      otScheduleId = match && match.length > 0 ? match[0].id : null;
     }
   }
 
-  return { visit: data, surgeryNotScheduled };
+  return { visit: data, surgeryNotScheduled, otScheduleId };
 }
 
 export async function getSurgeryTypeOptions() {
@@ -223,5 +225,3 @@ export async function cancelVisit(visitId, reason) {
 
   return { success: true };
 }
-
-

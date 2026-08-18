@@ -85,7 +85,8 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
         {!loading && topCases.map((c) => {
           const sc = c.surgical_cases;
           const patient = sc.patients;
-          const canOpen = c.advanceCleared;
+          const noVisitToday = c.hasVisitToday === false;
+          const canOpen = c.advanceCleared && !noVisitToday;
           return (
             <div
               key={c.id}
@@ -108,13 +109,24 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
                 >
                   {busyId === c.id ? '...' : c.patient_reported_at ? 'Reported' : 'Mark Reported'}
                 </button>
-                {!canOpen && <span className="badge b-red" style={{ marginLeft: 6, fontSize: 10 }}>Advance Due: Rs.{c.amountPayable.toFixed(0)}</span>}
+                {noVisitToday && <span className="badge b-red" style={{ marginLeft: 6, fontSize: 10 }}>No Visit Today</span>}
+                {!noVisitToday && !canOpen && <span className="badge b-red" style={{ marginLeft: 6, fontSize: 10 }}>Advance Due: Rs.{c.amountPayable.toFixed(0)}</span>}
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                   {sc.surgery_code ? `${sc.surgery_code} -- ` : ''}{patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
                 </div>
               </div>
               {canOpen ? (
                 <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Open</button>
+              ) : noVisitToday ? (
+                <Link
+                  href={`/visits/new?patientId=${sc.patient_id}&visitType=Surgery`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="btn btn-sm"
+                  style={{ background: 'var(--red)', color: '#fff', border: 'none', textDecoration: 'none' }}
+                  title="This patient has no active visit today -- create one before check-in can proceed"
+                >
+                  <i className="ti ti-door-enter"></i> Create Visit
+                </Link>
               ) : (
                 <Link
                   href={`/payments/advance?patientId=${sc.patient_id}&amount=${c.amountPayable.toFixed(2)}&returnTo=${returnTo}`}
