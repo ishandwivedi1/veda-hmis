@@ -6,6 +6,7 @@ import {
   getBiometryDetail, saveBiometryDraft, markBiometryMeasured,
 } from '../actions';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const MEAS_FIELDS = [
   { key: 'axl', label: 'Axial Length', unit: 'mm' },
@@ -230,9 +231,14 @@ export default function BiometryWorkspace({ recordId }) {
 
       {isMeasured && (
         <div className="card" style={{ background: 'var(--green-lt)', borderColor: '#86efac' }}>
-          <div style={{ fontSize: 13, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <i className="ti ti-circle-check" style={{ fontSize: 18 }}></i>
-            Measured{record.verified_at ? ` on ${new Date(record.verified_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. Ready for Surgeon IOL Approval when a surgical case needs it.
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ fontSize: 13, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <i className="ti ti-circle-check" style={{ fontSize: 18 }}></i>
+              Measured{record.verified_at ? ` on ${new Date(record.verified_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. Ready for Surgeon IOL Approval when a surgical case needs it.
+            </div>
+            <button type="button" className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none', flexShrink: 0 }} onClick={() => openPrintPopup(`/biometry-print/${recordId}`)}>
+              <i className="ti ti-printer"></i> Print Biometry Report
+            </button>
           </div>
         </div>
       )}

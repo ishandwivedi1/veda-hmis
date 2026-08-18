@@ -108,9 +108,19 @@ export default function InvestigationPage() {
                 <td><span className="badge b-amber">{r.status}</span></td>
                 <td><span className={`badge ${r.payment?.badge || 'b-gray'}`}>{r.payment?.label || 'Unbilled'}</span></td>
                 <td>
-                  <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(investigationHref(r))} title={isBiometryName(r.name) ? 'Open Biometry' : 'View'}>
-                    <i className={`ti ${isBiometryName(r.name) ? 'ti-ruler-measure' : 'ti-eye'}`}></i>
-                  </button>
+                  {isBiometryName(r.name) ? (
+                    <button
+                      className="btn btn-sm btn-primary"
+                      style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700 }}
+                      onClick={() => router.push(investigationHref(r))}
+                    >
+                      <i className="ti ti-ruler-measure"></i> Measure
+                    </button>
+                  ) : (
+                    <button className="btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => router.push(investigationHref(r))} title="View">
+                      <i className="ti ti-eye"></i>
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
