@@ -184,31 +184,36 @@ export async function setTreatmentInstructions(caseId, instructions) {
 // done (set the moment Intraoperative Management's Surgery Complete is
 // submitted) -- the patient isn't actually through the journey until
 // Recovery confirms discharge. This resolves, for a batch of case ids
-// already known to be status='Completed', which of them also have a
-// discharge_date recorded -- those are the only ones that should
-// actually drop out of the Active list.
-async function getDischargedCaseIds(supabase, completedCaseIds) {
-  if (completedCaseIds.length === 0) return new Set();
+// already known to be status='Completed', each one's discharge_date
+// (or undefined if not yet discharged) so callers can bucket cases into
+// Active / Discharged Today / History exactly like the Dashboard vs
+// History split used elsewhere (OT Intraop, Recovery, Medical Fitness).
+async function getDischargeDatesByCase(supabase, completedCaseIds) {
+  if (completedCaseIds.length === 0) return {};
   const { data: schedules } = await supabase
     .from('ot_schedule')
     .select('id, surgical_case_id')
     .in('surgical_case_id', completedCaseIds);
   const scheduleIds = (schedules || []).map((s) => s.id);
-  if (scheduleIds.length === 0) return new Set();
+  if (scheduleIds.length === 0) return {};
   const scheduleToCase = Object.fromEntries((schedules || []).map((s) => [s.id, s.surgical_case_id]));
   const { data: episodes } = await supabase
     .from('recovery_episodes')
     .select('ot_schedule_id, discharge_date')
     .in('ot_schedule_id', scheduleIds)
     .not('discharge_date', 'is', null);
-  return new Set((episodes || []).map((e) => scheduleToCase[e.ot_schedule_id]).filter(Boolean));
+  const byCase = {};
+  (episodes || []).forEach((e) => {
+    const caseId = scheduleToCase[e.ot_schedule_id];
+    if (caseId) byCase[caseId] = e.discharge_date;
+  });
+  return byCase;
 }
 
-// Every open surgical case (any staff member -- a small setup doesn't
-// have per-doctor case ownership walls). "Open" = not Cancelled, and
-// not a Completed case that's also been discharged (see
-// getDischargedCaseIds above) -- a case whose surgery finished but
-// whose patient hasn't been discharged yet still belongs here.
+// Still genuinely in progress: not Cancelled, and not a Completed case
+// that's also been discharged (whether today or earlier) -- a case
+// whose surgery finished but whose patient hasn't been discharged yet
+// still belongs here.
 export async function getMyActiveSurgicalCases() {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -220,17 +225,38 @@ export async function getMyActiveSurgicalCases() {
   const cases = data || [];
 
   const completedIds = cases.filter((c) => c.status === 'Completed').map((c) => c.id);
-  const dischargedIds = await getDischargedCaseIds(supabase, completedIds);
+  const dischargeDates = await getDischargeDatesByCase(supabase, completedIds);
 
-  return cases.filter((c) => !(c.status === 'Completed' && dischargedIds.has(c.id)));
+  return cases.filter((c) => !(c.status === 'Completed' && dischargeDates[c.id]));
 }
 
-// Cancelled cases, plus Completed cases that have actually been
-// discharged -- the counterpart to getMyActiveSurgicalCases above, for
-// the History tab so a case doesn't just vanish once it drops off
-// Active.
+// Discharged TODAY -- kept visible on the front page instead of
+// vanishing into History the instant discharge happens, same
+// Dashboard/History convention as OT Intraop and Recovery. Moves to
+// History once the day rolls over.
+export async function getDischargedTodaySurgicalCases() {
+  const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
+    .eq('status', 'Completed')
+    .order('created_at', { ascending: false });
+  if (error) return [];
+  const cases = data || [];
+
+  const completedIds = cases.map((c) => c.id);
+  const dischargeDates = await getDischargeDatesByCase(supabase, completedIds);
+
+  return cases.filter((c) => dischargeDates[c.id] === todayIst);
+}
+
+// Cancelled cases (any time), plus Completed cases discharged BEFORE
+// today -- the counterpart to the two functions above, so a case
+// doesn't just vanish once it drops off Active / Discharged Today.
 export async function getCompletedSurgicalCases() {
   const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('surgical_cases')
     .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
@@ -240,9 +266,9 @@ export async function getCompletedSurgicalCases() {
   const cases = data || [];
 
   const completedIds = cases.filter((c) => c.status === 'Completed').map((c) => c.id);
-  const dischargedIds = await getDischargedCaseIds(supabase, completedIds);
+  const dischargeDates = await getDischargeDatesByCase(supabase, completedIds);
 
-  return cases.filter((c) => c.status === 'Cancelled' || (c.status === 'Completed' && dischargedIds.has(c.id)));
+  return cases.filter((c) => c.status === 'Cancelled' || (c.status === 'Completed' && dischargeDates[c.id] && dischargeDates[c.id] < todayIst));
 }
 
 // Patients whose decision is "Wants Time to Decide" and haven't

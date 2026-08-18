@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getMyActiveSurgicalCases, getAwaitingReturnCases, getCompletedSurgicalCases, recordManualReminder } from './actions';
+import { getMyActiveSurgicalCases, getAwaitingReturnCases, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, recordManualReminder } from './actions';
 
 const STAGE_LABEL = {
   'Pending Workup': 'Working Up',
@@ -117,8 +117,10 @@ export default function SurgicalJourneyPage() {
   const [activeTab, setActiveTab] = useState('active');
   const [cases, setCases] = useState([]);
   const [awaiting, setAwaiting] = useState([]);
+  const [dischargedToday, setDischargedToday] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingDischargedToday, setLoadingDischargedToday] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [reminderFor, setReminderFor] = useState(null);
   const router = useRouter();
@@ -128,12 +130,16 @@ export default function SurgicalJourneyPage() {
     setAwaiting(await getAwaitingReturnCases());
     setLoading(false);
   }, []);
+  const refreshDischargedToday = useCallback(async () => {
+    setDischargedToday(await getDischargedTodaySurgicalCases());
+    setLoadingDischargedToday(false);
+  }, []);
   const refreshHistory = useCallback(async () => {
     setHistory(await getCompletedSurgicalCases());
     setLoadingHistory(false);
   }, []);
 
-  useEffect(() => { refresh(); refreshHistory(); }, [refresh, refreshHistory]);
+  useEffect(() => { refresh(); refreshDischargedToday(); refreshHistory(); }, [refresh, refreshDischargedToday, refreshHistory]);
 
   const proceeding = cases.filter((c) => c.decision !== 'Wants Time to Decide' && c.decision !== 'Declined');
 
@@ -209,6 +215,33 @@ export default function SurgicalJourneyPage() {
             ))}
             {!loading && proceeding.length === 0 && (
               <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No active surgical cases right now.</div>
+            )}
+          </div>
+
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-title" style={{ marginBottom: 4 }}>
+              <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Discharged / Completed Today
+              <span className="badge b-green" style={{ marginLeft: 8 }}>{dischargedToday.length}</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>Moves to Completed / History tomorrow -- still open here today for reference.</div>
+            {loadingDischargedToday && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Loading...</div>}
+            {!loadingDischargedToday && dischargedToday.map((c) => (
+              <div key={c.id} onClick={() => router.push(`/surgical-journey/${c.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                  {c.patients?.first_name?.charAt(0)}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
+                  <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>Discharged</span>
+                  <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+                    {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye}{c.master_packages ? ` -- ${c.master_packages.name}` : ''}
+                  </div>
+                </div>
+                <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+              </div>
+            ))}
+            {!loadingDischargedToday && dischargedToday.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nobody discharged yet today.</div>
             )}
           </div>
         </>

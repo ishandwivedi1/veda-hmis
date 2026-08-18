@@ -2,18 +2,20 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { DISCHARGE_ITEMS } from './constants';
-import { getDrugs } from '../master-data/actions';
+import { getDrugs, getDosageOptions } from '../master-data/actions';
 
-// Same Pharmacy drug list used in Financial Masters -- so post-op
-// medication is picked from the real catalog, not free text. Label
-// leads with Name (brand), not Salt Composition (generic) -- this is
-// what ends up stored as the medication name and printed on the
-// Discharge Summary.
+// Same Pharmacy drug list + dosage master used in the Doctor
+// (Consultation) module's prescription form -- so post-op medication
+// entry is the same experience, not a simpler one-off form. Keeps
+// drug_type_id and generic/strength so the workspace can filter dosage
+// options and power a type-ahead the same way Consultation does.
 export async function getDrugOptions() {
   const all = await getDrugs();
-  return all
-    .filter((d) => d.status === 'Active' && d.brand)
-    .map((d) => ({ id: d.id, label: `${d.brand}${d.strength ? ` ${d.strength}` : ''}${d.generic ? ` (${d.generic})` : ''}` }));
+  return all.filter((d) => d.status === 'Active' && d.brand);
+}
+
+export async function getMedDosageOptions() {
+  return getDosageOptions();
 }
 
 // Called from OT Intraop's "Hand Over to Recovery" -- creates the
@@ -111,12 +113,58 @@ export async function saveRecoveryFields(episodeId, values) {
   return { success: true };
 }
 
-// ── MEDICATIONS ──
-export async function addRecoveryMedication(episodeId, name, sig, reason) {
+// ── MEDICATIONS -- same structured Dosage/Frequency/Duration/Eye
+// entry (and tapering schedule support) as the Doctor module's
+// prescription form, instead of a single free-text "sig" field. `sig`
+// is still composed and stored on each row so existing consumers (the
+// Discharge Summary print template, the on-page list) keep working
+// unchanged. ──
+function composeSig(dosage, frequency, duration) {
+  return [dosage, frequency, duration && `x ${duration}`].filter(Boolean).join(' ');
+}
+
+export async function addRecoveryMedication(episodeId, values, reason) {
   const supabase = await createClient();
-  if (!name?.trim() || !sig?.trim()) return { error: 'Medicine name and dose/frequency are required.' };
+  if (!values.name?.trim()) return { error: 'Medicine name is required.' };
+  if (!values.dosage?.trim()) return { error: 'Dosage is required.' };
+  if (!values.frequency?.trim() || !values.duration?.trim()) return { error: 'Frequency and duration are required.' };
   const { data: userData } = await supabase.auth.getUser();
-  const { error } = await supabase.from('recovery_medications').insert({ recovery_episode_id: episodeId, name: name.trim(), sig: sig.trim(), reason: reason?.trim() || null, added_by: userData?.user?.id || null });
+  const { error } = await supabase.from('recovery_medications').insert({
+    recovery_episode_id: episodeId,
+    name: values.name.trim(),
+    dosage: values.dosage, frequency: values.frequency, duration: values.duration, eye: values.eye || null,
+    sig: composeSig(values.dosage, values.frequency, values.duration),
+    reason: reason?.trim() || null,
+    added_by: userData?.user?.id || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Tapering schedule -- same drug and dosage-per-administration across
+// steps as Consultation's tapering builder (the amount per dose stays
+// the same, only the frequency reduces over time), each step a
+// separate row sharing one taper_group_id.
+export async function addTaperedRecoveryMedication(episodeId, values, reason) {
+  const supabase = await createClient();
+  if (!values.name?.trim()) return { error: 'Medicine name is required.' };
+  if (!values.dosage?.trim()) return { error: 'Dosage is required.' };
+  const steps = (values.steps || []).filter((s) => s.frequency && s.duration);
+  if (steps.length < 2) return { error: 'A tapering schedule needs at least 2 steps.' };
+
+  const { data: userData } = await supabase.auth.getUser();
+  const taperGroupId = crypto.randomUUID();
+  const rows = steps.map((s, i) => ({
+    recovery_episode_id: episodeId,
+    name: values.name.trim(),
+    dosage: values.dosage, frequency: s.frequency, duration: s.duration, eye: values.eye || null,
+    sig: composeSig(values.dosage, s.frequency, s.duration),
+    reason: reason?.trim() || null,
+    taper_group_id: taperGroupId, taper_step: i + 1,
+    added_by: userData?.user?.id || null,
+  }));
+
+  const { error } = await supabase.from('recovery_medications').insert(rows);
   if (error) return { error: error.message };
   return { success: true };
 }
@@ -124,6 +172,13 @@ export async function addRecoveryMedication(episodeId, name, sig, reason) {
 export async function removeRecoveryMedication(id) {
   const supabase = await createClient();
   const { error } = await supabase.from('recovery_medications').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function removeRecoveryTaperGroup(taperGroupId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('recovery_medications').delete().eq('taper_group_id', taperGroupId);
   if (error) return { error: error.message };
   return { success: true };
 }
