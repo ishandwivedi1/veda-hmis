@@ -69,12 +69,15 @@ export async function getSurgeryDashboardActive() {
     ]);
     if (inProgressError || completedError) return { rows: [], error: (inProgressError || completedError).message };
 
-    const inRecovery = (completed || []).filter((b) => b.surgical_cases && (b.recovery_episodes || []).some((e) => !e.discharge_date));
+    // recovery_episodes.ot_schedule_id is UNIQUE, so this is a 1:1
+    // relationship -- PostgREST embeds it as a single object (or null),
+    // never an array, no matter which side the embed is requested from.
+    const inRecovery = (completed || []).filter((b) => b.surgical_cases && b.recovery_episodes && !b.recovery_episodes.discharge_date);
     const stage = (b) => (b.status === 'In Progress' ? 'Checked-In / In OT' : 'In Recovery');
 
     const rows = [
       ...(inProgress || []).filter((b) => b.surgical_cases).map((b) => ({ ...b, stage: stage(b) })),
-      ...inRecovery.map((b) => ({ ...b, stage: stage(b), recoveryEpisodeId: (b.recovery_episodes || []).find((e) => !e.discharge_date)?.id })),
+      ...inRecovery.map((b) => ({ ...b, stage: stage(b), recoveryEpisodeId: b.recovery_episodes?.id })),
     ];
     return { rows, error: null };
   } catch (e) {
