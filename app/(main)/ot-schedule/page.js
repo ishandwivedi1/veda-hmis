@@ -127,7 +127,7 @@ function ScheduledOTTab() {
   return (
     <div className="card">
       <div className="card-title" style={{ marginBottom: 10 }}>
-        <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> Scheduled OT
+        <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> Patients Scheduled for Surgery
         <span className="badge b-gray" style={{ marginLeft: 8 }}>{schedule.length}</span>
       </div>
 

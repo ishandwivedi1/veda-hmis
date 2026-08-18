@@ -37,11 +37,19 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
   // Management: "checked in" here just means check-in is done (status
   // moves Scheduled -> In Progress the moment check-in completes, see
   // completeCheckin), not that the surgery itself is finished.
+  //
+  // Intraoperative Management's own top section is deliberately
+  // narrower than Patient Check-In's -- it only cares about patients
+  // who have ALREADY been checked in (status 'In Progress') and are
+  // ready for/in the OT. A patient still sitting at 'Scheduled' hasn't
+  // been checked in yet and has no business showing up here as
+  // "pending" -- that confusion is exactly what Patient Check-In's own
+  // Dashboard exists to resolve; Intraop shouldn't duplicate it.
   const isCheckin = variant === 'checkin';
-  const topCases = isCheckin ? cases.filter((c) => c.status === 'Scheduled') : cases.filter((c) => c.status !== 'Completed');
+  const topCases = isCheckin ? cases.filter((c) => c.status === 'Scheduled') : cases.filter((c) => c.status === 'In Progress');
   const bottomCases = isCheckin ? cases.filter((c) => c.status !== 'Scheduled') : cases.filter((c) => c.status === 'Completed');
-  const topTitle = isCheckin ? 'Pending Check-In' : "Today's Pending Cases";
-  const bottomTitle = isCheckin ? 'Checked-In Patients (Today)' : "Today's Completed Cases";
+  const topTitle = isCheckin ? 'Pending Check-In' : 'Patients Checked In for Surgery';
+  const bottomTitle = isCheckin ? 'Checked-In Patients (Today)' : 'Patients Operated Today';
   const bottomSubtitle = isCheckin ? 'Already checked in and handed off to the OT team.' : 'Moves to OT History tomorrow -- still editable from here today if a correction is needed.';
 
   const counts = {
@@ -261,4 +269,3 @@ export default function OTIntraopPage() {
     </Suspense>
   );
 }
-

@@ -85,7 +85,7 @@ export async function getOTCaseList() {
   const supabase = await createClient();
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-  const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
+  const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, package_discount, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
 
   // Scheduled (not yet checked in) is now strictly locked to scheduled_date
   // === today -- not "on or before today" as it used to be. A case
@@ -127,14 +127,24 @@ export async function getOTCaseList() {
   }));
 
   return cases.map((b) => {
+    // Net payable = package price minus whatever discount was recorded
+    // at Package Selection / Payment step in Surgical Journey --
+    // matches netPackageAmount there exactly (surgical-journey/[id]/workspace.js).
+    // Previously this used the raw package price with no discount
+    // applied, so a discounted patient always showed an inflated
+    // "amount to collect" here at check-in.
     const packagePrice = Number(b.surgical_cases.master_packages?.price || 0);
+    const packageDiscount = Number(b.surgical_cases.package_discount || 0);
+    const netPackageAmount = Math.max(0, packagePrice - packageDiscount);
     const advanceBalance = balanceByPatient[b.surgical_cases.patient_id] || 0;
     return {
       ...b,
       packagePrice,
+      packageDiscount,
+      netPackageAmount,
       advanceBalance,
-      amountPayable: Math.max(0, packagePrice - advanceBalance),
-      advanceCleared: packagePrice <= 0 || advanceBalance >= packagePrice,
+      amountPayable: Math.max(0, netPackageAmount - advanceBalance),
+      advanceCleared: netPackageAmount <= 0 || advanceBalance >= netPackageAmount,
     };
   });
 }

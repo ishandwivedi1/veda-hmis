@@ -36,7 +36,7 @@ const NAV_ITEMS = [
   { href: '/optometry-history', label: 'Optometry History', icon: 'ti-history', section: 'Optometrist' },
   { href: '/optometry-reports', label: 'Optometry Reports', icon: 'ti-chart-bar', section: 'Optometrist' },
   { href: '/surgical-journey', label: 'Surgical Journey', icon: 'ti-route', section: 'Surgical' },
-  { href: '/iol-approval', label: 'IOL Approval', icon: 'ti-lens', section: 'Surgical' },
+  { href: '/iol-approval', label: 'IOL Approval', icon: 'ti-aperture', section: 'Surgical' },
   { href: '/ot-schedule', label: 'OT Schedule', icon: 'ti-calendar-event', section: 'Surgical' },
   { href: '/patient-checkin', label: 'Patient Check-In', icon: 'ti-clipboard-check', section: 'Surgical' },
   { href: '/ot-intraop', label: 'Intraoperative Management', icon: 'ti-building-hospital', section: 'Surgical' },
