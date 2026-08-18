@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   getMedicalFitnessQueue, getMedicalFitnessHistory, getMedicalFitnessClearedToday, getMedicalFitnessDetail,
   getInvestigationMasterOptions, orderFitnessInvestigation, removeFitnessInvestigation,
@@ -278,6 +279,22 @@ export function WorkspaceTab({ referralId, onDone }) {
     refresh();
   }
 
+  // Opened as a deep link from Surgical Journey (a real opener window
+  // exists) -- signal the update back and close this tab so the person
+  // lands right back on Surgical Journey instead of switching tabs and
+  // manually refreshing. Returns true if it closed the tab (caller
+  // should skip its own post-save cleanup in that case). Opened
+  // normally from the sidebar (no opener), returns false so the
+  // caller falls through to its usual in-place refresh/navigation.
+  function notifyParentAndClose() {
+    if (typeof window !== 'undefined' && window.opener) {
+      window.opener.postMessage({ type: 'fitness-updated', referralId }, window.location.origin);
+      window.close();
+      return true;
+    }
+    return false;
+  }
+
   async function handleSaveDraft() {
     setError(''); setOkMsg('');
     setSavingDraft(true);
@@ -294,6 +311,7 @@ export function WorkspaceTab({ referralId, onDone }) {
     const result = await submitFitnessForm(referralId, form, 'Cleared', form.certification.notes);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
+    if (notifyParentAndClose()) return;
     onDone();
   }
 
@@ -304,6 +322,7 @@ export function WorkspaceTab({ referralId, onDone }) {
     const result = await submitFitnessForm(referralId, form, 'Not Fit', form.certification.notes);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
+    if (notifyParentAndClose()) return;
     onDone();
   }
 
@@ -315,6 +334,7 @@ export function WorkspaceTab({ referralId, onDone }) {
     const result = await submitFitnessForm(referralId, form, data.referral.status, form.certification.notes);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
+    if (notifyParentAndClose()) return;
     setOkMsg('Updated.');
     setUnlocked(false);
     refresh();
@@ -654,15 +674,25 @@ export function WorkspaceTab({ referralId, onDone }) {
 }
 
 // ── PAGE: single SPA with client-side tab switching, matching Counselling ──
-export default function MedicalFitnessPage() {
+// Deep-linkable via ?referralId=... -- Surgical Journey's Medical
+// Fitness step links straight here with the referral's id so it opens
+// that patient's own record instead of dropping onto the Queue for a
+// manual pick. An already-decided referral opens read-only by default
+// (formEditable = isPending || unlocked, see WorkspaceTab above) --
+// same locked-until-unlocked treatment used in Biometry and IOL
+// Approval, so no separate "view mode" flag is needed here.
+function MedicalFitnessInner() {
+  const searchParams = useSearchParams();
+  const deepLinkReferralId = searchParams.get('referralId');
+
   const [queueRows, setQueueRows] = useState([]);
   const [clearedTodayRows, setClearedTodayRows] = useState([]);
   const [historyRows, setHistoryRows] = useState([]);
   const [loadingQueue, setLoadingQueue] = useState(true);
   const [loadingClearedToday, setLoadingClearedToday] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
-  const [activeTab, setActiveTab] = useState('queue');
-  const [selectedReferralId, setSelectedReferralId] = useState(null);
+  const [activeTab, setActiveTab] = useState(deepLinkReferralId ? 'workspace' : 'queue');
+  const [selectedReferralId, setSelectedReferralId] = useState(deepLinkReferralId || null);
 
   const refreshQueue = useCallback(async () => {
     setQueueRows(await getMedicalFitnessQueue());
@@ -716,6 +746,14 @@ export default function MedicalFitnessPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function MedicalFitnessPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>}>
+      <MedicalFitnessInner />
+    </Suspense>
   );
 }
 

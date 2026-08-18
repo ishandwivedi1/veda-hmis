@@ -243,7 +243,7 @@ export default function Workspace({ caseId }) {
       {/* 6. MEDICAL FITNESS -- comes after the surgery date is booked
           (pre-anaesthesia clearance closer to the actual surgery date
           is more clinically useful than clearing weeks in advance). */}
-      <FitnessSection sc={sc} fitnessReferral={data.fitnessReferral} onAction={flash} active={currentStep === 'fitness'} num={6} />
+      <FitnessSection sc={sc} fitnessReferral={data.fitnessReferral} onAction={flash} active={currentStep === 'fitness'} num={6} refresh={refresh} />
 
       {/* 7. PAYMENT */}
       <Section num={7} color="var(--teal)" title="Payment" done={stepDone.payment} active={currentStep === 'payment'}>
@@ -304,9 +304,22 @@ export default function Workspace({ caseId }) {
 // Kept as a real doctor referral/review (same as Counselling), not a
 // self-certify checkbox -- clearing a patient for anaesthesia is a
 // genuine clinical judgment, not paperwork. Deep-links to the Medical
-// Fitness module for the actual review.
-function FitnessSection({ sc, fitnessReferral, onAction, active, num }) {
+// Fitness module for the actual review, opened as a real new tab
+// (window.opener intact) so it can signal back and close itself once
+// the review is submitted -- same pattern as IOL Approval.
+function FitnessSection({ sc, fitnessReferral, onAction, active, num, refresh }) {
   const cleared = sc.fitness_cleared || sc.fitness_required === false || fitnessReferral?.status === 'Cleared';
+
+  useEffect(() => {
+    function handleMessage(e) {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type !== 'fitness-updated' || e.data.referralId !== fitnessReferral?.id) return;
+      refresh();
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [fitnessReferral?.id, refresh]);
+
   if (sc.decision !== 'Accepted') {
     return (
       <Section num={num} color="var(--red)" title="Medical Fitness" done={false} active={active}>
@@ -323,18 +336,32 @@ function FitnessSection({ sc, fitnessReferral, onAction, active, num }) {
           <i className="ti ti-info-circle"></i> Will appear in the Medical Fitness module automatically once the OT date is booked.
         </div>
       ) : fitnessReferral.status === 'Pending Review' ? (
-        <span className="badge b-amber"><i className="ti ti-clock"></i> Awaiting doctor review (referred {new Date(fitnessReferral.referred_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}) -- <a href="/medical-fitness" style={{ color: 'var(--blue)', fontWeight: 600 }}>Open Medical Fitness &rarr;</a></span>
+        <div style={{ fontSize: 11.5 }}>
+          <span className="badge b-amber" style={{ marginBottom: 8 }}><i className="ti ti-clock"></i> Awaiting doctor review (referred {new Date(fitnessReferral.referred_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })})</span>
+          <div>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => openTab(`/medical-fitness?referralId=${fitnessReferral.id}`, `medical-fitness-${fitnessReferral.id}`)}>
+              <i className="ti ti-heart-rate-monitor"></i> Open Medical Fitness
+            </button>
+          </div>
+        </div>
       ) : fitnessReferral.status === 'Cleared' ? (
         <div>
           <span className="badge b-green"><i className="ti ti-check"></i> Cleared by doctor</span>
           {fitnessReferral.fitness_notes && <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 6 }}>{fitnessReferral.fitness_notes}</div>}
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="btn btn-sm" onClick={() => openTab(`/medical-fitness?referralId=${fitnessReferral.id}`, `medical-fitness-${fitnessReferral.id}`)}>
+              <i className="ti ti-pencil"></i> Edit
+            </button>
+          </div>
         </div>
       ) : (
         <div>
           <span className="badge b-red"><i className="ti ti-x"></i> Not Fit</span>
           {fitnessReferral.fitness_notes && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 6 }}>{fitnessReferral.fitness_notes}</div>}
-          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 6 }}>
-            <i className="ti ti-info-circle"></i> Doctor can review again from the <a href="/medical-fitness" style={{ color: 'var(--blue)', fontWeight: 600 }}>Medical Fitness module</a>.
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="btn btn-sm" onClick={() => openTab(`/medical-fitness?referralId=${fitnessReferral.id}`, `medical-fitness-${fitnessReferral.id}`)}>
+              <i className="ti ti-pencil"></i> Review Again
+            </button>
           </div>
         </div>
       )}
