@@ -995,10 +995,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
 
             <div style={{ borderTop: '1px dashed var(--g200)', paddingTop: 10 }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 6 }}>Serial / Batch (from the implanted unit's label)</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div><label className="flbl">Serial / Batch number</label><input className="fi fi-sm" value={imSerial} onChange={(e) => setImSerial(e.target.value)} disabled={isReadOnly} /></div>
-                <div><label className="flbl">Expiry date</label><input type="date" className="fi fi-sm" value={imExpiry} onChange={(e) => setImExpiry(e.target.value)} disabled={isReadOnly} /></div>
-              </div>
+              <div><label className="flbl">Serial / Batch number<sup style={{ color: 'var(--red)', marginLeft: 2 }}>*</sup></label><input className="fi fi-sm" value={imSerial} onChange={(e) => setImSerial(e.target.value)} disabled={isReadOnly} /></div>
             </div>
           </div>
 
@@ -1021,12 +1018,12 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
           {/* Recovery */}
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-bed" style={{ color: 'var(--teal)' }}></i> Recovery Handover</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <div><label className="flbl">Recovery destination</label><select className="fi fi-sm" value={recoveryDest} onChange={(e) => setRecoveryDest(e.target.value)} disabled={isReadOnly}><option>Recovery Bay 1</option><option>Recovery Bay 2</option><option>Day Care Ward</option></select></div>
-              <div><label className="flbl">Required monitoring</label><input className="fi fi-sm" value={recoveryMonitor} onChange={(e) => setRecoveryMonitor(e.target.value)} disabled={isReadOnly} placeholder="e.g. Vitals q15min x1hr" /></div>
+            <div style={{ marginBottom: 8 }}>
+              <label className="flbl">Required monitoring</label>
+              <input className="fi fi-sm" value={recoveryMonitor} onChange={(e) => setRecoveryMonitor(e.target.value)} disabled={isReadOnly} placeholder="e.g. Vitals q15min x1hr" />
             </div>
             <div style={{ marginBottom: 8 }}>
-              <label className="flbl">Post-operative instructions</label>
+              <label className="flbl">Post-operative instructions <span style={{ fontWeight: 400, color: 'var(--g400)', fontSize: 11 }}>(optional)</span></label>
               <textarea className="fi fi-sm" rows={2} value={recoveryInstructions} onChange={(e) => setRecoveryInstructions(e.target.value)} disabled={isReadOnly} placeholder="e.g. Eye shield overnight. Moxifloxacin QID..." />
             </div>
             <input className="fi fi-sm" value={recoveryConcerns} onChange={(e) => setRecoveryConcerns(e.target.value)} disabled={isReadOnly} placeholder="Immediate concerns (if any)..." />
@@ -1082,7 +1079,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 8 }}>Completion Checklist</div>
             {[
               { label: 'Implant information complete', done: biometryPlans.length === 0 || !!(imPower && imSerial) },
-              { label: 'Recovery handover documented', done: !!recoveryInstructions },
+              { label: 'Recovery handover documented (optional)', done: !!recoveryInstructions },
             ].map((it) => (
               <div key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', fontSize: 11 }}>
                 <i className={`ti ${it.done ? 'ti-circle-check' : 'ti-circle'}`} style={{ color: it.done ? 'var(--green)' : 'var(--g300)' }}></i> {it.label}

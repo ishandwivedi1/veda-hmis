@@ -357,7 +357,6 @@ export async function completeSurgery(otScheduleId, surgicalCaseId, values) {
     // skipImplant when there's no biometry plan at all.
     if (!values.skipImplant) return { error: 'VAL-OT-003: Implant power and serial/batch number are mandatory.' };
   }
-  if (!values.recoveryInstructions) return { error: 'VAL-OT-005: Recovery handover (post-operative instructions) must be documented.' };
   if (!values.surgicalOutcome) return { error: 'VAL-OT-005: Surgical outcome must be recorded.' };
   const needsRemarks = ['Converted Procedure', 'Procedure Deferred', 'Procedure Abandoned'].includes(values.surgicalOutcome);
   if (needsRemarks && !values.outcomeRemarks) {
