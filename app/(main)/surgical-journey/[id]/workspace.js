@@ -15,7 +15,7 @@ import {
   setDecision, markReadyForScheduling, bookOTSlot, getSurgeons, addCaseNote,
 } from '@/app/(main)/counselling/actions';
 import { getOTAvailability, rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
-import { openPopup } from '@/lib/popup';
+import { openPopup, openTab } from '@/lib/popup';
 
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
@@ -380,9 +380,9 @@ function IolApprovalSection({ sc, iolApproval, active, refresh }) {
                 {iolApproval.master_iol_catalog?.brand} {iolApproval.master_iol_catalog?.model} -- {iolApproval.power}D ({iolApproval.eye})
               </div>
             </div>
-            <a href={`/iol-approval?caseId=${sc.id}&mode=view`} target="_blank" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+            <button type="button" className="btn btn-sm" onClick={() => openTab(`/iol-approval?caseId=${sc.id}&mode=view`, `iol-approval-${sc.id}`)}>
               <i className="ti ti-pencil"></i> Edit
-            </a>
+            </button>
           </div>
         </div>
       ) : (
@@ -390,9 +390,9 @@ function IolApprovalSection({ sc, iolApproval, active, refresh }) {
           <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}>
             The surgeon needs to review Biometry's device recommendations and confirm the specific brand/power for this case.
           </div>
-          <a href={`/iol-approval?caseId=${sc.id}`} target="_blank" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => openTab(`/iol-approval?caseId=${sc.id}`, `iol-approval-${sc.id}`)}>
             <i className="ti ti-lens"></i> Open IOL Approval
-          </a>
+          </button>
         </div>
       )}
     </Section>
