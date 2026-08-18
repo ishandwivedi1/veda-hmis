@@ -269,6 +269,31 @@ const DEFAULT_TEMPLATES = {
     </tr>
   </table>
 
+  <!-- IOL RECOMMENDATIONS -->
+  {{#if hasRecommendations}}
+  <div style="font-size: 13px; font-weight: 700; color: #1e4e8c; margin-bottom: 8px; text-transform: uppercase;">IOL Recommendations (from device printout)</div>
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 12px;">
+    <tr style="background: #e9edf2;">
+      <th style="border: 1px solid #999; padding: 7px; text-align: left;">Brand / Model</th>
+      <th style="border: 1px solid #999; padding: 7px; text-align: center;">RE Power</th>
+      <th style="border: 1px solid #999; padding: 7px; text-align: center;">LE Power</th>
+    </tr>
+    {{#each recommendations}}
+    <tr>
+      <td style="border: 1px solid #999; padding: 7px;">{{brandModel}}</td>
+      <td style="border: 1px solid #999; padding: 7px; text-align: center;">{{rePower}}</td>
+      <td style="border: 1px solid #999; padding: 7px; text-align: center;">{{lePower}}</td>
+    </tr>
+    {{/each}}
+  </table>
+  {{/if}}
+
+  <!-- NOTES -->
+  {{#if hasNotes}}
+  <div style="font-size: 13px; font-weight: 700; color: #1e4e8c; margin-bottom: 8px; text-transform: uppercase;">Notes</div>
+  <div style="border: 1px solid #999; border-radius: 6px; padding: 10px 14px; font-size: 12.5px; white-space: pre-wrap; margin-bottom: 18px;">{{notes}}</div>
+  {{/if}}
+
   <table style="width: 100%; margin-top: 40px; border-collapse: collapse;">
     <tr>
       <td style="width: 100%; text-align: right; font-size: 12px; vertical-align: bottom;">
@@ -699,8 +724,13 @@ const SAMPLE_BIOMETRY_RAW = {
       re: [{ device: 'ZEISS IOLMaster 700', axl: '23.45', k1: '43.25', k2: '44.10', acd: '3.12', wtw: '11.80' }],
       le: [{ device: 'ZEISS IOLMaster 700', axl: '23.38', k1: '43.40', k2: '44.05', acd: '3.08', wtw: '11.75' }],
     },
+    verify_remarks: 'Optical biometry unreliable on RE due to dense cataract -- Manual A-Scan cross-checked.',
   },
   verifiedBy: { full_name: 'Dr. Nisha Bachkheti', registration_no: 'UKMC-3436' },
+  recommendations: [
+    { master_iol_catalog: { brand: 'Alcon', model: 'AcrySof IQ' }, re_power: '21.5', le_power: '21.0' },
+    { master_iol_catalog: { brand: 'Johnson & Johnson', model: 'Tecnis Eyhance' }, re_power: '21.5', le_power: '21.0' },
+  ],
 };
 
 // ── Renders the actual invoice HTML for a given invoiceId. Picks the
@@ -1345,9 +1375,15 @@ function buildBiometryReadingSets(sets) {
   }));
 }
 
-function buildBiometryReportContext(settings, { patient, visit, record, verifiedBy }) {
+function buildBiometryReportContext(settings, { patient, visit, record, verifiedBy, recommendations }) {
   const reSets = buildBiometryReadingSets(record.measurements?.re);
   const leSets = buildBiometryReadingSets(record.measurements?.le);
+
+  const recRows = (recommendations || []).map((r) => ({
+    brandModel: `${r.master_iol_catalog?.brand || ''} ${r.master_iol_catalog?.model || ''}`.trim() || '--',
+    rePower: r.re_power ?? '--',
+    lePower: r.le_power ?? '--',
+  }));
 
   const EYE_LABEL = { RE: 'Right Eye (RE / OD)', LE: 'Left Eye (LE / OS)', Both: 'Both Eyes (OU)', OD: 'Right Eye (RE / OD)', OS: 'Left Eye (LE / OS)', OU: 'Both Eyes (OU)' };
 
@@ -1378,6 +1414,12 @@ function buildBiometryReportContext(settings, { patient, visit, record, verified
     reSets,
     hasLeReadings: leSets.length > 0,
     leSets,
+
+    hasRecommendations: recRows.length > 0,
+    recommendations: recRows,
+
+    hasNotes: !!(record.verify_remarks && record.verify_remarks.trim()),
+    notes: record.verify_remarks || '',
   };
 }
 
@@ -1397,12 +1439,19 @@ export async function renderBiometryReportHtml(recordId) {
     verifiedBy = doc;
   }
 
+  const { data: recommendations } = await supabase
+    .from('biometry_iol_recommendations')
+    .select('*, master_iol_catalog(brand, model)')
+    .eq('biometry_record_id', recordId)
+    .order('created_at', { ascending: true });
+
   const settings = await getHospitalSettings();
   const context = buildBiometryReportContext(settings, {
     patient: record.visits?.patients || {},
     visit: record.visits,
     record,
     verifiedBy,
+    recommendations: recommendations || [],
   });
 
   const template = await getPrintTemplate('biometry_report');

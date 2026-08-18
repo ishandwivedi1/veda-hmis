@@ -127,18 +127,18 @@ export async function getBiometryDetail(id) {
   return { record: data, recommendations: recommendations || [], isDoctor };
 }
 
-// Persists measurement readings without changing status -- technician
-// can leave and resume later. Once the record is Measured, this is
-// locked to Doctors only (correcting a finalized reading), same
-// boundary the workspace UI enforces.
-export async function saveBiometryDraft(id, measurements) {
+// Persists measurement readings (and notes) without changing status --
+// technician can leave and resume later. Once the record is Measured,
+// this is locked to Doctors only (correcting a finalized reading),
+// same boundary the workspace UI enforces.
+export async function saveBiometryDraft(id, measurements, notes) {
   const supabase = await createClient();
   const lockError = await assertBiometryEditable(supabase, id);
   if (lockError) return lockError;
 
   const { error } = await supabase
     .from('biometry_records')
-    .update({ measurements, updated_at: new Date().toISOString() })
+    .update({ measurements, verify_remarks: notes ?? null, updated_at: new Date().toISOString() })
     .eq('id', id);
   if (error) return { error: error.message };
   return { success: true };

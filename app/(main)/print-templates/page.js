@@ -68,6 +68,8 @@ PLACEHOLDER_REFERENCE.biometry_report = [
   'procedure_name', 'surgical_eye', 'verified_by_name', 'verified_by_regn_no',
   '{{#if hasReReadings}}...{{/if}}', '{{#each reSets}}...device, axl, k1, k2, acd, wtw...{{/each}}',
   '{{#if hasLeReadings}}...{{/if}}', '{{#each leSets}}...device, axl, k1, k2, acd, wtw...{{/each}}',
+  '{{#if hasRecommendations}}...{{/if}}', '{{#each recommendations}}...brandModel, rePower, lePower...{{/each}}',
+  '{{#if hasNotes}}...{{/if}}', 'notes',
 ];
 
 PLACEHOLDER_REFERENCE.discharge_summary = [

@@ -187,7 +187,7 @@ export default function BiometryWorkspace({ recordId }) {
 
   async function handleSaveDraft() {
     setError(''); setOkMsg(''); setSaving(true);
-    const result = await saveBiometryDraft(recordId, measurements);
+    const result = await saveBiometryDraft(recordId, measurements, remarks);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setOkMsg('Draft saved.');
@@ -265,6 +265,20 @@ export default function BiometryWorkspace({ recordId }) {
 
       <RecommendationsSection recordId={recordId} recommendations={recommendations} catalog={catalog} disabled={!canEdit} onSaved={refresh} />
 
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-notes" style={{ color: 'var(--amber)' }}></i> Notes</div>
+        <textarea
+          className="fi fi-sm"
+          rows={3}
+          style={{ width: '100%', resize: 'vertical' }}
+          placeholder="e.g. Optical biometry unreliable due to dense cataract, A-Scan used as backup..."
+          value={remarks}
+          onChange={(e) => setRemarks(e.target.value)}
+          disabled={!canEdit}
+        />
+        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>Prints on the Biometry Report if filled in.</div>
+      </div>
+
       <div style={{ marginBottom: 12 }}>
         <AttachmentUploader entityType="biometry_record" entityId={recordId} title="Device Report (required -- IOLMaster/Lenstar printout, scanned reports)" />
       </div>
@@ -272,10 +286,6 @@ export default function BiometryWorkspace({ recordId }) {
       {!isMeasured && canEdit && (
         <div className="card">
           <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-check" style={{ color: 'var(--green)' }}></i> Mark as Measured</div>
-          <div style={{ marginBottom: 10 }}>
-            <label className="flbl">Technician remarks</label>
-            <input className="fi fi-sm" placeholder="e.g. Optical biometry unreliable due to dense cataract, A-Scan used as backup..." value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-sm" style={{ background: 'var(--indigo)', color: '#fff', border: 'none' }} onClick={handleMarkMeasured} disabled={saving}>
               <i className="ti ti-check"></i> Mark as Measured
