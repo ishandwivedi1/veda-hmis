@@ -133,11 +133,25 @@ export default function DoctorSurgeryDashboardPage() {
   const [active, setActive] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
-    const [s, a, h] = await Promise.all([getSurgeryDashboardScheduled(), getSurgeryDashboardActive(), getSurgeryDashboardHistory()]);
-    setScheduled(s); setActive(a); setHistory(h);
-    setLoading(false);
+    try {
+      const [s, a, h] = await Promise.all([getSurgeryDashboardScheduled(), getSurgeryDashboardActive(), getSurgeryDashboardHistory()]);
+      const firstError = s.error || a.error || h.error;
+      setScheduled(s.rows); setActive(a.rows); setHistory(h.rows);
+      setError(firstError || '');
+      if (firstError) console.error('Surgery Dashboard load error:', firstError);
+    } catch (e) {
+      // Belt-and-braces: even if the Server Action call itself fails
+      // (network drop, deploy mid-flight, etc.) rather than returning
+      // its own { error }, this still guarantees loading clears and
+      // something visible shows up instead of an infinite spinner.
+      console.error('Surgery Dashboard refresh failed:', e);
+      setError(e?.message || 'Failed to load Surgery Dashboard.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -180,6 +194,8 @@ export default function DoctorSurgeryDashboardPage() {
           <i className="ti ti-stethoscope"></i> OPD Dashboard
         </button>
       </div>
+
+      {error && <div className="msg-err" style={{ marginBottom: 12 }}>{error}</div>}
 
       {activeTab === 'scheduled' && <ScheduledTab rows={scheduled} loading={loading} onOpen={openScheduled} />}
       {activeTab === 'active' && <ActiveTab rows={active} loading={loading} onOpen={openActive} />}
