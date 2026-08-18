@@ -207,7 +207,7 @@ export default function ReceiptTab() {
                         <i className="ti ti-edit" style={{ color: 'var(--blue)' }}></i> Edit clerical details for {r.receipt_number}
                       </div>
                       <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
-                        <i className="ti ti-info-circle"></i> For correcting clerical mistakes only -- payment mode, reference number, remarks. The mode split must still total Rs.{r.total_amount}. To change the amount collected, use Refund or Credit Note instead.
+                        <i className="ti ti-info-circle"></i> For correcting clerical mistakes only -- payment mode, reference number, remarks. To <strong>change</strong> the mode (e.g. Cash to UPI), just select the new option in the row below -- don't use "Add mode" for that. "Add mode" is only for <strong>splitting</strong> this payment across more than one mode. The split must still total Rs.{r.total_amount}.
                       </div>
 
                       {loadingEdit && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 12 }}>Loading current payment details...</div>}
@@ -220,10 +220,27 @@ export default function ReceiptTab() {
                             {MODE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
                           </select>
                           <input type="number" className="fi" style={{ flex: 1 }} value={row.amount} onChange={(e) => updateModeRow(idx, 'amount', e.target.value)} placeholder="Amount" />
-                          {editModes.length > 1 && <button className="btn" style={{ padding: '4px 10px' }} onClick={() => removeModeRow(idx)}>x</button>}
+                          {editModes.length > 1 && <button className="btn" style={{ padding: '4px 10px' }} onClick={() => removeModeRow(idx)} title="Remove this row">x</button>}
                         </div>
                       ))}
-                      <button className="btn btn-sm" onClick={addModeRow} style={{ marginBottom: 10 }}><i className="ti ti-plus"></i> Add mode</button>
+                      <button className="btn btn-sm" onClick={addModeRow} style={{ marginBottom: 6 }}><i className="ti ti-plus"></i> Split into another mode</button>
+
+                      {(() => {
+                        const liveSum = editModes.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0);
+                        const target = Number(r.total_amount);
+                        const matches = Math.abs(liveSum - target) < 0.01;
+                        return (
+                          <div style={{
+                            fontSize: 12, fontWeight: 600, padding: '6px 10px', borderRadius: 6, marginBottom: 10,
+                            background: matches ? 'var(--green-lt, #e6f7ee)' : 'var(--red-lt, #fdecec)',
+                            color: matches ? 'var(--green)' : 'var(--red)',
+                          }}>
+                            <i className={`ti ${matches ? 'ti-circle-check' : 'ti-alert-triangle'}`}></i>{' '}
+                            Total entered: Rs.{liveSum.toFixed(2)} / Rs.{target.toFixed(2)} required
+                            {!matches && ' -- remove or adjust a row so these match before saving'}
+                          </div>
+                        );
+                      })()}
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                         <div>
@@ -240,7 +257,7 @@ export default function ReceiptTab() {
                       <input className="fi" style={{ marginBottom: 10 }} value={editReason} onChange={(e) => setEditReason(e.target.value)} placeholder="e.g. Staff mis-entered UPI as Cash" />
 
                       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                        <button className="btn btn-primary btn-sm" onClick={() => saveEdit(r)} disabled={saving}>{saving ? 'Saving...' : 'Save Correction'}</button>
+                        <button className="btn btn-primary btn-sm" onClick={() => saveEdit(r)} disabled={saving || Math.abs(editModes.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0) - Number(r.total_amount)) >= 0.01}>{saving ? 'Saving...' : 'Save Correction'}</button>
                         <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
                       </div>
                       </>}
