@@ -235,7 +235,7 @@ export default function Workspace({ caseId }) {
 
       {/* 4. IOL APPROVAL -- separate module: surgeon's final brand/power
           sign-off, based on Biometry's device recommendations. */}
-      <IolApprovalSection sc={sc} iolApproval={data.iolApproval} active={currentStep === 'iolApproval'} />
+      <IolApprovalSection sc={sc} iolApproval={data.iolApproval} active={currentStep === 'iolApproval'} refresh={refresh} />
 
       {/* 5. IOL PROCUREMENT + DATE + BOOK */}
       <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} iolApproval={data.iolApproval} onAction={flash} active={currentStep === 'iol'} num={5} />
@@ -344,9 +344,24 @@ function FitnessSection({ sc, fitnessReferral, onAction, active, num }) {
 
 // ── IOL APPROVAL -- separate module, deep-link only (same treatment as
 // Medical Fitness and Day of Surgery). The surgeon's actual approve
-// action happens in /iol-approval, not embedded here. ──
-function IolApprovalSection({ sc, iolApproval, active }) {
+// action happens in /iol-approval, not embedded here. Opens as a real
+// new tab (not a popup window) so the person can use the full
+// Workspace comfortably; the tab signals back via postMessage and
+// closes itself once the approval is saved, returning focus straight
+// to Surgical Journey with the step refreshed. ──
+function IolApprovalSection({ sc, iolApproval, active, refresh }) {
   const approved = iolApproval?.status === 'Approved';
+
+  useEffect(() => {
+    function handleMessage(e) {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type !== 'iol-approved' || e.data.caseId !== sc.id) return;
+      refresh();
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [sc.id, refresh]);
+
   if (sc.decision !== 'Accepted') {
     return (
       <Section num={5} color="var(--indigo)" title="IOL Approval" done={false} active={active}>
@@ -358,9 +373,16 @@ function IolApprovalSection({ sc, iolApproval, active }) {
     <Section num={5} color="var(--indigo)" title="IOL Approval" done={approved} active={active}>
       {approved ? (
         <div style={{ fontSize: 12.5 }}>
-          <span className="badge b-green" style={{ marginBottom: 6 }}><i className="ti ti-check"></i> Approved</span>
-          <div style={{ marginTop: 6 }}>
-            {iolApproval.master_iol_catalog?.brand} {iolApproval.master_iol_catalog?.model} -- {iolApproval.power}D ({iolApproval.eye})
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <div>
+              <span className="badge b-green" style={{ marginBottom: 6 }}><i className="ti ti-check"></i> Approved</span>
+              <div style={{ marginTop: 6 }}>
+                {iolApproval.master_iol_catalog?.brand} {iolApproval.master_iol_catalog?.model} -- {iolApproval.power}D ({iolApproval.eye})
+              </div>
+            </div>
+            <a href={`/iol-approval?caseId=${sc.id}&mode=view`} target="_blank" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+              <i className="ti ti-pencil"></i> Edit
+            </a>
           </div>
         </div>
       ) : (
@@ -368,7 +390,7 @@ function IolApprovalSection({ sc, iolApproval, active }) {
           <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}>
             The surgeon needs to review Biometry's device recommendations and confirm the specific brand/power for this case.
           </div>
-          <a href="/iol-approval" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>
+          <a href={`/iol-approval?caseId=${sc.id}`} target="_blank" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>
             <i className="ti ti-lens"></i> Open IOL Approval
           </a>
         </div>
