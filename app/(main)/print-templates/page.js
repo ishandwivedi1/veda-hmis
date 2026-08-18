@@ -66,8 +66,8 @@ PLACEHOLDER_REFERENCE.biometry_report = [
   'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
   'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'visit_number', 'report_date',
   'procedure_name', 'surgical_eye', 'surgeon_name', 'surgeon_regn_no',
-  '{{#if hasReReadings}}...{{/if}}', '{{#each reSets}}...device, axl, k1, k2, acd, lt, wtw...{{/each}}',
-  '{{#if hasLeReadings}}...{{/if}}', '{{#each leSets}}...device, axl, k1, k2, acd, lt, wtw...{{/each}}',
+  '{{#if hasReReadings}}...{{/if}}', '{{#each reSets}}...device, axl, k1, k2, acd, wtw...{{/each}}',
+  '{{#if hasLeReadings}}...{{/if}}', '{{#each leSets}}...device, axl, k1, k2, acd, wtw...{{/each}}',
   '{{#if hasFormulaResults}}...{{/if}}', '{{#each formulaResults}}...name, power, refraction, isSelected...{{/each}}',
   'final_iol_power', 'final_iol_formula', 'final_iol_category', 'final_iol_lens', 'target_refraction', 'surgeon_notes', 'approved_date',
 ];

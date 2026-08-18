@@ -3,8 +3,6 @@
 import { createClient } from '@/lib/supabase-server';
 import { logJourneyEvent } from '@/lib/journey-events';
 
-const REQUIRED_FIELDS = ['axl', 'k1', 'k2', 'acd'];
-
 // ── QUEUE ──────────────────────────────────────────────────────────
 // Biometry is patient-level now, not visit/case-level -- a session is
 // reused across every future surgical case for that patient. The queue
@@ -109,12 +107,6 @@ export async function getBiometryDetail(id) {
 
   if (error) return { error: error.message };
 
-  const { data: recommendations } = await supabase
-    .from('biometry_iol_recommendations')
-    .select('*, master_iol_catalog(brand, model, category)')
-    .eq('biometry_record_id', id)
-    .order('created_at', { ascending: true });
-
   // Once a record is Measured, opening it (e.g. via "View Report" from
   // Surgical Journey) should default to a locked, read-only view --
   // only a Doctor can unlock it to make a correction. Before Measured,
@@ -126,7 +118,7 @@ export async function getBiometryDetail(id) {
     isDoctor = me?.designation === 'Doctor';
   }
 
-  return { record: data, recommendations: recommendations || [], isDoctor };
+  return { record: data, isDoctor };
 }
 
 // Persists measurement readings without changing status -- technician
@@ -146,31 +138,12 @@ export async function saveBiometryDraft(id, measurements) {
   return { success: true };
 }
 
-function isComplete(set) {
-  return REQUIRED_FIELDS.every((f) => set[f] && String(set[f]).trim());
-}
-
-// Marks the session done -- requires at least one complete reading for
-// EACH eye (biometry is always done for both eyes now) and at least
-// one IOL recommendation row entered, plus the device report attached
-// (checked by the caller via AttachmentUploader's own listing, not
-// re-verified here -- consistent with how other modules treat
-// attachments as informational rather than a hard DB gate).
+// Marks the session done -- no completeness restriction on either eye;
+// the technician can mark as measured with whatever data has been
+// entered (partial readings, single eye only, etc).
 export async function markBiometryMeasured(id, measurements, remarks) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
-
-  const reHasComplete = (measurements.re || []).some(isComplete);
-  const leHasComplete = (measurements.le || []).some(isComplete);
-  if (!reHasComplete || !leHasComplete) {
-    return { error: 'At least one complete reading (AXL, K1, K2, ACD) is required for BOTH eyes.' };
-  }
-
-  const { count } = await supabase
-    .from('biometry_iol_recommendations')
-    .select('id', { count: 'exact', head: true })
-    .eq('biometry_record_id', id);
-  if (!count) return { error: 'Add at least one IOL recommendation from the device printout before marking as measured.' };
 
   const devicesUsed = [...new Set([...(measurements.re || []), ...(measurements.le || [])].map((s) => s.device).filter(Boolean))];
 
@@ -220,13 +193,9 @@ export async function markBiometryMeasured(id, measurements, remarks) {
   return { success: true };
 }
 
-// ── IOL RECOMMENDATIONS ──────────────────────────────────────────
-// The device's own printed table -- for each brand/model it evaluated,
-// what power it recommends per eye. This app records what the printout
-// says; it does not calculate anything itself.
 // Shared lock check: once a biometry record is Measured, only a
-// Doctor can modify it (readings or recommendations) -- everyone else
-// gets a read-only view. Returns null if the edit is allowed, or an
+// Doctor can modify it -- everyone else gets a read-only view.
+// Returns null if the edit is allowed, or an
 // {error} object to return straight from the calling action.
 async function assertBiometryEditable(supabase, biometryRecordId) {
   const { data: existing } = await supabase.from('biometry_records').select('status').eq('id', biometryRecordId).maybeSingle();
@@ -239,32 +208,6 @@ async function assertBiometryEditable(supabase, biometryRecordId) {
     return { error: 'This biometry record is already Measured and locked. Only a Doctor can edit it.' };
   }
   return null;
-}
-
-export async function addIolRecommendation(biometryRecordId, iolCatalogId, rePower, lePower) {
-  const supabase = await createClient();
-  const lockError = await assertBiometryEditable(supabase, biometryRecordId);
-  if (lockError) return lockError;
-  if (!iolCatalogId) return { error: 'Select an IOL brand/model.' };
-  if (!rePower && !lePower) return { error: 'Enter at least one power (RE or LE).' };
-  const { error } = await supabase.from('biometry_iol_recommendations').insert({
-    biometry_record_id: biometryRecordId, iol_catalog_id: iolCatalogId,
-    re_power: rePower || null, le_power: lePower || null,
-  });
-  if (error) return { error: error.message };
-  return { success: true };
-}
-
-export async function removeIolRecommendation(id) {
-  const supabase = await createClient();
-  const { data: rec } = await supabase.from('biometry_iol_recommendations').select('biometry_record_id').eq('id', id).maybeSingle();
-  if (rec?.biometry_record_id) {
-    const lockError = await assertBiometryEditable(supabase, rec.biometry_record_id);
-    if (lockError) return lockError;
-  }
-  const { error } = await supabase.from('biometry_iol_recommendations').delete().eq('id', id);
-  if (error) return { error: error.message };
-  return { success: true };
 }
 
 // ── HISTORY -- cross-patient, Measured or Cancelled. ──
