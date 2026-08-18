@@ -180,18 +180,69 @@ export async function setTreatmentInstructions(caseId, instructions) {
 
 // ── DASHBOARD ────────────────────────────────────────────────────────
 
+// A "Completed" surgical_cases.status only means the surgery itself is
+// done (set the moment Intraoperative Management's Surgery Complete is
+// submitted) -- the patient isn't actually through the journey until
+// Recovery confirms discharge. This resolves, for a batch of case ids
+// already known to be status='Completed', which of them also have a
+// discharge_date recorded -- those are the only ones that should
+// actually drop out of the Active list.
+async function getDischargedCaseIds(supabase, completedCaseIds) {
+  if (completedCaseIds.length === 0) return new Set();
+  const { data: schedules } = await supabase
+    .from('ot_schedule')
+    .select('id, surgical_case_id')
+    .in('surgical_case_id', completedCaseIds);
+  const scheduleIds = (schedules || []).map((s) => s.id);
+  if (scheduleIds.length === 0) return new Set();
+  const scheduleToCase = Object.fromEntries((schedules || []).map((s) => [s.id, s.surgical_case_id]));
+  const { data: episodes } = await supabase
+    .from('recovery_episodes')
+    .select('ot_schedule_id, discharge_date')
+    .in('ot_schedule_id', scheduleIds)
+    .not('discharge_date', 'is', null);
+  return new Set((episodes || []).map((e) => scheduleToCase[e.ot_schedule_id]).filter(Boolean));
+}
+
 // Every open surgical case (any staff member -- a small setup doesn't
-// have per-doctor case ownership walls). "Open" = not yet Completed or
-// Cancelled.
+// have per-doctor case ownership walls). "Open" = not Cancelled, and
+// not a Completed case that's also been discharged (see
+// getDischargedCaseIds above) -- a case whose surgery finished but
+// whose patient hasn't been discharged yet still belongs here.
 export async function getMyActiveSurgicalCases() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('surgical_cases')
     .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
-    .not('status', 'in', '("Completed","Cancelled")')
+    .neq('status', 'Cancelled')
     .order('created_at', { ascending: false });
   if (error) return [];
-  return data || [];
+  const cases = data || [];
+
+  const completedIds = cases.filter((c) => c.status === 'Completed').map((c) => c.id);
+  const dischargedIds = await getDischargedCaseIds(supabase, completedIds);
+
+  return cases.filter((c) => !(c.status === 'Completed' && dischargedIds.has(c.id)));
+}
+
+// Cancelled cases, plus Completed cases that have actually been
+// discharged -- the counterpart to getMyActiveSurgicalCases above, for
+// the History tab so a case doesn't just vanish once it drops off
+// Active.
+export async function getCompletedSurgicalCases() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_cases')
+    .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
+    .order('created_at', { ascending: false })
+    .limit(300);
+  if (error) return [];
+  const cases = data || [];
+
+  const completedIds = cases.filter((c) => c.status === 'Completed').map((c) => c.id);
+  const dischargedIds = await getDischargedCaseIds(supabase, completedIds);
+
+  return cases.filter((c) => c.status === 'Cancelled' || (c.status === 'Completed' && dischargedIds.has(c.id)));
 }
 
 // Patients whose decision is "Wants Time to Decide" and haven't
@@ -296,12 +347,6 @@ export async function getSurgicalCaseDetail(caseId) {
     .limit(1)
     .maybeSingle();
 
-  const { data: caseNotes } = await supabase
-    .from('surgical_case_notes')
-    .select('*, profiles:created_by(full_name)')
-    .eq('surgical_case_id', caseId)
-    .order('created_at', { ascending: false });
-
   // The surgeon's final IOL choice -- separate module/step from both
   // Biometry (raw device recommendations) and this page's own package
   // selection (billing category only).
@@ -328,7 +373,6 @@ export async function getSurgicalCaseDetail(caseId) {
     otSchedule: otSchedule || null,
     checkinCompletedAt,
     recoveryEpisode,
-    caseNotes: caseNotes || [],
     advanceBalance: Number(advanceBalance) || 0,
   };
 }

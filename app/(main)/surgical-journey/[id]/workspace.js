@@ -12,7 +12,7 @@ import {
 import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
   selectPackage, changePackage, updatePackageDiscount, getPackagesForCase,
-  setDecision, markReadyForScheduling, bookOTSlot, getSurgeons, addCaseNote,
+  setDecision, markReadyForScheduling, bookOTSlot, getSurgeons,
 } from '@/app/(main)/counselling/actions';
 import { rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
 import { openPopup, openTab } from '@/lib/popup';
@@ -317,9 +317,6 @@ export default function Workspace({ caseId }) {
       {/* 10. RECOVERY & DISCHARGE -- separate module: post-op recovery
           monitoring through to discharge. */}
       <RecoveryDischargeSection otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} active={currentStep === 'recovery'} num={10} />
-
-      {/* 11. NOTES / FOLLOW-UP */}
-      <NotesSection caseId={sc.id} notes={data.caseNotes} onAction={flash} />
     </div>
   );
 }
@@ -1080,30 +1077,6 @@ function RecoveryDischargeSection({ otSchedule, recoveryEpisode, active, num }) 
           <i className="ti ti-arrow-right"></i> {discharged ? 'View Recovery Record' : 'Open Recovery & Discharge'}
         </button>
       )}
-    </Section>
-  );
-}
-
-// ── 10. NOTES / FOLLOW-UP LOG ──────────────────────────────────────
-function NotesSection({ caseId, notes, onAction }) {
-  const [text, setText] = useState('');
-  return (
-    <Section num={11} color="var(--g500)" title="Notes &amp; Follow-up Calls" done={false}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-        <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Add a note (e.g. follow-up call outcome)..." value={text} onChange={(e) => setText(e.target.value)} />
-        <button
-          className="btn btn-sm"
-          onClick={async () => { if (!text.trim()) return; await onAction(addCaseNote)(caseId, text); setText(''); }}
-        >
-          Add
-        </button>
-      </div>
-      {notes.map((n) => (
-        <div key={n.id} style={{ fontSize: 11.5, color: 'var(--g600)', padding: '6px 0', borderBottom: '1px solid var(--g100)' }}>
-          <span style={{ color: 'var(--g400)' }}>{new Date(n.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} -- {n.profiles?.full_name || 'Staff'}:</span> {n.note}
-        </div>
-      ))}
-      {notes.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No notes yet.</div>}
     </Section>
   );
 }
