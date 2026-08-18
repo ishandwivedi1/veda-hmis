@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, Fragment } from 'react';
-import { searchReceipts, editPaymentClerical, getPaymentEditHistory, resendPaymentReceiptWhatsApp } from '../actions';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { searchReceipts, editPaymentClerical, getPaymentEditHistory, resendPaymentReceiptWhatsApp, getReceiptById } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
 const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -39,9 +39,15 @@ export default function ReceiptTab() {
   const [editRemarks, setEditRemarks] = useState('');
   const [editReason, setEditReason] = useState('');
   const [editHistory, setEditHistory] = useState([]);
+  const [expectedModeCount, setExpectedModeCount] = useState(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+  // Belt-and-braces alongside the disabled-button check below -- a ref
+  // updates synchronously, so it blocks a second saveEdit() call even if
+  // it fires before React has re-rendered the disabled state.
+  const savingRef = useRef(false);
   const [waStatus, setWaStatus] = useState({}); // { [receiptId]: 'sending'|'sent'|'warning'|'error' }
   const [waMsg, setWaMsg] = useState({});
 
@@ -70,14 +76,30 @@ export default function ReceiptTab() {
 
   const sortedReceipts = sortReceipts(receipts, sortBy);
 
+  // Always fetches fresh from the database rather than using r.payment_modes
+  // off the last search-results list -- that list can be stale (another
+  // edit landed elsewhere, this row hasn't been re-searched since), and
+  // opening the edit form pre-filled with stale modes was exactly how a
+  // prior edit got compounded onto old rows instead of cleanly replacing
+  // them. The fetched mode count is also what's sent back on save as the
+  // concurrency check.
   async function startEdit(r) {
     setError(''); setSuccess('');
     setEditingId(r.id);
-    setEditModes((r.payment_modes || []).map((m) => ({ mode: m.mode, amount: String(m.amount) })));
-    setEditReference(r.reference || '');
-    setEditRemarks(r.remarks || '');
+    setLoadingEdit(true);
+    const [fresh, history] = await Promise.all([getReceiptById(r.id), getPaymentEditHistory(r.id)]);
+    setLoadingEdit(false);
+    if (fresh.error || !fresh.payment) {
+      setError(fresh.error || 'Could not load this payment for editing.');
+      setEditingId(null);
+      return;
+    }
+    setEditModes((fresh.modes || []).map((m) => ({ mode: m.mode, amount: String(m.amount) })));
+    setExpectedModeCount((fresh.modes || []).length);
+    setEditReference(fresh.payment.reference || '');
+    setEditRemarks(fresh.payment.remarks || '');
     setEditReason('');
-    setEditHistory(await getPaymentEditHistory(r.id));
+    setEditHistory(history);
   }
 
   function cancelEdit() {
@@ -98,6 +120,7 @@ export default function ReceiptTab() {
   }
 
   async function saveEdit(receipt) {
+    if (savingRef.current) return; // hard guard -- ignore a second click even before React re-renders `disabled`
     setError(''); setSuccess('');
     if (!editReason.trim()) { setError('A reason is required to edit this payment.'); return; }
     const modesPayload = editModes.filter((m) => parseFloat(m.amount) > 0).map((m) => ({ mode: m.mode, amount: parseFloat(m.amount) }));
@@ -107,8 +130,10 @@ export default function ReceiptTab() {
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
-    const result = await editPaymentClerical(receipt.id, modesPayload, editReference, editRemarks, editReason);
+    const result = await editPaymentClerical(receipt.id, modesPayload, editReference, editRemarks, editReason, expectedModeCount);
+    savingRef.current = false;
     setSaving(false);
 
     if (result.error) { setError(result.error); return; }
@@ -164,7 +189,7 @@ export default function ReceiptTab() {
                     <button className="btn btn-sm" onClick={() => openPrintPopup(`/receipt-print/${r.id}`)}>
                       <i className="ti ti-printer"></i>
                     </button>
-                    <button className="btn btn-sm" onClick={() => (editingId === r.id ? cancelEdit() : startEdit(r))}>
+                    <button className="btn btn-sm" onClick={() => (editingId === r.id ? cancelEdit() : startEdit(r))} disabled={loadingEdit && editingId !== r.id}>
                       <i className="ti ti-edit"></i> {editingId === r.id ? 'Close' : 'Edit'}
                     </button>
                     <button className="btn btn-sm" onClick={() => handleSendWhatsApp(r.id)} disabled={waStatus[r.id] === 'sending'} title="Send WhatsApp confirmation">
@@ -185,6 +210,9 @@ export default function ReceiptTab() {
                         <i className="ti ti-info-circle"></i> For correcting clerical mistakes only -- payment mode, reference number, remarks. The mode split must still total Rs.{r.total_amount}. To change the amount collected, use Refund or Credit Note instead.
                       </div>
 
+                      {loadingEdit && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 12 }}>Loading current payment details...</div>}
+
+                      {!loadingEdit && <>
                       <label className="flbl">Payment mode(s)</label>
                       {editModes.map((row, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
@@ -215,8 +243,9 @@ export default function ReceiptTab() {
                         <button className="btn btn-primary btn-sm" onClick={() => saveEdit(r)} disabled={saving}>{saving ? 'Saving...' : 'Save Correction'}</button>
                         <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
                       </div>
+                      </>}
 
-                      {editHistory.length > 0 && (
+                      {!loadingEdit && editHistory.length > 0 && (
                         <div>
                           <label className="flbl" style={{ marginBottom: 6 }}>Edit history</label>
                           {editHistory.map((h) => (

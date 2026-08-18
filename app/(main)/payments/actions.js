@@ -178,7 +178,14 @@ export async function getPatientUnifiedLedger(patientId) {
 
 // ── EDIT PAYMENT (clerical corrections only -- mode/reference/remarks,
 // never amount) ──
-export async function editPaymentClerical(paymentId, modes, reference, remarks, reason) {
+// expectedModeCount is an optimistic-concurrency guard -- the number of
+// payment_modes rows the client saw when the edit form was opened
+// (fetched fresh via getReceiptById, not from a stale search-results
+// list). If the server finds a different count right now, something
+// changed underneath this edit (another tab, a retried/double submit,
+// a stale page) and the RPC refuses rather than silently stacking modes
+// on top of whatever's actually there.
+export async function editPaymentClerical(paymentId, modes, reference, remarks, reason, expectedModeCount) {
   const blocked = await requireDayOpen();
   if (blocked) return blocked;
   const supabase = await createClient();
@@ -188,6 +195,7 @@ export async function editPaymentClerical(paymentId, modes, reference, remarks, 
     p_reference: reference || null,
     p_remarks: remarks || null,
     p_reason: reason,
+    p_expected_mode_count: typeof expectedModeCount === 'number' ? expectedModeCount : null,
   });
   if (error) return { error: error.message };
   return { success: true };
