@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   getBiometryDetail, saveBiometryDraft, markBiometryMeasured,
+  addIolRecommendation, removeIolRecommendation,
 } from '../actions';
+import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import { openPrintPopup } from '@/lib/printPopup';
 
@@ -70,8 +72,69 @@ function EyeSets({ label, eyeKey, sets, onFieldChange, onRemoveSet, onAddSet, di
   );
 }
 
+function RecommendationsSection({ recordId, recommendations, catalog, disabled, onSaved }) {
+  const [catalogId, setCatalogId] = useState('');
+  const [rePower, setRePower] = useState('');
+  const [lePower, setLePower] = useState('');
+  const [error, setError] = useState('');
+
+  async function handleAdd() {
+    setError('');
+    const result = await addIolRecommendation(recordId, catalogId, rePower, lePower);
+    if (result.error) { setError(result.error); return; }
+    setCatalogId(''); setRePower(''); setLePower('');
+    onSaved();
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-list-details" style={{ color: 'var(--purple)' }}></i> IOL Recommendations (from device printout)</div>
+      <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
+        Optional -- not required to save or mark as measured. For each IOL brand/model the device evaluated, enter the power it recommends per eye -- transcribed straight from the printout, not calculated here.
+      </div>
+      {error && <div className="msg-err" style={{ marginBottom: 8 }}>{error}</div>}
+
+      {recommendations.length > 0 && (
+        <table className="tbl" style={{ marginBottom: 10 }}>
+          <thead><tr><th>Brand / Model</th><th>RE Power</th><th>LE Power</th><th></th></tr></thead>
+          <tbody>
+            {recommendations.map((r) => (
+              <tr key={r.id}>
+                <td>{r.master_iol_catalog?.brand} {r.master_iol_catalog?.model}</td>
+                <td>{r.re_power ?? '--'}</td>
+                <td>{r.le_power ?? '--'}</td>
+                <td>
+                  {!disabled && (
+                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeIolRecommendation(r.id); onSaved(); }}>
+                      <i className="ti ti-trash"></i>
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {!disabled && (
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8 }}>
+          <select className="fi fi-sm" value={catalogId} onChange={(e) => setCatalogId(e.target.value)}>
+            <option value="">Select brand/model...</option>
+            {catalog.map((c) => <option key={c.id} value={c.id}>{c.brand} {c.model}</option>)}
+          </select>
+          <input className="fi fi-sm" placeholder="RE power" value={rePower} onChange={(e) => setRePower(e.target.value)} />
+          <input className="fi fi-sm" placeholder="LE power" value={lePower} onChange={(e) => setLePower(e.target.value)} />
+          <button className="btn btn-sm btn-primary" onClick={handleAdd}><i className="ti ti-plus"></i></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BiometryWorkspace({ recordId }) {
   const [record, setRecord] = useState(null);
+  const [recommendations, setRecommendations] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [measurements, setMeasurements] = useState({ re: [], le: [] });
   const [remarks, setRemarks] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -86,6 +149,7 @@ export default function BiometryWorkspace({ recordId }) {
     const result = await getBiometryDetail(recordId);
     if (result.error) { setLoadError(result.error); return; }
     setRecord(result.record);
+    setRecommendations(result.recommendations);
     setIsDoctor(!!result.isDoctor);
     const m = result.record.measurements || {};
     setMeasurements({
@@ -95,7 +159,7 @@ export default function BiometryWorkspace({ recordId }) {
     setRemarks(result.record.verify_remarks || '');
   }
 
-  useEffect(() => { refresh(); }, [recordId]);
+  useEffect(() => { refresh(); getActiveIolCatalog().then(setCatalog); }, [recordId]);
 
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!record) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
@@ -198,6 +262,8 @@ export default function BiometryWorkspace({ recordId }) {
           </div>
         </div>
       </div>
+
+      <RecommendationsSection recordId={recordId} recommendations={recommendations} catalog={catalog} disabled={!canEdit} onSaved={refresh} />
 
       <div style={{ marginBottom: 12 }}>
         <AttachmentUploader entityType="biometry_record" entityId={recordId} title="Device Report (required -- IOLMaster/Lenstar printout, scanned reports)" />

@@ -196,7 +196,7 @@ const DEFAULT_TEMPLATES = {
   </table>
 
   <div style="text-align: center; font-size: 16px; font-weight: 700; letter-spacing: .5px; border-top: 1.5px solid #1e4e8c; border-bottom: 1.5px solid #1e4e8c; padding: 8px 0; margin: 10px 0 16px; color: #1e4e8c;">
-    IOL BIOMETRY &amp; POWER CALCULATION REPORT
+    IOL BIOMETRY REPORT
   </div>
 
   <!-- PATIENT / SURGICAL INFO -->
@@ -215,7 +215,6 @@ const DEFAULT_TEMPLATES = {
           <tr><td style="width: 90px; color: #444; padding: 2px 0;">DATE</td><td style="padding: 2px 0;">: <strong>{{report_date}}</strong></td></tr>
           <tr><td style="color: #444; padding: 2px 0;">PROCEDURE</td><td style="padding: 2px 0;">: <strong>{{procedure_name}}</strong></td></tr>
           <tr><td style="color: #444; padding: 2px 0;">EYE</td><td style="padding: 2px 0;">: <strong>{{surgical_eye}}</strong></td></tr>
-          <tr><td style="color: #444; padding: 2px 0;">SURGEON</td><td style="padding: 2px 0;">: <strong>{{surgeon_name}}</strong></td></tr>
         </table>
       </td>
     </tr>
@@ -231,6 +230,7 @@ const DEFAULT_TEMPLATES = {
           {{#if hasReReadings}}
           {{#each reSets}}
           <div style="margin-bottom: 8px; padding-bottom: 8px; {{#unless @last}}border-bottom: 1px dashed #ccc;{{/unless}}">
+            <div style="font-size: 11px; font-weight: 700; color: #1e4e8c; margin-bottom: 4px;"><i>Device:</i> {{device}}</div>
             <table style="width: 100%; font-size: 11.5px;">
               <tr><td style="color: #555; padding: 1px 0;">Axial Length</td><td style="text-align: right; font-weight: 600;">{{axl}} mm</td></tr>
               <tr><td style="color: #555; padding: 1px 0;">K1</td><td style="text-align: right; font-weight: 600;">{{k1}} D</td></tr>
@@ -251,6 +251,7 @@ const DEFAULT_TEMPLATES = {
           {{#if hasLeReadings}}
           {{#each leSets}}
           <div style="margin-bottom: 8px; padding-bottom: 8px; {{#unless @last}}border-bottom: 1px dashed #ccc;{{/unless}}">
+            <div style="font-size: 11px; font-weight: 700; color: #1e4e8c; margin-bottom: 4px;"><i>Device:</i> {{device}}</div>
             <table style="width: 100%; font-size: 11.5px;">
               <tr><td style="color: #555; padding: 1px 0;">Axial Length</td><td style="text-align: right; font-weight: 600;">{{axl}} mm</td></tr>
               <tr><td style="color: #555; padding: 1px 0;">K1</td><td style="text-align: right; font-weight: 600;">{{k1}} D</td></tr>
@@ -268,51 +269,12 @@ const DEFAULT_TEMPLATES = {
     </tr>
   </table>
 
-  <!-- IOL POWER CALCULATION -->
-  {{#if hasFormulaResults}}
-  <div style="font-size: 13px; font-weight: 700; color: #1e4e8c; margin-bottom: 8px; text-transform: uppercase;">IOL Power Calculation</div>
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 12px;">
-    <tr style="background: #e9edf2;">
-      <th style="border: 1px solid #999; padding: 7px; text-align: left;">Formula</th>
-      <th style="border: 1px solid #999; padding: 7px; text-align: center;">IOL Power</th>
-      <th style="border: 1px solid #999; padding: 7px; text-align: center;">Predicted Refraction</th>
-    </tr>
-    {{#each formulaResults}}
-    <tr style="{{#if isSelected}}background: #f0fdf4; font-weight: 700;{{/if}}">
-      <td style="border: 1px solid #999; padding: 7px;">{{name}}{{#if isSelected}} <span style="color: #16a34a;">(Selected)</span>{{/if}}</td>
-      <td style="border: 1px solid #999; padding: 7px; text-align: center;">{{power}} D</td>
-      <td style="border: 1px solid #999; padding: 7px; text-align: center;">{{refraction}}</td>
-    </tr>
-    {{/each}}
-  </table>
-  {{/if}}
-
-  <!-- FINAL APPROVED PLAN -->
-  <div style="font-size: 13px; font-weight: 700; color: #16a34a; margin-bottom: 8px; text-transform: uppercase;">Final Approved Plan</div>
-  <table style="width: 100%; border: 1.5px solid #16a34a; border-collapse: collapse; margin-bottom: 18px; background: #f0fdf4;">
-    <tr>
-      <td style="padding: 10px 14px; font-size: 12px;">
-        <table style="width: 100%; font-size: 12px;">
-          <tr><td style="width: 160px; color: #444; padding: 3px 0;">Final IOL Power</td><td style="padding: 3px 0;"><strong>{{final_iol_power}} D</strong></td></tr>
-          <tr><td style="color: #444; padding: 3px 0;">Formula Used</td><td style="padding: 3px 0;"><strong>{{final_iol_formula}}</strong></td></tr>
-          <tr><td style="color: #444; padding: 3px 0;">IOL Category</td><td style="padding: 3px 0;"><strong>{{final_iol_category}}</strong></td></tr>
-          <tr><td style="color: #444; padding: 3px 0;">Lens</td><td style="padding: 3px 0;"><strong>{{final_iol_lens}}</strong></td></tr>
-          <tr><td style="color: #444; padding: 3px 0;">Target Refraction</td><td style="padding: 3px 0;"><strong>{{target_refraction}}</strong></td></tr>
-          {{#if surgeon_notes}}
-          <tr><td style="color: #444; padding: 3px 0; vertical-align: top;">Surgeon Notes</td><td style="padding: 3px 0;">{{surgeon_notes}}</td></tr>
-          {{/if}}
-          <tr><td style="color: #444; padding: 3px 0;">Approved On</td><td style="padding: 3px 0;">{{approved_date}}</td></tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-
   <table style="width: 100%; margin-top: 40px; border-collapse: collapse;">
     <tr>
       <td style="width: 100%; text-align: right; font-size: 12px; vertical-align: bottom;">
         <div style="border-top: 1px solid #9ca3af; padding-top: 6px; width: 220px; margin-left: auto;">
-          <div style="font-weight: 600;">{{surgeon_name}}</div>
-          <div style="font-size: 10px; color: #9ca3af;">Reg No: {{surgeon_regn_no}}</div>
+          <div style="font-weight: 600;">{{verified_by_name}}</div>
+          <div style="font-size: 10px; color: #9ca3af;">Recorded / Verified By{{#if verified_by_regn_no}} -- Reg No: {{verified_by_regn_no}}{{/if}}</div>
         </div>
       </td>
     </tr>
@@ -731,22 +693,14 @@ const SAMPLE_BIOMETRY_RAW = {
   patient: { uhid: 'VEH000031', first_name: 'Dharam', last_name: '', age: 68, gender: 'Male' },
   visit: { visit_number: 'VN26-000112' },
   record: {
-    procedure_name: 'Phacoemulsification with IOL', surgical_eye: 'RE', status: 'Approved',
-    created_at: '2026-06-01T00:00:00Z', approved_at: '2026-06-02T00:00:00Z',
+    procedure_name: 'Phacoemulsification with IOL', surgical_eye: 'RE', status: 'Measured',
+    created_at: '2026-06-01T00:00:00Z', verified_at: '2026-06-01T00:00:00Z',
     measurements: {
-      re: [{ device: 'ZEISS IOLMaster 700', axl: '23.45', k1: '43.25', k2: '44.10', acd: '3.12', lt: '4.50', wtw: '11.80' }],
-      le: [{ device: 'ZEISS IOLMaster 700', axl: '23.38', k1: '43.40', k2: '44.05', acd: '3.08', lt: '4.48', wtw: '11.75' }],
+      re: [{ device: 'ZEISS IOLMaster 700', axl: '23.45', k1: '43.25', k2: '44.10', acd: '3.12', wtw: '11.80' }],
+      le: [{ device: 'ZEISS IOLMaster 700', axl: '23.38', k1: '43.40', k2: '44.05', acd: '3.08', wtw: '11.75' }],
     },
-    formula_results: [
-      { name: 'Barrett Universal II', power: '21.5', refraction: '-0.15' },
-      { name: 'SRK/T', power: '21.0', refraction: '-0.30' },
-    ],
-    selected_formula: 'Barrett Universal II',
-    final_iol_power: '21.5', final_iol_category: 'Monofocal', target_refraction: '-0.15 D',
-    surgeon_notes: 'Aim for slight myopia. Standard monofocal, no toric correction needed.',
   },
-  surgeon: { full_name: 'Dr. Nisha Bachkheti', registration_no: 'UKMC-3436' },
-  catalogItem: { brand: 'Alcon', model: 'AcrySof IQ' },
+  verifiedBy: { full_name: 'Dr. Nisha Bachkheti', registration_no: 'UKMC-3436' },
 };
 
 // ── Renders the actual invoice HTML for a given invoiceId. Picks the
@@ -1387,18 +1341,13 @@ export async function renderGlassesPrescriptionHtml(assessmentId) {
 function buildBiometryReadingSets(sets) {
   return (Array.isArray(sets) ? sets : []).map((s) => ({
     device: s.device || 'Unspecified device',
-    axl: s.axl || '--', k1: s.k1 || '--', k2: s.k2 || '--', acd: s.acd || '--', lt: s.lt || '--', wtw: s.wtw || '--',
+    axl: s.axl || '--', k1: s.k1 || '--', k2: s.k2 || '--', acd: s.acd || '--', wtw: s.wtw || '--',
   }));
 }
 
-function buildBiometryReportContext(settings, { patient, visit, record, surgeon, catalogItem }) {
+function buildBiometryReportContext(settings, { patient, visit, record, verifiedBy }) {
   const reSets = buildBiometryReadingSets(record.measurements?.re);
   const leSets = buildBiometryReadingSets(record.measurements?.le);
-
-  const formulaResults = (record.formula_results || []).map((r) => ({
-    name: r.name, power: r.power || '--', refraction: r.refraction || '--',
-    isSelected: r.name === record.selected_formula,
-  }));
 
   const EYE_LABEL = { RE: 'Right Eye (RE / OD)', LE: 'Left Eye (LE / OS)', Both: 'Both Eyes (OU)', OD: 'Right Eye (RE / OD)', OS: 'Left Eye (LE / OS)', OU: 'Both Eyes (OU)' };
 
@@ -1418,29 +1367,17 @@ function buildBiometryReportContext(settings, { patient, visit, record, surgeon,
     patient_age: patient.age ?? '--',
     patient_gender: patient.gender || '--',
     visit_number: visit?.visit_number || '--',
-    report_date: fmtDate(record.approved_at || record.created_at),
+    report_date: fmtDate(record.verified_at || record.created_at),
 
     procedure_name: record.procedure_name || '--',
     surgical_eye: EYE_LABEL[record.surgical_eye] || record.surgical_eye || '--',
-    surgeon_name: surgeon?.full_name || '--',
-    surgeon_regn_no: surgeon?.registration_no || '--',
+    verified_by_name: verifiedBy?.full_name || '--',
+    verified_by_regn_no: verifiedBy?.registration_no || null,
 
     hasReReadings: reSets.length > 0,
     reSets,
     hasLeReadings: leSets.length > 0,
     leSets,
-
-    hasFormulaResults: formulaResults.length > 0,
-    formulaResults,
-
-    isApproved: record.status === 'Approved',
-    final_iol_power: record.final_iol_power || '--',
-    final_iol_formula: record.selected_formula || '--',
-    final_iol_category: record.final_iol_category || '--',
-    final_iol_lens: catalogItem ? `${catalogItem.brand || ''} -- ${catalogItem.model || ''}`.trim() : '--',
-    target_refraction: record.target_refraction || '--',
-    surgeon_notes: record.surgeon_notes || null,
-    approved_date: record.approved_at ? fmtDate(record.approved_at) : '--',
   };
 }
 
@@ -1454,10 +1391,10 @@ export async function renderBiometryReportHtml(recordId) {
     .single();
   if (error || !record) return { error: 'Biometry record not found.' };
 
-  let surgeon = null;
+  let verifiedBy = null;
   if (record.verified_by) {
     const { data: doc } = await supabase.from('profiles').select('full_name, registration_no').eq('id', record.verified_by).maybeSingle();
-    surgeon = doc;
+    verifiedBy = doc;
   }
 
   const settings = await getHospitalSettings();
@@ -1465,8 +1402,7 @@ export async function renderBiometryReportHtml(recordId) {
     patient: record.visits?.patients || {},
     visit: record.visits,
     record,
-    surgeon,
-    catalogItem: null,
+    verifiedBy,
   });
 
   const template = await getPrintTemplate('biometry_report');

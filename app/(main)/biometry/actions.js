@@ -107,6 +107,12 @@ export async function getBiometryDetail(id) {
 
   if (error) return { error: error.message };
 
+  const { data: recommendations } = await supabase
+    .from('biometry_iol_recommendations')
+    .select('*, master_iol_catalog(brand, model, category)')
+    .eq('biometry_record_id', id)
+    .order('created_at', { ascending: true });
+
   // Once a record is Measured, opening it (e.g. via "View Report" from
   // Surgical Journey) should default to a locked, read-only view --
   // only a Doctor can unlock it to make a correction. Before Measured,
@@ -118,7 +124,7 @@ export async function getBiometryDetail(id) {
     isDoctor = me?.designation === 'Doctor';
   }
 
-  return { record: data, isDoctor };
+  return { record: data, recommendations: recommendations || [], isDoctor };
 }
 
 // Persists measurement readings without changing status -- technician
@@ -208,6 +214,36 @@ async function assertBiometryEditable(supabase, biometryRecordId) {
     return { error: 'This biometry record is already Measured and locked. Only a Doctor can edit it.' };
   }
   return null;
+}
+
+// ── IOL RECOMMENDATIONS ──────────────────────────────────────────
+// The device's own printed table -- for each brand/model it evaluated,
+// what power it recommends per eye. Optional: not required to save a
+// draft or to mark the record Measured.
+export async function addIolRecommendation(biometryRecordId, iolCatalogId, rePower, lePower) {
+  const supabase = await createClient();
+  const lockError = await assertBiometryEditable(supabase, biometryRecordId);
+  if (lockError) return lockError;
+  if (!iolCatalogId) return { error: 'Select an IOL brand/model.' };
+  if (!rePower && !lePower) return { error: 'Enter at least one power (RE or LE).' };
+  const { error } = await supabase.from('biometry_iol_recommendations').insert({
+    biometry_record_id: biometryRecordId, iol_catalog_id: iolCatalogId,
+    re_power: rePower || null, le_power: lePower || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function removeIolRecommendation(id) {
+  const supabase = await createClient();
+  const { data: rec } = await supabase.from('biometry_iol_recommendations').select('biometry_record_id').eq('id', id).maybeSingle();
+  if (rec?.biometry_record_id) {
+    const lockError = await assertBiometryEditable(supabase, rec.biometry_record_id);
+    if (lockError) return lockError;
+  }
+  const { error } = await supabase.from('biometry_iol_recommendations').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
 }
 
 // ── HISTORY -- cross-patient, Measured or Cancelled. ──
