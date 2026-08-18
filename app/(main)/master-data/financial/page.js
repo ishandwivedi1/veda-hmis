@@ -7,7 +7,7 @@ import {
   getPackages, addPackage, updatePackage, deletePackage,
   getPackageLineItems, addPackageLineItem, removePackageLineItem,
   getDrugs, addDrug, updateDrug, deleteDrug,
-  getDrugTypes, addDrugType, updateDrugType, deleteDrugType,
+  getDrugTypes, addDrugType, updateDrugType, updateDrugTypeOcular, deleteDrugType,
   getDosageOptions, addDosageOption, removeDosageOption,
   getVendorsMaster, addVendorMaster, updateVendorMaster, deleteVendorMaster,
   getSurgeries,
@@ -445,7 +445,7 @@ export default function FinancialMastersPage() {
               {showTypesPanel && (
                 <div style={{ marginTop: 12 }}>
                   <div className="msg-info" style={{ marginBottom: 12 }}>
-                    <i className="ti ti-info-circle"></i> Each type&apos;s dosage options are what shows up in the doctor&apos;s Prescription dosage dropdown when a drug of that type is selected -- e.g. &quot;Apply thin layer&quot; for Eye Ointment instead of &quot;1 drop&quot;.
+                    <i className="ti ti-info-circle"></i> Each type&apos;s dosage options are what shows up in the doctor&apos;s Prescription dosage dropdown when a drug of that type is selected -- e.g. &quot;Apply thin layer&quot; for Eye Ointment instead of &quot;1 drop&quot;. The &quot;Eye medication&quot; toggle controls whether Prescription/Discharge medication forms ask for an Eye (RE/LE/BE) -- turn it off for tablets, capsules, syrups, injections, and anything else taken systemically.
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
                     <input className="fi" style={{ maxWidth: 260 }} placeholder="New type name (e.g. Suspension)" value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} />
@@ -463,6 +463,10 @@ export default function FinancialMastersPage() {
                           onBlur={(e) => handleRenameType(t, e.target.value)}
                         />
                         <span style={{ fontSize: 11, color: 'var(--g400)', fontFamily: 'monospace' }}>{t.code}</span>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--g600)', cursor: 'pointer' }} title="Whether this type is applied to the eye (drops, ointments) -- controls whether Prescription/Discharge medication forms ask for Eye">
+                          <input type="checkbox" checked={!!t.is_ocular} onChange={(e) => updateDrugTypeOcular(t.id, e.target.checked).then(refresh)} />
+                          Eye medication
+                        </label>
                         <span style={{ marginLeft: 'auto' }}><StatusToggle record={t} table="master_drug_types" onUpdate={refresh} /></span>
                       </div>
                       {expandedTypeId === t.id && (

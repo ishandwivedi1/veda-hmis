@@ -159,6 +159,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [rxFrequency, setRxFrequency] = useState('BD');
   const [rxDuration, setRxDuration] = useState('1 week');
   const [rxEye, setRxEye] = useState('BE');
+  const [rxIsOcular, setRxIsOcular] = useState(true);
 
   // Investigation form
   const [invName, setInvName] = useState('');
@@ -272,6 +273,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   function selectRxDrug(d) {
     setRxDrug(d.brand);
     setRxDrugTypeId(d.drug_type_id || null);
+    // Tablets/capsules/syrups/injections aren't applied to an eye --
+    // skip the Eye field entirely for those instead of forcing a
+    // meaningless RE/LE/BE choice. Unknown/free-text drugs default to
+    // showing it (can't tell, and most of this hospital's prescribing
+    // is ocular anyway).
+    setRxIsOcular(d.master_drug_types?.is_ocular !== false);
     setRxDosage('');
     setShowRxSuggestions(false);
   }
@@ -289,9 +296,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setError('');
     if (!rxDrug.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
     if (!rxDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
-    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, dosage: rxDosage, eye: rxEye, steps: taperSteps });
+    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, dosage: rxDosage, eye: rxIsOcular ? rxEye : null, steps: taperSteps });
     if (result.error) { setError(result.error); return; }
-    setRxDrug(''); setRxDosage(''); setRxDrugTypeId(null); setShowTaperBuilder(false);
+    setRxDrug(''); setRxDosage(''); setRxDrugTypeId(null); setRxIsOcular(true); setShowTaperBuilder(false);
     refresh();
   }
 
@@ -299,7 +306,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setError('');
     if (!rxDrug.trim()) { setError('Drug name is required.'); return; }
     const result = await addPrescription(data.encounter.id, {
-      drugName: rxDrug, dosage: rxDosage, frequency: rxFrequency, duration: rxDuration, eye: rxEye,
+      drugName: rxDrug, dosage: rxDosage, frequency: rxFrequency, duration: rxDuration, eye: rxIsOcular ? rxEye : null,
     });
     if (result.error) { setError(result.error); return; }
     setRxDrug('');
@@ -777,7 +784,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   return items.map((item) => item.type === 'single' ? (
                     <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
                       <span>
-                        <strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye}
+                        <strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration}{item.row.eye ? ` -- ${item.row.eye}` : ''}
                       </span>
                       <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(item.row.id, data.encounter.id); refresh(); }}>Remove</button>
                     </div>
@@ -785,7 +792,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                     <div key={item.key} style={{ padding: '8px 10px', margin: '6px 0', background: 'var(--purple-lt)', borderRadius: 8, borderBottom: '1px solid var(--g100)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <span style={{ fontSize: 13 }}>
-                          <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye}
+                          <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage}{item.steps[0].eye ? ` -- ${item.steps[0].eye}` : ''}
                           <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering Schedule</span>
                         </span>
                         <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeTaperGroup(item.key, data.encounter.id); refresh(); }}>Remove Schedule</button>
@@ -812,7 +819,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       className="fi"
                       placeholder="Type to search medicines, or enter a new name"
                       value={rxDrug}
-                      onChange={(e) => { setRxDrug(e.target.value); setRxDrugTypeId(null); setShowRxSuggestions(true); }}
+                      onChange={(e) => { setRxDrug(e.target.value); setRxDrugTypeId(null); setRxIsOcular(true); setShowRxSuggestions(true); }}
                       onFocus={() => setShowRxSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowRxSuggestions(false), 150)}
                       style={{ width: '100%' }}
@@ -863,11 +870,14 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   <select className="fi" value={rxDuration} onChange={(e) => setRxDuration(e.target.value)} style={{ flex: '1 1 100px' }}>
                     <option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option><option>Ongoing</option>
                   </select>
-                  <select className="fi" value={rxEye} onChange={(e) => setRxEye(e.target.value)} style={{ width: 110 }}>
+                  <select className="fi" value={rxEye} onChange={(e) => setRxEye(e.target.value)} style={{ width: 110, visibility: rxIsOcular ? 'visible' : 'hidden' }} disabled={!rxIsOcular}>
                     <option value="RE">Right (OD)</option><option value="LE">Left (OS)</option><option value="BE">Both (OU)</option>
                   </select>
                   <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddPrescription}>Add</button>
                 </div>
+                {!rxIsOcular && (
+                  <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 3 }}><i className="ti ti-info-circle"></i> {rxDrug} is not applied to the eye -- no Eye field needed.</div>
+                )}
 
                 {!showTaperBuilder ? (
                   <button className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginTop: 8 }} onClick={() => setShowTaperBuilder(true)}>
@@ -876,7 +886,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 ) : (
                   <div style={{ marginTop: 10, padding: 12, background: 'var(--purple-lt)', borderRadius: 8 }}>
                     <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--purple)', marginBottom: 8 }}>
-                      <i className="ti ti-chart-line"></i> Tapering Schedule -- uses the Drug, Dosage &amp; Eye entered above; frequency reduces step by step below
+                      <i className="ti ti-chart-line"></i> Tapering Schedule -- uses the Drug &amp; Dosage{rxIsOcular ? ' & Eye' : ''} entered above; frequency reduces step by step below
                     </div>
                     {taperSteps.map((s, i) => (
                       <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>

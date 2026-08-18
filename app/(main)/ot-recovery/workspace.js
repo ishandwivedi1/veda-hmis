@@ -62,6 +62,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [medFrequency, setMedFrequency] = useState('BD');
   const [medDuration, setMedDuration] = useState('1 week');
   const [medEye, setMedEye] = useState('BE');
+  const [medIsOcular, setMedIsOcular] = useState(true);
   const [medReason, setMedReason] = useState('');
   const [showMedForm, setShowMedForm] = useState(false);
   const [showTaperBuilder, setShowTaperBuilder] = useState(false);
@@ -133,6 +134,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   function selectMedDrug(d) {
     setMedName(d.brand);
     setMedDrugTypeId(d.drug_type_id || null);
+    // Same logic as Consultation's prescription form -- tablets,
+    // capsules, syrups, and injections aren't applied to an eye.
+    setMedIsOcular(d.master_drug_types?.is_ocular !== false);
     setMedDosage('');
     setShowMedSuggestions(false);
   }
@@ -182,9 +186,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   async function handleAddMedicine() {
     setError('');
     if (!medName.trim()) { setError('Drug name is required.'); return; }
-    const result = await addRecoveryMedication(episodeId, { name: medName, dosage: medDosage, frequency: medFrequency, duration: medDuration, eye: medEye }, medReason);
+    const result = await addRecoveryMedication(episodeId, { name: medName, dosage: medDosage, frequency: medFrequency, duration: medDuration, eye: medIsOcular ? medEye : null }, medReason);
     if (result.error) { setError(result.error); return; }
-    setMedName(''); setMedDrugTypeId(null); setMedReason(''); setShowMedForm(false);
+    setMedName(''); setMedDrugTypeId(null); setMedIsOcular(true); setMedReason(''); setShowMedForm(false);
     refresh();
   }
 
@@ -201,9 +205,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setError('');
     if (!medName.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
     if (!medDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
-    const result = await addTaperedRecoveryMedication(episodeId, { name: medName, dosage: medDosage, eye: medEye, steps: taperSteps }, medReason);
+    const result = await addTaperedRecoveryMedication(episodeId, { name: medName, dosage: medDosage, eye: medIsOcular ? medEye : null, steps: taperSteps }, medReason);
     if (result.error) { setError(result.error); return; }
-    setMedName(''); setMedDosage(''); setMedDrugTypeId(null); setMedReason(''); setShowTaperBuilder(false);
+    setMedName(''); setMedDosage(''); setMedDrugTypeId(null); setMedIsOcular(true); setMedReason(''); setShowTaperBuilder(false);
     refresh();
   }
 
@@ -383,7 +387,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                         className="fi fi-sm" style={{ width: '100%' }}
                         placeholder="Type to search medicines, or enter a new name"
                         value={medName}
-                        onChange={(e) => { setMedName(e.target.value); setMedDrugTypeId(null); setShowMedSuggestions(true); }}
+                        onChange={(e) => { setMedName(e.target.value); setMedDrugTypeId(null); setMedIsOcular(true); setShowMedSuggestions(true); }}
                         onFocus={() => setShowMedSuggestions(true)}
                         onBlur={() => setTimeout(() => setShowMedSuggestions(false), 150)}
                       />
@@ -415,7 +419,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                       )}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: medIsOcular ? '1fr 1fr' : '1fr', gap: 6, marginBottom: 6 }}>
                       <select className="fi fi-sm" value={medDosage} onChange={(e) => setMedDosage(e.target.value)}>
                         <option value="">-- Dosage --</option>
                         {(medDrugTypeId ? dosageOptions.filter((o) => o.drug_type_id === medDrugTypeId) : []).map((o) => (
@@ -427,10 +431,15 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                           </>
                         )}
                       </select>
-                      <select className="fi fi-sm" value={medEye} onChange={(e) => setMedEye(e.target.value)}>
-                        <option value="RE">Right (OD)</option><option value="LE">Left (OS)</option><option value="BE">Both (OU)</option>
-                      </select>
+                      {medIsOcular && (
+                        <select className="fi fi-sm" value={medEye} onChange={(e) => setMedEye(e.target.value)}>
+                          <option value="RE">Right (OD)</option><option value="LE">Left (OS)</option><option value="BE">Both (OU)</option>
+                        </select>
+                      )}
                     </div>
+                    {!medIsOcular && (
+                      <div style={{ fontSize: 10, color: 'var(--g400)', marginBottom: 6 }}><i className="ti ti-info-circle"></i> {medName} is not applied to the eye -- no Eye field needed.</div>
+                    )}
 
                     {!showTaperBuilder ? (
                       <>
@@ -449,7 +458,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                     ) : (
                       <div style={{ marginBottom: 6, padding: 10, background: 'var(--purple-lt)', borderRadius: 8 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--purple)', marginBottom: 6 }}>
-                          <i className="ti ti-chart-line"></i> Tapering -- uses the Drug, Dosage &amp; Eye above; frequency reduces step by step
+                          <i className="ti ti-chart-line"></i> Tapering -- uses the Drug &amp; Dosage{medIsOcular ? ' & Eye' : ''} above; frequency reduces step by step
                         </div>
                         {taperSteps.map((s, i) => (
                           <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5 }}>

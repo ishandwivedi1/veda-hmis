@@ -177,6 +177,17 @@ export async function updateDrugType(id, oldValues, values) {
   if (oldValues.name !== name) await logMasterAudit(supabase, 'master_drug_types', oldValues.code, 'Edit', `Name ${oldValues.name} -> ${name}`);
   return { success: true };
 }
+// Whether this drug type is applied to the eye (drops, ointments, gels
+// -- the Eye field in Prescription applies) vs taken systemically
+// (tablets, capsules, syrups, injections -- no eye makes sense, so the
+// field is skipped entirely rather than forcing a meaningless choice).
+// This is what the Doctor and Discharge medication forms key off of.
+export async function updateDrugTypeOcular(id, isOcular) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_drug_types').update({ is_ocular: isOcular }).eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
 export async function deleteDrugType(id, code) {
   const supabase = await createClient();
   return deleteMasterRecord(supabase, 'master_drug_types', id, code);
@@ -552,7 +563,7 @@ export async function deleteSurgery(id, code) {
 // ── DRUGS ──
 export async function getDrugs() {
   const supabase = await createClient();
-  const { data } = await supabase.from('master_drugs').select('*, master_drug_types(id, name)').order('generic');
+  const { data } = await supabase.from('master_drugs').select('*, master_drug_types(id, name, is_ocular)').order('generic');
   return data || [];
 }
 // Drugs (Pharmacy tab) -- fixed "DRG" prefix, 3-digit sequence, same
