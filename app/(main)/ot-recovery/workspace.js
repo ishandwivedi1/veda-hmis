@@ -364,13 +364,13 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
               item.type === 'single' ? (
                 <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'var(--g50)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
                   <i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i>
-                  <span style={{ flex: 1 }}><strong>{item.row.name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration}{item.row.eye ? ` -- ${item.row.eye}` : ''}</span>
+                  <span style={{ flex: 1 }}><strong>{item.row.name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye || 'Oral'}</span>
                   {!fieldsDisabled && <button onClick={() => removeRecoveryMedication(item.row.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
                 </div>
               ) : (
                 <div key={item.key} style={{ padding: '6px 8px', background: 'var(--purple-lt)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                    <strong>{item.steps[0].name}</strong> -- {item.steps[0].dosage}{item.steps[0].eye ? ` -- ${item.steps[0].eye}` : ''}
+                    <strong>{item.steps[0].name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye || 'Oral'}
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering</span>
                     {!fieldsDisabled && <button onClick={() => removeRecoveryTaperGroup(item.key).then(refresh)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
                   </div>
@@ -456,7 +456,10 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                             <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
                           </select>
                           <select className="fi fi-sm" value={medDuration} onChange={(e) => setMedDuration(e.target.value)}>
-                            <option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option><option>Ongoing</option>
+                            <option>1 day</option><option>2 days</option><option>3 days</option><option>4 days</option><option>5 days</option>
+                            <option>1 week</option><option>2 weeks</option><option>10 days</option>
+                            <option>1 month</option><option>2 months</option><option>3 months</option><option>4 months</option><option>5 months</option><option>6 months</option>
+                            <option>Ongoing</option>
                           </select>
                         </div>
                         <button className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginBottom: 6 }} onClick={() => setShowTaperBuilder(true)}>
@@ -475,7 +478,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                               <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
                             </select>
                             <select className="fi fi-sm" value={s.duration} onChange={(e) => updateTaperStep(i, 'duration', e.target.value)} style={{ maxWidth: 100 }}>
-                              <option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option>
+                              <option>1 day</option><option>2 days</option><option>3 days</option><option>4 days</option><option>5 days</option>
+                              <option>1 week</option><option>2 weeks</option><option>10 days</option>
+                              <option>1 month</option><option>2 months</option><option>3 months</option><option>4 months</option><option>5 months</option><option>6 months</option>
                             </select>
                             {taperSteps.length > 2 && (
                               <button className="btn btn-sm" style={{ padding: '1px 6px' }} onClick={() => removeTaperStep(i)}><i className="ti ti-x" style={{ color: 'var(--red)' }}></i></button>

@@ -31,7 +31,7 @@ const POST_TEMPLATES = {
   Macula: ['Normal', 'ARMD', 'CSME', 'Macular Hole', 'Epiretinal Membrane', 'Scar'],
   Vessels: ['Normal', 'Arteriovenous nipping', 'Disc collaterals', 'Arteriolar Attenuation'],
   'Peripheral Retina': ['Attached', 'Lattice', 'Tear', 'Detachment', 'Laser Marks'],
-  CDR: ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', 'GOA'],
+  CDR: ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.65', '0.7', '0.75', '0.8', '0.85', '0.9', '0.95', 'GOA'],
 };
 // Structs rendered as a dropdown instead of the usual pill row.
 const POST_SELECT_STRUCTS = ['CDR'];

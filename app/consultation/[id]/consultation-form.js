@@ -495,7 +495,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   // encounter, in one checklist -- prescriptions, investigations,
   // workflow requests.
   const trackerRows = [
-    ...data.prescriptions.map((r) => ({ label: `${r.drug_name} (${r.eye})`, dept: 'Pharmacy', status: r.status, icon: 'ti-pill', color: 'var(--purple)' })),
+    ...data.prescriptions.map((r) => ({ label: `${r.drug_name} (${r.eye || 'Oral'})`, dept: 'Pharmacy', status: r.status, icon: 'ti-pill', color: 'var(--purple)' })),
     ...data.investigations.map((i) => ({ label: `${i.name} (${i.eye})`, dept: 'Investigation', status: i.status, icon: 'ti-flask', color: 'var(--teal)' })),
     ...data.workflowRequests.map((w) => ({
       label: w.kind, dept: w.kind === 'Counselling' ? 'Counsellor' : w.kind === 'Medical Fitness' ? 'Pre-op Fitness' : 'Biometry', status: w.status, icon: WF_ITEMS[w.kind]?.icon || 'ti-clipboard', color: 'var(--amber)', wfId: w.id, resolvable: w.status === 'Requested',
@@ -757,7 +757,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                               refresh();
                             }}
                           >
-                            <i className="ti ti-plus"></i> {m.drug_name} ({m.eye})
+                            <i className="ti ti-plus"></i> {m.drug_name} ({m.eye || 'Oral'})
                           </button>
                         ))}
                     </div>
@@ -784,7 +784,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   return items.map((item) => item.type === 'single' ? (
                     <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
                       <span>
-                        <strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration}{item.row.eye ? ` -- ${item.row.eye}` : ''}
+                        <strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye || 'Oral'}
                       </span>
                       <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(item.row.id, data.encounter.id); refresh(); }}>Remove</button>
                     </div>
@@ -792,7 +792,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                     <div key={item.key} style={{ padding: '8px 10px', margin: '6px 0', background: 'var(--purple-lt)', borderRadius: 8, borderBottom: '1px solid var(--g100)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <span style={{ fontSize: 13 }}>
-                          <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage}{item.steps[0].eye ? ` -- ${item.steps[0].eye}` : ''}
+                          <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye || 'Oral'}
                           <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering Schedule</span>
                         </span>
                         <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeTaperGroup(item.key, data.encounter.id); refresh(); }}>Remove Schedule</button>
@@ -868,7 +868,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                     <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
                   </select>
                   <select className="fi" value={rxDuration} onChange={(e) => setRxDuration(e.target.value)} style={{ flex: '1 1 100px' }}>
-                    <option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option><option>Ongoing</option>
+                    <option>1 day</option><option>2 days</option><option>3 days</option><option>4 days</option><option>5 days</option>
+                    <option>1 week</option><option>2 weeks</option><option>10 days</option>
+                    <option>1 month</option><option>2 months</option><option>3 months</option><option>4 months</option><option>5 months</option><option>6 months</option>
+                    <option>Ongoing</option>
                   </select>
                   <select className="fi" value={rxEye} onChange={(e) => setRxEye(e.target.value)} style={{ width: 110, visibility: rxIsOcular ? 'visible' : 'hidden' }} disabled={!rxIsOcular}>
                     <option value="RE">Right (OD)</option><option value="LE">Left (OS)</option><option value="BE">Both (OU)</option>
@@ -895,7 +898,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                           <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
                         </select>
                         <select className="fi fi-sm" value={s.duration} onChange={(e) => updateTaperStep(i, 'duration', e.target.value)} style={{ maxWidth: 110 }}>
-                          <option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option>
+                          <option>1 day</option><option>2 days</option><option>3 days</option><option>4 days</option><option>5 days</option>
+                          <option>1 week</option><option>2 weeks</option><option>10 days</option>
+                          <option>1 month</option><option>2 months</option><option>3 months</option><option>4 months</option><option>5 months</option><option>6 months</option>
                         </select>
                         {taperSteps.length > 2 && (
                           <button className="btn btn-sm" style={{ padding: '1px 6px' }} onClick={() => removeTaperStep(i)}><i className="ti ti-x" style={{ color: 'var(--red)' }}></i></button>

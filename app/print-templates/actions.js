@@ -1401,6 +1401,8 @@ function buildGlassesPrescriptionContext(settings, { patient, assessment, optome
     hasNearRx,
     near_re_sph: nearRe.sph, near_re_cyl: nearRe.cyl, near_re_axis: nearRe.axis, near_re_va: nearRe.va,
     near_le_sph: nearLe.sph, near_le_cyl: nearLe.cyl, near_le_axis: nearLe.axis, near_le_va: nearLe.va,
+    add_re: assessment?.ref_final_re_add || '--',
+    add_le: assessment?.ref_final_le_add || '--',
 
     ipd: assessment?.ref_pd || '--',
     optometrist_name: optometrist?.full_name || '--',

@@ -43,6 +43,27 @@ const REF_TYPES = { obj: 'Objective (Auto-Rx)', subj: 'Subjective', final: 'Fina
 function refKey(type, eye, distNear, metric) {
   return `ref_${type}_${eye}_${distNear}_${metric}`;
 }
+
+// ADD (near addition) is tracked once per refraction type + eye, not per
+// dist/near -- it's the bridge value between them, not a field OF either.
+function addKey(type, eye) {
+  return `ref_${type}_${eye}_add`;
+}
+
+// NEAR SPH = DIST SPH + ADD (algebraic sum, since ADD is always recorded
+// as a positive magnitude but the dist SPH itself may be +ve or -ve).
+// CYL/AXIS have no near-specific value -- they mirror DIST exactly. VA
+// stays independent of this computation entirely (near visual acuity
+// genuinely differs from distance, ADD doesn't determine it).
+function addSphValues(distSph, addVal) {
+  if (!distSph) return '';
+  const distNum = parseFloat(distSph);
+  if (Number.isNaN(distNum)) return '';
+  const addNum = addVal ? parseFloat(addVal) : 0;
+  const sum = distNum + (Number.isNaN(addNum) ? 0 : addNum);
+  const sign = sum >= 0 ? '+' : '-';
+  return `${sign}${Math.abs(sum).toFixed(2)}`;
+}
 const VA_LOGMAR = ['0.0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.8', '1.0', '1.3'];
 const VA_ETDRS = ['85', '80', '75', '70', '65', '60', '55', '50', '45', '40'];
 
@@ -82,6 +103,10 @@ function emptyForm() {
       ['dist', 'near'].forEach((dn) => {
         ['va', 'sph', 'cyl', 'axis'].forEach((m) => { f[refKey(type, eye, dn, m)] = ''; });
       });
+      // ADD only applies to actual refraction (Objective/Subjective/Final
+      // Rx) -- Present Glasses power is a reading off existing glasses,
+      // not a new prescription being built, so there's no ADD to record.
+      if (type !== 'pg') f[addKey(type, eye)] = '';
     });
     f[`ref_${type}_copy_re_to_le`] = false;
   });
@@ -104,10 +129,13 @@ function PickerField({ value, onClick, disabled }) {
   );
 }
 
-// SPH/CYL magnitude + sign picker, or AXIS picker, depending on picker.kind.
+// SPH/CYL/AXIS/ADD picker. AXIS shows the angle grid. ADD is the same
+// magnitude grid as SPH/CYL but positive-only (no +ve/-ve toggle) --
+// near addition power is never negative.
 function ValuePickerModal({ picker, currentValue, onSelect, onClose }) {
   const isAxis = picker.kind === 'axis';
-  const [negative, setNegative] = useState(!String(currentValue || '').trim().startsWith('+'));
+  const isAdd = picker.kind === 'add';
+  const [negative, setNegative] = useState(!isAdd && !String(currentValue || '').trim().startsWith('+'));
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -119,20 +147,22 @@ function ValuePickerModal({ picker, currentValue, onSelect, onClose }) {
 
         {!isAxis && (
           <>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-              <div
-                onClick={() => setNegative(false)}
-                style={{ flex: 1, textAlign: 'center', padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${!negative ? 'var(--teal)' : 'var(--g200)'}`, background: !negative ? 'var(--teal)' : '#fff', color: !negative ? '#fff' : 'var(--g600)' }}
-              >
-                +ve
+            {!isAdd && (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                <div
+                  onClick={() => setNegative(false)}
+                  style={{ flex: 1, textAlign: 'center', padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${!negative ? 'var(--teal)' : 'var(--g200)'}`, background: !negative ? 'var(--teal)' : '#fff', color: !negative ? '#fff' : 'var(--g600)' }}
+                >
+                  +ve
+                </div>
+                <div
+                  onClick={() => setNegative(true)}
+                  style={{ flex: 1, textAlign: 'center', padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${negative ? 'var(--red)' : 'var(--g200)'}`, background: negative ? 'var(--red)' : '#fff', color: negative ? '#fff' : 'var(--g600)' }}
+                >
+                  -ve
+                </div>
               </div>
-              <div
-                onClick={() => setNegative(true)}
-                style={{ flex: 1, textAlign: 'center', padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${negative ? 'var(--red)' : 'var(--g200)'}`, background: negative ? 'var(--red)' : '#fff', color: negative ? '#fff' : 'var(--g600)' }}
-              >
-                -ve
-              </div>
-            </div>
+            )}
             <div
               onClick={() => { onSelect('0.00'); onClose(); }}
               style={{ marginBottom: 10, padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, textAlign: 'center', cursor: 'pointer', border: '1.5px dashed var(--g300)', color: 'var(--g600)' }}
@@ -146,7 +176,7 @@ function ValuePickerModal({ picker, currentValue, onSelect, onClose }) {
           {(isAxis ? AXIS_VALUES : SPH_CYL_MAGNITUDES).map((v) => (
             <div
               key={v}
-              onClick={() => { onSelect(isAxis ? v : `${negative ? '-' : '+'}${v}`); onClose(); }}
+              onClick={() => { onSelect(isAxis ? v : `${isAdd ? '+' : (negative ? '-' : '+')}${v}`); onClose(); }}
               style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'var(--g50)', border: '1px solid var(--g200)', color: 'var(--g700)' }}
             >
               {v}
@@ -287,6 +317,40 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
       if (eye === 're' && prev[`ref_${type}_copy_re_to_le`]) {
         next[refKey(type, 'le', distNear, metric)] = value;
       }
+      // Auto-compute NEAR whenever a DIST sph/cyl/axis changes -- SPH
+      // near = dist sph + ADD, CYL/AXIS near mirror dist exactly. VA is
+      // never touched here -- it stays independently entered.
+      if (distNear === 'dist' && ['sph', 'cyl', 'axis'].includes(metric)) {
+        const eyesToUpdate = eye === 're' && prev[`ref_${type}_copy_re_to_le`] ? ['re', 'le'] : [eye];
+        eyesToUpdate.forEach((ey) => {
+          const distSph = metric === 'sph' ? value : next[refKey(type, ey, 'dist', 'sph')];
+          const distCyl = metric === 'cyl' ? value : next[refKey(type, ey, 'dist', 'cyl')];
+          const distAxis = metric === 'axis' ? value : next[refKey(type, ey, 'dist', 'axis')];
+          const addVal = next[addKey(type, ey)];
+          next[refKey(type, ey, 'near', 'sph')] = addSphValues(distSph, addVal);
+          next[refKey(type, ey, 'near', 'cyl')] = distCyl;
+          next[refKey(type, ey, 'near', 'axis')] = distAxis;
+        });
+      }
+      return next;
+    });
+  }
+
+  // ADD (near addition power) -- positive-only value that, added to
+  // DIST SPH, produces NEAR SPH. Changing it re-triggers the same
+  // near-SPH computation as a DIST SPH change would.
+  function setRefAdd(type, eye, value) {
+    setForm((prev) => {
+      const next = { ...prev, [addKey(type, eye)]: value, section_refraction_done: true };
+      if (eye === 're' && prev[`ref_${type}_copy_re_to_le`]) {
+        next[addKey(type, 'le')] = value;
+      }
+      const eyesToUpdate = eye === 're' && prev[`ref_${type}_copy_re_to_le`] ? ['re', 'le'] : [eye];
+      eyesToUpdate.forEach((ey) => {
+        const distSph = next[refKey(type, ey, 'dist', 'sph')];
+        const addVal = ey === eye ? value : next[addKey(type, ey)];
+        next[refKey(type, ey, 'near', 'sph')] = addSphValues(distSph, addVal);
+      });
       return next;
     });
   }
@@ -300,6 +364,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
             next[refKey(type, 'le', dn, m)] = prev[refKey(type, 're', dn, m)];
           });
         });
+        next[addKey(type, 'le')] = prev[addKey(type, 're')];
       }
       return next;
     });
@@ -347,6 +412,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
             next[refKey(toType, eye, dn, m)] = prev[refKey(fromType, eye, dn, m)];
           });
         });
+        next[addKey(toType, eye)] = prev[addKey(fromType, eye)];
       });
       return next;
     });
@@ -664,11 +730,11 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                 </tr>
                 <tr>
                   <th></th>
-                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h) => (
-                    <th key={`pg-re-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
+                  {['SPH', 'CYL', 'AXIS'].map((h) => (
+                    <th key={`pg-re-${h}`} style={{ width: '16.6%', padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
                   ))}
-                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h, i) => (
-                    <th key={`pg-le-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
+                  {['SPH', 'CYL', 'AXIS'].map((h, i) => (
+                    <th key={`pg-le-${h}`} style={{ width: '16.6%', padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -681,16 +747,6 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                       {['re', 'le'].map((eye) => (
                         <Fragment key={eye}>
                           <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
-                            {distNear === 'dist' ? (
-                              <input className="fi fi-sm" list="va-dist-options" disabled={locked || (eye === 'le' && leCopying)} value={form[refKey('pg', eye, distNear, 'va')]} onChange={(e) => setPg(eye, distNear, 'va', e.target.value)} placeholder="--" />
-                            ) : (
-                              <select className="fi fi-sm" disabled={locked || (eye === 'le' && leCopying)} value={form[refKey('pg', eye, distNear, 'va')]} onChange={(e) => setPg(eye, distNear, 'va', e.target.value)}>
-                                <option value="">--</option>
-                                {VA_NEAR.map((v) => <option key={v} value={v}>{v}</option>)}
-                              </select>
-                            )}
-                          </td>
-                          <td style={{ padding: '6px 6px' }}>
                             <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey('pg', eye, distNear, 'sph')]} onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey('pg', eye, distNear, 'sph') })} />
                           </td>
                           <td style={{ padding: '6px 6px' }}>
@@ -706,7 +762,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                 })}
                 <tr style={{ borderTop: '1px solid var(--g100)' }}>
                   <td style={{ padding: '8px 10px' }}></td>
-                  <td colSpan={7} style={{ padding: '6px 6px' }}>
+                  <td colSpan={6} style={{ padding: '6px 6px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--g700)', cursor: locked ? 'default' : 'pointer' }}>
                       <input type="checkbox" disabled={locked} checked={!!form.ref_pg_copy_re_to_le} onChange={(e) => togglePgCopyToLE(e.target.checked)} />
                       Copy RE Value to LE
@@ -779,8 +835,33 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                 </tr>
               </thead>
               <tbody>
-                {['dist', 'near'].map((distNear) => {
+                {['dist', 'add', 'near'].map((rowKind) => {
                   const leCopying = form[`ref_${refTab}_copy_re_to_le`];
+
+                  if (rowKind === 'add') {
+                    return (
+                      <tr key="add" style={{ borderTop: '1px solid var(--g100)', background: 'var(--amber-lt, #fffbeb)' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--amber, #b45309)' }}>ADD</td>
+                        {['re', 'le'].map((eye) => (
+                          <Fragment key={eye}>
+                            <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined, textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
+                            <td style={{ padding: '6px 6px' }}>
+                              <PickerField
+                                disabled={locked || (eye === 'le' && leCopying)}
+                                value={form[addKey(refTab, eye)]}
+                                onClick={() => setPicker({ kind: 'add', label: `ADD (Near) -- ${eye.toUpperCase()}`, fieldKey: addKey(refTab, eye) })}
+                              />
+                            </td>
+                            <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
+                            <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
+                          </Fragment>
+                        ))}
+                      </tr>
+                    );
+                  }
+
+                  const distNear = rowKind;
+                  const isNear = distNear === 'near';
                   return (
                     <tr key={distNear} style={{ borderTop: '1px solid var(--g100)' }}>
                       <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)', textTransform: 'capitalize' }}>{distNear === 'dist' ? 'Dist' : 'Near'}</td>
@@ -797,13 +878,31 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                             )}
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'sph')]} onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'sph') })} />
+                            {isNear ? (
+                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'sph')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: Dist SPH + ADD">
+                                {form[refKey(refTab, eye, distNear, 'sph')] || '--'}
+                              </div>
+                            ) : (
+                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'sph')]} onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'sph') })} />
+                            )}
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'cyl')]} onClick={() => setPicker({ kind: 'sphcyl', label: `CYL -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'cyl') })} />
+                            {isNear ? (
+                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'cyl')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: same as Dist CYL">
+                                {form[refKey(refTab, eye, distNear, 'cyl')] || '--'}
+                              </div>
+                            ) : (
+                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'cyl')]} onClick={() => setPicker({ kind: 'sphcyl', label: `CYL -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'cyl') })} />
+                            )}
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'axis')]} onClick={() => setPicker({ kind: 'axis', label: `AXIS -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'axis') })} />
+                            {isNear ? (
+                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'axis')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: same as Dist AXIS">
+                                {form[refKey(refTab, eye, distNear, 'axis')] || '--'}
+                              </div>
+                            ) : (
+                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'axis')]} onClick={() => setPicker({ kind: 'axis', label: `AXIS -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'axis') })} />
+                            )}
                           </td>
                         </Fragment>
                       ))}
@@ -847,6 +946,11 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
           picker={picker}
           currentValue={form[picker.fieldKey]}
           onSelect={(v) => {
+            if (picker.kind === 'add') {
+              const [, type, eye] = picker.fieldKey.split('_'); // ref_{type}_{eye}_add
+              setRefAdd(type, eye, v);
+              return;
+            }
             const [, type, eye, distNear, metric] = picker.fieldKey.split('_');
             if (type === 'pg') setPg(eye, distNear, metric, v);
             else setRef(type, eye, distNear, metric, v);
@@ -863,8 +967,9 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
               <button type="button" className="btn btn-sm" onClick={() => setShowRefInstructions(false)}><i className="ti ti-x"></i></button>
             </div>
             <ul style={{ fontSize: 12, color: 'var(--g600)', paddingLeft: 18, lineHeight: 1.7 }}>
-              <li>Record Distance and Near separately for each eye -- tap a field to open the value picker.</li>
+              <li>Record Distance for each eye -- tap a field to open the value picker.</li>
               <li>Tap SPH / CYL and choose +ve or -ve before selecting the magnitude.</li>
+              <li><strong>ADD</strong> is the near addition power (always positive) -- once set, <strong>Near SPH/CYL/AXIS auto-fill</strong> from Dist + ADD and can't be edited directly. Only Near VA stays independently entered, since near visual acuity genuinely differs from distance.</li>
               <li>Enable &quot;Copy RE Value to LE&quot; only when both eyes genuinely match -- it overwrites LE with RE and keeps them locked together until unchecked.</li>
               <li>IPD (Interpupillary Distance) is recorded once per assessment, not per refraction type.</li>
             </ul>
