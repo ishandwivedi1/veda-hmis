@@ -46,14 +46,19 @@ export async function ensureRecoveryEpisode(otScheduleId, surgicalCaseId, visitI
 // anyone discharged today. A discharge shouldn't make the patient
 // vanish from the dashboard the instant it happens; it only moves to
 // History once the day rolls over (same pattern as OT Intraop's
-// Dashboard vs History split). ──
+// Dashboard vs History split). Uses >= today, not = today -- a
+// discharge_date mistakenly entered in the FUTURE (the date input has
+// no upper bound) must stay visible here too, since it hasn't actually
+// happened yet. Previously an exact-match-today filter meant a future
+// date matched neither this query nor History's "< today", so the
+// patient vanished from Recovery entirely. ──
 export async function getRecoveryCaseList() {
   const supabase = await createClient();
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('recovery_episodes')
     .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
-    .or(`discharge_date.is.null,discharge_date.eq.${todayIst}`)
+    .or(`discharge_date.is.null,discharge_date.gte.${todayIst}`)
     .order('created_at', { ascending: true });
   if (error) return [];
   return (data || []).filter((e) => e.surgical_cases);
@@ -235,4 +240,3 @@ export async function getQualityIndicators() {
     { name: 'Escalations flagged', value: String(escalations?.length || 0), sub: 'This month' },
   ];
 }
-

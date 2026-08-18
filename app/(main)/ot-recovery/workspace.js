@@ -9,6 +9,14 @@ import {
 import { DISCHARGE_ITEMS } from './constants';
 import { openPrintPopup } from '@/lib/printPopup';
 
+// IST "today" as YYYY-MM-DD -- used to default AND cap the discharge
+// date input so it can't be mis-entered in the future (a future
+// discharge_date isn't a real discharge yet and previously made the
+// case vanish from every Recovery/Surgical Journey list -- see actions.js).
+function todayIst() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
 const TEMPLATES = {
   cataract: 'Eye drops as prescribed -- Moxifloxacin QID x1wk, Prednisolone QID tapering over 4wks.\nUse eye shield while sleeping for 1 week.\nAvoid bending, lifting heavy objects, and swimming for 2 weeks.\nWarning signs: sudden pain, redness, decreased vision -- contact immediately.\nFollow-up: Day 1, Week 1, Month 1, Final refraction at 4-6 weeks.',
   glaucoma: 'Eye drops as prescribed. Avoid rubbing operated eye.\nAvoid straining, heavy lifting for 4 weeks.\nWarning signs: severe pain, sudden vision loss, excessive redness -- contact immediately.\nFollow-up as scheduled by surgeon.',
@@ -49,7 +57,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [observations, setObservations] = useState('');
 
   const [checklist, setChecklist] = useState({});
-  const [dischargeDate, setDischargeDate] = useState(new Date().toISOString().slice(0, 10));
+  const [dischargeDate, setDischargeDate] = useState(todayIst());
 
   // Medication entry -- same structured Dosage/Frequency/Duration/Eye
   // fields (plus tapering schedule builder) as the Doctor module's
@@ -100,9 +108,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setChecklist(e.discharge_checklist || {});
     setInstructions(e.discharge_instructions || '');
     setDischargeNotes(e.discharge_notes || '');
-    setDischargeDate(e.discharge_date || new Date().toISOString().slice(0, 10));
+    setDischargeDate(e.discharge_date || todayIst());
     if (!e.discharge_date) {
-      setFollowupPlan((prev) => (prev.length > 0 ? prev : defaultFollowupPlan(e.discharge_date || new Date().toISOString().slice(0, 10))));
+      setFollowupPlan((prev) => (prev.length > 0 ? prev : defaultFollowupPlan(e.discharge_date || todayIst())));
     }
   }, [episodeId]);
 
@@ -290,7 +298,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
               <div><label className="flbl">Admission date</label><input type="date" className="fi fi-sm" value={admissionDate} onChange={(e) => setAdmissionDate(e.target.value)} disabled={fieldsDisabled} /></div>
               <div><label className="flbl">Surgery date</label><input type="date" className="fi fi-sm" value={surgeryDate} onChange={(e) => setSurgeryDate(e.target.value)} disabled={fieldsDisabled} /></div>
-              <div><label className="flbl">Discharge date</label><input type="date" className="fi fi-sm" value={isDischarged ? episode.discharge_date : dischargeDate} onChange={(e) => setDischargeDate(e.target.value)} disabled={isDischarged || isClosed} /></div>
+              <div><label className="flbl">Discharge date</label><input type="date" className="fi fi-sm" max={todayIst()} value={isDischarged ? episode.discharge_date : dischargeDate} onChange={(e) => setDischargeDate(e.target.value)} disabled={isDischarged || isClosed} /></div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}><span style={{ color: 'var(--g500)' }}>Procedure</span><strong>{sc.procedure_name}</strong></div>
             {biometryPlans.map((p) => (
@@ -593,4 +601,3 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     </div>
   );
 }
-

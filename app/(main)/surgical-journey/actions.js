@@ -213,9 +213,15 @@ async function getDischargeDatesByCase(supabase, completedCaseIds) {
 // Still genuinely in progress: not Cancelled, and not a Completed case
 // that's also been discharged (whether today or earlier) -- a case
 // whose surgery finished but whose patient hasn't been discharged yet
-// still belongs here.
+// still belongs here. A discharge_date that's somehow in the FUTURE
+// (bad manual entry -- the date input has no upper bound) does NOT
+// count as "actually discharged" yet -- it must stay here rather than
+// falling into the gap between this list, Discharged Today, and
+// History (none of which match a future date), which is what made a
+// mis-dated case vanish from the module entirely.
 export async function getMyActiveSurgicalCases() {
   const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('surgical_cases')
     .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
@@ -227,7 +233,7 @@ export async function getMyActiveSurgicalCases() {
   const completedIds = cases.filter((c) => c.status === 'Completed').map((c) => c.id);
   const dischargeDates = await getDischargeDatesByCase(supabase, completedIds);
 
-  return cases.filter((c) => !(c.status === 'Completed' && dischargeDates[c.id]));
+  return cases.filter((c) => !(c.status === 'Completed' && dischargeDates[c.id] && dischargeDates[c.id] <= todayIst));
 }
 
 // Discharged TODAY -- kept visible on the front page instead of
