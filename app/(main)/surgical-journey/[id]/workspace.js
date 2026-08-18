@@ -165,6 +165,24 @@ export default function Workspace({ caseId }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Advance collection, Patient Check-In, and Intraoperative Management
+  // are all opened as real new tabs via openTab() (see the buttons
+  // below) so window.opener survives -- each of those tabs signals
+  // back here and closes itself once its own step is actually done,
+  // same close-on-complete pattern as IOL Approval and Medical
+  // Fitness. This single listener covers all three message types.
+  useEffect(() => {
+    function handleMessage(e) {
+      if (e.origin !== window.location.origin) return;
+      const t = e.data?.type;
+      if (t === 'advance-collected' && e.data.patientId === data?.case?.patients?.id) refresh();
+      else if (t === 'checkin-updated' && e.data.otScheduleId === data?.otSchedule?.id) refresh();
+      else if (t === 'intraop-updated' && e.data.otScheduleId === data?.otSchedule?.id) refresh();
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [data?.case?.patients?.id, data?.otSchedule?.id, refresh]);
+
   function flash(fn) {
     return async (...args) => {
       setError(''); setOk('');
@@ -278,7 +296,7 @@ export default function Workspace({ caseId }) {
                 </div>
                 <button
                   className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', border: 'none' }}
-                  onClick={() => router.push(`/payments/advance?patientId=${patient.id}&amount=${Math.max(0, netPackageAmount - advanceBalance)}&returnTo=surgical-journey`)}
+                  onClick={() => openTab(`/payments/advance?patientId=${patient.id}&amount=${Math.max(0, netPackageAmount - advanceBalance)}&returnTo=surgical-journey`, `advance-${patient.id}`)}
                 >
                   <i className="ti ti-cash"></i> Collect Advance
                 </button>
@@ -289,7 +307,7 @@ export default function Workspace({ caseId }) {
       </Section>
 
       {/* 8. PATIENT CHECK-IN */}
-      <PatientCheckinSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} paymentDone={stepDone.payment} router={router} active={currentStep === 'checkin'} num={8} />
+      <PatientCheckinSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} paymentDone={stepDone.payment} active={currentStep === 'checkin'} num={8} />
 
       {/* 9. INTRAOPERATIVE MANAGEMENT */}
       <IntraopManagementSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} recoveryEpisode={data.recoveryEpisode} router={router} active={currentStep === 'intraop'} num={9} />
@@ -933,7 +951,7 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
 }
 
 // ── 7. PATIENT CHECK-IN (live status, deep-link only) ──
-function PatientCheckinSection({ otSchedule, checkinCompletedAt, paymentDone, router, active, num }) {
+function PatientCheckinSection({ otSchedule, checkinCompletedAt, paymentDone, active, num }) {
   if (!paymentDone) {
     return (
       <Section num={num} color="var(--g400)" title="Patient Check-In" done={false} active={active}>
@@ -951,11 +969,11 @@ function PatientCheckinSection({ otSchedule, checkinCompletedAt, paymentDone, ro
     if (done) {
       status = 'Checked in';
       color = 'var(--green)';
-      action = { label: 'View in Patient Check-In', onClick: () => router.push(`/patient-checkin?otScheduleId=${otSchedule.id}`) };
+      action = { label: 'View in Patient Check-In', onClick: () => openTab(`/patient-checkin?otScheduleId=${otSchedule.id}`, `checkin-${otSchedule.id}`) };
     } else {
       status = `Scheduled -- ${new Date(otSchedule.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })} -- not yet checked in`;
       color = 'var(--blue)';
-      action = { label: 'Open in Patient Check-In', onClick: () => router.push(`/patient-checkin?otScheduleId=${otSchedule.id}`) };
+      action = { label: 'Open in Patient Check-In', onClick: () => openTab(`/patient-checkin?otScheduleId=${otSchedule.id}`, `checkin-${otSchedule.id}`) };
     }
   }
 
@@ -988,7 +1006,7 @@ function IntraopManagementSection({ otSchedule, checkinCompletedAt, recoveryEpis
     if (otSchedule.status === 'In Progress') {
       status = 'In surgery now';
       color = 'var(--red)';
-      action = { label: 'Continue in Intraoperative Management', onClick: () => router.push(`/ot-intraop?otScheduleId=${otSchedule.id}`) };
+      action = { label: 'Continue in Intraoperative Management', onClick: () => openTab(`/ot-intraop?otScheduleId=${otSchedule.id}`, `intraop-${otSchedule.id}`) };
     } else if (otSchedule.status === 'Completed') {
       if (recoveryEpisode && !recoveryEpisode.discharge_date) {
         status = 'Surgery done -- in Recovery';
@@ -1005,7 +1023,7 @@ function IntraopManagementSection({ otSchedule, checkinCompletedAt, recoveryEpis
     } else {
       status = 'Checked in -- ready for OT';
       color = 'var(--blue)';
-      action = { label: 'Open in Intraoperative Management', onClick: () => router.push(`/ot-intraop?otScheduleId=${otSchedule.id}`) };
+      action = { label: 'Open in Intraoperative Management', onClick: () => openTab(`/ot-intraop?otScheduleId=${otSchedule.id}`, `intraop-${otSchedule.id}`) };
     }
   }
 

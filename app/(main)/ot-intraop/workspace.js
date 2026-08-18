@@ -249,6 +249,16 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     addLog('OT Check-In completed');
     setOk('Check-in complete -- patient confirmed in OT.');
     await refresh();
+    // Opened as a deep link from Surgical Journey (a real opener window
+    // exists) -- signal completion back and close this tab instead of
+    // sending staff to the Dashboard in what would otherwise become an
+    // orphaned tab. Same close-on-complete pattern as IOL Approval,
+    // Medical Fitness, and Advance collection.
+    if (restrictTab === 'checkin' && typeof window !== 'undefined' && window.opener) {
+      window.opener.postMessage({ type: 'checkin-updated', otScheduleId }, window.location.origin);
+      window.close();
+      return;
+    }
     // The Patient Check-In module doesn't have an Intraoperative tab to
     // switch to -- send staff back to the queue instead, where the case
     // now shows as checked-in and ready for the OT team.
@@ -377,6 +387,15 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     });
     if (result.error) { setError(result.error); return; }
     clearInterval(timerRef.current);
+    // Opened as a deep link from Surgical Journey (a real opener window
+    // exists) -- signal completion back and close this tab. Same
+    // close-on-complete pattern as IOL Approval, Medical Fitness, and
+    // Patient Check-In above.
+    if (typeof window !== 'undefined' && window.opener) {
+      window.opener.postMessage({ type: 'intraop-updated', otScheduleId }, window.location.origin);
+      window.close();
+      return;
+    }
     if (wasAlreadyCompleted) {
       addLog('INTRAOP RECORD CORRECTED -- changes saved after completion');
       setOk('Changes saved.');

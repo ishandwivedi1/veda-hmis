@@ -8,7 +8,7 @@ import TodaysVisitsWidget from '../todays-visits-widget';
 const ADVANCE_TYPES = ['Surgery Advance', 'General Advance', 'Package Advance', 'Other'];
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 
-const RETURN_LABELS = { 'ot-intraop': 'Intraoperative Management', 'patient-checkin': 'Patient Check-In' };
+const RETURN_LABELS = { 'ot-intraop': 'Intraoperative Management', 'patient-checkin': 'Patient Check-In', 'surgical-journey': 'Surgical Journey' };
 
 export default function AdvanceTab() {
   const searchParams = useSearchParams();
@@ -139,12 +139,22 @@ export default function AdvanceTab() {
   }
 
   // Collecting via a returnTo link (e.g. from OT Dashboard) means the
-  // natural next step is back there, not sitting on this form.
+  // natural next step is back there, not sitting on this form. When
+  // opened as a real new tab from Surgical Journey (window.opener
+  // present, see the openTab-based Collect Advance button there),
+  // signal the collection back and close this tab instead of
+  // redirecting -- same close-on-complete pattern as IOL Approval and
+  // Medical Fitness.
   useEffect(() => {
     if (!success || !returnTo) return;
+    if (returnTo === 'surgical-journey' && typeof window !== 'undefined' && window.opener) {
+      window.opener.postMessage({ type: 'advance-collected', patientId: selectedPatient?.id }, window.location.origin);
+      const timer = setTimeout(() => window.close(), 900);
+      return () => clearTimeout(timer);
+    }
     const timer = setTimeout(() => router.push(`/${returnTo}`), 2500);
     return () => clearTimeout(timer);
-  }, [success, returnTo, router]);
+  }, [success, returnTo, router, selectedPatient]);
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 20 }}>
@@ -164,10 +174,18 @@ export default function AdvanceTab() {
             <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
               {returnTo ? (
                 <>
-                  <button className="btn btn-sm btn-primary" onClick={() => router.push(`/${returnTo}`)}>
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={() => {
+                      if (returnTo === 'surgical-journey' && typeof window !== 'undefined' && window.opener) { window.close(); return; }
+                      router.push(`/${returnTo}`);
+                    }}
+                  >
                     <i className="ti ti-arrow-left"></i> Back to {RETURN_LABELS[returnTo] || returnTo}
                   </button>
-                  <span style={{ fontSize: 11, color: 'var(--g400)' }}>Returning automatically...</span>
+                  <span style={{ fontSize: 11, color: 'var(--g400)' }}>
+                    {returnTo === 'surgical-journey' && typeof window !== 'undefined' && window.opener ? 'Closing automatically...' : 'Returning automatically...'}
+                  </span>
                 </>
               ) : (
                 <button className="btn btn-sm" onClick={reset}>Collect another advance</button>
