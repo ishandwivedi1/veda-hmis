@@ -23,6 +23,10 @@ function fmtTime(secs) {
   return `${m}:${s}`;
 }
 
+function todayIst() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
 export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -188,6 +192,10 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   const sc = booking.surgical_cases;
   const patient = sc.patients;
   const isCompleted = booking.status === 'Completed';
+  // Check-in day lock (mirrors assertCheckinDayLock server-side) --
+  // shown proactively here so staff see WHY before they click anything,
+  // rather than only discovering it from an error after the fact.
+  const isWrongDayForCheckin = booking.status === 'Scheduled' && booking.scheduled_date !== todayIst();
   // Once completed, the intraoperative fields are locked for reference
   // unless explicitly unlocked -- same "Unlock to Edit" pattern as a
   // completed Doctor Consultation, so a genuine correction (wrong
@@ -236,8 +244,11 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   }
 
   async function handleToggleReported() {
-    if (booking.patient_reported_at) await unmarkPatientReported(otScheduleId);
-    else { await markPatientReported(otScheduleId); addLog('Patient marked as reported to OT'); }
+    setError('');
+    if (booking.patient_reported_at) { await unmarkPatientReported(otScheduleId); refresh(); return; }
+    const result = await markPatientReported(otScheduleId);
+    if (result.error) { setError(result.error); return; }
+    addLog('Patient marked as reported to OT');
     refresh();
   }
 
@@ -472,6 +483,23 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             {unlocked
               ? 'Editing a completed surgery -- changes save immediately and are logged.'
               : 'This surgery is completed. Viewing read-only for reference.'}
+          </span>
+        </div>
+      )}
+
+      {isWrongDayForCheckin && (
+        <div
+          className="msg-info"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: 'var(--red-lt, #fee2e2)', color: 'var(--red, #991b1b)',
+            padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14, fontWeight: 600,
+          }}
+        >
+          <i className="ti ti-lock"></i>
+          <span>
+            Check-in locked -- this surgery is scheduled for {new Date(`${booking.scheduled_date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
+            {booking.scheduled_date > todayIst() ? ', which hasn\u2019t arrived yet' : ' and was never checked in that day'}. Check-in only works on the scheduled day itself -- use OT Schedule to reschedule if needed.
           </span>
         </div>
       )}
@@ -1091,4 +1119,3 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     </div>
   );
 }
-

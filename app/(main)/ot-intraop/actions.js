@@ -85,24 +85,39 @@ export async function getOTCaseList() {
   const supabase = await createClient();
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-  const [{ data: pending, error: pendingError }, { data: completedToday, error: completedError }] = await Promise.all([
+  const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
+
+  // Scheduled (not yet checked in) is now strictly locked to scheduled_date
+  // === today -- not "on or before today" as it used to be. A case
+  // scheduled for tomorrow shouldn't be checkable-in today, and a case
+  // scheduled days ago that was never checked in has genuinely been
+  // missed -- it needs an actual reschedule via OT Schedule, not a
+  // silent same-day check-in here. In Progress is NOT date-restricted:
+  // once a patient is already checked in, the case must stay reachable
+  // to finish even if it runs past midnight.
+  const [{ data: scheduledToday, error: scheduledError }, { data: inProgress, error: inProgressError }, { data: completedToday, error: completedError }] = await Promise.all([
     supabase
       .from('ot_schedule')
-      .select('*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
-      .in('status', ['Scheduled', 'In Progress'])
-      .lte('scheduled_date', todayIst)
+      .select(CASE_SELECT)
+      .eq('status', 'Scheduled')
+      .eq('scheduled_date', todayIst)
+      .order('sequence_number', { ascending: true, nullsFirst: false }),
+    supabase
+      .from('ot_schedule')
+      .select(CASE_SELECT)
+      .eq('status', 'In Progress')
       .order('scheduled_date', { ascending: true })
       .order('sequence_number', { ascending: true, nullsFirst: false }),
     supabase
       .from('ot_schedule')
-      .select('*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+      .select(CASE_SELECT)
       .eq('status', 'Completed')
       .eq('scheduled_date', todayIst)
       .order('scheduled_date', { ascending: true }),
   ]);
-  if (pendingError || completedError) return [];
+  if (scheduledError || inProgressError || completedError) return [];
 
-  const cases = [...(pending || []), ...(completedToday || [])].filter((b) => b.surgical_cases);
+  const cases = [...(scheduledToday || []), ...(inProgress || []), ...(completedToday || [])].filter((b) => b.surgical_cases);
 
   const balanceByPatient = {};
   const patientIds = [...new Set(cases.map((b) => b.surgical_cases.patient_id).filter(Boolean))];
@@ -124,12 +139,39 @@ export async function getOTCaseList() {
   });
 }
 
+// ── CHECK-IN DAY LOCK -- server-side gate, not just a list filter. The
+// Patient Check-In page is deep-linkable straight into a specific case
+// via ?otScheduleId= (from Surgical Journey), which bypasses
+// getOTCaseList entirely -- so the date rule has to be enforced again
+// here, or a stale/deep-linked tab could still check a patient in (or
+// even complete surgery-adjacent steps) on the wrong day. Only applies
+// while status is still 'Scheduled' -- once check-in is actually
+// completed and the case has moved to 'In Progress', it must be free
+// to keep going regardless of the clock.
+async function assertCheckinDayLock(supabase, otScheduleId) {
+  const { data: booking } = await supabase.from('ot_schedule').select('scheduled_date, status').eq('id', otScheduleId).single();
+  if (!booking) return { error: 'OT booking not found.' };
+  if (booking.status !== 'Scheduled') return null;
+
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  if (booking.scheduled_date !== todayIst) {
+    const detail = booking.scheduled_date > todayIst
+      ? `this surgery is scheduled for ${booking.scheduled_date}, which hasn't arrived yet`
+      : `this surgery was scheduled for ${booking.scheduled_date} and was never checked in on that day`;
+    return { error: `Check-in is locked -- ${detail}. Check-in can only happen on the scheduled day itself. Use OT Schedule to reschedule this case if the date needs to change.` };
+  }
+  return null;
+}
+
+
 // ── PATIENT REPORTED TO OT -- the surgery patient doesn't route through
 //    Optometry or Doctor Consultation queues on the day of surgery; this
 //    is how OT staff record that they've physically arrived, straight
 //    from the Dashboard widget or the workspace header. ──
 export async function markPatientReported(otScheduleId) {
   const supabase = await createClient();
+  const lock = await assertCheckinDayLock(supabase, otScheduleId);
+  if (lock) return lock;
   const { error } = await supabase.from('ot_schedule').update({ patient_reported_at: new Date().toISOString() }).eq('id', otScheduleId);
   if (error) return { error: error.message };
   const { data: userData } = await supabase.auth.getUser();
@@ -204,6 +246,8 @@ async function ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId) {
 // ── CHECK-IN ──
 export async function saveCheckinItems(otScheduleId, surgicalCaseId, checkinItems) {
   const supabase = await createClient();
+  const lock = await assertCheckinDayLock(supabase, otScheduleId);
+  if (lock) return lock;
   const recordId = await ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId);
   if (!recordId) return { error: 'Could not create intraop record.' };
   const { error } = await supabase.from('ot_intraop_records').update({ checkin_items: checkinItems }).eq('id', recordId);
@@ -213,6 +257,8 @@ export async function saveCheckinItems(otScheduleId, surgicalCaseId, checkinItem
 
 export async function completeCheckin(otScheduleId, surgicalCaseId) {
   const supabase = await createClient();
+  const lock = await assertCheckinDayLock(supabase, otScheduleId);
+  if (lock) return lock;
   const recordId = await ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId);
   if (!recordId) return { error: 'Could not create intraop record.' };
 
@@ -260,6 +306,8 @@ async function requiredConsentsUploaded(supabase, otScheduleId) {
 // ── ANAESTHESIA ──
 export async function recordAnaesthesia(otScheduleId, surgicalCaseId, values) {
   const supabase = await createClient();
+  const lock = await assertCheckinDayLock(supabase, otScheduleId);
+  if (lock) return lock;
   const recordId = await ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId);
   if (!recordId) return { error: 'Could not create intraop record.' };
   const { error } = await supabase.from('ot_intraop_records').update({
@@ -277,6 +325,8 @@ export async function recordAnaesthesia(otScheduleId, surgicalCaseId, values) {
 // can differ if a complication forces a substitution mid-case). ──
 export async function saveCheckinIolVerification(otScheduleId, surgicalCaseId, values) {
   const supabase = await createClient();
+  const lock = await assertCheckinDayLock(supabase, otScheduleId);
+  if (lock) return lock;
   const recordId = await ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId);
   if (!recordId) return { error: 'Could not create intraop record.' };
   const { error } = await supabase.from('ot_intraop_records').update({
@@ -445,4 +495,3 @@ export async function transferToRecovery(otScheduleId, surgicalCaseId, values) {
 
   return { success: true };
 }
-
