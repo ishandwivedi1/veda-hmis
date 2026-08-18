@@ -733,6 +733,56 @@ const SAMPLE_BIOMETRY_RAW = {
   ],
 };
 
+// ── Resolves the TRUE original collection date(s) behind an
+// 'advance_adjustment' payment, for print purposes only -- it never
+// modifies any ledger data. An advance balance is pooled per patient,
+// not earmarked to any specific invoice or receipt, so this walks the
+// patient's full advance timeline in collected_at order and attributes
+// each adjustment back to the specific original 'advance' receipt(s) it
+// drew down, FIFO (oldest advance consumed first) -- the same order the
+// balance is actually depleted in. Returns a map of
+// adjustment-payment-id -> [{ receipt_number, collected_at, amount }].
+async function resolveAdvanceAdjustmentOrigins(supabase, patientId) {
+  const { data: timeline } = await supabase
+    .from('payments')
+    .select('id, receipt_number, collected_at, total_amount, payment_type')
+    .eq('patient_id', patientId)
+    .in('payment_type', ['advance', 'advance_adjustment'])
+    .order('collected_at', { ascending: true });
+
+  const chunks = []; // original advance receipts with remaining unconsumed balance
+  const originsByAdjustmentId = {};
+
+  (timeline || []).forEach((p) => {
+    const amount = Number(p.total_amount || 0);
+    if (p.payment_type === 'advance') {
+      chunks.push({ receipt_number: p.receipt_number, collected_at: p.collected_at, remaining: amount });
+      return;
+    }
+    let toConsume = amount;
+    const contributions = [];
+    for (const chunk of chunks) {
+      if (toConsume <= 0) break;
+      if (chunk.remaining <= 0) continue;
+      const take = Math.min(chunk.remaining, toConsume);
+      chunk.remaining -= take;
+      toConsume -= take;
+      contributions.push({ receipt_number: chunk.receipt_number, collected_at: chunk.collected_at, amount: take });
+    }
+    // apply_advance_adjustment already checks the balance before
+    // allowing this, so this shouldn't happen -- but if the timeline
+    // somehow runs short, don't silently drop the remainder; fall back
+    // to the adjustment's own date for whatever couldn't be matched
+    // rather than understating the payment total on the bill.
+    if (toConsume > 0.01) {
+      contributions.push({ receipt_number: p.receipt_number, collected_at: p.collected_at, amount: toConsume });
+    }
+    originsByAdjustmentId[p.id] = contributions;
+  });
+
+  return originsByAdjustmentId;
+}
+
 // ── Renders the actual invoice HTML for a given invoiceId. Picks the
 //    OPD or Surgery variant based on whether any line item was billed
 //    under the Surgery department (package billing tags its line item
@@ -762,11 +812,34 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
 
   const { data: allocations } = await supabase
     .from('payment_allocations')
-    .select('amount, payments(receipt_number, collected_at)')
+    .select('amount, payments(id, receipt_number, collected_at, payment_type)')
     .eq('invoice_id', invoiceId);
-  const payments = (allocations || []).map((a) => ({
+  let payments = (allocations || []).map((a) => ({
     amount: a.amount, receipt_number: a.payments?.receipt_number, created_at: a.payments?.collected_at,
+    payment_type: a.payments?.payment_type, payment_id: a.payments?.id,
   }));
+
+  // An 'advance_adjustment' payment record is created the moment the
+  // advance is APPLIED to an invoice (apply_advance_adjustment RPC),
+  // dated "now" -- correct for accounting (the original "Advance
+  // Collected" ledger entry is deliberately never touched, per Section
+  // 22.11), but wrong to print as-is: the patient may well have paid
+  // the advance days or weeks before it got applied here, and a bill
+  // showing the application date as "when they paid" is a genuine
+  // mismatch against what actually happened. Resolve it back to the
+  // real original collection date/receipt before printing.
+  if (payments.some((p) => p.payment_type === 'advance_adjustment') && invoice.patient_id) {
+    const origins = await resolveAdvanceAdjustmentOrigins(supabase, invoice.patient_id);
+    payments = payments.flatMap((p) => {
+      if (p.payment_type !== 'advance_adjustment') return [p];
+      const contributions = origins[p.payment_id];
+      if (!contributions || contributions.length === 0) return [p];
+      // A pooled advance balance can span more than one original
+      // receipt -- split into one printed line per original receipt it
+      // actually drew from, each with that receipt's own date.
+      return contributions.map((c) => ({ amount: c.amount, receipt_number: c.receipt_number, created_at: c.collected_at }));
+    });
+  }
 
   const isSurgery = (rawLineItems || []).some((li) => li.dept === 'Surgery');
 
