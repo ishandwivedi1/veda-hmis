@@ -113,6 +113,7 @@ export default function OptometryTab({ findings, iopReadings, visitId, encounter
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
     if (!findings) { setForm(emptyForm()); return; }
@@ -170,6 +171,7 @@ export default function OptometryTab({ findings, iopReadings, visitId, encounter
 
   async function handleSave() {
     if (!findings) return;
+    setShowConfirmModal(false);
     setSaving(true);
     setError('');
     setOkMsg('');
@@ -389,11 +391,30 @@ export default function OptometryTab({ findings, iopReadings, visitId, encounter
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-        <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving || !dirty}>
+        <button type="button" className="btn btn-primary" onClick={() => setShowConfirmModal(true)} disabled={saving || !dirty}>
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
         {!dirty && <span style={{ fontSize: 11, color: 'var(--g400)' }}>No unsaved changes</span>}
       </div>
+
+      {showConfirmModal && (
+        <div onClick={() => setShowConfirmModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 420, width: '100%', boxShadow: '0 12px 40px rgba(0,0,0,.2)' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--g800)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <i className="ti ti-alert-triangle" style={{ color: 'var(--amber)' }}></i> Confirm change to optometrist's record
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--g600)', lineHeight: 1.5, marginBottom: 16 }}>
+              You're about to overwrite reading(s) originally recorded by the optometrist. This will be logged as a doctor override in Optometry History, visible to the optometrist. Are you sure you want to save these changes?
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-sm" onClick={() => setShowConfirmModal(false)}>Cancel</button>
+              <button type="button" className="btn btn-sm btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : 'Confirm & Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

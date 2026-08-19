@@ -214,6 +214,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
   const [encounter, setEncounter] = useState(null);
   const [iopReadings, setIopReadings] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
+  const [doctorOverrides, setDoctorOverrides] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [locked, setLocked] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -248,6 +249,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
       setEncounter(result.encounter);
       setIopReadings(result.iopReadings);
       setAuditLog(result.auditLog);
+      setDoctorOverrides(result.doctorOverrides || []);
       setIsAdmin(!!result.isAdmin);
       setLocked(result.locked);
 
@@ -558,31 +560,25 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
               {autosaveState === 'error' && <><i className="ti ti-alert-triangle"></i> Autosave failed -- use Save button</>}
             </div>
           )}
-          {!locked && (
-            <div style={{ display: 'flex', gap: 6 }}>
-              {!isEdit && (
-                <>
-                  <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.1)', color: '#e2e8f0', borderColor: 'rgba(255,255,255,.2)' }} onClick={handleSaveDraft} disabled={saving}>
-                    <i className="ti ti-device-floppy"></i> Save Draft
-                  </button>
-                  <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleComplete} disabled={saving}>
-                    <i className="ti ti-circle-check"></i> Complete Assessment
-                  </button>
-                </>
-              )}
-              {isEdit && (
-                <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleUpdate} disabled={saving}>
-                  <i className="ti ti-device-floppy"></i> Save Changes
-                </button>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
       {locked && (
         <div className="msg-err" style={{ marginBottom: 12 }}>
           <i className="ti ti-lock"></i> {embedded ? 'This visit is closed. Shown here for reference only -- no further edits.' : 'The doctor has already started this consultation. Shown here for reference only -- no further edits.'}
+        </div>
+      )}
+      {doctorOverrides.length > 0 && (
+        <div style={{ background: 'var(--amber-lt)', border: '1px solid var(--amber)', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>
+            <i className="ti ti-alert-triangle"></i> Doctor has modified {doctorOverrides.length > 1 ? 'these readings' : 'this reading'} on this record
+          </div>
+          {doctorOverrides.map((a) => (
+            <div key={a.id} style={{ fontSize: 11.5, color: 'var(--g700)', padding: '3px 0', display: 'flex', gap: 8 }}>
+              <span style={{ color: 'var(--g500)', flexShrink: 0 }}>{new Date(a.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              <span>{a.message.replace(/^Doctor override -- /, '')}</span>
+            </div>
+          ))}
         </div>
       )}
       {error && <div className="msg-err">{error}</div>}
@@ -1090,6 +1086,37 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
               <span>{a.message}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* FOOTER ACTION PANEL -- same style as the header workflow panel;
+          Save Draft / Complete Assessment / Save Changes live here at
+          the bottom of the page instead of up top. */}
+      {!locked && (
+        <div style={{ background: '#0f172a', borderRadius: 12, padding: '12px 14px', marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 10.5, color: autosaveState === 'error' ? '#fca5a5' : '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+            {autosaveState === 'pending' && <>Unsaved changes...</>}
+            {autosaveState === 'saving' && <><i className="ti ti-loader-2"></i> Saving...</>}
+            {autosaveState === 'saved' && <><i className="ti ti-cloud-check"></i> All changes saved</>}
+            {autosaveState === 'error' && <><i className="ti ti-alert-triangle"></i> Autosave failed -- use Save button</>}
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {!isEdit && (
+              <>
+                <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.1)', color: '#e2e8f0', borderColor: 'rgba(255,255,255,.2)' }} onClick={handleSaveDraft} disabled={saving}>
+                  <i className="ti ti-device-floppy"></i> Save Draft
+                </button>
+                <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleComplete} disabled={saving}>
+                  <i className="ti ti-circle-check"></i> Complete Assessment
+                </button>
+              </>
+            )}
+            {isEdit && (
+              <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleUpdate} disabled={saving}>
+                <i className="ti ti-device-floppy"></i> Save Changes
+              </button>
+            )}
+          </div>
         </div>
       )}
 

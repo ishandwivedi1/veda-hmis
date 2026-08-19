@@ -115,9 +115,13 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
     await supabase.from('encounter_audit_log').insert({ encounter_id: encounter.id, message: 'Encounter started (from Optometry)', created_by: userData?.user?.id || null });
   }
 
-  const [{ data: iopReadings }, { data: auditLog }] = await Promise.all([
+  const [{ data: iopReadings }, { data: auditLog }, { data: doctorOverrides }] = await Promise.all([
     supabase.from('optometry_iop_readings').select('*').eq('assessment_id', assessment.id).order('recorded_at', { ascending: true }),
     supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).order('created_at', { ascending: false }),
+    // Visible to everyone (not just admins) -- narrow RLS policy only
+    // exposes rows whose message begins with 'Doctor override', so the
+    // optometrist can see what the doctor changed on their record.
+    supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).ilike('message', 'Doctor override%').order('created_at', { ascending: false }),
   ]);
 
   // Audit Log is Administrator-only (app-layer check here is a UX
@@ -147,7 +151,7 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
     locked = doctorEntry?.status === 'Done' || (!viewerIsDoctor && doctorEntry?.status === 'In Consultation');
   }
 
-  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: isAdmin ? (auditLog || []) : [], locked, isAdmin };
+  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: isAdmin ? (auditLog || []) : [], doctorOverrides: doctorOverrides || [], locked, isAdmin };
 }
 
 // "Save Draft" -- patient stays in the queue, nothing routed anywhere
