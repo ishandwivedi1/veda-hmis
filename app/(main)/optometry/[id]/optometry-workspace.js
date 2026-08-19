@@ -85,7 +85,7 @@ function vaValuesForScale(scale) {
 function emptyForm() {
   const f = {
     va_scale: 'Snellen', va_not_assessed: false,
-    ref_pd: '', ref_vd: '',
+    ref_pd: '', ref_vd: '', glasses_type: '', glasses_remarks: '',
     iop_method: 'Non-Contact Tonometer (NCT)', iop_time: '',
     add_k1_re: '', add_k1_le: '', add_k2_re: '', add_k2_le: '', add_axial_length_re: '', add_axial_length_le: '',
     add_pachymetry_re: '', add_pachymetry_le: '', add_schirmer_re: '', add_schirmer_le: '',
@@ -107,6 +107,11 @@ function emptyForm() {
       // Rx) -- Present Glasses power is a reading off existing glasses,
       // not a new prescription being built, so there's no ADD to record.
       if (type !== 'pg') f[addKey(type, eye)] = '';
+      // PRISM only applies to Final Rx -- it's a prescribed correction,
+      // not something read off an auto-refractor or trial lenses.
+      if (type === 'final') {
+        ['dist', 'near'].forEach((dn) => { f[refKey(type, eye, dn, 'prism')] = ''; });
+      }
     });
     f[`ref_${type}_copy_re_to_le`] = false;
   });
@@ -820,19 +825,19 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
               <thead>
                 <tr>
                   <th style={{ width: 60 }}></th>
-                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
+                  <th colSpan={refTab === 'final' ? 5 : 4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
                     OD (RE)
                   </th>
-                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
+                  <th colSpan={refTab === 'final' ? 5 : 4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
                     OS (LE)
                   </th>
                 </tr>
                 <tr>
                   <th></th>
-                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h) => (
+                  {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h) => (
                     <th key={`re-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
                   ))}
-                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h, i) => (
+                  {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h, i) => (
                     <th key={`le-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
                   ))}
                 </tr>
@@ -857,6 +862,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                             </td>
                             <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
                             <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
+                            {refTab === 'final' && <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>}
                           </Fragment>
                         ))}
                       </tr>
@@ -902,6 +908,18 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                               onClick={() => setPicker({ kind: 'axis', label: `AXIS -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'axis') })}
                             />
                           </td>
+                          {refTab === 'final' && (
+                            <td style={{ padding: '6px 6px' }}>
+                              <input
+                                className="fi fi-sm"
+                                style={{ textAlign: 'center' }}
+                                disabled={locked || (eye === 'le' && leCopying)}
+                                value={form[refKey(refTab, eye, distNear, 'prism')]}
+                                onChange={(e) => setRef(refTab, eye, distNear, 'prism', e.target.value)}
+                                placeholder="e.g. 2^BI"
+                              />
+                            </td>
+                          )}
                         </Fragment>
                       ))}
                     </tr>
@@ -917,7 +935,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                       <i className="ti ti-info-circle"></i> Instructions
                     </button>
                   </td>
-                  <td colSpan={3} style={{ padding: '6px 6px' }}>
+                  <td colSpan={(refTab === 'final' ? 10 : 8) - 5} style={{ padding: '6px 6px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--g700)', cursor: locked ? 'default' : 'pointer' }}>
                       <input type="checkbox" disabled={locked} checked={!!form[`ref_${refTab}_copy_re_to_le`]} onChange={(e) => toggleCopyToLE(refTab, e.target.checked)} />
                       Copy RE Value to LE
@@ -927,6 +945,27 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
               </tbody>
             </table>
           </div>
+
+          {refTab === 'final' && (
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
+              <div>
+                <label className="flbl">Type of Glass</label>
+                <select className="fi fi-sm" disabled={locked} value={form.glasses_type} onChange={(e) => setField('glasses_type', e.target.value)}>
+                  <option value="">--</option>
+                  <option value="Distance">Distance</option>
+                  <option value="Near">Near</option>
+                  <option value="Bifocal">Bifocal</option>
+                  <option value="Progressive">Progressive</option>
+                  <option value="Photochromatic">Photochromatic</option>
+                  <option value="Contact Lens">Contact Lens</option>
+                </select>
+              </div>
+              <div>
+                <label className="flbl">Remarks</label>
+                <input className="fi fi-sm" disabled={locked} value={form.glasses_remarks} onChange={(e) => setField('glasses_remarks', e.target.value)} placeholder="e.g. Glass prescribed, review after 6 months" />
+              </div>
+            </div>
+          )}
 
           <div style={{ marginTop: 12 }}>
             <label className="flbl">Vertex Distance (optional)</label>

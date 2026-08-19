@@ -33,6 +33,8 @@ const ASSESSMENT_FIELDS = [
   'ref_final_le_dist_va', 'ref_final_le_dist_sph', 'ref_final_le_dist_cyl', 'ref_final_le_dist_axis',
   'ref_final_le_near_va', 'ref_final_le_near_sph', 'ref_final_le_near_cyl', 'ref_final_le_near_axis',
   'ref_final_re_add', 'ref_final_le_add',
+  'ref_final_re_dist_prism', 'ref_final_le_dist_prism', 'ref_final_re_near_prism', 'ref_final_le_near_prism',
+  'glasses_type', 'glasses_remarks',
   'ref_final_copy_re_to_le',
   'iop_method', 'iop_time',
   'add_k1_re', 'add_k1_le', 'add_k2_re', 'add_k2_le', 'add_axial_length_re', 'add_axial_length_le',

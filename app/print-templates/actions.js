@@ -80,60 +80,83 @@ const DEFAULT_TEMPLATES = {
 
   {{#if hasDistRx}}
   <div style="margin-bottom: 16px;">
-    <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #1e4e8c; margin-bottom: 6px;">Distance</div>
-    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
       <tr style="background: #e9edf2;">
-        <th style="border: 1px solid #999; padding: 8px; text-align: left; width: 70px;">Eye</th>
-        <th style="border: 1px solid #999; padding: 8px;">SPH</th>
-        <th style="border: 1px solid #999; padding: 8px;">CYL</th>
-        <th style="border: 1px solid #999; padding: 8px;">AXIS</th>
-        <th style="border: 1px solid #999; padding: 8px;">VA</th>
+        <th style="border: 1px solid #999; padding: 8px; text-align: left; width: 80px;" rowspan="2"></th>
+        <th style="border: 1px solid #999; padding: 6px;" colspan="5">RIGHT EYE</th>
+        <th style="border: 1px solid #999; padding: 6px; border-left: 3px solid #1e4e8c;" colspan="5">LEFT EYE</th>
+      </tr>
+      <tr style="background: #e9edf2;">
+        <th style="border: 1px solid #999; padding: 6px;">SPH</th>
+        <th style="border: 1px solid #999; padding: 6px;">CYL</th>
+        <th style="border: 1px solid #999; padding: 6px;">AXIS</th>
+        <th style="border: 1px solid #999; padding: 6px;">PRISM</th>
+        <th style="border: 1px solid #999; padding: 6px;">VISION</th>
+        <th style="border: 1px solid #999; padding: 6px; border-left: 3px solid #1e4e8c;">SPH</th>
+        <th style="border: 1px solid #999; padding: 6px;">CYL</th>
+        <th style="border: 1px solid #999; padding: 6px;">AXIS</th>
+        <th style="border: 1px solid #999; padding: 6px;">PRISM</th>
+        <th style="border: 1px solid #999; padding: 6px;">VISION</th>
       </tr>
       <tr>
-        <td style="border: 1px solid #999; padding: 8px; font-weight: 700;">RE (OD)</td>
+        <td style="border: 1px solid #999; padding: 8px; font-weight: 700;">DISTANCE</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center; font-weight: 600;">{{dist_re_sph}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{dist_re_cyl}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{dist_re_axis}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{dist_re_prism}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{dist_re_va}}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #999; padding: 8px; font-weight: 700;">LE (OS)</td>
-        <td style="border: 1px solid #999; padding: 8px; text-align: center; font-weight: 600;">{{dist_le_sph}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center; font-weight: 600; border-left: 3px solid #1e4e8c;">{{dist_le_sph}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{dist_le_cyl}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{dist_le_axis}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{dist_le_prism}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{dist_le_va}}</td>
+      </tr>
+      <tr>
+        <td style="border: 1px solid #999; padding: 8px; font-weight: 700;">ADD</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center; font-weight: 600;" colspan="4">{{add_re}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{#if hasNearRx}}{{near_re_va}}{{else}}--{{/if}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center; font-weight: 600; border-left: 3px solid #1e4e8c;" colspan="4">{{add_le}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{#if hasNearRx}}{{near_le_va}}{{else}}--{{/if}}</td>
       </tr>
     </table>
   </div>
-  {{/if}}
-
+  {{else}}
   {{#if hasNearRx}}
   <div style="margin-bottom: 16px;">
-    <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #1e4e8c; margin-bottom: 6px;">Near</div>
-    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
       <tr style="background: #e9edf2;">
-        <th style="border: 1px solid #999; padding: 8px; text-align: left; width: 70px;">Eye</th>
-        <th style="border: 1px solid #999; padding: 8px;">SPH</th>
-        <th style="border: 1px solid #999; padding: 8px;">CYL</th>
-        <th style="border: 1px solid #999; padding: 8px;">AXIS</th>
-        <th style="border: 1px solid #999; padding: 8px;">VA</th>
+        <th style="border: 1px solid #999; padding: 8px; text-align: left; width: 80px;" rowspan="2"></th>
+        <th style="border: 1px solid #999; padding: 6px;" colspan="5">RIGHT EYE</th>
+        <th style="border: 1px solid #999; padding: 6px; border-left: 3px solid #1e4e8c;" colspan="5">LEFT EYE</th>
+      </tr>
+      <tr style="background: #e9edf2;">
+        <th style="border: 1px solid #999; padding: 6px;">SPH</th>
+        <th style="border: 1px solid #999; padding: 6px;">CYL</th>
+        <th style="border: 1px solid #999; padding: 6px;">AXIS</th>
+        <th style="border: 1px solid #999; padding: 6px;">PRISM</th>
+        <th style="border: 1px solid #999; padding: 6px;">VISION</th>
+        <th style="border: 1px solid #999; padding: 6px; border-left: 3px solid #1e4e8c;">SPH</th>
+        <th style="border: 1px solid #999; padding: 6px;">CYL</th>
+        <th style="border: 1px solid #999; padding: 6px;">AXIS</th>
+        <th style="border: 1px solid #999; padding: 6px;">PRISM</th>
+        <th style="border: 1px solid #999; padding: 6px;">VISION</th>
       </tr>
       <tr>
-        <td style="border: 1px solid #999; padding: 8px; font-weight: 700;">RE (OD)</td>
+        <td style="border: 1px solid #999; padding: 8px; font-weight: 700;">NEAR</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center; font-weight: 600;">{{near_re_sph}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{near_re_cyl}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{near_re_axis}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{near_re_prism}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{near_re_va}}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #999; padding: 8px; font-weight: 700;">LE (OS)</td>
-        <td style="border: 1px solid #999; padding: 8px; text-align: center; font-weight: 600;">{{near_le_sph}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center; font-weight: 600; border-left: 3px solid #1e4e8c;">{{near_le_sph}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{near_le_cyl}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{near_le_axis}}</td>
+        <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{near_le_prism}}</td>
         <td style="border: 1px solid #999; padding: 8px; text-align: center;">{{near_le_va}}</td>
       </tr>
     </table>
   </div>
+  {{/if}}
   {{/if}}
 
   {{#unless hasDistRx}}{{#unless hasNearRx}}
@@ -142,10 +165,24 @@ const DEFAULT_TEMPLATES = {
   </div>
   {{/unless}}{{/unless}}
 
-  <table style="width: 60%; margin-bottom: 20px; font-size: 12px;">
+  <table style="width: 100%; margin-bottom: 16px; font-size: 12px;">
+    <tr>
+      <td style="padding: 4px 0; color: #444; width: 45%;">TYPE OF GLASS</td>
+      <td style="padding: 4px 0; font-weight: 700;">: {{glasses_type}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 4px 0; color: #444;">USES</td>
+      <td style="padding: 4px 0; font-weight: 700;">: GLASS PRESCRIBED</td>
+    </tr>
+    {{#if glasses_remarks}}
+    <tr>
+      <td style="padding: 4px 0; color: #444; vertical-align: top;">REMARKS</td>
+      <td style="padding: 4px 0;">: {{glasses_remarks}}</td>
+    </tr>
+    {{/if}}
     <tr>
       <td style="padding: 4px 0; color: #444;">IPD (Interpupillary Distance)</td>
-      <td style="padding: 4px 0; text-align: right; font-weight: 700;">{{ipd}}</td>
+      <td style="padding: 4px 0; font-weight: 700;">: {{ipd}}</td>
     </tr>
   </table>
 
@@ -705,10 +742,12 @@ const SAMPLE_GLASSES_RX_RAW = {
   patient: { patient_code: 'VEH-P-00031', first_name: 'Dharam', last_name: '', age: 39, gender: 'Male' },
   assessment: {
     created_at: '2026-06-01T00:00:00Z', va_scale: 'Snellen', ref_pd: '62mm',
-    ref_final_re_dist_sph: '-2.00', ref_final_re_dist_cyl: '-0.50', ref_final_re_dist_axis: '90', ref_final_re_dist_va: '6/6',
-    ref_final_le_dist_sph: '-1.50', ref_final_le_dist_cyl: '', ref_final_le_dist_axis: '', ref_final_le_dist_va: '6/6',
-    ref_final_re_near_sph: '+1.00', ref_final_re_near_cyl: '-0.50', ref_final_re_near_axis: '90', ref_final_re_near_va: 'N6',
-    ref_final_le_near_sph: '+1.00', ref_final_le_near_cyl: '', ref_final_le_near_axis: '', ref_final_le_near_va: 'N6',
+    ref_final_re_dist_sph: '-2.00', ref_final_re_dist_cyl: '-0.50', ref_final_re_dist_axis: '90', ref_final_re_dist_va: '6/6', ref_final_re_dist_prism: '',
+    ref_final_le_dist_sph: '-1.50', ref_final_le_dist_cyl: '', ref_final_le_dist_axis: '', ref_final_le_dist_va: '6/6', ref_final_le_dist_prism: '',
+    ref_final_re_near_sph: '+1.00', ref_final_re_near_cyl: '-0.50', ref_final_re_near_axis: '90', ref_final_re_near_va: 'N6', ref_final_re_near_prism: '',
+    ref_final_le_near_sph: '+1.00', ref_final_le_near_cyl: '', ref_final_le_near_axis: '', ref_final_le_near_va: 'N6', ref_final_le_near_prism: '',
+    ref_final_re_add: '+2.50', ref_final_le_add: '+2.50',
+    glasses_type: 'Bifocal', glasses_remarks: 'Glass prescribed, review after 6 months',
   },
   optometrist: { full_name: 'Rohit Pratap' },
   doctor: { full_name: 'Dr. Nisha Bachkheti', registration_no: 'UKMC-3436' },
@@ -1397,12 +1436,19 @@ function buildGlassesPrescriptionContext(settings, { patient, assessment, optome
     hasDistRx,
     dist_re_sph: distRe.sph, dist_re_cyl: distRe.cyl, dist_re_axis: distRe.axis, dist_re_va: distRe.va,
     dist_le_sph: distLe.sph, dist_le_cyl: distLe.cyl, dist_le_axis: distLe.axis, dist_le_va: distLe.va,
+    dist_re_prism: assessment?.ref_final_re_dist_prism || '--',
+    dist_le_prism: assessment?.ref_final_le_dist_prism || '--',
 
     hasNearRx,
     near_re_sph: nearRe.sph, near_re_cyl: nearRe.cyl, near_re_axis: nearRe.axis, near_re_va: nearRe.va,
     near_le_sph: nearLe.sph, near_le_cyl: nearLe.cyl, near_le_axis: nearLe.axis, near_le_va: nearLe.va,
+    near_re_prism: assessment?.ref_final_re_near_prism || '--',
+    near_le_prism: assessment?.ref_final_le_near_prism || '--',
     add_re: assessment?.ref_final_re_add || '--',
     add_le: assessment?.ref_final_le_add || '--',
+
+    glasses_type: assessment?.glasses_type || '--',
+    glasses_remarks: assessment?.glasses_remarks || '',
 
     ipd: assessment?.ref_pd || '--',
     optometrist_name: optometrist?.full_name || '--',
