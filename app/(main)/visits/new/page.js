@@ -38,7 +38,19 @@ function NewVisitForm() {
   const router = useRouter();
 
   useEffect(() => {
-    getDoctors().then(setDoctors);
+    getDoctors().then((list) => {
+      setDoctors(list);
+      // Default to Dr. Nisha Bachkheti (the hospital's sole/primary
+      // doctor) instead of leaving this blank -- an unselected doctor
+      // here is what leaves the OPD Case Sheet's doctor name blank
+      // later, since the case sheet reads visits.doctor_id directly.
+      // Front desk can still change it if a different doctor applies.
+      setDoctorId((prev) => {
+        if (prev) return prev;
+        const defaultDoctor = list.find((d) => d.full_name?.toLowerCase().includes('nisha bachkheti'));
+        return defaultDoctor ? defaultDoctor.id : prev;
+      });
+    });
     getSurgeryTypeOptions().then(setSurgeryTypes);
   }, []);
 
