@@ -71,7 +71,7 @@ function ValueBox({ value, muted }) {
   );
 }
 
-export default function AssessmentViewer({ assessmentId }) {
+export default function AssessmentViewer({ assessmentId, onBack }) {
   const [assessment, setAssessment] = useState(null);
   const [iopReadings, setIopReadings] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
@@ -411,7 +411,7 @@ export default function AssessmentViewer({ assessmentId }) {
       )}
 
       <div style={{ marginTop: 16 }}>
-        <button type="button" className="btn" onClick={() => router.push('/optometry-history')}>
+        <button type="button" className="btn" onClick={() => (onBack ? onBack() : router.push('/optometry-dashboard'))}>
           <i className="ti ti-arrow-left"></i> Back to History
         </button>
       </div>

@@ -284,7 +284,7 @@ export default function QueuePage() {
                   <button className="btn btn-sm" onClick={() => runAction(optometryCallSpecific, e.id)}>Call</button>
                 )}
                 {e.status === 'Calling' && (
-                  <Link href={`/optometry/${e.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                  <Link href={`/optometry-dashboard?queueEntryId=${e.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
                     Enter Findings
                   </Link>
                 )}
