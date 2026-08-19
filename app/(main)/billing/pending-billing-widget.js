@@ -62,7 +62,7 @@ function TypeSection({ type, group, busyId, onDefer, onDeny, onReset, onBillNow,
   );
 }
 
-export default function PendingBillingWidget() {
+export default function PendingBillingWidget({ onTotalChange, bare = false }) {
   const [investigations, setInvestigations] = useState([]);
   const [procedures, setProcedures] = useState([]);
   const [pharmacy, setPharmacy] = useState([]);
@@ -111,21 +111,29 @@ export default function PendingBillingWidget() {
   const patients = Object.values(byPatient);
   const totalItems = patients.reduce((s, p) => s + Object.values(p.types).reduce((s2, g) => s2 + g.items.length, 0), 0);
 
+  useEffect(() => {
+    if (!loading && onTotalChange) onTotalChange(totalItems);
+  }, [loading, totalItems, onTotalChange]);
+
   function billNowFor(type, group) {
     const ids = group.items.map((i) => i.id).join(',');
     const param = { Investigation: 'invOrderIds', Procedure: 'procIds', Pharmacy: 'rxIds', Biometry: 'bioIds' }[type];
     router.push(`/billing/new?visitId=${group.visitId}&${param}=${ids}`);
   }
 
-  return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <div className="card-title" style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-        <span><i className="ti ti-clipboard-list" style={{ color: 'var(--red)' }}></i> Pending Billing</span>
-        {totalItems > 0 && <span className="badge b-red">{totalItems}</span>}
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-        Everything prescribed or recommended for a patient, not yet billed -- grouped by patient across investigations, procedures, pharmacy, biometry, and packages.
-      </div>
+  const listContent = (
+    <>
+      {!bare && (
+        <>
+          <div className="card-title" style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <span><i className="ti ti-clipboard-list" style={{ color: 'var(--red)' }}></i> Pending Billing</span>
+            {totalItems > 0 && <span className="badge b-red">{totalItems}</span>}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+            Everything prescribed or recommended for a patient, not yet billed -- grouped by patient across investigations, procedures, pharmacy, biometry, and packages.
+          </div>
+        </>
+      )}
 
       {loading && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div>}
 
@@ -184,6 +192,14 @@ export default function PendingBillingWidget() {
           )}
         </div>
       ))}
+    </>
+  );
+
+  if (bare) return listContent;
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      {listContent}
     </div>
   );
 }
