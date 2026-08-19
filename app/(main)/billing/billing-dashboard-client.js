@@ -45,6 +45,42 @@ function SectionHeader({ icon, iconColor, title, badgeCount, badgeCls, open, onT
   );
 }
 
+// Same IST-day comparison used in pending-billing-widget.js -- kept as
+// a separate small copy rather than a shared import since it's a
+// two-line pure function and this file already has its own RUPEE/
+// VISIT_TYPE_COLOR helpers duplicated in the same spirit.
+function istDateOnly(dateInput) {
+  return new Date(dateInput).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+function isToday(dateInput) {
+  if (!dateInput) return false;
+  return istDateOnly(dateInput) === istDateOnly(new Date());
+}
+
+function ScopeToggle({ todayOnly, onChange }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--g500)' }}>Pending Bills:</span>
+      <div style={{ display: 'flex', gap: 4, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
+        <button
+          type="button"
+          onClick={() => onChange(true)}
+          style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: todayOnly ? '#fff' : 'transparent', color: todayOnly ? 'var(--indigo)' : 'var(--g500)', cursor: 'pointer', boxShadow: todayOnly ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(false)}
+          style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', background: !todayOnly ? '#fff' : 'transparent', color: !todayOnly ? 'var(--indigo)' : 'var(--g500)', cursor: 'pointer', boxShadow: !todayOnly ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}
+        >
+          Historical
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function BillingDashboardClient({ dischargedUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal }) {
   // Needs Action starts collapsed -- it's the "here's what's still
   // outstanding" detail view, not the first thing a person should have
@@ -52,6 +88,10 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
   const [needsActionOpen, setNeedsActionOpen] = useState(false);
   const [showAllVisits, setShowAllVisits] = useState(false);
   const [pendingBillingTotal, setPendingBillingTotal] = useState(0);
+  // Defaults to today -- pending bills should read as "what's due right
+  // now", not a mixed list where a 2-week-old deferred item sits next
+  // to something from this morning. Historical is one click away.
+  const [todayOnly, setTodayOnly] = useState(true);
 
   const todaysInvoicesValue = todaysInvoices.reduce((s, i) => s + Number(i.net || 0), 0);
 
@@ -59,16 +99,22 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
   const visitsFullyBilled = todaysVisits.length - visitsWithBillingDue.length;
   const visitsToShow = showAllVisits ? todaysVisits : visitsWithBillingDue;
 
-  const needsActionCount = dischargedUnbilled.length + pendingBillingTotal;
+  const dischargedUnbilledShown = todayOnly
+    ? dischargedUnbilled.filter((r) => isToday(r.discharge_date))
+    : dischargedUnbilled;
+
+  const needsActionCount = dischargedUnbilledShown.length + pendingBillingTotal;
 
   return (
     <div>
+      <ScopeToggle todayOnly={todayOnly} onChange={setTodayOnly} />
+
       {/* KPI STRIP */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
         <StatCard label="Today's Invoices" value={todaysInvoices.length} sub={RUPEE(todaysInvoicesValue)} color="--blue" />
         <StatCard label="Outstanding" value={outstandingInvoices.length} sub={RUPEE(outstandingTotal)} color="--red" />
-        <StatCard label="Pending Billing" value={pendingBillingTotal} sub="Not yet invoiced" color="--amber" />
-        <StatCard label="Surgery Billing Due" value={dischargedUnbilled.length} sub="Discharged, unbilled" color="--purple" />
+        <StatCard label="Pending Billing" value={pendingBillingTotal} sub={todayOnly ? 'Not yet invoiced -- today' : 'Not yet invoiced -- all time'} color="--amber" />
+        <StatCard label="Surgery Billing Due" value={dischargedUnbilledShown.length} sub={todayOnly ? 'Discharged today, unbilled' : 'Discharged, unbilled -- all time'} color="--purple" />
       </div>
 
       {/* RECENT INVOICES -- full width, first thing after the KPI strip */}
@@ -155,16 +201,16 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
           open={needsActionOpen} onToggle={() => setNeedsActionOpen((v) => !v)}
         />
         <div style={{ marginTop: needsActionOpen ? 10 : 0, display: needsActionOpen ? 'block' : 'none' }}>
-            {dischargedUnbilled.length > 0 && (
+            {dischargedUnbilledShown.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
                   <i className="ti ti-scalpel"></i> Surgery Billing
-                  <span className="badge b-red" style={{ marginLeft: 8 }}>{dischargedUnbilled.length}</span>
+                  <span className="badge b-red" style={{ marginLeft: 8 }}>{dischargedUnbilledShown.length}</span>
                 </div>
                 <table className="tbl">
                   <thead><tr><th>Discharged</th><th>Patient</th><th>Surgery</th><th>Package</th><th>Amount</th><th></th></tr></thead>
                   <tbody>
-                    {dischargedUnbilled.map((r) => {
+                    {dischargedUnbilledShown.map((r) => {
                       const sc = r.surgical_cases;
                       return (
                         <tr key={sc.id}>
@@ -188,8 +234,13 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
                 </table>
               </div>
             )}
+            {todayOnly && dischargedUnbilledShown.length === 0 && dischargedUnbilled.length > 0 && (
+              <div style={{ fontSize: 11.5, color: 'var(--g400)', marginBottom: 16 }}>
+                No surgery billing due from today -- {dischargedUnbilled.length} older case{dischargedUnbilled.length === 1 ? '' : 's'} in Historical.
+              </div>
+            )}
 
-            <PendingBillingWidget bare onTotalChange={setPendingBillingTotal} />
+            <PendingBillingWidget bare todayOnly={todayOnly} onTotalChange={setPendingBillingTotal} />
           </div>
       </div>
     </div>

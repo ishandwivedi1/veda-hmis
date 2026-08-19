@@ -96,7 +96,27 @@ function CategoryTable({ type, groups, busyId, onDefer, onDeny, onReset, onBillN
   );
 }
 
-export default function PendingBillingWidget({ onTotalChange, bare = false }) {
+// Same IST-day comparison the rest of the app uses for "today" (see
+// ist_date()/istDayBoundsUTC() server-side) -- en-CA gives a plain
+// YYYY-MM-DD string, safe for direct equality comparison.
+function istDateOnly(dateInput) {
+  return new Date(dateInput).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+function isToday(dateInput) {
+  if (!dateInput) return false;
+  return istDateOnly(dateInput) === istDateOnly(new Date());
+}
+
+// Filters each group's items down to today's only, dropping any group
+// left with zero items -- a patient with one item from today and one
+// from last week still shows, just with only the today item visible.
+function filterGroupsToToday(groups) {
+  return groups
+    .map((g) => ({ ...g, items: g.items.filter((item) => isToday(item.created_at)) }))
+    .filter((g) => g.items.length > 0);
+}
+
+export default function PendingBillingWidget({ onTotalChange, bare = false, todayOnly = false }) {
   const [investigations, setInvestigations] = useState([]);
   const [procedures, setProcedures] = useState([]);
   const [pharmacy, setPharmacy] = useState([]);
@@ -128,10 +148,15 @@ export default function PendingBillingWidget({ onTotalChange, bare = false }) {
     setBusyId(null);
   }
 
-  const totalItems = investigations.reduce((s, g) => s + g.items.length, 0)
-    + procedures.reduce((s, g) => s + g.items.length, 0)
-    + pharmacy.reduce((s, g) => s + g.items.length, 0)
-    + biometry.reduce((s, g) => s + g.items.length, 0);
+  const investigationsShown = todayOnly ? filterGroupsToToday(investigations) : investigations;
+  const proceduresShown = todayOnly ? filterGroupsToToday(procedures) : procedures;
+  const pharmacyShown = todayOnly ? filterGroupsToToday(pharmacy) : pharmacy;
+  const biometryShown = todayOnly ? filterGroupsToToday(biometry) : biometry;
+
+  const totalItems = investigationsShown.reduce((s, g) => s + g.items.length, 0)
+    + proceduresShown.reduce((s, g) => s + g.items.length, 0)
+    + pharmacyShown.reduce((s, g) => s + g.items.length, 0)
+    + biometryShown.reduce((s, g) => s + g.items.length, 0);
 
   useEffect(() => {
     if (!loading && onTotalChange) onTotalChange(totalItems);
@@ -159,13 +184,17 @@ export default function PendingBillingWidget({ onTotalChange, bare = false }) {
       {loading && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div>}
 
       {!loading && totalItems === 0 && (
-        <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing pending -- everything is billed.</div>
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}>
+          {todayOnly && (investigations.length + procedures.length + pharmacy.length + biometry.length) > 0
+            ? 'Nothing pending from today -- switch to Historical to see the older backlog.'
+            : 'Nothing pending -- everything is billed.'}
+        </div>
       )}
 
       {!loading && (
         <>
           <CategoryTable
-            type="Investigation" groups={investigations} busyId={busyId}
+            type="Investigation" groups={investigationsShown} busyId={busyId}
             onDefer={(id) => withBusy(id, (x) => markInvestigationDeferred(x, 'Patient asked to come back later'))}
             onDeny={(id) => withBusy(id, (x) => markInvestigationDenied(x, 'Patient declined at Front Office'))}
             onReset={(id) => withBusy(id, resetInvestigationBilling)}
@@ -173,7 +202,7 @@ export default function PendingBillingWidget({ onTotalChange, bare = false }) {
             renderItem={(io) => <>{io.name} <span style={{ color: 'var(--g400)' }}>({io.eye})</span></>}
           />
           <CategoryTable
-            type="Biometry" groups={biometry} busyId={busyId}
+            type="Biometry" groups={biometryShown} busyId={busyId}
             onDefer={(id) => withBusy(id, (x) => markBiometryDeferred(x, 'Patient asked to come back later'))}
             onDeny={(id) => withBusy(id, (x) => markBiometryDenied(x, 'Patient declined at Front Office'))}
             onReset={(id) => withBusy(id, resetBiometryBilling)}
@@ -181,12 +210,12 @@ export default function PendingBillingWidget({ onTotalChange, bare = false }) {
             renderItem={() => <>Biometry</>}
           />
           <CategoryTable
-            type="Procedure" groups={procedures} busyId={busyId}
+            type="Procedure" groups={proceduresShown} busyId={busyId}
             onBillNow={(g) => billNowFor('Procedure', g)}
             renderItem={(p) => <>{p.name} <span style={{ color: 'var(--g400)' }}>({p.eye})</span>{p.notes && <div style={{ fontSize: 11, color: 'var(--g500)' }}>{p.notes}</div>}</>}
           />
           <CategoryTable
-            type="Pharmacy" groups={pharmacy} busyId={busyId}
+            type="Pharmacy" groups={pharmacyShown} busyId={busyId}
             onDefer={(id) => withBusy(id, (x) => markPrescriptionDeferred(x, 'Patient asked to come back later'))}
             onDeny={(id) => withBusy(id, (x) => markPrescriptionDenied(x, 'Patient declined at Front Office'))}
             onReset={(id) => withBusy(id, resetPrescriptionBilling)}
