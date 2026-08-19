@@ -187,7 +187,9 @@ export default async function VisitSummaryPrintPage({ params }) {
       {followup && (
         <Section title="Follow-up">
           <div style={{ fontSize: 13 }}>
-            {followup.after_period} -- {followup.visit_type} -- {followup.clinic} clinic
+            {followup.followup_date
+              ? new Date(`${followup.followup_date}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+              : (followup.after_period || 'SOS / As Needed')} -- {followup.visit_type} -- {followup.clinic} clinic
           </div>
           {followup.instructions && <div style={{ fontSize: 12, color: '#4b5563', marginTop: 4 }}>{followup.instructions}</div>}
         </Section>

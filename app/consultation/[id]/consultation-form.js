@@ -48,6 +48,10 @@ const WF_ITEMS = {
   Counselling: { icon: 'ti-messages', color: '#fcd34d' },
 };
 
+function todayIst() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
 const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 
 function DiagnosisRow({ d, index, encounterId, onRemove }) {
@@ -172,7 +176,8 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [procNotes, setProcNotes] = useState('');
   const [refDest, setRefDest] = useState('');
   const [refReason, setRefReason] = useState('');
-  const [fuAfter, setFuAfter] = useState('1 week');
+  const [fuDate, setFuDate] = useState('');
+  const [fuSos, setFuSos] = useState(false);
   const [fuType, setFuType] = useState('Routine');
   const [fuClinic, setFuClinic] = useState('General');
   const [fuInstructions, setFuInstructions] = useState('');
@@ -228,7 +233,8 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
       getFollowUpContext(data.entry.visits.patients.id, data.entry.visits.id, data.encounter.id).then(setFollowUpContext);
     }
     if (data.followup) {
-      setFuAfter(data.followup.after_period);
+      setFuDate(data.followup.followup_date || '');
+      setFuSos(data.followup.after_period === 'SOS');
       setFuType(data.followup.visit_type);
       setFuClinic(data.followup.clinic);
       setFuInstructions(data.followup.instructions || '');
@@ -361,7 +367,8 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   async function handleSaveFollowup() {
     setError('');
-    const result = await saveFollowup(data.encounter.id, { after: fuAfter, type: fuType, clinic: fuClinic, instructions: fuInstructions });
+    if (!fuSos && !fuDate) { setError('Pick a follow-up date, or check SOS / As Needed.'); return; }
+    const result = await saveFollowup(data.encounter.id, { date: fuSos ? null : fuDate, sos: fuSos, type: fuType, clinic: fuClinic, instructions: fuInstructions });
     if (result.error) { setError(result.error); return; }
     setFuSaved(true);
     refresh();
@@ -1107,9 +1114,14 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 <div className="card">
                   <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-calendar-plus" style={{ color: 'var(--green)' }}></i> Follow-up</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
-                    <select className="fi fi-sm" value={fuAfter} onChange={(e) => setFuAfter(e.target.value)}>
-                      <option>1 week</option><option>2 weeks</option><option>1 month</option><option>3 months</option><option>6 months</option><option>1 year</option><option>SOS</option>
-                    </select>
+                    <input
+                      type="date"
+                      className="fi fi-sm"
+                      min={todayIst()}
+                      disabled={fuSos}
+                      value={fuDate}
+                      onChange={(e) => setFuDate(e.target.value)}
+                    />
                     <select className="fi fi-sm" value={fuType} onChange={(e) => setFuType(e.target.value)}>
                       <option>Routine</option><option>Post-operative</option><option>Urgent</option>
                     </select>
@@ -1117,11 +1129,15 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <option>General</option><option>Cataract</option><option>Glaucoma</option><option>Retina</option>
                     </select>
                   </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--g700)', marginBottom: 8, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={fuSos} onChange={(e) => { setFuSos(e.target.checked); if (e.target.checked) setFuDate(''); }} />
+                    SOS / As Needed (no fixed date)
+                  </label>
                   <input className="fi fi-sm" placeholder="Special instructions..." value={fuInstructions} onChange={(e) => setFuInstructions(e.target.value)} style={{ marginBottom: 8 }} />
                   <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={handleSaveFollowup}>Save Follow-up</button>
                   {fuSaved && (
                     <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--green-lt)', borderRadius: 8, fontSize: 12, color: 'var(--green)' }}>
-                      Follow-up: {fuAfter} -- {fuType} -- {fuClinic}
+                      Follow-up: {fuSos ? 'SOS / As Needed' : (fuDate ? new Date(fuDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--')} -- {fuType} -- {fuClinic}
                     </div>
                   )}
                 </div>

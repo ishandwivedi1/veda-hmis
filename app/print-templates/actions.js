@@ -696,7 +696,7 @@ const SAMPLE_CASE_SHEET_RAW = {
   },
   diagnoses: [{ name: 'Immature Cataract', eye: 'OU', notes: null }],
   prescriptions: [{ drug_name: 'CMC 0.5%', eye: 'BE', dosage: '1 drop', frequency: 'QID', duration: '1 month' }],
-  followup: { after_period: '2 weeks', visit_type: 'Follow-up', instructions: null },
+  followup: { followup_date: '2026-09-02', visit_type: 'Follow-up', instructions: null },
 };
 
 // Deliberately includes one eye with SPH-only (no CYL/AXIS) so the
@@ -1651,7 +1651,11 @@ function buildOpdCaseSheetContext(settings, { patient, encounter, visit, doctor,
   const nearSourceLabel = REFRACTION_SOURCE_LABEL[cellHasData(nearRe) ? nearReRow.source : nearLeRow.source];
 
   const followupParts = [];
-  if (followup?.after_period) followupParts.push(followup.after_period);
+  if (followup?.followup_date) {
+    followupParts.push(new Date(`${followup.followup_date}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }));
+  } else if (followup?.after_period) {
+    followupParts.push(followup.after_period);
+  }
   if (followup?.visit_type) followupParts.push(`(${followup.visit_type})`);
   if (followup?.instructions) followupParts.push(`-- ${followup.instructions}`);
 

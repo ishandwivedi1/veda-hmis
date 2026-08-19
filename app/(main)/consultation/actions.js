@@ -747,11 +747,12 @@ export async function saveFollowup(encounterId, fields) {
   const { error } = await supabase
     .from('plan_followups')
     .upsert(
-      { encounter_id: encounterId, after_period: fields.after, visit_type: fields.type, clinic: fields.clinic, instructions: fields.instructions, created_by: userData?.user?.id || null },
+      { encounter_id: encounterId, followup_date: fields.date || null, after_period: fields.sos ? 'SOS' : null, visit_type: fields.type, clinic: fields.clinic, instructions: fields.instructions, created_by: userData?.user?.id || null },
       { onConflict: 'encounter_id' }
     );
   if (error) return { error: error.message };
-  await addAudit(supabase, encounterId, `Follow-up scheduled: ${fields.after} -- ${fields.type}`, userData?.user?.id);
+  const whenLabel = fields.sos ? 'SOS' : (fields.date || 'date not set');
+  await addAudit(supabase, encounterId, `Follow-up scheduled: ${whenLabel} -- ${fields.type}`, userData?.user?.id);
   return { success: true };
 }
 
