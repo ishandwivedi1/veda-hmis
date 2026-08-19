@@ -435,30 +435,16 @@ export async function createOptometryAssessmentForVisit(visitId, encounterId) {
 export async function addDiagnosis(encounterId, values) {
   const supabase = await createClient();
 
-  if (values.category === 'primary') {
-    const { data: existing } = await supabase
-      .from('diagnoses')
-      .select('id, name')
-      .eq('encounter_id', encounterId)
-      .eq('category', 'primary')
-      .eq('status', 'Active');
-
-    if (existing && existing.length > 0) {
-      return { error: `"${existing[0].name}" is already the primary diagnosis. Change it to secondary first, or remove it, before adding a new primary.` };
-    }
-  }
-
   const { data: userData } = await supabase.auth.getUser();
 
   const { error } = await supabase.from('diagnoses').insert({
     encounter_id: encounterId,
     name: values.name,
-    category: values.category,
     eye: values.eye,
   });
 
   if (error) return { error: error.message };
-  await addAudit(supabase, encounterId, `Diagnosis added: ${values.name} (${values.eye}, ${values.category})`, userData?.user?.id);
+  await addAudit(supabase, encounterId, `Diagnosis added: ${values.name} (${values.eye})`, userData?.user?.id);
   return { success: true };
 }
 

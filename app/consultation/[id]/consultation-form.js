@@ -65,7 +65,7 @@ function DiagnosisRow({ d, index, encounterId, onRemove }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
         <span>
           <span style={{ color: 'var(--g400)', fontWeight: 700, marginRight: 4 }}>{index + 1}.</span>
-          <strong>{d.name}</strong> -- {d.eye} -- <span style={{ color: d.category === 'primary' ? 'var(--blue)' : 'var(--g500)' }}>{d.category}</span>
+          <strong>{d.name}</strong> -- {d.eye}
         </span>
         <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={onRemove}>Remove</button>
       </div>
@@ -141,7 +141,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   // Diagnosis form
   const [dxName, setDxName] = useState('');
-  const [dxCategory, setDxCategory] = useState('primary');
   const [dxEye, setDxEye] = useState('OU');
 
   // Prescription form
@@ -252,7 +251,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleAddDiagnosis() {
     setError('');
     if (!dxName.trim()) { setError('Diagnosis name is required.'); return; }
-    const result = await addDiagnosis(data.encounter.id, { name: dxName, category: dxCategory, eye: dxEye });
+    const result = await addDiagnosis(data.encounter.id, { name: dxName, eye: dxEye });
     if (result.error) { setError(result.error); return; }
     setDxName('');
     refresh();
@@ -296,7 +295,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setError('');
     if (!rxDrug.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
     if (!rxDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
-    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, dosage: rxDosage, eye: rxIsOcular ? rxEye : null, steps: taperSteps });
+    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, dosage: rxDosage, eye: rxIsOcular ? rxEye : 'Oral', steps: taperSteps });
     if (result.error) { setError(result.error); return; }
     setRxDrug(''); setRxDosage(''); setRxDrugTypeId(null); setRxIsOcular(true); setShowTaperBuilder(false);
     refresh();
@@ -306,7 +305,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setError('');
     if (!rxDrug.trim()) { setError('Drug name is required.'); return; }
     const result = await addPrescription(data.encounter.id, {
-      drugName: rxDrug, dosage: rxDosage, frequency: rxFrequency, duration: rxDuration, eye: rxIsOcular ? rxEye : null,
+      drugName: rxDrug, dosage: rxDosage, frequency: rxFrequency, duration: rxDuration, eye: rxIsOcular ? rxEye : 'Oral',
     });
     if (result.error) { setError(result.error); return; }
     setRxDrug('');
@@ -394,10 +393,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   async function handleComplete() {
     setError('');
-    if (!data.diagnoses.length) {
-      setError('Add at least one diagnosis before completing the visit.');
-      return;
-    }
     setLoading(true);
     const result = await completeConsultation(data.encounter.id, queueEntryId);
     setLoading(false);
@@ -723,12 +718,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 </select>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   <input className="fi" placeholder="Diagnosis name" value={dxName} onChange={(e) => setDxName(e.target.value)} style={{ flex: 2 }} />
-                  <select className="fi" value={dxCategory} onChange={(e) => setDxCategory(e.target.value)} style={{ flex: 1 }}>
-                    <option value="primary">Primary</option>
-                    <option value="secondary">Secondary</option>
-                    <option value="associated">Associated</option>
-                    <option value="systemic">Systemic</option>
-                  </select>
                   <select className="fi" value={dxEye} onChange={(e) => setDxEye(e.target.value)} style={{ width: 110 }}>
                     <option value="OD">Right (OD)</option>
                     <option value="OS">Left (OS)</option>
@@ -873,14 +862,15 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                     <option>1 month</option><option>2 months</option><option>3 months</option><option>4 months</option><option>5 months</option><option>6 months</option>
                     <option>Ongoing</option>
                   </select>
-                  <select className="fi" value={rxEye} onChange={(e) => setRxEye(e.target.value)} style={{ width: 110, visibility: rxIsOcular ? 'visible' : 'hidden' }} disabled={!rxIsOcular}>
-                    <option value="RE">Right (OD)</option><option value="LE">Left (OS)</option><option value="BE">Both (OU)</option>
-                  </select>
+                  {rxIsOcular ? (
+                    <select className="fi" value={rxEye} onChange={(e) => setRxEye(e.target.value)} style={{ width: 110 }}>
+                      <option value="RE">Right (OD)</option><option value="LE">Left (OS)</option><option value="BE">Both (OU)</option>
+                    </select>
+                  ) : (
+                    <div className="fi" style={{ width: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--g500)', fontWeight: 600 }}>Oral</div>
+                  )}
                   <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={handleAddPrescription}>Add</button>
                 </div>
-                {!rxIsOcular && (
-                  <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 3 }}><i className="ti ti-info-circle"></i> {rxDrug} is not applied to the eye -- no Eye field needed.</div>
-                )}
 
                 {!showTaperBuilder ? (
                   <button className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginTop: 8 }} onClick={() => setShowTaperBuilder(true)}>

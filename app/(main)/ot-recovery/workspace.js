@@ -194,7 +194,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   async function handleAddMedicine() {
     setError('');
     if (!medName.trim()) { setError('Drug name is required.'); return; }
-    const result = await addRecoveryMedication(episodeId, { name: medName, dosage: medDosage, frequency: medFrequency, duration: medDuration, eye: medIsOcular ? medEye : null }, medReason);
+    const result = await addRecoveryMedication(episodeId, { name: medName, dosage: medDosage, frequency: medFrequency, duration: medDuration, eye: medIsOcular ? medEye : 'Oral' }, medReason);
     if (result.error) { setError(result.error); return; }
     setMedName(''); setMedDrugTypeId(null); setMedIsOcular(true); setMedReason(''); setShowMedForm(false);
     refresh();
@@ -213,7 +213,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setError('');
     if (!medName.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
     if (!medDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
-    const result = await addTaperedRecoveryMedication(episodeId, { name: medName, dosage: medDosage, eye: medIsOcular ? medEye : null, steps: taperSteps }, medReason);
+    const result = await addTaperedRecoveryMedication(episodeId, { name: medName, dosage: medDosage, eye: medIsOcular ? medEye : 'Oral', steps: taperSteps }, medReason);
     if (result.error) { setError(result.error); return; }
     setMedName(''); setMedDosage(''); setMedDrugTypeId(null); setMedIsOcular(true); setMedReason(''); setShowTaperBuilder(false);
     refresh();
@@ -427,7 +427,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                       )}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: medIsOcular ? '1fr 1fr' : '1fr', gap: 6, marginBottom: 6 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
                       <select className="fi fi-sm" value={medDosage} onChange={(e) => setMedDosage(e.target.value)}>
                         <option value="">-- Dosage --</option>
                         {(medDrugTypeId ? dosageOptions.filter((o) => o.drug_type_id === medDrugTypeId) : []).map((o) => (
@@ -439,15 +439,14 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                           </>
                         )}
                       </select>
-                      {medIsOcular && (
+                      {medIsOcular ? (
                         <select className="fi fi-sm" value={medEye} onChange={(e) => setMedEye(e.target.value)}>
                           <option value="RE">Right (OD)</option><option value="LE">Left (OS)</option><option value="BE">Both (OU)</option>
                         </select>
+                      ) : (
+                        <div className="fi fi-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--g500)', fontWeight: 600 }}>Oral</div>
                       )}
                     </div>
-                    {!medIsOcular && (
-                      <div style={{ fontSize: 10, color: 'var(--g400)', marginBottom: 6 }}><i className="ti ti-info-circle"></i> {medName} is not applied to the eye -- no Eye field needed.</div>
-                    )}
 
                     {!showTaperBuilder ? (
                       <>
