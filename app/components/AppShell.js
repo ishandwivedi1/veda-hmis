@@ -13,39 +13,48 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const CHECK_INTERVAL_MS = 60 * 1000;
 
 const NAV_ITEMS = [
-  { href: '/front-office-dashboard', label: 'Front Office Dashboard', icon: 'ti-user-check', section: 'Front Office' },
-  { href: '/patients', label: 'Patients', icon: 'ti-users', section: 'Front Office' },
-  { href: '/appointments', label: 'Appointments', icon: 'ti-calendar-event', section: 'Front Office' },
-  { href: '/visits', label: 'Visits', icon: 'ti-door-enter', section: 'Front Office' },
-  { href: '/billing', label: 'Billing', icon: 'ti-receipt', section: 'Finance' },
-  { href: '/payments', label: 'Payments', icon: 'ti-cash', section: 'Finance' },
-  { href: '/cash-management', label: 'Cash Management', icon: 'ti-cash-register', section: 'Finance' },
-  { href: '/payments/reports', label: 'Reports', icon: 'ti-report-money', section: 'Finance' },
-  { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', section: 'Patient Ledger' },
-  { href: '/payments/credit-note', label: 'Credit Note', icon: 'ti-file-minus', section: 'Patient Ledger' },
-  { href: '/payments/refund', label: 'Refund', icon: 'ti-rotate-clockwise', section: 'Patient Ledger' },
-  { href: '/queue', label: 'Patient Flow', icon: 'ti-list-numbers', section: 'Clinical' },
-  { href: '/investigation', label: 'Investigation', icon: 'ti-flask', section: 'Clinical' },
-  { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', section: 'Clinical' },
-  { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', section: 'Clinical' },
-  { href: '/inventory', label: 'Inventory', icon: 'ti-boxes', section: 'Inventory' },
-  { href: '/doctor-dashboard', label: 'Doctor Dashboard', icon: 'ti-stethoscope', section: 'Ophthalmologist' },
-  { href: '/doctor-dashboard-surgery', label: 'Surgery Dashboard', icon: 'ti-building-hospital', section: 'Ophthalmologist' },
-  { href: '/medical-fitness', label: 'Medical Fitness', icon: 'ti-heart-rate-monitor', section: 'Ophthalmologist' },
-  { href: '/patient-timeline', label: 'Patient Timeline', icon: 'ti-timeline', section: 'Ophthalmologist' },
-  { href: '/optometry-dashboard', label: 'Optometry', icon: 'ti-eye-check', section: 'Optometrist' },
-  { href: '/surgical-journey', label: 'Surgical Journey', icon: 'ti-route', section: 'Surgical' },
-  { href: '/iol-approval', label: 'IOL Approval', icon: 'ti-aperture', section: 'Surgical' },
-  { href: '/ot-schedule', label: 'OT Schedule', icon: 'ti-calendar-event', section: 'Surgical' },
-  { href: '/patient-checkin', label: 'Patient Check-In', icon: 'ti-clipboard-check', section: 'Surgical' },
-  { href: '/ot-intraop', label: 'Intraoperative Management', icon: 'ti-building-hospital', section: 'Surgical' },
-  { href: '/ot-recovery', label: 'Recovery & Discharge', icon: 'ti-bed', section: 'Surgical' },
-  { href: '/ot-postop', label: 'Post Op', icon: 'ti-calendar-plus', section: 'Surgical' },
-  { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', section: 'Administration' },
-  { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', section: 'Administration' },
-  { href: '/print-templates', label: 'Print Templates', icon: 'ti-file-invoice', section: 'Administration' },
-  { href: '/users', label: 'User Management', icon: 'ti-users-group', section: 'Administration', adminOnly: true },
-  { href: '/reports', label: 'Reports', icon: 'ti-chart-bar', section: 'Administration' },
+  // ── OPD ──
+  { href: '/front-office-dashboard', label: 'Front Office Dashboard', icon: 'ti-user-check', group: 'OPD', section: 'Front Office' },
+  { href: '/patients', label: 'Patients', icon: 'ti-users', group: 'OPD', section: 'Front Office' },
+  { href: '/appointments', label: 'Appointments', icon: 'ti-calendar-event', group: 'OPD', section: 'Front Office' },
+  { href: '/visits', label: 'Visits', icon: 'ti-door-enter', group: 'OPD', section: 'Front Office' },
+  { href: '/queue', label: 'Patient Flow', icon: 'ti-list-numbers', group: 'OPD', section: 'Clinical Services' },
+  { href: '/investigation', label: 'Investigation', icon: 'ti-flask', group: 'OPD', section: 'Clinical Services' },
+  { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', group: 'OPD', section: 'Clinical Services' },
+  { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', group: 'OPD', section: 'Clinical Services' },
+  { href: '/doctor-dashboard', label: 'Doctor Dashboard', icon: 'ti-stethoscope', group: 'OPD', section: 'Ophthalmologist' },
+  { href: '/patient-timeline', label: 'Patient Timeline', icon: 'ti-timeline', group: 'OPD', section: 'Ophthalmologist' },
+  { href: '/optometry-dashboard', label: 'Optometry', icon: 'ti-eye-check', group: 'OPD', section: 'Optometrist' },
+
+  // ── IPD / SURGICAL ──
+  { href: '/doctor-dashboard-surgery', label: 'Surgery Dashboard', icon: 'ti-building-hospital', group: 'IPD', section: 'Surgical Care' },
+  { href: '/surgical-journey', label: 'Surgical Journey', icon: 'ti-route', group: 'IPD', section: 'Surgical Care' },
+  { href: '/medical-fitness', label: 'Medical Fitness', icon: 'ti-heart-rate-monitor', group: 'IPD', section: 'Surgical Care' },
+  { href: '/iol-approval', label: 'IOL Approval', icon: 'ti-aperture', group: 'IPD', section: 'Surgical Care' },
+  { href: '/ot-schedule', label: 'OT Schedule', icon: 'ti-calendar-event', group: 'IPD', section: 'Surgical Care' },
+  { href: '/patient-checkin', label: 'Patient Check-In', icon: 'ti-clipboard-check', group: 'IPD', section: 'Surgical Care' },
+  { href: '/ot-intraop', label: 'Intraoperative Management', icon: 'ti-building-hospital', group: 'IPD', section: 'Surgical Care' },
+  { href: '/ot-recovery', label: 'Recovery & Discharge', icon: 'ti-bed', group: 'IPD', section: 'Surgical Care' },
+  { href: '/ot-postop', label: 'Post Op', icon: 'ti-calendar-plus', group: 'IPD', section: 'Surgical Care' },
+
+  // ── FINANCE ──
+  { href: '/billing', label: 'Billing', icon: 'ti-receipt', group: 'Finance', section: 'Billing & Payments' },
+  { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance', section: 'Billing & Payments' },
+  { href: '/cash-management', label: 'Cash Management', icon: 'ti-cash-register', group: 'Finance', section: 'Billing & Payments' },
+  { href: '/payments/reports', label: 'Payment Reports', icon: 'ti-report-money', group: 'Finance', section: 'Billing & Payments' },
+  { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', group: 'Finance', section: 'Patient Ledger' },
+  { href: '/payments/credit-note', label: 'Credit Note', icon: 'ti-file-minus', group: 'Finance', section: 'Patient Ledger' },
+  { href: '/payments/refund', label: 'Refund', icon: 'ti-rotate-clockwise', group: 'Finance', section: 'Patient Ledger' },
+
+  // ── OPERATIONS ──
+  { href: '/inventory', label: 'Inventory', icon: 'ti-boxes', group: 'Operations', section: 'Inventory' },
+
+  // ── ADMINISTRATION ──
+  { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', group: 'Administration', section: 'Master Data' },
+  { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', group: 'Administration', section: 'Master Data' },
+  { href: '/print-templates', label: 'Print Templates', icon: 'ti-file-invoice', group: 'Administration', section: 'System' },
+  { href: '/users', label: 'User Management', icon: 'ti-users-group', group: 'Administration', section: 'System', adminOnly: true },
+  { href: '/reports', label: 'Reports', icon: 'ti-chart-bar', group: 'Administration', section: 'System' },
 ];
 
 const PAGE_TITLES = [
@@ -158,7 +167,7 @@ export default function AppShell({ children }) {
   }
 
   const visibleNavItems = NAV_ITEMS.filter((i) => !i.adminOnly || profile?.designation === 'Administrator');
-  const sections = [...new Set(visibleNavItems.map((i) => i.section))];
+  const groups = [...new Set(visibleNavItems.map((i) => i.group))];
 
   // Pick the single longest matching href across all items, so nested
   // routes (e.g. /payments and /payments/advance both being valid nav
@@ -180,21 +189,30 @@ export default function AppShell({ children }) {
             <div className="sb-sub">Veda Eye Hospital</div>
           </div>
         </div>
-        {sections.map((section) => (
-          <div key={section}>
-            <div className="sb-sec">{section}</div>
-            {visibleNavItems.filter((i) => i.section === section).map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`sb-item ${item.href === activeHref ? 'active' : ''}`}
-              >
-                <span className="sb-icon-wrap"><i className={`ti ${item.icon}`}></i></span>
-                <span>{item.label}</span>
-              </Link>
-            ))}
-          </div>
-        ))}
+        {groups.map((group) => {
+          const groupItems = visibleNavItems.filter((i) => i.group === group);
+          const groupSections = [...new Set(groupItems.map((i) => i.section))];
+          return (
+            <div key={group} className="sb-group-block">
+              <div className="sb-group">{group}</div>
+              {groupSections.map((section) => (
+                <div key={section}>
+                  <div className="sb-sec">{section}</div>
+                  {groupItems.filter((i) => i.section === section).map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`sb-item ${item.href === activeHref ? 'active' : ''}`}
+                    >
+                      <span className="sb-icon-wrap"><i className={`ti ${item.icon}`}></i></span>
+                      <span>{item.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </div>
 
       <div className="main-area">
