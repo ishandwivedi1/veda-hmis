@@ -15,7 +15,7 @@ const ASSESSMENT_FIELDS = [
   'ref_pg_le_dist_va', 'ref_pg_le_dist_sph', 'ref_pg_le_dist_cyl', 'ref_pg_le_dist_axis',
   'ref_pg_le_near_va', 'ref_pg_le_near_sph', 'ref_pg_le_near_cyl', 'ref_pg_le_near_axis',
   'ref_pg_copy_re_to_le',
-  'ref_pd', 'ref_vd',
+  'ref_pd', 'ref_vd', 'glasses_type', 'glasses_remarks',
   'ref_obj_re_dist_va', 'ref_obj_re_dist_sph', 'ref_obj_re_dist_cyl', 'ref_obj_re_dist_axis',
   'ref_obj_re_near_va', 'ref_obj_re_near_sph', 'ref_obj_re_near_cyl', 'ref_obj_re_near_axis',
   'ref_obj_le_dist_va', 'ref_obj_le_dist_sph', 'ref_obj_le_dist_cyl', 'ref_obj_le_dist_axis',
@@ -33,8 +33,6 @@ const ASSESSMENT_FIELDS = [
   'ref_final_le_dist_va', 'ref_final_le_dist_sph', 'ref_final_le_dist_cyl', 'ref_final_le_dist_axis',
   'ref_final_le_near_va', 'ref_final_le_near_sph', 'ref_final_le_near_cyl', 'ref_final_le_near_axis',
   'ref_final_re_add', 'ref_final_le_add',
-  'ref_final_re_dist_prism', 'ref_final_le_dist_prism', 'ref_final_re_near_prism', 'ref_final_le_near_prism',
-  'glasses_type', 'glasses_remarks',
   'ref_final_copy_re_to_le',
   'iop_method', 'iop_time',
   'add_k1_re', 'add_k1_le', 'add_k2_re', 'add_k2_le', 'add_axial_length_re', 'add_axial_length_le',
@@ -117,13 +115,9 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
     await supabase.from('encounter_audit_log').insert({ encounter_id: encounter.id, message: 'Encounter started (from Optometry)', created_by: userData?.user?.id || null });
   }
 
-  const [{ data: iopReadings }, { data: auditLog }, { data: doctorOverrides }] = await Promise.all([
+  const [{ data: iopReadings }, { data: auditLog }] = await Promise.all([
     supabase.from('optometry_iop_readings').select('*').eq('assessment_id', assessment.id).order('recorded_at', { ascending: true }),
     supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).order('created_at', { ascending: false }),
-    // Visible to everyone (not just admins) -- narrow RLS policy only
-    // exposes rows whose message begins with 'Doctor override', so the
-    // optometrist can see what the doctor changed on their record.
-    supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).ilike('message', 'Doctor override%').order('created_at', { ascending: false }),
   ]);
 
   // Audit Log is Administrator-only (app-layer check here is a UX
@@ -153,7 +147,7 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
     locked = doctorEntry?.status === 'Done' || (!viewerIsDoctor && doctorEntry?.status === 'In Consultation');
   }
 
-  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: isAdmin ? (auditLog || []) : [], doctorOverrides: doctorOverrides || [], locked, isAdmin };
+  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: isAdmin ? (auditLog || []) : [], locked, isAdmin };
 }
 
 // "Save Draft" -- patient stays in the queue, nothing routed anywhere

@@ -74,8 +74,12 @@ export default function RegistrationForm() {
   }, [values.mobile]);
 
   function validate() {
-    if (!values.firstName || !values.lastName || !values.gender || !values.mobile) {
-      setError('First name, last name, gender, and mobile are required.');
+    if (!values.firstName || !values.gender || !values.mobile) {
+      setError('First name, gender, and mobile are required.');
+      return false;
+    }
+    if (!values.age) {
+      setError('Age is required.');
       return false;
     }
     if (values.mobile.length !== 10) {
@@ -145,7 +149,7 @@ export default function RegistrationForm() {
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', margin: '14px 0 8px' }}>Personal Information</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
           <div><label className="flbl">First name *</label><input className="fi" value={values.firstName} onChange={update('firstName')} onBlur={formatOnBlur('firstName')} /></div>
-          <div><label className="flbl">Last name *</label><input className="fi" value={values.lastName} onChange={update('lastName')} onBlur={formatOnBlur('lastName')} /></div>
+          <div><label className="flbl">Last name</label><input className="fi" value={values.lastName} onChange={update('lastName')} onBlur={formatOnBlur('lastName')} /></div>
           <div><label className="flbl">Gender *</label>
             <select className="fi" value={values.gender} onChange={update('gender')}>
               <option value="">-- Select --</option>
@@ -155,7 +159,7 @@ export default function RegistrationForm() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
           <div><label className="flbl">Date of birth</label><input type="date" className="fi" value={values.dateOfBirth} onChange={update('dateOfBirth')} /></div>
-          <div><label className="flbl">Age</label><input type="number" className="fi" value={values.age} onChange={update('age')} /></div>
+          <div><label className="flbl">Age *</label><input type="number" className="fi" value={values.age} onChange={update('age')} /></div>
           <div><label className="flbl">Blood group</label>
             <select className="fi" value={values.bloodGroup} onChange={update('bloodGroup')}>
               <option value="">-- Select --</option>

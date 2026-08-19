@@ -107,11 +107,6 @@ function emptyForm() {
       // Rx) -- Present Glasses power is a reading off existing glasses,
       // not a new prescription being built, so there's no ADD to record.
       if (type !== 'pg') f[addKey(type, eye)] = '';
-      // PRISM only applies to Final Rx -- it's a prescribed correction,
-      // not something read off an auto-refractor or trial lenses.
-      if (type === 'final') {
-        ['dist', 'near'].forEach((dn) => { f[refKey(type, eye, dn, 'prism')] = ''; });
-      }
     });
     f[`ref_${type}_copy_re_to_le`] = false;
   });
@@ -213,22 +208,14 @@ function AsmtSection({ id, num, color, title, badge, badgeCls, open, onToggle, c
 }
 
 
-export default function OptometryWorkspace({ queueEntryId, embedded = false, forceUnlocked = false }) {
+export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
   const [entry, setEntry] = useState(null);
   const [assessment, setAssessment] = useState(null);
   const [encounter, setEncounter] = useState(null);
   const [iopReadings, setIopReadings] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
-  const [doctorOverrides, setDoctorOverrides] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [dbLocked, setDbLocked] = useState(false);
-  // When embedded in the doctor's consultation page, "Unlock to Edit" on
-  // a completed encounter only toggled an outer <fieldset disabled> --
-  // it never reached this component's OWN server-fetched lock state,
-  // which every field's disabled= reads from directly. That left every
-  // field permanently disabled after unlocking. forceUnlocked (passed
-  // down from that page-level toggle) overrides it here instead.
-  const locked = dbLocked && !forceUnlocked;
+  const [locked, setLocked] = useState(false);
   const [loadError, setLoadError] = useState('');
 
   const [form, setForm] = useState(emptyForm());
@@ -261,9 +248,8 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
       setEncounter(result.encounter);
       setIopReadings(result.iopReadings);
       setAuditLog(result.auditLog);
-      setDoctorOverrides(result.doctorOverrides || []);
       setIsAdmin(!!result.isAdmin);
-      setDbLocked(result.locked);
+      setLocked(result.locked);
 
       const f = emptyForm();
       Object.keys(f).forEach((key) => {
@@ -572,25 +558,31 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
               {autosaveState === 'error' && <><i className="ti ti-alert-triangle"></i> Autosave failed -- use Save button</>}
             </div>
           )}
+          {!locked && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              {!isEdit && (
+                <>
+                  <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.1)', color: '#e2e8f0', borderColor: 'rgba(255,255,255,.2)' }} onClick={handleSaveDraft} disabled={saving}>
+                    <i className="ti ti-device-floppy"></i> Save Draft
+                  </button>
+                  <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleComplete} disabled={saving}>
+                    <i className="ti ti-circle-check"></i> Complete Assessment
+                  </button>
+                </>
+              )}
+              {isEdit && (
+                <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleUpdate} disabled={saving}>
+                  <i className="ti ti-device-floppy"></i> Save Changes
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {locked && (
         <div className="msg-err" style={{ marginBottom: 12 }}>
           <i className="ti ti-lock"></i> {embedded ? 'This visit is closed. Shown here for reference only -- no further edits.' : 'The doctor has already started this consultation. Shown here for reference only -- no further edits.'}
-        </div>
-      )}
-      {doctorOverrides.length > 0 && (
-        <div style={{ background: 'var(--amber-lt)', border: '1px solid var(--amber)', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>
-            <i className="ti ti-alert-triangle"></i> Doctor has modified {doctorOverrides.length > 1 ? 'these readings' : 'this reading'} on this record
-          </div>
-          {doctorOverrides.map((a) => (
-            <div key={a.id} style={{ fontSize: 11.5, color: 'var(--g700)', padding: '3px 0', display: 'flex', gap: 8 }}>
-              <span style={{ color: 'var(--g500)', flexShrink: 0 }}>{new Date(a.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-              <span>{a.message.replace(/^Doctor override -- /, '')}</span>
-            </div>
-          ))}
         </div>
       )}
       {error && <div className="msg-err">{error}</div>}
@@ -825,19 +817,19 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
               <thead>
                 <tr>
                   <th style={{ width: 60 }}></th>
-                  <th colSpan={refTab === 'final' ? 5 : 4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
+                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
                     OD (RE)
                   </th>
-                  <th colSpan={refTab === 'final' ? 5 : 4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
+                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
                     OS (LE)
                   </th>
                 </tr>
                 <tr>
                   <th></th>
-                  {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h) => (
+                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h) => (
                     <th key={`re-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
                   ))}
-                  {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h, i) => (
+                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h, i) => (
                     <th key={`le-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
                   ))}
                 </tr>
@@ -849,7 +841,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                   if (rowKind === 'add') {
                     return (
                       <tr key="add" style={{ borderTop: '1px solid var(--g100)', background: 'var(--amber-lt, #fffbeb)' }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--amber, #b45309)' }}>NEAR ADD</td>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--amber, #b45309)' }}>ADD</td>
                         {['re', 'le'].map((eye) => (
                           <Fragment key={eye}>
                             <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined, textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
@@ -857,12 +849,11 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                               <PickerField
                                 disabled={locked || (eye === 'le' && leCopying)}
                                 value={form[addKey(refTab, eye)]}
-                                onClick={() => setPicker({ kind: 'add', label: `NEAR ADD -- ${eye.toUpperCase()}`, fieldKey: addKey(refTab, eye) })}
+                                onClick={() => setPicker({ kind: 'add', label: `ADD (Near) -- ${eye.toUpperCase()}`, fieldKey: addKey(refTab, eye) })}
                               />
                             </td>
                             <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
                             <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
-                            {refTab === 'final' && <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>}
                           </Fragment>
                         ))}
                       </tr>
@@ -887,39 +878,32 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                             )}
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            <PickerField
-                              disabled={locked || (eye === 'le' && leCopying)}
-                              value={form[refKey(refTab, eye, distNear, 'sph')]}
-                              onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'sph') })}
-                            />
-                            {isNear && <div style={{ fontSize: 9, color: 'var(--g400)', marginTop: 2, textAlign: 'center' }}>Auto: Dist+ADD (tap to override)</div>}
+                            {isNear ? (
+                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'sph')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: Dist SPH + ADD">
+                                {form[refKey(refTab, eye, distNear, 'sph')] || '--'}
+                              </div>
+                            ) : (
+                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'sph')]} onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'sph') })} />
+                            )}
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            <PickerField
-                              disabled={locked || (eye === 'le' && leCopying)}
-                              value={form[refKey(refTab, eye, distNear, 'cyl')]}
-                              onClick={() => setPicker({ kind: 'sphcyl', label: `CYL -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'cyl') })}
-                            />
+                            {isNear ? (
+                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'cyl')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: same as Dist CYL">
+                                {form[refKey(refTab, eye, distNear, 'cyl')] || '--'}
+                              </div>
+                            ) : (
+                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'cyl')]} onClick={() => setPicker({ kind: 'sphcyl', label: `CYL -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'cyl') })} />
+                            )}
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            <PickerField
-                              disabled={locked || (eye === 'le' && leCopying)}
-                              value={form[refKey(refTab, eye, distNear, 'axis')]}
-                              onClick={() => setPicker({ kind: 'axis', label: `AXIS -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'axis') })}
-                            />
+                            {isNear ? (
+                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'axis')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: same as Dist AXIS">
+                                {form[refKey(refTab, eye, distNear, 'axis')] || '--'}
+                              </div>
+                            ) : (
+                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'axis')]} onClick={() => setPicker({ kind: 'axis', label: `AXIS -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'axis') })} />
+                            )}
                           </td>
-                          {refTab === 'final' && (
-                            <td style={{ padding: '6px 6px' }}>
-                              <input
-                                className="fi fi-sm"
-                                style={{ textAlign: 'center' }}
-                                disabled={locked || (eye === 'le' && leCopying)}
-                                value={form[refKey(refTab, eye, distNear, 'prism')]}
-                                onChange={(e) => setRef(refTab, eye, distNear, 'prism', e.target.value)}
-                                placeholder="e.g. 2^BI"
-                              />
-                            </td>
-                          )}
                         </Fragment>
                       ))}
                     </tr>
@@ -935,7 +919,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                       <i className="ti ti-info-circle"></i> Instructions
                     </button>
                   </td>
-                  <td colSpan={(refTab === 'final' ? 10 : 8) - 5} style={{ padding: '6px 6px' }}>
+                  <td colSpan={3} style={{ padding: '6px 6px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--g700)', cursor: locked ? 'default' : 'pointer' }}>
                       <input type="checkbox" disabled={locked} checked={!!form[`ref_${refTab}_copy_re_to_le`]} onChange={(e) => toggleCopyToLE(refTab, e.target.checked)} />
                       Copy RE Value to LE
@@ -946,34 +930,37 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
             </table>
           </div>
 
-          {refTab === 'final' && (
-            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
-              <div>
-                <label className="flbl">Type of Glass</label>
-                <select className="fi fi-sm" disabled={locked} value={form.glasses_type} onChange={(e) => setField('glasses_type', e.target.value)}>
-                  <option value="">--</option>
-                  <option value="Distance">Distance</option>
-                  <option value="Near">Near</option>
-                  <option value="Bifocal">Bifocal</option>
-                  <option value="Progressive">Progressive</option>
-                  <option value="Photochromatic">Photochromatic</option>
-                  <option value="Contact Lens">Contact Lens</option>
-                </select>
-              </div>
-              <div>
-                <label className="flbl">Remarks</label>
-                <input className="fi fi-sm" disabled={locked} value={form.glasses_remarks} onChange={(e) => setField('glasses_remarks', e.target.value)} placeholder="e.g. Glass prescribed, review after 6 months" />
-              </div>
-            </div>
-          )}
-
           <div style={{ marginTop: 12 }}>
             <label className="flbl">Vertex Distance (optional)</label>
             <input className="fi fi-sm" style={{ maxWidth: 200 }} disabled={locked} value={form.ref_vd} onChange={(e) => setField('ref_vd', e.target.value)} placeholder="e.g. 12mm" />
           </div>
 
+          <div style={{ marginTop: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 220px' }}>
+              <label className="flbl">Type of Glass</label>
+              <input
+                className="fi fi-sm" list="glasses-type-options" disabled={locked}
+                value={form.glasses_type} onChange={(e) => setField('glasses_type', e.target.value)}
+                placeholder="e.g. Single Vision, Bifocal, Progressive"
+              />
+              <datalist id="glasses-type-options">
+                <option value="Single Vision Distance" /><option value="Single Vision Near" />
+                <option value="Bifocal" /><option value="Progressive" /><option value="Photochromatic" />
+                <option value="Anti-Reflective Coated" /><option value="Blue Cut" />
+              </datalist>
+            </div>
+            <div style={{ flex: '2 1 280px' }}>
+              <label className="flbl">Remarks (if any)</label>
+              <input
+                className="fi fi-sm" disabled={locked}
+                value={form.glasses_remarks} onChange={(e) => setField('glasses_remarks', e.target.value)}
+                placeholder="Any additional notes about the glasses/lenses prescribed"
+              />
+            </div>
+          </div>
+
           <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginTop: 12 }}>
-            <i className="ti ti-info-circle"></i> Device-imported values should be reviewed before finalizing. All 3 refraction types are recorded independently.
+            <i className="ti ti-info-circle"></i> Device-imported values should be reviewed before finalizing. All 3 refraction types are recorded independently. Type of Glass and Remarks print on the OPD Case Sheet under Refraction.
           </div>
         </AsmtSection>
       </div>
@@ -1006,7 +993,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
             <ul style={{ fontSize: 12, color: 'var(--g600)', paddingLeft: 18, lineHeight: 1.7 }}>
               <li>Record Distance for each eye -- tap a field to open the value picker.</li>
               <li>Tap SPH / CYL and choose +ve or -ve before selecting the magnitude.</li>
-              <li><strong>NEAR ADD</strong> is the near addition power (always positive) -- setting it auto-fills <strong>Near SPH/CYL/AXIS</strong> from Dist + NEAR ADD as a starting point, but you can always tap a Near field afterward to override it manually (needed e.g. when only Near vision was assessed and there's no Distance value to compute from).</li>
+              <li><strong>ADD</strong> is the near addition power (always positive) -- once set, <strong>Near SPH/CYL/AXIS auto-fill</strong> from Dist + ADD and can't be edited directly. Only Near VA stays independently entered, since near visual acuity genuinely differs from distance.</li>
               <li>Enable &quot;Copy RE Value to LE&quot; only when both eyes genuinely match -- it overwrites LE with RE and keeps them locked together until unchecked.</li>
               <li>IPD (Interpupillary Distance) is recorded once per assessment, not per refraction type.</li>
             </ul>
@@ -1127,37 +1114,6 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
               <span>{a.message}</span>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* FOOTER ACTION PANEL -- same style as the header workflow panel;
-          Save Draft / Complete Assessment / Save Changes live here at
-          the bottom of the page instead of up top. */}
-      {!locked && (
-        <div style={{ background: '#0f172a', borderRadius: 12, padding: '12px 14px', marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 10.5, color: autosaveState === 'error' ? '#fca5a5' : '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
-            {autosaveState === 'pending' && <>Unsaved changes...</>}
-            {autosaveState === 'saving' && <><i className="ti ti-loader-2"></i> Saving...</>}
-            {autosaveState === 'saved' && <><i className="ti ti-cloud-check"></i> All changes saved</>}
-            {autosaveState === 'error' && <><i className="ti ti-alert-triangle"></i> Autosave failed -- use Save button</>}
-          </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            {!isEdit && (
-              <>
-                <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.1)', color: '#e2e8f0', borderColor: 'rgba(255,255,255,.2)' }} onClick={handleSaveDraft} disabled={saving}>
-                  <i className="ti ti-device-floppy"></i> Save Draft
-                </button>
-                <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleComplete} disabled={saving}>
-                  <i className="ti ti-circle-check"></i> Complete Assessment
-                </button>
-              </>
-            )}
-            {isEdit && (
-              <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleUpdate} disabled={saving}>
-                <i className="ti ti-device-floppy"></i> Save Changes
-              </button>
-            )}
-          </div>
         </div>
       )}
 
