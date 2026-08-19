@@ -193,6 +193,30 @@ function ValuePickerModal({ picker, currentValue, onSelect, onClose }) {
   );
 }
 
+function ConfirmCompleteModal({ onCancel, onConfirm, saving }) {
+  return (
+    <div onClick={saving ? undefined : onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 400, width: '100%', boxShadow: '0 12px 40px rgba(0,0,0,.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--teal-lt, #ccfbf1)', color: 'var(--teal, #0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <i className="ti ti-circle-check" style={{ fontSize: 18 }}></i>
+          </span>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--g800)' }}>Complete Assessment?</div>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--g600)', marginBottom: 18, lineHeight: 1.5 }}>
+          This finalizes the assessment and routes the patient to the Doctor Queue. Once completed, it can only be edited before the doctor opens it.
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-sm" onClick={onCancel} disabled={saving}>Cancel</button>
+          <button type="button" className="btn btn-sm btn-primary" onClick={onConfirm} disabled={saving}>
+            {saving ? 'Completing...' : 'Yes, Complete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AsmtSection({ id, num, color, title, badge, badgeCls, open, onToggle, children }) {
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -243,6 +267,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
   const [okMsg, setOkMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const [showForceClose, setShowForceClose] = useState(false);
+  const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [forceCloseReason, setForceCloseReason] = useState('');
   const [forceClosing, setForceClosing] = useState(false);
   const [iopMethods, setIopMethods] = useState([]);
@@ -462,13 +487,18 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     load();
   }
 
-  async function handleComplete() {
+  function handleComplete() {
+    setShowCompleteConfirm(true);
+  }
+
+  async function runComplete() {
     setSaving(true);
     setError('');
     setOkMsg('');
     const result = await completeAssessment(assessment.id, queueEntryId, form);
     if (result.error) {
       setSaving(false);
+      setShowCompleteConfirm(false);
       setError(result.error);
       if (!openSections.va) toggleSection('va');
       return;
@@ -477,6 +507,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     // through the navigation delay below, so a second click in that
     // window can't re-run completion (this is exactly how a duplicate
     // Doctor queue token got created previously).
+    setShowCompleteConfirm(false);
     setOkMsg('Assessment completed -- routed to Doctor Queue.');
     setTimeout(() => router.push('/optometry-dashboard'), 1200);
   }
@@ -1004,6 +1035,14 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
             else setRef(type, eye, distNear, metric, v);
           }}
           onClose={() => setPicker(null)}
+        />
+      )}
+
+      {showCompleteConfirm && (
+        <ConfirmCompleteModal
+          saving={saving}
+          onCancel={() => setShowCompleteConfirm(false)}
+          onConfirm={runComplete}
         />
       )}
 
