@@ -237,7 +237,7 @@ function AsmtSection({ id, num, color, title, badge, badgeCls, open, onToggle, c
 }
 
 
-export default function OptometryWorkspace({ queueEntryId, embedded = false, forceUnlocked = false }) {
+export default function OptometryWorkspace({ queueEntryId, embedded = false, forceUnlocked = false, onDone }) {
   const [entry, setEntry] = useState(null);
   const [assessment, setAssessment] = useState(null);
   const [encounter, setEncounter] = useState(null);
@@ -272,6 +272,18 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
   const [forceClosing, setForceClosing] = useState(false);
   const [iopMethods, setIopMethods] = useState([]);
   const router = useRouter();
+
+  // Prefer the onDone callback (the hub resets its own tab state and
+  // re-fetches the queue directly) over a route push. A push to
+  // '/optometry-dashboard' while already sitting on that exact route
+  // -- just with a ?queueEntryId= query string -- gets swallowed by
+  // Next.js reusing the same page instance instead of remounting it,
+  // so the tab never actually switched back to Dashboard even though
+  // the URL changed. onDone sidesteps that entirely.
+  function goToDashboard() {
+    if (onDone) onDone();
+    else router.push('/optometry-dashboard');
+  }
 
   // 'idle' | 'pending' | 'saving' | 'saved' | 'error'
   const [autosaveState, setAutosaveState] = useState('idle');
@@ -509,7 +521,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     // Doctor queue token got created previously).
     setShowCompleteConfirm(false);
     setOkMsg('Assessment completed -- routed to Doctor Queue.');
-    setTimeout(() => router.push('/optometry-dashboard'), 1200);
+    setTimeout(() => goToDashboard(), 1200);
   }
 
   // Escape hatch for a visit that can't reach the Visual Acuity
@@ -524,7 +536,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     setForceClosing(false);
     if (result.error) { setError(result.error); return; }
     setOkMsg('Visit closed.');
-    setTimeout(() => router.push('/optometry-dashboard'), 1000);
+    setTimeout(() => goToDashboard(), 1000);
   }
 
   async function handleUpdate() {
@@ -1213,7 +1225,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
 
       {!embedded && (
         <div style={{ marginTop: 16 }}>
-          <button type="button" className="btn" onClick={() => router.push('/optometry-dashboard')}>
+          <button type="button" className="btn" onClick={goToDashboard}>
             <i className="ti ti-arrow-left"></i> Back to Queue
           </button>
         </div>

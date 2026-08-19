@@ -61,13 +61,14 @@ function TokenBadge({ token }) {
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────
-function DashboardTab({ active, completed, onOpen }) {
+function DashboardTab({ active, completed, onOpen, refresh }) {
   const [error, setError] = useState('');
 
   async function runAction(fn, ...args) {
     setError('');
     const result = await fn(...args);
     if (result?.error) setError(result.error);
+    refresh();
   }
 
   const waitingCount = active.filter((e) => e.status === 'Waiting').length;
@@ -291,6 +292,17 @@ function OptometryHubInner() {
     setActiveTab('workspace');
   }
 
+  // Called by the Workspace itself after Complete Assessment / Force
+  // Close / Back to Queue -- resets the hub's own tab state directly
+  // instead of relying on a route push landing on an already-mounted
+  // instance of this same page (see goToDashboard's comment in
+  // optometry-workspace.js for why that silently did nothing).
+  function handleWorkspaceDone() {
+    setSelectedQueueEntryId(null);
+    setActiveTab('dashboard');
+    refresh();
+  }
+
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
@@ -304,8 +316,8 @@ function OptometryHubInner() {
         <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
       </div>
 
-      {activeTab === 'dashboard' && <DashboardTab active={active} completed={completed} onOpen={openWorkspace} />}
-      {activeTab === 'workspace' && selectedQueueEntryId && <OptometryWorkspace queueEntryId={selectedQueueEntryId} />}
+      {activeTab === 'dashboard' && <DashboardTab active={active} completed={completed} onOpen={openWorkspace} refresh={refresh} />}
+      {activeTab === 'workspace' && selectedQueueEntryId && <OptometryWorkspace queueEntryId={selectedQueueEntryId} onDone={handleWorkspaceDone} />}
       {activeTab === 'workspace' && !selectedQueueEntryId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select an entry from the Dashboard.</div>
       )}
