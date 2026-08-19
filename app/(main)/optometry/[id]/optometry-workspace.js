@@ -85,7 +85,7 @@ function vaValuesForScale(scale) {
 function emptyForm() {
   const f = {
     va_scale: 'Snellen', va_not_assessed: false,
-    ref_pd: '', ref_vd: '', glasses_type: '', glasses_remarks: '',
+    ref_pd: '', ref_vd: '', glasses_prescribed: false, glasses_type: '', glasses_remarks: '',
     iop_method: 'Non-Contact Tonometer (NCT)', iop_time: '',
     add_k1_re: '', add_k1_le: '', add_k2_re: '', add_k2_le: '', add_axial_length_re: '', add_axial_length_le: '',
     add_pachymetry_re: '', add_pachymetry_le: '', add_schirmer_re: '', add_schirmer_le: '',
@@ -947,22 +947,33 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
           </div>
 
           {refTab === 'final' && (
-            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
-              <div>
-                <label className="flbl">Type of Glass</label>
-                <select className="fi fi-sm" disabled={locked} value={form.glasses_type} onChange={(e) => setField('glasses_type', e.target.value)}>
-                  <option value="">--</option>
-                  <option value="Distance">Distance</option>
-                  <option value="Near">Near</option>
-                  <option value="Bifocal">Bifocal</option>
-                  <option value="Progressive">Progressive</option>
-                  <option value="Photochromatic">Photochromatic</option>
-                  <option value="Contact Lens">Contact Lens</option>
-                </select>
-              </div>
-              <div>
-                <label className="flbl">Remarks</label>
-                <input className="fi fi-sm" disabled={locked} value={form.glasses_remarks} onChange={(e) => setField('glasses_remarks', e.target.value)} placeholder="e.g. Glass prescribed, review after 6 months" />
+            <div style={{ marginTop: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--g700)', cursor: locked ? 'default' : 'pointer', marginBottom: 10 }}>
+                <input
+                  type="checkbox"
+                  disabled={locked}
+                  checked={!!form.glasses_prescribed}
+                  onChange={(e) => setField('glasses_prescribed', e.target.checked)}
+                />
+                Glasses Prescribed
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
+                <div>
+                  <label className="flbl">Type of Glass</label>
+                  <select className="fi fi-sm" disabled={locked} value={form.glasses_type} onChange={(e) => setField('glasses_type', e.target.value)}>
+                    <option value="">--</option>
+                    <option value="Distance">Distance</option>
+                    <option value="Near">Near</option>
+                    <option value="Bifocal">Bifocal</option>
+                    <option value="Progressive">Progressive</option>
+                    <option value="Photochromatic">Photochromatic</option>
+                    <option value="Contact Lens">Contact Lens</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="flbl">Remarks</label>
+                  <input className="fi fi-sm" disabled={locked} value={form.glasses_remarks} onChange={(e) => setField('glasses_remarks', e.target.value)} placeholder="e.g. Glass prescribed, review after 6 months" />
+                </div>
               </div>
             </div>
           )}
