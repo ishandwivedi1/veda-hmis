@@ -874,31 +874,26 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
                             )}
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            {isNear ? (
-                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'sph')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: Dist SPH + ADD">
-                                {form[refKey(refTab, eye, distNear, 'sph')] || '--'}
-                              </div>
-                            ) : (
-                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'sph')]} onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'sph') })} />
-                            )}
+                            <PickerField
+                              disabled={locked || (eye === 'le' && leCopying)}
+                              value={form[refKey(refTab, eye, distNear, 'sph')]}
+                              onClick={() => setPicker({ kind: 'sphcyl', label: `SPH -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'sph') })}
+                            />
+                            {isNear && <div style={{ fontSize: 9, color: 'var(--g400)', marginTop: 2, textAlign: 'center' }}>Auto: Dist+ADD (tap to override)</div>}
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            {isNear ? (
-                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'cyl')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: same as Dist CYL">
-                                {form[refKey(refTab, eye, distNear, 'cyl')] || '--'}
-                              </div>
-                            ) : (
-                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'cyl')]} onClick={() => setPicker({ kind: 'sphcyl', label: `CYL -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'cyl') })} />
-                            )}
+                            <PickerField
+                              disabled={locked || (eye === 'le' && leCopying)}
+                              value={form[refKey(refTab, eye, distNear, 'cyl')]}
+                              onClick={() => setPicker({ kind: 'sphcyl', label: `CYL -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'cyl') })}
+                            />
                           </td>
                           <td style={{ padding: '6px 6px' }}>
-                            {isNear ? (
-                              <div className="fi fi-sm" style={{ textAlign: 'center', background: 'var(--g50)', color: form[refKey(refTab, eye, distNear, 'axis')] ? 'var(--g700)' : 'var(--g400)', fontWeight: 600 }} title="Auto-computed: same as Dist AXIS">
-                                {form[refKey(refTab, eye, distNear, 'axis')] || '--'}
-                              </div>
-                            ) : (
-                              <PickerField disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'axis')]} onClick={() => setPicker({ kind: 'axis', label: `AXIS -- Distance -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'axis') })} />
-                            )}
+                            <PickerField
+                              disabled={locked || (eye === 'le' && leCopying)}
+                              value={form[refKey(refTab, eye, distNear, 'axis')]}
+                              onClick={() => setPicker({ kind: 'axis', label: `AXIS -- ${distNear === 'dist' ? 'Distance' : 'Near'} -- ${eye.toUpperCase()}`, fieldKey: refKey(refTab, eye, distNear, 'axis') })}
+                            />
                           </td>
                         </Fragment>
                       ))}
@@ -965,7 +960,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
             <ul style={{ fontSize: 12, color: 'var(--g600)', paddingLeft: 18, lineHeight: 1.7 }}>
               <li>Record Distance for each eye -- tap a field to open the value picker.</li>
               <li>Tap SPH / CYL and choose +ve or -ve before selecting the magnitude.</li>
-              <li><strong>ADD</strong> is the near addition power (always positive) -- once set, <strong>Near SPH/CYL/AXIS auto-fill</strong> from Dist + ADD and can't be edited directly. Only Near VA stays independently entered, since near visual acuity genuinely differs from distance.</li>
+              <li><strong>ADD</strong> is the near addition power (always positive) -- setting it auto-fills <strong>Near SPH/CYL/AXIS</strong> from Dist + ADD as a starting point, but you can always tap a Near field afterward to override it manually (needed e.g. when only Near vision was assessed and there's no Distance value to compute from).</li>
               <li>Enable &quot;Copy RE Value to LE&quot; only when both eyes genuinely match -- it overwrites LE with RE and keeps them locked together until unchecked.</li>
               <li>IPD (Interpupillary Distance) is recorded once per assessment, not per refraction type.</li>
             </ul>
