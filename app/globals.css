@@ -101,12 +101,31 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .sb-group-block { border-top: 1px solid rgba(255, 255, 255, .07); padding-top: 4px; margin-top: 4px; }
 .sb-group-block:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
 .sb-group {
+  width: 100%;
   padding: 16px 18px 6px;
   font-size: 12px;
   font-weight: 800;
   color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 1.4px;
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-family: inherit;
+}
+.sb-group:hover { color: #fff; }
+.sb-group-chevron { font-size: 12px; opacity: .75; flex-shrink: 0; }
+/* Collapsing only hides items at full sidebar width -- the icon-rail
+   (tablet) and slide-out drawer (phone) breakpoints below already
+   strip away all text labels of their own, so respecting a collapsed
+   group there too would silently remove icon shortcuts with no
+   visible way to bring them back (the group heading text/chevron that
+   toggles it is hidden at those widths as well). */
+@media (min-width: 861px) {
+  .sb-group-block.collapsed .sb-item { display: none; }
 }
 .sb-item {
   display: flex;

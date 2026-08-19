@@ -23,7 +23,6 @@ const NAV_ITEMS = [
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', group: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
   { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
-  { href: '/payments/reports', label: 'Payment Reports', icon: 'ti-report-money', group: 'Finance' },
   { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', group: 'Finance' },
   { href: '/payments/credit-note', label: 'Credit Note', icon: 'ti-file-minus', group: 'Finance' },
   { href: '/payments/refund', label: 'Refund', icon: 'ti-rotate-clockwise', group: 'Finance' },
@@ -48,10 +47,8 @@ const NAV_ITEMS = [
   { href: '/ot-recovery', label: 'Recovery & Discharge', icon: 'ti-bed', group: 'IPD' },
   { href: '/ot-postop', label: 'Post Op', icon: 'ti-calendar-plus', group: 'IPD' },
 
-  // ── OPERATIONS ──
-  { href: '/inventory', label: 'Inventory', icon: 'ti-boxes', group: 'Operations' },
-
   // ── ADMINISTRATION ──
+  { href: '/inventory', label: 'Inventory', icon: 'ti-boxes', group: 'Administration' },
   { href: '/master-data/clinical', label: 'Clinical Masters', icon: 'ti-stethoscope', group: 'Administration' },
   { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', group: 'Administration' },
   { href: '/print-templates', label: 'Print Templates', icon: 'ti-file-invoice', group: 'Administration' },
@@ -105,6 +102,25 @@ export default function AppShell({ children }) {
   const [profile, setProfile] = useState(null);
   const [today, setToday] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState({});
+
+  // Each person's expand/collapse choice is their own -- stored per
+  // browser so it's remembered across visits without needing a DB
+  // column or touching any other user's view.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('veda-hmis-sidebar-collapsed');
+      if (saved) setCollapsedGroups(JSON.parse(saved));
+    } catch { /* ignore malformed/blocked storage -- default to all expanded */ }
+  }, []);
+
+  function toggleGroup(group) {
+    setCollapsedGroups((prev) => {
+      const next = { ...prev, [group]: !prev[group] };
+      try { localStorage.setItem('veda-hmis-sidebar-collapsed', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   const pageTitle = PAGE_TITLES.find((t) => t.match.test(pathname))?.title || 'VEDA HMIS';
 
@@ -191,21 +207,33 @@ export default function AppShell({ children }) {
             <div className="sb-sub">Veda Eye Hospital</div>
           </div>
         </div>
-        {groups.map((group) => (
-          <div key={group} className="sb-group-block">
-            <div className="sb-group">{group}</div>
-            {visibleNavItems.filter((i) => i.group === group).map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`sb-item ${item.href === activeHref ? 'active' : ''}`}
-              >
-                <span className="sb-icon-wrap"><i className={`ti ${item.icon}`}></i></span>
-                <span>{item.label}</span>
-              </Link>
-            ))}
-          </div>
-        ))}
+        {groups.map((group) => {
+          const groupItems = visibleNavItems.filter((i) => i.group === group);
+          // A group the person collapsed still opens itself back up
+          // when they're actually on a page inside it -- e.g. following
+          // a deep link -- so they're never staring at a highlighted
+          // active page with no visible way to see which item it is.
+          const groupHasActive = groupItems.some((i) => i.href === activeHref);
+          const isCollapsed = !!collapsedGroups[group] && !groupHasActive;
+          return (
+            <div key={group} className={`sb-group-block ${isCollapsed ? 'collapsed' : ''}`}>
+              <button type="button" className="sb-group" onClick={() => toggleGroup(group)}>
+                <span>{group}</span>
+                <i className={`ti ti-chevron-${isCollapsed ? 'right' : 'down'} sb-group-chevron`}></i>
+              </button>
+              {groupItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`sb-item ${item.href === activeHref ? 'active' : ''}`}
+                >
+                  <span className="sb-icon-wrap"><i className={`ti ${item.icon}`}></i></span>
+                  <span>{item.label}</span>
+                </Link>
+              ))}
+            </div>
+          );
+        })}
       </div>
 
       <div className="main-area">
