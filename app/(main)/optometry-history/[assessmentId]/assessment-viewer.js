@@ -1,21 +1,36 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { getAssessmentDetail } from '@/app/(main)/optometry-history/actions';
 
-// Same VA field layout as the live entry workspace (app/(main)/optometry/[id]/optometry-workspace.js)
-// -- kept in sync deliberately so a completed sheet renders identically here, just non-editable.
-const VA_FIELDS = [
-  { key: 're_dist_unaided', label: 'Distance -- Unaided', eye: 'RE' },
-  { key: 're_dist_glasses', label: 'Distance -- With glasses', eye: 'RE' },
-  { key: 're_dist_ph', label: 'Distance -- Pinhole', eye: 'RE' },
-  { key: 're_near_unaided', label: 'Near -- Unaided', eye: 'RE' },
-  { key: 'le_dist_unaided', label: 'Distance -- Unaided', eye: 'LE' },
-  { key: 'le_dist_glasses', label: 'Distance -- With glasses', eye: 'LE' },
-  { key: 'le_dist_ph', label: 'Distance -- Pinhole', eye: 'LE' },
-  { key: 'le_near_unaided', label: 'Near -- Unaided', eye: 'LE' },
+// Same field-key helpers and row/type layout as the live entry workspace
+// (app/(main)/optometry/[id]/optometry-workspace.js) -- kept identical
+// on purpose so a completed sheet renders here exactly as the
+// optometrist entered it, not as some older/different field layout.
+// This viewer was left behind when the workspace's refraction/VA/
+// additional-measurements fields were redesigned (dist/near split, ADD,
+// Present Glasses section, per-eye Additional Measurements), so it was
+// silently showing blank/"--" for data that was actually saved under
+// the new field names. Fixed by mirroring the same key scheme here.
+function vaKey(eye, distNear, row) {
+  return `${eye}_${distNear}_${row}`;
+}
+function refKey(type, eye, distNear, metric) {
+  return `ref_${type}_${eye}_${distNear}_${metric}`;
+}
+function addKey(type, eye) {
+  return `ref_${type}_${eye}_add`;
+}
+
+// "With PH" (pinhole) is Distance-only, per standard clinical practice.
+const VA_ROWS = [
+  { row: 'unaided', label: 'Unaided', dist: true, near: true },
+  { row: 'glasses', label: 'With Existing Glass', dist: true, near: true },
+  { row: 'ph', label: 'With PH', dist: true, near: false },
 ];
+
+const REF_TYPES = { pg: 'Present Glasses (PG) Power', obj: 'Objective (Auto-Rx)', subj: 'Subjective', final: 'Final Rx' };
 
 function AsmtSection({ num, color, title, open, onToggle, children }) {
   return (
@@ -38,10 +53,20 @@ function AsmtSection({ num, color, title, open, onToggle, children }) {
 // Read-only VA pill -- same visual language as the entry form's
 // selectable pills, minus the click handler.
 function VaPill({ value }) {
-  if (!value) return <span style={{ fontSize: 12, color: 'var(--g400)' }}>Not recorded</span>;
+  if (!value) return <span style={{ fontSize: 12, color: 'var(--g400)' }}>--</span>;
   return (
     <div style={{ display: 'inline-block', padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, border: '1.5px solid var(--teal)', background: 'var(--teal)', color: '#fff' }}>
       {value}
+    </div>
+  );
+}
+
+// Read-only SPH/CYL/AXIS/VA value box -- same visual language as the
+// entry form's PickerField, minus the click handler.
+function ValueBox({ value, muted }) {
+  return (
+    <div className="fi fi-sm" style={{ textAlign: 'center', background: muted ? 'var(--g50)' : '#fff', color: value ? 'var(--g800)' : 'var(--g400)', fontWeight: value ? 600 : 400 }}>
+      {value || '--'}
     </div>
   );
 }
@@ -53,7 +78,8 @@ export default function AssessmentViewer({ assessmentId }) {
   const [overrideCount, setOverrideCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [openSections, setOpenSections] = useState({ va: true, refraction: true, iop: true, additional: true, obs: true });
+  const [openSections, setOpenSections] = useState({ va: true, pg: true, refraction: true, iop: true, additional: true, obs: true });
+  const [refTab, setRefTab] = useState('final');
   const router = useRouter();
 
   useEffect(() => {
@@ -126,62 +152,157 @@ export default function AssessmentViewer({ assessmentId }) {
       {/* SECTION 1: VISUAL ACUITY */}
       <div style={{ marginBottom: 12 }}>
         <AsmtSection num={1} color="var(--teal)" title={`Visual Acuity (${assessment.va_scale || 'Snellen'})`} open={openSections.va} onToggle={() => toggleSection('va')}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {['RE', 'LE'].map((eye) => (
-              <div key={eye}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: eye === 'RE' ? 'var(--blue)' : 'var(--teal)', marginBottom: 8, padding: '6px 10px', background: eye === 'RE' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 8 }}>
-                  <i className="ti ti-eye"></i> {eye === 'RE' ? 'Right Eye (OD)' : 'Left Eye (OS)'}
-                </div>
-                {VA_FIELDS.filter((f) => f.eye === eye).map((f) => (
-                  <div key={f.key} style={{ marginBottom: 12 }}>
-                    <label className="flbl">{f.label}</label>
-                    <VaPill value={assessment[f.key]} />
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </AsmtSection>
-      </div>
-
-      {/* SECTION 2: REFRACTION */}
-      <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={2} color="var(--blue)" title="Refraction" open={openSections.refraction} onToggle={() => toggleSection('refraction')}>
-          {['obj', 'subj', 'final'].map((type) => (
-            <div key={type} style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', marginBottom: 6 }}>
-                {type === 'obj' ? 'Objective (Auto-Rx)' : type === 'subj' ? 'Subjective' : 'Final Rx'}
-              </div>
-              <table className="tbl">
+          {assessment.va_not_assessed ? (
+            <div style={{ fontSize: 12, color: 'var(--g500)' }}>Not assessed for this visit.</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr>
-                    <th></th><th>SPH</th><th>CYL</th><th>AXIS</th>{type === 'final' && <th>ADD (near)</th>}
+                    <th style={{ width: 150 }}></th>
+                    <th colSpan={2} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>OD (RE)</th>
+                    <th colSpan={2} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>OS (LE)</th>
+                  </tr>
+                  <tr>
+                    <th></th>
+                    <th style={{ width: '21%', padding: '6px 10px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>Dist</th>
+                    <th style={{ width: '21%', padding: '6px 10px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>Near</th>
+                    <th style={{ width: '21%', padding: '6px 10px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: '4px solid #fff' }}>Dist</th>
+                    <th style={{ width: '21%', padding: '6px 10px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700 }}>Near</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {['re', 'le'].map((eye) => (
-                    <tr key={eye}>
-                      <td style={{ fontWeight: 700, fontSize: 12 }}>{eye.toUpperCase()}</td>
-                      <td style={{ textAlign: 'center' }}>{assessment[`ref_${type}_${eye}_sph`] || '--'}</td>
-                      <td style={{ textAlign: 'center' }}>{assessment[`ref_${type}_${eye}_cyl`] || '--'}</td>
-                      <td style={{ textAlign: 'center' }}>{assessment[`ref_${type}_${eye}_axis`] || '--'}</td>
-                      {type === 'final' && <td style={{ textAlign: 'center' }}>{assessment[`ref_${type}_${eye}_add`] || '--'}</td>}
+                  {VA_ROWS.map(({ row, label, dist, near }) => (
+                    <tr key={row} style={{ borderTop: '1px solid var(--g100)' }}>
+                      <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>{label}</td>
+                      {['re', 'le'].map((eye) => (
+                        <Fragment key={eye}>
+                          <td style={{ padding: '6px 8px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                            {dist ? <VaPill value={assessment[vaKey(eye, 'dist', row)]} /> : null}
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            {near ? <VaPill value={assessment[vaKey(eye, 'near', row)]} /> : null}
+                          </td>
+                        </Fragment>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ))}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div><label className="flbl">Pupillary Distance (PD)</label><div style={{ fontSize: 13 }}>{assessment.ref_pd || '--'}</div></div>
+          )}
+        </AsmtSection>
+      </div>
+
+      {/* SECTION 2: PRESENT GLASSES (PG) POWER */}
+      <div style={{ marginBottom: 12 }}>
+        <AsmtSection num={2} color="var(--indigo, #4338ca)" title="Present Glasses (PG) Power" open={openSections.pg} onToggle={() => toggleSection('pg')}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 60 }}></th>
+                  <th colSpan={3} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>OD (RE)</th>
+                  <th colSpan={3} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>OS (LE)</th>
+                </tr>
+                <tr>
+                  <th></th>
+                  {['SPH', 'CYL', 'AXIS'].map((h) => <th key={`pg-re-${h}`} style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>)}
+                  {['SPH', 'CYL', 'AXIS'].map((h, i) => <th key={`pg-le-${h}`} style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {['dist', 'near'].map((distNear) => (
+                  <tr key={distNear} style={{ borderTop: '1px solid var(--g100)' }}>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)', textTransform: 'capitalize' }}>{distNear === 'dist' ? 'Dist' : 'Near'}</td>
+                    {['re', 'le'].map((eye) => (
+                      <Fragment key={eye}>
+                        <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}><ValueBox value={assessment[refKey('pg', eye, distNear, 'sph')]} /></td>
+                        <td style={{ padding: '6px 6px' }}><ValueBox value={assessment[refKey('pg', eye, distNear, 'cyl')]} /></td>
+                        <td style={{ padding: '6px 6px' }}><ValueBox value={assessment[refKey('pg', eye, distNear, 'axis')]} /></td>
+                      </Fragment>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </AsmtSection>
+      </div>
+
+      {/* SECTION 3: REFRACTION -- Objective / Subjective / Final Rx, each
+          with Dist / ADD / Near rows, same layout as the live entry form. */}
+      <div style={{ marginBottom: 12 }}>
+        <AsmtSection num={3} color="var(--blue)" title="Refraction" open={openSections.refraction} onToggle={() => toggleSection('refraction')}>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 14, background: 'var(--g100)', borderRadius: 8, padding: 4 }}>
+            {['obj', 'subj', 'final'].map((key) => (
+              <button key={key} type="button" className={`snbtn ${refTab === key ? 'active' : ''}`} style={{ flex: 1, padding: '7px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: 'none', background: refTab === key ? '#fff' : 'transparent', color: refTab === key ? 'var(--teal)' : 'var(--g500)', cursor: 'pointer', boxShadow: refTab === key ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }} onClick={() => setRefTab(key)}>
+                {REF_TYPES[key]}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 60 }}></th>
+                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>OD (RE)</th>
+                  <th colSpan={4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>OS (LE)</th>
+                </tr>
+                <tr>
+                  <th></th>
+                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h) => <th key={`re-${h}`} style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>)}
+                  {['VA', 'SPH', 'CYL', 'AXIS'].map((h, i) => <th key={`le-${h}`} style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {['dist', 'add', 'near'].map((rowKind) => {
+                  if (rowKind === 'add') {
+                    return (
+                      <tr key="add" style={{ borderTop: '1px solid var(--g100)', background: 'var(--amber-lt, #fffbeb)' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--amber, #b45309)' }}>ADD</td>
+                        {['re', 'le'].map((eye) => (
+                          <Fragment key={eye}>
+                            <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined, textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
+                            <td style={{ padding: '6px 6px' }}><ValueBox value={assessment[addKey(refTab, eye)]} /></td>
+                            <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
+                            <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
+                          </Fragment>
+                        ))}
+                      </tr>
+                    );
+                  }
+                  const distNear = rowKind;
+                  const isNear = distNear === 'near';
+                  return (
+                    <tr key={distNear} style={{ borderTop: '1px solid var(--g100)' }}>
+                      <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)', textTransform: 'capitalize' }}>{distNear === 'dist' ? 'Dist' : 'Near'}</td>
+                      {['re', 'le'].map((eye) => (
+                        <Fragment key={eye}>
+                          <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}><ValueBox value={assessment[refKey(refTab, eye, distNear, 'va')]} /></td>
+                          <td style={{ padding: '6px 6px' }}><ValueBox value={assessment[refKey(refTab, eye, distNear, 'sph')]} muted={isNear} /></td>
+                          <td style={{ padding: '6px 6px' }}><ValueBox value={assessment[refKey(refTab, eye, distNear, 'cyl')]} muted={isNear} /></td>
+                          <td style={{ padding: '6px 6px' }}><ValueBox value={assessment[refKey(refTab, eye, distNear, 'axis')]} muted={isNear} /></td>
+                        </Fragment>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+            <div><label className="flbl">IPD</label><div style={{ fontSize: 13 }}>{assessment.ref_pd || '--'}</div></div>
             <div><label className="flbl">Vertex Distance</label><div style={{ fontSize: 13 }}>{assessment.ref_vd || '--'}</div></div>
           </div>
         </AsmtSection>
       </div>
 
-      {/* SECTION 3: IOP */}
+      {/* SECTION 4: IOP */}
       <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={3} color="var(--purple)" title={`Intraocular Pressure (${assessment.iop_method || '--'})`} open={openSections.iop} onToggle={() => toggleSection('iop')}>
+        <AsmtSection num={4} color="var(--purple)" title={`Intraocular Pressure (${assessment.iop_method || '--'})`} open={openSections.iop} onToggle={() => toggleSection('iop')}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             {[['RE', reIop], ['LE', leIop]].map(([eye, list]) => (
               <div key={eye}>
@@ -196,30 +317,53 @@ export default function AssessmentViewer({ assessmentId }) {
         </AsmtSection>
       </div>
 
-      {/* SECTION 4: ADDITIONAL MEASUREMENTS */}
+      {/* SECTION 5: ADDITIONAL MEASUREMENTS -- per-eye, matching the
+          live entry form (White-to-White and Ocular Motility were
+          dropped from the workspace and no longer exist here either). */}
       <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={4} color="var(--amber)" title="Additional Measurements" open={openSections.additional} onToggle={() => toggleSection('additional')}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <div><label className="flbl">Keratometry K1</label><div style={{ fontSize: 13 }}>{assessment.add_k1 || '--'}</div></div>
-            <div><label className="flbl">Keratometry K2</label><div style={{ fontSize: 13 }}>{assessment.add_k2 || '--'}</div></div>
-            <div><label className="flbl">Axial Length</label><div style={{ fontSize: 13 }}>{assessment.add_axial_length || '--'}</div></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <div><label className="flbl">Pachymetry (CCT)</label><div style={{ fontSize: 13 }}>{assessment.add_pachymetry || '--'}</div></div>
-            <div><label className="flbl">White-to-White</label><div style={{ fontSize: 13 }}>{assessment.add_white_to_white || '--'}</div></div>
-            <div><label className="flbl">Schirmer test (RE/LE)</label><div style={{ fontSize: 13 }}>{assessment.add_schirmer || '--'}</div></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            <div><label className="flbl">Color vision</label><div style={{ fontSize: 13 }}>{assessment.add_color_vision || 'Not tested'}</div></div>
-            <div><label className="flbl">Ocular motility</label><div style={{ fontSize: 13 }}>{assessment.add_ocular_motility || 'Not tested'}</div></div>
-            <div><label className="flbl">Syringing</label><div style={{ fontSize: 13 }}>{assessment.add_syringing || 'Not done'}</div></div>
+        <AsmtSection num={5} color="var(--amber)" title="Additional Measurements" open={openSections.additional} onToggle={() => toggleSection('additional')}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 150 }}></th>
+                  <th style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>OD (RE)</th>
+                  <th style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>OS (LE)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { key: 'k1', label: 'Keratometry K1' },
+                  { key: 'k2', label: 'Keratometry K2' },
+                  { key: 'axial_length', label: 'Axial Length' },
+                  { key: 'pachymetry', label: 'Pachymetry (CCT)' },
+                  { key: 'schirmer', label: 'Schirmer test' },
+                ].map(({ key, label }) => (
+                  <tr key={key} style={{ borderTop: '1px solid var(--g100)' }}>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>{label}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{assessment[`add_${key}_re`] || '--'}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center', borderLeft: '4px solid #fff' }}>{assessment[`add_${key}_le`] || '--'}</td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '1px solid var(--g100)' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>Color Vision</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>{assessment.add_color_vision_re || 'Not tested'}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center', borderLeft: '4px solid #fff' }}>{assessment.add_color_vision_le || 'Not tested'}</td>
+                </tr>
+                <tr style={{ borderTop: '1px solid var(--g100)' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)' }}>Syringing</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>{assessment.add_syringing_re || 'Not done'}</td>
+                  <td style={{ padding: '6px 8px', textAlign: 'center', borderLeft: '4px solid #fff' }}>{assessment.add_syringing_le || 'Not done'}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </AsmtSection>
       </div>
 
-      {/* SECTION 5: CLINICAL OBSERVATIONS */}
+      {/* SECTION 6: CLINICAL OBSERVATIONS */}
       <div style={{ marginBottom: 12 }}>
-        <AsmtSection num={5} color="var(--g500)" title="Clinical Observations" open={openSections.obs} onToggle={() => toggleSection('obs')}>
+        <AsmtSection num={6} color="var(--g500)" title="Clinical Observations" open={openSections.obs} onToggle={() => toggleSection('obs')}>
           {assessment.observation_chips?.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
               {assessment.observation_chips.map((chip) => (
