@@ -46,7 +46,10 @@ function SectionHeader({ icon, iconColor, title, badgeCount, badgeCls, open, onT
 }
 
 export default function BillingDashboardClient({ dischargedUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal }) {
-  const [needsActionOpen, setNeedsActionOpen] = useState(true);
+  // Needs Action starts collapsed -- it's the "here's what's still
+  // outstanding" detail view, not the first thing a person should have
+  // to scroll past to see today's invoices.
+  const [needsActionOpen, setNeedsActionOpen] = useState(false);
   const [showAllVisits, setShowAllVisits] = useState(false);
   const [pendingBillingTotal, setPendingBillingTotal] = useState(0);
 
@@ -68,65 +71,9 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
         <StatCard label="Surgery Billing Due" value={dischargedUnbilled.length} sub="Discharged, unbilled" color="--purple" />
       </div>
 
-      {/* NEEDS ACTION -- Surgery Billing + Pending Billing merged into
-          one collapsible section, since both are the same thing at
-          heart: something a patient needs a bill for that doesn't have
-          one yet. */}
-      <div className="card" style={{ marginBottom: 20, border: needsActionCount > 0 ? '1.5px solid var(--red)' : undefined }}>
-        <SectionHeader
-          icon="ti-alert-circle" iconColor="var(--red)" title="Needs Action"
-          badgeCount={needsActionCount} badgeCls="b-red"
-          open={needsActionOpen} onToggle={() => setNeedsActionOpen((v) => !v)}
-        />
-        {needsActionOpen && (
-          <div style={{ marginTop: 10 }}>
-            {dischargedUnbilled.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>
-                  <i className="ti ti-scalpel"></i> Surgery Billing
-                </div>
-                <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}>
-                  Discharged, package not yet billed. Click a patient to open New Invoice, prefilled and editable.
-                </div>
-                <table className="tbl">
-                  <thead><tr><th>Discharged</th><th>Patient</th><th>Surgery</th><th>Package</th><th>Amount</th><th></th></tr></thead>
-                  <tbody>
-                    {dischargedUnbilled.map((r) => {
-                      const sc = r.surgical_cases;
-                      return (
-                        <tr key={sc.id}>
-                          <td style={{ fontSize: 12 }}>{new Date(r.discharge_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                          <td>
-                            <strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong>
-                            <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span>
-                          </td>
-                          <td style={{ fontSize: 12 }}>{sc.procedure_name} ({sc.eye})</td>
-                          <td style={{ fontSize: 12 }}>{sc.master_packages?.name || '--'}</td>
-                          <td style={{ fontWeight: 600 }}>{RUPEE(sc.master_packages?.price)}</td>
-                          <td>
-                            <Link href={`/billing/new?pkgCaseId=${sc.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
-                              <i className="ti ti-receipt"></i> Bill Now
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>
-                <i className="ti ti-clipboard-list"></i> Pending Billing
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-                Everything prescribed or recommended for a patient, not yet billed -- grouped by patient across investigations, procedures, pharmacy, and biometry.
-              </div>
-              <PendingBillingWidget bare onTotalChange={setPendingBillingTotal} />
-            </div>
-          </div>
-        )}
+      {/* RECENT INVOICES -- full width, first thing after the KPI strip */}
+      <div style={{ marginBottom: 20 }}>
+        <RecentInvoicesTable invoices={todaysInvoices} />
       </div>
 
       {/* TODAY'S VISITS -- pending-billing visits shown by default;
@@ -196,35 +143,54 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
         )}
       </div>
 
-      {/* RECENT INVOICES + OUTSTANDING */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
-        <RecentInvoicesTable invoices={todaysInvoices} />
-
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title"><i className="ti ti-clock" style={{ color: 'var(--amber)' }}></i> Outstanding Invoices</div>
-            <span className="badge b-amber">{outstandingInvoices.length} pending</span>
-          </div>
-          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-            {outstandingInvoices.map((inv) => (
-              <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>{inv.patients?.first_name} {inv.patients?.last_name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{inv.patients?.uhid} -- {inv.purpose || '--'}</div>
+      {/* NEEDS ACTION -- Surgery Billing + all four pending-billing
+          categories (Investigation, Biometry, Consultation, Pharmacy),
+          each laid out like Surgery Billing's own table. Collapsed by
+          default; it's the detail view, not the first thing to greet
+          someone opening the dashboard. */}
+      <div className="card" style={{ border: needsActionCount > 0 ? '1.5px solid var(--red)' : undefined }}>
+        <SectionHeader
+          icon="ti-alert-circle" iconColor="var(--red)" title="Needs Action"
+          badgeCount={needsActionCount} badgeCls="b-red"
+          open={needsActionOpen} onToggle={() => setNeedsActionOpen((v) => !v)}
+        />
+        <div style={{ marginTop: needsActionOpen ? 10 : 0, display: needsActionOpen ? 'block' : 'none' }}>
+            {dischargedUnbilled.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
+                  <i className="ti ti-scalpel"></i> Surgery Billing
+                  <span className="badge b-red" style={{ marginLeft: 8 }}>{dischargedUnbilled.length}</span>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--red)' }}>{RUPEE(Number(inv.net) - Number(inv.paid))}</div>
-                  <Link href={`/payments/collect?patientId=${inv.patient_id}&invoiceId=${inv.id}`} style={{ fontSize: 11, color: 'var(--blue)', textDecoration: 'none' }}>
-                    Collect &rarr;
-                  </Link>
-                </div>
+                <table className="tbl">
+                  <thead><tr><th>Discharged</th><th>Patient</th><th>Surgery</th><th>Package</th><th>Amount</th><th></th></tr></thead>
+                  <tbody>
+                    {dischargedUnbilled.map((r) => {
+                      const sc = r.surgical_cases;
+                      return (
+                        <tr key={sc.id}>
+                          <td style={{ fontSize: 12 }}>{new Date(r.discharge_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                          <td>
+                            <strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong>
+                            <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span>
+                          </td>
+                          <td style={{ fontSize: 12 }}>{sc.procedure_name} ({sc.eye})</td>
+                          <td style={{ fontSize: 12 }}>{sc.master_packages?.name || '--'}</td>
+                          <td style={{ fontWeight: 600 }}>{RUPEE(sc.master_packages?.price)}</td>
+                          <td>
+                            <Link href={`/billing/new?pkgCaseId=${sc.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                              <i className="ti ti-receipt"></i> Bill Now
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            ))}
-            {outstandingInvoices.length === 0 && (
-              <div style={{ fontSize: 12, color: 'var(--g400)', padding: '8px 0' }}>Nothing outstanding.</div>
             )}
+
+            <PendingBillingWidget bare onTotalChange={setPendingBillingTotal} />
           </div>
-        </div>
       </div>
     </div>
   );

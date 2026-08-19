@@ -9,30 +9,26 @@ import { getPendingBiometryBilling, markBiometryDenied, markBiometryDeferred, re
 
 const BILLING_BADGE = { Pending: 'b-amber', Deferred: 'b-indigo' };
 
-const TYPE_META = {
-  Investigation: { icon: 'ti-flask', color: 'var(--teal)' },
-  Procedure: { icon: 'ti-tool', color: 'var(--blue)' },
-  Pharmacy: { icon: 'ti-pill', color: 'var(--purple)' },
-  Biometry: { icon: 'ti-ruler-measure', color: 'var(--indigo)' },
+// type key -> billNowFor's URL param, plus the section's own heading/
+// icon/color -- title is the label shown to the person, which for
+// Procedure is "Consultation" since that's what it actually reads as
+// to front-office staff (a doctor's in-consultation procedure).
+const CATEGORY_META = {
+  Investigation: { title: 'Investigation Billing', icon: 'ti-flask', color: 'var(--teal)', param: 'invOrderIds' },
+  Procedure: { title: 'Consultation Billing', icon: 'ti-tool', color: 'var(--blue)', param: 'procIds' },
+  Pharmacy: { title: 'Pharmacy Billing', icon: 'ti-pill', color: 'var(--purple)', param: 'rxIds' },
+  Biometry: { title: 'Biometry Billing', icon: 'ti-ruler-measure', color: 'var(--indigo)', param: 'bioIds' },
 };
 
-// One row of items within a patient's card for a single pending-billing
-// type (e.g. their pending investigations). Handles its own defer/deny/
-// reset actions where that type supports them.
-function TypeSection({ type, group, busyId, onDefer, onDeny, onReset, onBillNow, renderItem }) {
-  const meta = TYPE_META[type];
+// One row's worth of items for a single patient within a category --
+// each item shown with its own defer/deny/reset controls where the
+// category supports them, and one Bill Now button for the whole group
+// (matches how Surgery Billing bills the whole package in one click).
+function ItemsCell({ items, renderItem, busyId, onDefer, onDeny, onReset }) {
   return (
-    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--g200)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: meta.color }}>
-          <i className={`ti ${meta.icon}`}></i> {type}
-        </span>
-        <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => onBillNow(group)}>
-          <i className="ti ti-receipt"></i> Bill Now
-        </button>
-      </div>
-      {group.items.map((item) => (
-        <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', fontSize: 12, flexWrap: 'wrap', gap: 4 }}>
+    <>
+      {items.map((item) => (
+        <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '2px 0', flexWrap: 'wrap' }}>
           <div>
             {renderItem(item)}
             {item.billing_status && <span className={`badge ${BILLING_BADGE[item.billing_status] || 'b-amber'}`} style={{ marginLeft: 6, fontSize: 9 }}>{item.billing_status}</span>}
@@ -41,10 +37,10 @@ function TypeSection({ type, group, busyId, onDefer, onDeny, onReset, onBillNow,
             <div style={{ display: 'flex', gap: 4 }}>
               {item.billing_status === 'Pending' && onDefer && (
                 <>
-                  <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} disabled={busyId === item.id} onClick={() => onDefer(item.id)}>
+                  <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} disabled={busyId === item.id} onClick={() => onDefer(item.id)} title="Defer">
                     <i className="ti ti-clock"></i>
                   </button>
-                  <button className="btn" style={{ padding: '2px 6px', fontSize: 10, color: 'var(--red)' }} disabled={busyId === item.id} onClick={() => onDeny(item.id)}>
+                  <button className="btn" style={{ padding: '2px 6px', fontSize: 10, color: 'var(--red)' }} disabled={busyId === item.id} onClick={() => onDeny(item.id)} title="Deny">
                     <i className="ti ti-x"></i>
                   </button>
                 </>
@@ -58,6 +54,44 @@ function TypeSection({ type, group, busyId, onDefer, onDeny, onReset, onBillNow,
           )}
         </div>
       ))}
+    </>
+  );
+}
+
+// A single category's pending-billing table, laid out the same way as
+// the Billing Dashboard's Surgery Billing table: one row per patient,
+// a details column, and a Bill Now button in the last column.
+function CategoryTable({ type, groups, busyId, onDefer, onDeny, onReset, onBillNow, renderItem }) {
+  const meta = CATEGORY_META[type];
+  if (groups.length === 0) return null;
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
+        <i className={`ti ${meta.icon}`} style={{ color: meta.color }}></i> {meta.title}
+        <span className="badge b-amber" style={{ marginLeft: 8 }}>{groups.reduce((s, g) => s + g.items.length, 0)}</span>
+      </div>
+      <table className="tbl">
+        <thead><tr><th>Patient</th><th>Details</th><th></th></tr></thead>
+        <tbody>
+          {groups.map((g) => (
+            <tr key={g.visitId || g.patientId || g.patient?.id}>
+              <td>
+                <strong>{g.patient?.first_name} {g.patient?.last_name}</strong>
+                <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{g.patient?.uhid}</span>
+              </td>
+              <td style={{ fontSize: 12 }}>
+                <ItemsCell items={g.items} renderItem={renderItem} busyId={busyId} onDefer={onDefer} onDeny={onDeny} onReset={onReset} />
+              </td>
+              <td>
+                <button className="btn btn-primary btn-sm" onClick={() => onBillNow(g)}>
+                  <i className="ti ti-receipt"></i> Bill Now
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -94,22 +128,10 @@ export default function PendingBillingWidget({ onTotalChange, bare = false }) {
     setBusyId(null);
   }
 
-  // Group everything by patient id -- package billing has no visitId, so
-  // patient id is the only key common to all five sources.
-  const byPatient = {};
-  function ensurePatient(patient) {
-    if (!patient?.id) return null;
-    if (!byPatient[patient.id]) byPatient[patient.id] = { patient, types: {} };
-    return byPatient[patient.id];
-  }
-
-  investigations.forEach((g) => { const p = ensurePatient(g.patient); if (p) p.types.Investigation = g; });
-  procedures.forEach((g) => { const p = ensurePatient(g.patient); if (p) p.types.Procedure = g; });
-  pharmacy.forEach((g) => { const p = ensurePatient(g.patient); if (p) p.types.Pharmacy = g; });
-  biometry.forEach((g) => { const p = ensurePatient(g.patient); if (p) p.types.Biometry = g; });
-
-  const patients = Object.values(byPatient);
-  const totalItems = patients.reduce((s, p) => s + Object.values(p.types).reduce((s2, g) => s2 + g.items.length, 0), 0);
+  const totalItems = investigations.reduce((s, g) => s + g.items.length, 0)
+    + procedures.reduce((s, g) => s + g.items.length, 0)
+    + pharmacy.reduce((s, g) => s + g.items.length, 0)
+    + biometry.reduce((s, g) => s + g.items.length, 0);
 
   useEffect(() => {
     if (!loading && onTotalChange) onTotalChange(totalItems);
@@ -117,8 +139,7 @@ export default function PendingBillingWidget({ onTotalChange, bare = false }) {
 
   function billNowFor(type, group) {
     const ids = group.items.map((i) => i.id).join(',');
-    const param = { Investigation: 'invOrderIds', Procedure: 'procIds', Pharmacy: 'rxIds', Biometry: 'bioIds' }[type];
-    router.push(`/billing/new?visitId=${group.visitId}&${param}=${ids}`);
+    router.push(`/billing/new?visitId=${group.visitId}&${CATEGORY_META[type].param}=${ids}`);
   }
 
   const listContent = (
@@ -130,68 +151,50 @@ export default function PendingBillingWidget({ onTotalChange, bare = false }) {
             {totalItems > 0 && <span className="badge b-red">{totalItems}</span>}
           </div>
           <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-            Everything prescribed or recommended for a patient, not yet billed -- grouped by patient across investigations, procedures, pharmacy, biometry, and packages.
+            Everything prescribed or recommended for a patient, not yet billed -- by category.
           </div>
         </>
       )}
 
       {loading && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div>}
 
-      {!loading && patients.length === 0 && (
+      {!loading && totalItems === 0 && (
         <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing pending -- everything is billed.</div>
       )}
 
-      {!loading && patients.map(({ patient, types }) => (
-        <div key={patient.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <div style={{ fontWeight: 600, fontSize: 13 }}>{patient.first_name} {patient.last_name}</div>
-            <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{patient.uhid}</div>
-            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
-              {Object.keys(types).map((type) => (
-                <span key={type} className="badge" style={{ background: `${TYPE_META[type].color}20`, color: TYPE_META[type].color, fontSize: 9 }}>{type}</span>
-              ))}
-            </div>
-          </div>
-
-          {types.Investigation && (
-            <TypeSection
-              type="Investigation" group={types.Investigation} busyId={busyId}
-              onDefer={(id) => withBusy(id, (x) => markInvestigationDeferred(x, 'Patient asked to come back later'))}
-              onDeny={(id) => withBusy(id, (x) => markInvestigationDenied(x, 'Patient declined at Front Office'))}
-              onReset={(id) => withBusy(id, resetInvestigationBilling)}
-              onBillNow={(g) => billNowFor('Investigation', g)}
-              renderItem={(io) => <>{io.name} <span style={{ color: 'var(--g400)' }}>({io.eye})</span></>}
-            />
-          )}
-          {types.Procedure && (
-            <TypeSection
-              type="Procedure" group={types.Procedure} busyId={busyId}
-              onBillNow={(g) => billNowFor('Procedure', g)}
-              renderItem={(p) => <>{p.name} <span style={{ color: 'var(--g400)' }}>({p.eye})</span>{p.notes && <div style={{ fontSize: 11, color: 'var(--g500)' }}>{p.notes}</div>}</>}
-            />
-          )}
-          {types.Pharmacy && (
-            <TypeSection
-              type="Pharmacy" group={types.Pharmacy} busyId={busyId}
-              onDefer={(id) => withBusy(id, (x) => markPrescriptionDeferred(x, 'Patient asked to come back later'))}
-              onDeny={(id) => withBusy(id, (x) => markPrescriptionDenied(x, 'Patient declined at Front Office'))}
-              onReset={(id) => withBusy(id, resetPrescriptionBilling)}
-              onBillNow={(g) => billNowFor('Pharmacy', g)}
-              renderItem={(rx) => <>{rx.drug_name} <span style={{ color: 'var(--g400)' }}>({rx.eye})</span></>}
-            />
-          )}
-          {types.Biometry && (
-            <TypeSection
-              type="Biometry" group={types.Biometry} busyId={busyId}
-              onDefer={(id) => withBusy(id, (x) => markBiometryDeferred(x, 'Patient asked to come back later'))}
-              onDeny={(id) => withBusy(id, (x) => markBiometryDenied(x, 'Patient declined at Front Office'))}
-              onReset={(id) => withBusy(id, resetBiometryBilling)}
-              onBillNow={(g) => billNowFor('Biometry', g)}
-              renderItem={() => <>Biometry</>}
-            />
-          )}
-        </div>
-      ))}
+      {!loading && (
+        <>
+          <CategoryTable
+            type="Investigation" groups={investigations} busyId={busyId}
+            onDefer={(id) => withBusy(id, (x) => markInvestigationDeferred(x, 'Patient asked to come back later'))}
+            onDeny={(id) => withBusy(id, (x) => markInvestigationDenied(x, 'Patient declined at Front Office'))}
+            onReset={(id) => withBusy(id, resetInvestigationBilling)}
+            onBillNow={(g) => billNowFor('Investigation', g)}
+            renderItem={(io) => <>{io.name} <span style={{ color: 'var(--g400)' }}>({io.eye})</span></>}
+          />
+          <CategoryTable
+            type="Biometry" groups={biometry} busyId={busyId}
+            onDefer={(id) => withBusy(id, (x) => markBiometryDeferred(x, 'Patient asked to come back later'))}
+            onDeny={(id) => withBusy(id, (x) => markBiometryDenied(x, 'Patient declined at Front Office'))}
+            onReset={(id) => withBusy(id, resetBiometryBilling)}
+            onBillNow={(g) => billNowFor('Biometry', g)}
+            renderItem={() => <>Biometry</>}
+          />
+          <CategoryTable
+            type="Procedure" groups={procedures} busyId={busyId}
+            onBillNow={(g) => billNowFor('Procedure', g)}
+            renderItem={(p) => <>{p.name} <span style={{ color: 'var(--g400)' }}>({p.eye})</span>{p.notes && <div style={{ fontSize: 11, color: 'var(--g500)' }}>{p.notes}</div>}</>}
+          />
+          <CategoryTable
+            type="Pharmacy" groups={pharmacy} busyId={busyId}
+            onDefer={(id) => withBusy(id, (x) => markPrescriptionDeferred(x, 'Patient asked to come back later'))}
+            onDeny={(id) => withBusy(id, (x) => markPrescriptionDenied(x, 'Patient declined at Front Office'))}
+            onReset={(id) => withBusy(id, resetPrescriptionBilling)}
+            onBillNow={(g) => billNowFor('Pharmacy', g)}
+            renderItem={(rx) => <>{rx.drug_name} <span style={{ color: 'var(--g400)' }}>({rx.eye})</span></>}
+          />
+        </>
+      )}
     </>
   );
 
