@@ -849,7 +849,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                   if (rowKind === 'add') {
                     return (
                       <tr key="add" style={{ borderTop: '1px solid var(--g100)', background: 'var(--amber-lt, #fffbeb)' }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--amber, #b45309)' }}>ADD</td>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--amber, #b45309)' }}>NEAR ADD</td>
                         {['re', 'le'].map((eye) => (
                           <Fragment key={eye}>
                             <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined, textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
@@ -857,7 +857,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                               <PickerField
                                 disabled={locked || (eye === 'le' && leCopying)}
                                 value={form[addKey(refTab, eye)]}
-                                onClick={() => setPicker({ kind: 'add', label: `ADD (Near) -- ${eye.toUpperCase()}`, fieldKey: addKey(refTab, eye) })}
+                                onClick={() => setPicker({ kind: 'add', label: `NEAR ADD -- ${eye.toUpperCase()}`, fieldKey: addKey(refTab, eye) })}
                               />
                             </td>
                             <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
@@ -1006,7 +1006,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
             <ul style={{ fontSize: 12, color: 'var(--g600)', paddingLeft: 18, lineHeight: 1.7 }}>
               <li>Record Distance for each eye -- tap a field to open the value picker.</li>
               <li>Tap SPH / CYL and choose +ve or -ve before selecting the magnitude.</li>
-              <li><strong>ADD</strong> is the near addition power (always positive) -- setting it auto-fills <strong>Near SPH/CYL/AXIS</strong> from Dist + ADD as a starting point, but you can always tap a Near field afterward to override it manually (needed e.g. when only Near vision was assessed and there's no Distance value to compute from).</li>
+              <li><strong>NEAR ADD</strong> is the near addition power (always positive) -- setting it auto-fills <strong>Near SPH/CYL/AXIS</strong> from Dist + NEAR ADD as a starting point, but you can always tap a Near field afterward to override it manually (needed e.g. when only Near vision was assessed and there's no Distance value to compute from).</li>
               <li>Enable &quot;Copy RE Value to LE&quot; only when both eyes genuinely match -- it overwrites LE with RE and keeps them locked together until unchecked.</li>
               <li>IPD (Interpupillary Distance) is recorded once per assessment, not per refraction type.</li>
             </ul>

@@ -176,8 +176,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [procNotes, setProcNotes] = useState('');
   const [refDest, setRefDest] = useState('');
   const [refReason, setRefReason] = useState('');
-  const [fuDate, setFuDate] = useState('');
-  const [fuSos, setFuSos] = useState(false);
+  const [fuAfter, setFuAfter] = useState('1 month');
   const [fuType, setFuType] = useState('Routine');
   const [fuClinic, setFuClinic] = useState('General');
   const [fuInstructions, setFuInstructions] = useState('');
@@ -233,8 +232,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
       getFollowUpContext(data.entry.visits.patients.id, data.entry.visits.id, data.encounter.id).then(setFollowUpContext);
     }
     if (data.followup) {
-      setFuDate(data.followup.followup_date || '');
-      setFuSos(data.followup.after_period === 'SOS');
+      setFuAfter(data.followup.after_period || '1 month');
       setFuType(data.followup.visit_type);
       setFuClinic(data.followup.clinic);
       setFuInstructions(data.followup.instructions || '');
@@ -367,8 +365,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   async function handleSaveFollowup() {
     setError('');
-    if (!fuSos && !fuDate) { setError('Pick a follow-up date, or check SOS / As Needed.'); return; }
-    const result = await saveFollowup(data.encounter.id, { date: fuSos ? null : fuDate, sos: fuSos, type: fuType, clinic: fuClinic, instructions: fuInstructions });
+    const result = await saveFollowup(data.encounter.id, { after: fuAfter, type: fuType, clinic: fuClinic, instructions: fuInstructions });
     if (result.error) { setError(result.error); return; }
     setFuSaved(true);
     refresh();
@@ -1114,14 +1111,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 <div className="card">
                   <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-calendar-plus" style={{ color: 'var(--green)' }}></i> Follow-up</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
-                    <input
-                      type="date"
-                      className="fi fi-sm"
-                      min={todayIst()}
-                      disabled={fuSos}
-                      value={fuDate}
-                      onChange={(e) => setFuDate(e.target.value)}
-                    />
+                    <select className="fi fi-sm" value={fuAfter} onChange={(e) => setFuAfter(e.target.value)}>
+                      <option>1 day</option><option>5 days</option><option>10 days</option><option>15 days</option><option>3 weeks</option><option>1 month</option><option>2 months</option><option>3 months</option><option>SOS</option>
+                    </select>
                     <select className="fi fi-sm" value={fuType} onChange={(e) => setFuType(e.target.value)}>
                       <option>Routine</option><option>Post-operative</option><option>Urgent</option>
                     </select>
@@ -1129,15 +1121,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <option>General</option><option>Cataract</option><option>Glaucoma</option><option>Retina</option>
                     </select>
                   </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--g700)', marginBottom: 8, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={fuSos} onChange={(e) => { setFuSos(e.target.checked); if (e.target.checked) setFuDate(''); }} />
-                    SOS / As Needed (no fixed date)
-                  </label>
                   <input className="fi fi-sm" placeholder="Special instructions..." value={fuInstructions} onChange={(e) => setFuInstructions(e.target.value)} style={{ marginBottom: 8 }} />
                   <button className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none' }} onClick={handleSaveFollowup}>Save Follow-up</button>
                   {fuSaved && (
                     <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--green-lt)', borderRadius: 8, fontSize: 12, color: 'var(--green)' }}>
-                      Follow-up: {fuSos ? 'SOS / As Needed' : (fuDate ? new Date(fuDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--')} -- {fuType} -- {fuClinic}
+                      Follow-up: {fuAfter} -- {fuType} -- {fuClinic}
                     </div>
                   )}
                 </div>
