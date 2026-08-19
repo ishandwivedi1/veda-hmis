@@ -608,7 +608,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
           <fieldset disabled={isReadOnly} style={{ border: 'none', margin: 0, padding: 0 }}>
 
           {activeTab === 'optometry' && (
-            <OptometryWorkspace queueEntryId={queueEntryId} embedded />
+            <OptometryWorkspace queueEntryId={queueEntryId} embedded forceUnlocked={unlocked} />
           )}
 
           {activeTab === 'exam' && (

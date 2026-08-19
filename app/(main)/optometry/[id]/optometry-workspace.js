@@ -208,7 +208,7 @@ function AsmtSection({ id, num, color, title, badge, badgeCls, open, onToggle, c
 }
 
 
-export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
+export default function OptometryWorkspace({ queueEntryId, embedded = false, forceUnlocked = false }) {
   const [entry, setEntry] = useState(null);
   const [assessment, setAssessment] = useState(null);
   const [encounter, setEncounter] = useState(null);
@@ -216,7 +216,14 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
   const [auditLog, setAuditLog] = useState([]);
   const [doctorOverrides, setDoctorOverrides] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [locked, setLocked] = useState(false);
+  const [dbLocked, setDbLocked] = useState(false);
+  // When embedded in the doctor's consultation page, "Unlock to Edit" on
+  // a completed encounter only toggled an outer <fieldset disabled> --
+  // it never reached this component's OWN server-fetched lock state,
+  // which every field's disabled= reads from directly. That left every
+  // field permanently disabled after unlocking. forceUnlocked (passed
+  // down from that page-level toggle) overrides it here instead.
+  const locked = dbLocked && !forceUnlocked;
   const [loadError, setLoadError] = useState('');
 
   const [form, setForm] = useState(emptyForm());
@@ -251,7 +258,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false }) {
       setAuditLog(result.auditLog);
       setDoctorOverrides(result.doctorOverrides || []);
       setIsAdmin(!!result.isAdmin);
-      setLocked(result.locked);
+      setDbLocked(result.locked);
 
       const f = emptyForm();
       Object.keys(f).forEach((key) => {
