@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { getPostOpCaseList, getPostOpTurnedUpToday, getPostOpHistory } from './actions';
 import Workspace from './workspace';
 
@@ -150,9 +151,12 @@ function HistoryTab({ rows, loading, onOpen }) {
   );
 }
 
-export default function PostOpPage() {
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedId, setSelectedId] = useState(null);
+function PostOpPageInner() {
+  const searchParams = useSearchParams();
+  const deepLinkEpisodeId = searchParams.get('episodeId');
+
+  const [activeTab, setActiveTab] = useState(deepLinkEpisodeId ? 'workspace' : 'dashboard');
+  const [selectedId, setSelectedId] = useState(deepLinkEpisodeId || null);
   const [workspaceReadOnly, setWorkspaceReadOnly] = useState(false);
   const [cases, setCases] = useState([]);
   const [turnedUpToday, setTurnedUpToday] = useState([]);
@@ -205,5 +209,13 @@ export default function PostOpPage() {
       )}
       {activeTab === 'history' && <HistoryTab rows={history} loading={loadingHistory} onOpen={openCase} />}
     </div>
+  );
+}
+
+export default function PostOpPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>}>
+      <PostOpPageInner />
+    </Suspense>
   );
 }

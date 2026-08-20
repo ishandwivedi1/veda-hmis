@@ -187,7 +187,7 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, e
               title={patientName(e.surgical_cases)}
               badge={e.surgical_cases?.eye} badgeClass="b-teal"
               subtitle={`${e.surgical_cases?.patients?.uhid || ''} -- ${e.surgical_cases?.procedure_name || ''}`}
-              onClick={onOpenPostOp}
+              onClick={() => onOpenPostOp(e)}
               actionLabel="Open" actionIcon="ti-arrow-right"
             />
           ))}
@@ -290,11 +290,8 @@ export default function DoctorSurgeryDashboardPage() {
     router.push('/iol-approval');
   }
 
-  // Post-Op doesn't support deep-linking a specific episode by URL --
-  // the module's own "Turned Up Today" tab already shows the same list,
-  // so this lands the surgeon on exactly that.
-  function openPostOp() {
-    router.push('/ot-postop');
+  function openPostOp(episode) {
+    router.push(`/ot-postop?episodeId=${episode.id}`);
   }
 
   // History -- Recovery & Discharge workspace already renders discharged
