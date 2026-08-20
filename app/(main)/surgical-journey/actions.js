@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { adviseBiometry } from '@/app/(main)/consultation/actions';
-import { markForSurgery } from '@/app/(main)/counselling/actions';
+import { markForSurgery, setDecision } from '@/app/(main)/counselling/actions';
 import { getAdvanceBalance } from '@/app/(main)/payments/actions';
 
 // This module deliberately does NOT reimplement package selection,
@@ -480,6 +480,36 @@ export async function recordManualReminder(caseId, note) {
   await supabase.from('surgical_case_notes').insert({
     surgical_case_id: caseId,
     note: `Follow-up call -- ${note || 'no details recorded'}`,
+    created_by: userData?.user?.id || null,
+  });
+
+  return { success: true };
+}
+
+// ── DECLINE (Not Willing) ──────────────────────────────────────────
+// setDecision alone (shared with Counselling) records the decision but
+// deliberately never touches status -- Counselling's own board relies
+// on a Declined case staying non-Cancelled so it still shows up in its
+// own "Declined" column. Surgical Journey's Active Cases list, though,
+// only ever excludes status = 'Cancelled', so a Declined-but-still-
+// Pending-Workup case sat in Active forever with no way to close it
+// out. This closes it properly: records the decision (with a mandatory
+// reason, unlike setDecision's optional one), cancels the case so it
+// moves to History, and logs a clear note either way.
+export async function declineSurgicalCase(caseId, reason) {
+  if (!reason || !reason.trim()) return { error: 'A reason is required to mark this patient as not willing for surgery.' };
+
+  const decisionResult = await setDecision(caseId, 'Declined', reason.trim());
+  if (decisionResult.error) return decisionResult;
+
+  const supabase = await createClient();
+  const { error } = await supabase.from('surgical_cases').update({ status: 'Cancelled' }).eq('id', caseId);
+  if (error) return { error: error.message };
+
+  const { data: userData } = await supabase.auth.getUser();
+  await supabase.from('surgical_case_notes').insert({
+    surgical_case_id: caseId,
+    note: `Marked Not Willing -- case closed. Reason: ${reason.trim()}`,
     created_by: userData?.user?.id || null,
   });
 

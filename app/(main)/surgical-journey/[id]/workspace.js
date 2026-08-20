@@ -8,6 +8,7 @@ import {
   setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions,
   getInvestigationOptionsForCase, addInHouseInvestigationForCase, removeInHouseInvestigationForCase,
   addExternalTest, removeExternalTest,
+  declineSurgicalCase,
 } from '../actions';
 import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
@@ -196,6 +197,18 @@ export default function Workspace({ caseId }) {
     };
   }
 
+  // Deliberately not routed through flash() -- a successful decline
+  // closes this case out (moves it to History), so the right move is
+  // navigating back to the list, not refreshing this now-closed
+  // workspace in place.
+  async function handleDecline(reason) {
+    setError('');
+    const result = await declineSurgicalCase(sc.id, reason);
+    if (result?.error) { setError(result.error); return result; }
+    router.push('/surgical-journey');
+    return result;
+  }
+
   if (error && !data) return <div className="msg-err">{error}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
@@ -245,7 +258,7 @@ export default function Workspace({ caseId }) {
           2-7) all unlock together -- no interdependency between them.
           Patient Check-In and beyond stay locked until Payment is
           complete. */}
-      <DecisionSection sc={sc} onAction={flash} active={currentStep === 'decision'} />
+      <DecisionSection sc={sc} onAction={flash} onDecline={handleDecline} active={currentStep === 'decision'} />
 
       {/* 2. INVESTIGATIONS */}
       <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} inHouseInvestigations={data.inHouseInvestigations} externalTests={data.externalTests} onAction={flash} active={currentStep === 'investigations'} />
@@ -575,9 +588,55 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
 // updatable by Front Desk once the patient calls back. Uses the same
 // locked+reason semantics setDecision already enforces everywhere else
 // (locks automatically once Accepted; changing away from a locked
-// decision needs a reason). ──
-function DecisionSection({ sc, onAction, active }) {
+function DeclineReasonModal({ onCancel, onConfirm }) {
   const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [localError, setLocalError] = useState('');
+
+  async function handleConfirm() {
+    if (!reason.trim()) { setLocalError('A reason is required.'); return; }
+    setSaving(true);
+    const result = await onConfirm(reason.trim());
+    setSaving(false);
+    if (result?.error) setLocalError(result.error);
+    // On success the caller navigates away, so there's nothing left to
+    // reset here -- this component unmounts along with the workspace.
+  }
+
+  return (
+    <div onClick={saving ? undefined : onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 420, width: '100%', boxShadow: '0 12px 40px rgba(0,0,0,.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(220,38,38,.12)', color: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <i className="ti ti-x" style={{ fontSize: 18 }}></i>
+          </span>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--g800)' }}>Mark as Not Willing?</div>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--g600)', marginBottom: 12, lineHeight: 1.5 }}>
+          This closes the case out of Active Cases and moves it to History. A reason is required for the record.
+        </div>
+        <textarea
+          className="fi" rows={3} placeholder="Why is the patient not willing? e.g. 'Financial constraint', 'Decided against surgery', 'Opted for treatment elsewhere'..."
+          value={reason} onChange={(e) => { setReason(e.target.value); setLocalError(''); }}
+          style={{ marginBottom: 8 }}
+          autoFocus
+        />
+        {localError && <div className="msg-err" style={{ marginBottom: 8 }}>{localError}</div>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-sm" onClick={onCancel} disabled={saving}>Cancel</button>
+          <button type="button" className="btn btn-sm" style={{ background: 'var(--red)', color: '#fff', borderColor: 'transparent' }} onClick={handleConfirm} disabled={saving}>
+            {saving ? 'Saving...' : 'Yes, Mark Not Willing'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// decision needs a reason). ──
+function DecisionSection({ sc, onAction, onDecline, active }) {
+  const [reason, setReason] = useState('');
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
   const OPTIONS = [
     { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
     { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
@@ -591,12 +650,18 @@ function DecisionSection({ sc, onAction, active }) {
             key={o.v}
             className="btn btn-sm"
             style={{ background: sc.decision === o.v ? o.color : '', color: sc.decision === o.v ? '#fff' : '', border: sc.decision === o.v ? 'none' : undefined }}
-            onClick={() => onAction(setDecision)(sc.id, o.v, reason)}
+            onClick={() => (o.v === 'Declined' ? setShowDeclineModal(true) : onAction(setDecision)(sc.id, o.v, reason))}
           >
             {o.label}
           </button>
         ))}
       </div>
+      {showDeclineModal && (
+        <DeclineReasonModal
+          onCancel={() => setShowDeclineModal(false)}
+          onConfirm={(declineReason) => onDecline(declineReason)}
+        />
+      )}
       {sc.decision_locked && (
         <input className="fi fi-sm" placeholder="Reason to change decision..." value={reason} onChange={(e) => setReason(e.target.value)} />
       )}
