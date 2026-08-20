@@ -37,12 +37,12 @@ const POST_TEMPLATES = {
 const POST_SELECT_STRUCTS = ['CDR'];
 
 const REGIONS = {
-  external: { structs: EXT_STRUCTS, templates: EXT_TEMPLATES, icon: 'ti-user', color: 'var(--g400)', title: 'External Examination', staged: false },
+  external: { structs: EXT_STRUCTS, templates: EXT_TEMPLATES, icon: 'ti-user', color: 'var(--g400)', title: 'External Examination', staged: false, multiSelect: true },
   anterior: { structs: ANT_STRUCTS, templates: ANT_TEMPLATES, icon: 'ti-microscope', color: 'var(--teal)', title: 'Anterior Segment', staged: false },
   posterior: {
     structsByStage: { without: POST_STRUCTS_WITHOUT, with: POST_STRUCTS_WITH },
     templates: POST_TEMPLATES, selectStructs: POST_SELECT_STRUCTS,
-    icon: 'ti-eye', color: 'var(--purple)', title: 'Posterior Segment', staged: true,
+    icon: 'ti-eye', color: 'var(--purple)', title: 'Posterior Segment', staged: true, multiSelect: true,
   },
 };
 
@@ -76,17 +76,48 @@ const STAGES = [
   { key: 'with', label: 'With Dilatation' },
 ];
 
-function emptyRegionState(structs) {
+// Normalizes a struct's re/le value to an array of selected strings --
+// handles both the new multi-select storage (array) and legacy/
+// single-select storage (a plain string), so records saved before
+// External/Posterior became multi-select still display and print
+// exactly as they did before.
+function findingValues(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  return raw ? [raw] : [];
+}
+
+// Which structs in a region actually use multi-select array storage --
+// everything in a multiSelect region except its selectStructs (CDR is
+// rendered as a single dropdown within Posterior Segment, and a ratio
+// is one value, not several, so it's exempt even though the rest of
+// Posterior Segment is multi-select).
+function multiSelectStructsFor(region) {
+  if (!region.multiSelect) return [];
+  const structs = region.staged ? [...region.structsByStage.without, ...region.structsByStage.with] : region.structs;
+  const selectStructs = region.selectStructs || [];
+  return [...new Set(structs)].filter((s) => !selectStructs.includes(s));
+}
+
+function emptyRegionState(structs, multiSelectStructs = []) {
   const state = {};
-  structs.forEach((s) => { state[s] = { re: '', le: '', re_custom: '', le_custom: '' }; });
+  structs.forEach((s) => {
+    const multi = multiSelectStructs.includes(s);
+    state[s] = { re: multi ? [] : '', le: multi ? [] : '', re_custom: '', le_custom: '' };
+  });
   return state;
 }
 
-function normalizeFindings(raw, structs) {
+function normalizeFindings(raw, structs, multiSelectStructs = []) {
   const out = {};
   structs.forEach((s) => {
     const v = raw?.[s] || {};
-    out[s] = { re: v.re || '', le: v.le || '', re_custom: v.re_custom || '', le_custom: v.le_custom || '' };
+    const multi = multiSelectStructs.includes(s);
+    out[s] = {
+      re: multi ? findingValues(v.re) : (v.re || ''),
+      le: multi ? findingValues(v.le) : (v.le || ''),
+      re_custom: v.re_custom || '',
+      le_custom: v.le_custom || '',
+    };
   });
   return out;
 }
@@ -96,9 +127,9 @@ function normalizeFindings(raw, structs) {
 // read "without" first (it was always the primary/first pass), and
 // otherwise fall back to "with" so nothing already recorded is lost.
 // New saves are written flat going forward.
-function normalizeFlatFindings(raw, structs) {
+function normalizeFlatFindings(raw, structs, multiSelectStructs) {
   const source = raw && (raw.without || raw.with) ? (raw.without || raw.with) : raw;
-  return { ...emptyRegionState(structs), ...normalizeFindings(source, structs) };
+  return { ...emptyRegionState(structs, multiSelectStructs), ...normalizeFindings(source, structs, multiSelectStructs) };
 }
 
 // Posterior Segment keeps the two-pass without/with dilatation split, but
@@ -106,20 +137,20 @@ function normalizeFlatFindings(raw, structs) {
 // data (from before staging existed) used the full struct set, so it's
 // treated as the "with dilatation" pass -- mapping it to "without"
 // (Disc/CDR only) would silently drop Vitreous/Macula/Vessels/Periphery.
-function emptyStagedRegionState(structsByStage) {
-  return { without: emptyRegionState(structsByStage.without), with: emptyRegionState(structsByStage.with) };
+function emptyStagedRegionState(structsByStage, multiSelectStructs) {
+  return { without: emptyRegionState(structsByStage.without, multiSelectStructs), with: emptyRegionState(structsByStage.with, multiSelectStructs) };
 }
-function normalizeStagedFindings(raw, structsByStage) {
+function normalizeStagedFindings(raw, structsByStage, multiSelectStructs) {
   const isStaged = raw && (raw.without || raw.with);
   if (isStaged) {
     return {
-      without: { ...emptyRegionState(structsByStage.without), ...normalizeFindings(raw.without, structsByStage.without) },
-      with: { ...emptyRegionState(structsByStage.with), ...normalizeFindings(raw.with, structsByStage.with) },
+      without: { ...emptyRegionState(structsByStage.without, multiSelectStructs), ...normalizeFindings(raw.without, structsByStage.without, multiSelectStructs) },
+      with: { ...emptyRegionState(structsByStage.with, multiSelectStructs), ...normalizeFindings(raw.with, structsByStage.with, multiSelectStructs) },
     };
   }
   return {
-    without: emptyRegionState(structsByStage.without),
-    with: { ...emptyRegionState(structsByStage.with), ...normalizeFindings(raw, structsByStage.with) },
+    without: emptyRegionState(structsByStage.without, multiSelectStructs),
+    with: { ...emptyRegionState(structsByStage.with, multiSelectStructs), ...normalizeFindings(raw, structsByStage.with, multiSelectStructs) },
   };
 }
 
@@ -130,6 +161,7 @@ const STRUCT_DISPLAY_LABEL = { CDR: 'C.D Ratio' };
 function StructRow({ struct, templates, eyeState, onSelect, onCustom, asSelect }) {
   const options = templates[struct] || [];
   const displayLabel = STRUCT_DISPLAY_LABEL[struct] || struct;
+  const isSelected = (opt) => (Array.isArray(eyeState.value) ? eyeState.value.includes(opt) : eyeState.value === opt);
 
   if (asSelect) {
     return (
@@ -153,11 +185,12 @@ function StructRow({ struct, templates, eyeState, onSelect, onCustom, asSelect }
             onClick={() => onSelect(opt)}
             style={{
               padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-              border: `1.5px solid ${eyeState.value === opt ? 'var(--blue)' : 'var(--g200)'}`,
-              background: eyeState.value === opt ? 'var(--blue)' : '#fff',
-              color: eyeState.value === opt ? '#fff' : 'var(--g600)',
+              border: `1.5px solid ${isSelected(opt) ? 'var(--blue)' : 'var(--g200)'}`,
+              background: isSelected(opt) ? 'var(--blue)' : '#fff',
+              color: isSelected(opt) ? '#fff' : 'var(--g600)',
             }}
           >
+            {isSelected(opt) && <i className="ti ti-check" style={{ fontSize: 10, marginRight: 3 }}></i>}
             {opt}
           </div>
         ))}
@@ -239,17 +272,20 @@ function RegionSection({ regionKey, region, open, onToggle, status, stagedState,
                 <div style={{ fontSize: 11, fontWeight: 700, color: eye === 're' ? 'var(--blue)' : 'var(--teal)', marginBottom: 6, padding: '4px 8px', background: eye === 're' ? 'var(--blue-lt)' : 'var(--teal-lt)', borderRadius: 6, display: 'inline-block' }}>
                   <i className="ti ti-eye" style={{ fontSize: 11 }}></i> {eye === 're' ? 'Right Eye (OD)' : 'Left Eye (OS)'}
                 </div>
-                {structs.map((struct) => (
-                  <StructRow
-                    key={struct}
-                    struct={struct}
-                    templates={region.templates}
-                    asSelect={selectStructs.includes(struct)}
-                    eyeState={{ value: state[struct]?.[eye] || '', custom: state[struct]?.[`${eye}_custom`] || '' }}
-                    onSelect={(val) => onSelect(struct, eye, val)}
-                    onCustom={(val) => onCustom(struct, eye, val)}
-                  />
-                ))}
+                {structs.map((struct) => {
+                  const isMultiStruct = region.multiSelect && !selectStructs.includes(struct);
+                  return (
+                    <StructRow
+                      key={struct}
+                      struct={struct}
+                      templates={region.templates}
+                      asSelect={selectStructs.includes(struct)}
+                      eyeState={{ value: state[struct]?.[eye] ?? (isMultiStruct ? [] : ''), custom: state[struct]?.[`${eye}_custom`] || '' }}
+                      onSelect={(val) => onSelect(struct, eye, val)}
+                      onCustom={(val) => onCustom(struct, eye, val)}
+                    />
+                  );
+                })}
               </div>
             ))}
           </div>
@@ -261,9 +297,9 @@ function RegionSection({ regionKey, region, open, onToggle, status, stagedState,
 
 export default function ExaminationTab({ examination, encounterId, onSaved }) {
   const [regionState, setRegionState] = useState({
-    external: emptyRegionState(EXT_STRUCTS),
-    anterior: emptyRegionState(ANT_STRUCTS),
-    posterior: emptyStagedRegionState(REGIONS.posterior.structsByStage),
+    external: emptyRegionState(EXT_STRUCTS, multiSelectStructsFor(REGIONS.external)),
+    anterior: emptyRegionState(ANT_STRUCTS, multiSelectStructsFor(REGIONS.anterior)),
+    posterior: emptyStagedRegionState(REGIONS.posterior.structsByStage, multiSelectStructsFor(REGIONS.posterior)),
   });
   const [regionStage, setRegionStage] = useState({ posterior: 'without' });
   const [status, setStatus] = useState({ external: 'Not started', anterior: 'Not started', posterior: 'Not started', gonioscopy: 'Not started' });
@@ -291,9 +327,9 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
     skipNextAutosave.current = true;
     loadedExamId.current = examination.id;
     setRegionState({
-      external: normalizeFlatFindings(examination.external_findings, EXT_STRUCTS),
-      anterior: normalizeFlatFindings(examination.anterior_findings, ANT_STRUCTS),
-      posterior: normalizeStagedFindings(examination.posterior_findings, REGIONS.posterior.structsByStage),
+      external: normalizeFlatFindings(examination.external_findings, EXT_STRUCTS, multiSelectStructsFor(REGIONS.external)),
+      anterior: normalizeFlatFindings(examination.anterior_findings, ANT_STRUCTS, multiSelectStructsFor(REGIONS.anterior)),
+      posterior: normalizeStagedFindings(examination.posterior_findings, REGIONS.posterior.structsByStage, multiSelectStructsFor(REGIONS.posterior)),
     });
     setStatus({
       external: examination.external_status || 'Not started',
@@ -313,12 +349,20 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
   }
 
   function handleSelect(region, struct, eye, val) {
+    const regionCfg = REGIONS[region];
+    const multi = regionCfg.multiSelect && !(regionCfg.selectStructs || []).includes(struct);
+    const applyToStruct = (structState) => {
+      if (!multi) return { ...structState, [eye]: val };
+      const current = structState?.[eye] || [];
+      const next = current.includes(val) ? current.filter((v) => v !== val) : [...current, val];
+      return { ...structState, [eye]: next };
+    };
     setRegionState((prev) => {
       if (!REGIONS[region].staged) {
-        return { ...prev, [region]: { ...prev[region], [struct]: { ...prev[region][struct], [eye]: val } } };
+        return { ...prev, [region]: { ...prev[region], [struct]: applyToStruct(prev[region][struct]) } };
       }
       const stage = regionStage[region];
-      return { ...prev, [region]: { ...prev[region], [stage]: { ...prev[region][stage], [struct]: { ...prev[region][stage][struct], [eye]: val } } } };
+      return { ...prev, [region]: { ...prev[region], [stage]: { ...prev[region][stage], [struct]: applyToStruct(prev[region][stage][struct]) } } };
     });
     markDirty(region);
   }
@@ -337,21 +381,25 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
   // Toggle -- clicking again unticks it: fields clear back to empty and
   // status reverts to Not started, rather than being a one-way action.
   function handleAllNormal(region) {
-    const { templates, staged } = REGIONS[region];
+    const regionCfg = REGIONS[region];
+    const { templates, staged } = regionCfg;
     const stage = staged ? regionStage[region] : null;
-    const structs = staged ? REGIONS[region].structsByStage[stage] : REGIONS[region].structs;
+    const structs = staged ? regionCfg.structsByStage[stage] : regionCfg.structs;
     const isOn = staged ? allNormalOn[region][stage] : allNormalOn[region];
+    const multiSelectStructs = multiSelectStructsFor(regionCfg);
 
     let next;
     if (isOn) {
-      next = emptyRegionState(structs);
+      next = emptyRegionState(structs, multiSelectStructs);
     } else {
       next = {};
       structs.forEach((s) => {
         // CDR has no sensible "normal" default (it's a measured ratio),
         // so All Normal skips it and leaves it for the doctor to enter.
         const normalVal = (REGIONS.posterior.selectStructs || []).includes(s) ? '' : (templates[s]?.[0] || '');
-        next[s] = { re: normalVal, le: normalVal, re_custom: '', le_custom: '' };
+        const multi = multiSelectStructs.includes(s);
+        const eyeVal = multi ? (normalVal ? [normalVal] : []) : normalVal;
+        next[s] = { re: eyeVal, le: eyeVal, re_custom: '', le_custom: '' };
       });
     }
 

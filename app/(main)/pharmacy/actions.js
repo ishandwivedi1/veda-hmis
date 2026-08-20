@@ -129,9 +129,11 @@ export async function billPharmacyItems(visitId, items) {
     // is computed on the post-discount (taxable) amount, not the raw
     // gross -- keeping this identical to the rest of the app so a
     // pharmacy-billed line behaves exactly like one entered from the
-    // main Billing screen.
-    const discPct = Math.min(100, Math.max(0, item.discPct || 0));
-    const disc = Math.round((gross * discPct / 100) * 100) / 100;
+    // main Billing screen. Fixed-Rs discount is capped at the line's
+    // gross so it can never make a line negative.
+    let disc = 0;
+    if (item.discType === 'pct') disc = Math.round((gross * Math.min(100, Math.max(0, item.discValue || 0)) / 100) * 100) / 100;
+    else if (item.discType === 'fixed') disc = Math.min(Math.max(0, item.discValue || 0), gross);
     const taxable = gross - disc;
     const gstAmount = Math.round((taxable * item.gstPct / 100) * 100) / 100;
     const net = Math.round((taxable + gstAmount) * 100) / 100;

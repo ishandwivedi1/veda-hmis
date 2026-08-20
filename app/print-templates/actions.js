@@ -735,7 +735,7 @@ const SAMPLE_CASE_SHEET_RAW = {
   },
   iopReadings: [{ eye: 'RE', value: 18 }, { eye: 'LE', value: 16 }],
   examination: {
-    external_findings: {}, anterior_findings: { Lens: { re: 'NS2', le: 'NS1', re_custom: '', le_custom: '' } }, posterior_findings: { without: { Disc: { re: 'Healthy', le: 'Healthy' }, CDR: { re: '0.4', le: '0.3' } }, with: {} },
+    external_findings: { Lids: { re: ['Blepharitis'], le: ['Normal'], re_custom: '', le_custom: '' } }, anterior_findings: { Lens: { re: 'NS2', le: 'NS1', re_custom: '', le_custom: '' } }, posterior_findings: { without: { Disc: { re: 'Healthy', le: 'Healthy' }, CDR: { re: '0.4', le: '0.3' } }, with: {} },
     applanation_re: '16', applanation_le: '15',
     gonioscopy_findings: { angle_re: 'Open Angle', angle_le: 'Open Angle' },
   },
@@ -1600,6 +1600,16 @@ const EXAM_NORMAL_VALUE = {
 
 const EXAM_STRUCT_LABEL = { CDR: 'C.D Ratio' };
 
+// Same normalization as examination-tab.js's findingValues() -- a
+// struct's re/le value is either the new multi-select array storage
+// (External Examination, Posterior Segment) or a legacy/single-select
+// plain string (Anterior Segment, and any record saved before
+// multi-select existed). Both print identically either way.
+function examFindingValues(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  return raw ? [raw] : [];
+}
+
 // Pivoted RE/LE rows (label | RE | LE), matching the Vision & Intraocular
 // Pressure table's layout rather than one row per eye.
 //
@@ -1626,27 +1636,27 @@ function summarizeExamRegionPivoted(findingsJson, structs, mode) {
     const stageData = stageKey ? findingsJson[stageKey] : findingsJson;
     structs.forEach((struct) => {
       const f = stageData?.[struct] || {};
-      const reRaw = f.re || '';
-      const leRaw = f.le || '';
+      const reVals = examFindingValues(f.re);
+      const leVals = examFindingValues(f.le);
       const reCustom = f.re_custom || '';
       const leCustom = f.le_custom || '';
       const normal = EXAM_NORMAL_VALUE[struct];
-      const reIsNormal = (!reRaw || reRaw === normal) && !reCustom;
-      const leIsNormal = (!leRaw || leRaw === normal) && !leCustom;
+      const reIsNormal = (reVals.length === 0 || (reVals.length === 1 && reVals[0] === normal)) && !reCustom;
+      const leIsNormal = (leVals.length === 0 || (leVals.length === 1 && leVals[0] === normal)) && !leCustom;
 
       if (mode === 'abnormalOnly') {
         if (reIsNormal && leIsNormal) return;
         rows.push({
           structure: (EXAM_STRUCT_LABEL[struct] || struct) + (stageLabel ? ` (${stageLabel})` : ''),
-          re: [reRaw, reCustom].filter(Boolean).join(' -- ') || 'Normal',
-          le: [leRaw, leCustom].filter(Boolean).join(' -- ') || 'Normal',
+          re: [...reVals, reCustom].filter(Boolean).join(', ') || 'Normal',
+          le: [...leVals, leCustom].filter(Boolean).join(', ') || 'Normal',
         });
       } else {
-        if (!reRaw && !leRaw && !reCustom && !leCustom) return;
+        if (reVals.length === 0 && leVals.length === 0 && !reCustom && !leCustom) return;
         rows.push({
           structure: (EXAM_STRUCT_LABEL[struct] || struct) + (stageLabel ? ` (${stageLabel})` : ''),
-          re: [reRaw, reCustom].filter(Boolean).join(' -- ') || '--',
-          le: [leRaw, leCustom].filter(Boolean).join(' -- ') || '--',
+          re: [...reVals, reCustom].filter(Boolean).join(', ') || '--',
+          le: [...leVals, leCustom].filter(Boolean).join(', ') || '--',
         });
       }
     });

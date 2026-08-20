@@ -22,7 +22,7 @@ export default function Workspace({ visitId }) {
   const [visit, setVisit] = useState(null);
   const [items, setItems] = useState([]);
   const [drugCatalog, setDrugCatalog] = useState([]);
-  const [selections, setSelections] = useState({}); // { [prescriptionId]: { drugId, qty, discPct } }
+  const [selections, setSelections] = useState({}); // { [prescriptionId]: { drugId, qty, discType, discValue } }
   const [checked, setChecked] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -39,7 +39,7 @@ export default function Workspace({ visitId }) {
       const next = { ...prev };
       data.items.forEach((rx) => {
         if (rx.billing_status !== 'Pending') return;
-        if (!next[rx.id]) next[rx.id] = { drugId: rx.suggestedDrugId || '', qty: rx.qty || 1, discPct: 0 };
+        if (!next[rx.id]) next[rx.id] = { drugId: rx.suggestedDrugId || '', qty: rx.qty || 1, discType: 'pct', discValue: 0 };
       });
       return next;
     });
@@ -68,9 +68,9 @@ export default function Workspace({ visitId }) {
     setSelections((prev) => ({ ...prev, [rxId]: { ...prev[rxId], [field]: value } }));
   }
 
-  // Same math as billing/new/new-invoice-tab.js's computeLine() --
-  // GST computed on the post-discount amount, matching the rest of
-  // the app exactly.
+  // Same math as billing/new/new-invoice-tab.js's computeLine() -- GST
+  // computed on the post-discount amount, and a fixed-Rs discount is
+  // capped at the line's gross so it can never make a line negative.
   function lineTotal(rx) {
     if (rx.billing_status === 'Billed') {
       const li = rx.invoice_line_items;
@@ -82,11 +82,12 @@ export default function Workspace({ visitId }) {
     const drug = drugCatalog.find((d) => d.id === sel?.drugId);
     if (!drug || !sel?.qty) return null;
     const gross = drug.rate * sel.qty;
-    const discPct = Math.min(100, Math.max(0, sel.discPct || 0));
-    const disc = Math.round((gross * discPct / 100) * 100) / 100;
+    let disc = 0;
+    if (sel.discType === 'pct') disc = Math.round((gross * Math.min(100, Math.max(0, sel.discValue || 0)) / 100) * 100) / 100;
+    else if (sel.discType === 'fixed') disc = Math.min(Math.max(0, sel.discValue || 0), gross);
     const taxable = gross - disc;
     const gst = Math.round((taxable * drug.gst_pct / 100) * 100) / 100;
-    return { qty: sel.qty, rate: drug.rate, discPct, net: Math.round((taxable + gst) * 100) / 100, drug };
+    return { qty: sel.qty, rate: drug.rate, disc, net: Math.round((taxable + gst) * 100) / 100, drug };
   }
 
   const grandTotal = items.reduce((sum, rx) => {
@@ -111,7 +112,8 @@ export default function Workspace({ visitId }) {
         rate: t.drug.rate,
         gstPct: t.drug.gst_pct,
         qty: selections[rx.id].qty,
-        discPct: selections[rx.id].discPct || 0,
+        discType: selections[rx.id].discType || 'pct',
+        discValue: selections[rx.id].discValue || 0,
       });
     }
 
@@ -183,7 +185,7 @@ export default function Workspace({ visitId }) {
                 <th>Medicine</th>
                 <th style={{ width: 60 }}>Qty</th>
                 <th style={{ width: 90 }}>Rate</th>
-                <th style={{ width: 90 }}>Discount</th>
+                <th style={{ width: 130 }}>Discount</th>
                 <th style={{ width: 100 }}>Billing Status</th>
                 <th style={{ width: 110 }}>Dispensing Status</th>
                 <th style={{ textAlign: 'right', width: 90 }}>Total</th>
@@ -237,12 +239,22 @@ export default function Workspace({ visitId }) {
                       <td>{t?.rate != null ? fmt(t.rate) : '--'}</td>
                       <td>
                         {isPending ? (
-                          <input
-                            type="number" min="0" max="100" className="fi fi-sm" style={{ width: 55 }}
-                            placeholder="%"
-                            value={selections[rx.id]?.discPct || ''}
-                            onChange={(e) => updateSelection(rx.id, 'discPct', parseFloat(e.target.value) || 0)}
-                          />
+                          <div style={{ display: 'flex', gap: 3 }}>
+                            <select
+                              className="fi fi-sm" style={{ width: 52, padding: '4px 2px' }}
+                              value={selections[rx.id]?.discType || 'pct'}
+                              onChange={(e) => updateSelection(rx.id, 'discType', e.target.value)}
+                            >
+                              <option value="pct">%</option>
+                              <option value="fixed">Rs.</option>
+                            </select>
+                            <input
+                              type="number" min="0" className="fi fi-sm" style={{ width: 60 }}
+                              placeholder={selections[rx.id]?.discType === 'fixed' ? 'Rs.' : '%'}
+                              value={selections[rx.id]?.discValue || ''}
+                              onChange={(e) => updateSelection(rx.id, 'discValue', parseFloat(e.target.value) || 0)}
+                            />
+                          </div>
                         ) : (t?.discPct > 0 ? `${t.discPct}%` : '--')}
                       </td>
                       <td><span className={`badge ${BILLING_BADGE[rx.billing_status] || 'b-gray'}`} style={{ fontSize: 10 }}>{rx.billing_status}</span></td>
