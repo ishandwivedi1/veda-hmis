@@ -10,6 +10,7 @@ import {
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { uploadAttachment, deleteAttachment } from '@/lib/attachments';
 import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
+import ConfirmActionModal from '@/app/components/ConfirmActionModal';
 
 const STEPS = ['Check-In', 'Anaesthesia', 'Surgery', 'Implant', 'Recovery'];
 const EVENT_QUICK = ['Small Pupil', 'Zonular Weakness', 'Difficult Capsulorhexis', 'Iris Prolapse', 'Floppy Iris Syndrome'];
@@ -94,6 +95,9 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   const [recoveryInstructions, setRecoveryInstructions] = useState('');
   const [recoveryConcerns, setRecoveryConcerns] = useState('');
   const [saving, setSaving] = useState(false);
+  // null | 'checkin' | 'surgery' -- which confirmation modal is open
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [confirming, setConfirming] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [checkinUnlocked, setCheckinUnlocked] = useState(false);
 
@@ -252,11 +256,17 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     refresh();
   }
 
-  async function handleCompleteCheckin() {
-    if (!window.confirm(`Confirm patient check-in for ${patient?.first_name} ${patient?.last_name}?`)) return;
+  function handleCompleteCheckin() {
+    setConfirmAction('checkin');
+  }
+
+  async function runCompleteCheckin() {
     setError('');
+    setConfirming(true);
     const result = await completeCheckin(otScheduleId, sc.id);
-    if (result.error) { setError(result.error); return; }
+    setConfirming(false);
+    if (result.error) { setConfirmAction(null); setError(result.error); return; }
+    setConfirmAction(null);
     addLog('OT Check-In completed');
     setOk('Check-in complete -- patient confirmed in OT.');
     await refresh();
@@ -386,9 +396,14 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     : !!(plannedSpecificIol && cvSpecificIol && plannedSpecificIol !== cvSpecificIol);
   const cvVariancePresent = !!(plannedPlan && (cvEyeMismatch || cvPowerMismatch || cvCategoryMismatch || cvSpecificIolMismatch));
 
-  async function handleCompleteSurgery() {
+  function handleCompleteSurgery() {
+    setConfirmAction('surgery');
+  }
+
+  async function runCompleteSurgery() {
     setError(''); setOk('');
     const wasAlreadyCompleted = isCompleted;
+    setConfirming(true);
     const result = await completeSurgery(otScheduleId, sc.id, {
       implantPower: imPower, implantCategory: imCategory, implantSerial: imSerial, implantManufacturer: imMfr, implantModel: imModel, implantCatalogId: imCatalogId, implantExpiry: imExpiry, implantEye: imEye,
       skipImplant: biometryPlans.length === 0,
@@ -396,7 +411,9 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
       variancePresent, varianceReason,
       operativeNotes: opNotes, surgicalOutcome, outcomeRemarks,
     });
-    if (result.error) { setError(result.error); return; }
+    setConfirming(false);
+    if (result.error) { setConfirmAction(null); setError(result.error); return; }
+    setConfirmAction(null);
     clearInterval(timerRef.current);
     // Opened as a deep link from Surgical Journey (a real opener window
     // exists) -- signal completion back and close this tab. Same
@@ -1116,6 +1133,31 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
           </div>
         </div>
       </div>
+
+      {confirmAction === 'checkin' && (
+        <ConfirmActionModal
+          icon="ti-clipboard-check" iconColor="var(--green)" iconBg="var(--green-lt)"
+          title="Confirm Patient Check-In?"
+          description={`Confirms ${patient?.first_name} ${patient?.last_name} is checked in and ready for OT.`}
+          confirmLabel="Yes, Confirm Check-In"
+          loading={confirming}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={runCompleteCheckin}
+        />
+      )}
+      {confirmAction === 'surgery' && (
+        <ConfirmActionModal
+          icon="ti-circle-check" iconColor={isCompleted ? 'var(--amber)' : 'var(--teal)'} iconBg={isCompleted ? 'rgba(217,119,6,.12)' : 'rgba(13,148,136,.12)'}
+          title={isCompleted ? 'Save Corrections to Completed Surgery?' : 'Complete Surgery?'}
+          description={isCompleted
+            ? 'This record was already marked Complete -- saves your corrections and closes this window.'
+            : 'This finalizes the intraoperative record, marks the case Complete in OT Scheduling, and hands the patient over to Recovery.'}
+          confirmLabel={isCompleted ? 'Yes, Save Corrections' : 'Yes, Complete Surgery'}
+          loading={confirming}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={runCompleteSurgery}
+        />
+      )}
     </div>
   );
 }

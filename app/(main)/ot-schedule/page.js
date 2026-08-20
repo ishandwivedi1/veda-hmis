@@ -287,6 +287,7 @@ function RegisterSurgeryDirectForm({ onDone }) {
 
   const [packages, setPackages] = useState([]);
   const [packageId, setPackageId] = useState('');
+  const [packageDiscount, setPackageDiscount] = useState('');
 
   const [date, setDate] = useState('');
   const [sessions, setSessions] = useState([]);
@@ -325,13 +326,17 @@ function RegisterSurgeryDirectForm({ onDone }) {
     if (!procedureName) { setError('Select the procedure.'); return; }
     if (!workupNote.trim()) { setError('Explain where biometry & fitness clearance came from -- required so this case has an honest audit trail.'); return; }
     if (!packageId) { setError('Select a billing package.'); return; }
+    const selectedPkg = packages.find((p) => p.id === packageId);
+    const discountNum = Number(packageDiscount) || 0;
+    if (discountNum < 0) { setError('Discount cannot be negative.'); return; }
+    if (selectedPkg && discountNum > Number(selectedPkg.price)) { setError('Discount cannot exceed the package price.'); return; }
     if (!date) { setError('Pick a date.'); return; }
     if (!sessionId) { setError('Select an OT session.'); return; }
 
     setSaving(true);
     const result = await registerSurgeryDirect({
       patientId: selectedPatient.id, procedureName, eye: eye || null, surgeonId: surgeonId || null,
-      priority, workupNote, packageId, date, sessionId, notes,
+      priority, workupNote, packageId, packageDiscount: discountNum, date, sessionId, notes,
     });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
@@ -429,11 +434,31 @@ function RegisterSurgeryDirectForm({ onDone }) {
 
       <div style={{ marginBottom: 12 }}>
         <label className="flbl">Billing Package</label>
-        <select className="fi fi-sm" value={packageId} onChange={(e) => setPackageId(e.target.value)}>
+        <select className="fi fi-sm" value={packageId} onChange={(e) => { setPackageId(e.target.value); setPackageDiscount(''); }}>
           <option value="">Select...</option>
           {packages.map((p) => <option key={p.id} value={p.id}>{p.name} -- ₹{p.price}</option>)}
         </select>
       </div>
+
+      {packageId && (() => {
+        const selectedPkg = packages.find((p) => p.id === packageId);
+        const discountNum = Number(packageDiscount) || 0;
+        const netPreview = selectedPkg ? Math.max(0, Number(selectedPkg.price) - discountNum) : null;
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <div>
+              <label className="flbl">Discount (Rs.)</label>
+              <input type="number" min="0" className="fi fi-sm" placeholder="0" value={packageDiscount} onChange={(e) => setPackageDiscount(e.target.value)} />
+            </div>
+            <div>
+              <label className="flbl">Net Payable</label>
+              <div className="fi fi-sm" style={{ display: 'flex', alignItems: 'center', fontWeight: 700, color: 'var(--green)', background: 'var(--g50)' }}>
+                Rs.{(netPreview ?? 0).toLocaleString('en-IN')}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, marginBottom: 12 }}>
         <div>

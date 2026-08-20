@@ -233,7 +233,7 @@ export async function registerSurgeryDirect(input) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
-  const { patientId, procedureName, eye, surgeonId, priority, workupNote, packageId, date, sessionId, notes } = input || {};
+  const { patientId, procedureName, eye, surgeonId, priority, workupNote, packageId, packageDiscount, date, sessionId, notes } = input || {};
 
   if (!patientId) return { error: 'Select a patient.' };
   if (!procedureName || !procedureName.trim()) return { error: 'Enter the procedure.' };
@@ -243,6 +243,11 @@ export async function registerSurgeryDirect(input) {
   if (!packageId) return { error: 'Select a billing package.' };
   if (!date) return { error: 'Select a date.' };
   if (!sessionId) return { error: 'Select an OT session.' };
+
+  const discount = Number(packageDiscount) || 0;
+  if (discount < 0) return { error: 'Discount cannot be negative.' };
+  const { data: pkgForDiscount } = await supabase.from('master_packages').select('price').eq('id', packageId).maybeSingle();
+  if (pkgForDiscount && discount > Number(pkgForDiscount.price)) return { error: 'Discount cannot exceed the package price.' };
 
   // Guard against accidentally duplicating an already-open case for this
   // patient + procedure. This bypasses the normal pipeline entirely, so
@@ -292,6 +297,7 @@ export async function registerSurgeryDirect(input) {
       decision: 'Accepted',
       decision_locked: true,
       package_id: packageId,
+      package_discount: discount,
       package_locked: true,
       status: 'Ready for Scheduling',
       notes: notes?.trim() || null,

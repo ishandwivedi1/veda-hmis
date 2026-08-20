@@ -8,6 +8,7 @@ import {
 } from './actions';
 import { DISCHARGE_ITEMS } from './constants';
 import { openPrintPopup } from '@/lib/printPopup';
+import ConfirmActionModal from '@/app/components/ConfirmActionModal';
 
 // IST "today" as YYYY-MM-DD -- used to default AND cap the discharge
 // date input so it can't be mis-entered in the future (a future
@@ -31,9 +32,6 @@ function defaultFollowupPlan(dischargeDate) {
   const addDays = (n) => { const d = new Date(`${dischargeDate}T00:00:00`); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   return [
     { key: `p${planRowSeq++}`, visit_label: 'Post-op Day 1', scheduled_date: addDays(1) },
-    { key: `p${planRowSeq++}`, visit_label: 'Post-op Week 1', scheduled_date: addDays(7) },
-    { key: `p${planRowSeq++}`, visit_label: 'Post-op Month 1', scheduled_date: addDays(30) },
-    { key: `p${planRowSeq++}`, visit_label: 'Final Refraction', scheduled_date: addDays(45) },
   ];
 }
 
@@ -43,6 +41,8 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showDischargeConfirm, setShowDischargeConfirm] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const [admissionDate, setAdmissionDate] = useState('');
   const [surgeryDate, setSurgeryDate] = useState('');
@@ -105,7 +105,15 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setEscalation(e.escalation_required || false);
     setEscalationReason(e.escalation_reason || '');
     setObservations(e.observations || '');
-    setChecklist(e.discharge_checklist || {});
+    // Checklist is only ever persisted via the explicit Save button or
+    // Confirm Discharge -- never auto-saved on toggle. Adding a medicine
+    // (or anything else that calls refresh() mid-session) used to wipe
+    // out unsaved checkbox state by blindly reloading discharge_checklist
+    // from the DB every time. Once the person has touched the checklist
+    // at all, keep their local state and stop re-syncing from the DB
+    // until the next full page load -- same protective pattern already
+    // used for followupPlan just below.
+    setChecklist((prev) => (Object.keys(prev).length > 0 ? prev : (e.discharge_checklist || {})));
     setInstructions(e.discharge_instructions || '');
     setDischargeNotes(e.discharge_notes || '');
     setDischargeDate(e.discharge_date || todayIst());
@@ -235,11 +243,19 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setFollowupPlan(defaultFollowupPlan(dischargeDate));
   }
 
-  async function handleDischarge() {
-    setError(''); setOk('');
+  function handleDischarge() {
+    setError('');
     if (!dischargeDate) { setError('Discharge date is required.'); return; }
+    setShowDischargeConfirm(true);
+  }
+
+  async function runDischarge() {
+    setError(''); setOk('');
+    setConfirming(true);
     const result = await confirmDischarge(episodeId, checklist, dischargeNotes, instructions, dischargeDate, followupPlan);
-    if (result.error) { setError(result.error); return; }
+    setConfirming(false);
+    if (result.error) { setShowDischargeConfirm(false); setError(result.error); return; }
+    setShowDischargeConfirm(false);
     // Opened as a deep link from Surgical Journey (a real opener window
     // exists) -- signal completion back and close this tab. Same
     // close-on-complete pattern as IOL Approval, Medical Fitness,
@@ -569,6 +585,16 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
       {!isClosed && (
         <div style={{ background: '#0f172a', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
           <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>ACTIONS:</span>
+          {isDischarged && (
+            <button onClick={() => openPrintPopup(`/discharge-summary-print/${episodeId}`)} className="btn btn-sm" style={{ background: 'rgba(15,118,110,.2)', color: '#5eead4', borderColor: 'rgba(15,118,110,.4)' }}>
+              <i className="ti ti-printer"></i> Print Discharge Summary
+            </button>
+          )}
+          {isDischarged && (
+            <span className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none', cursor: 'default', fontWeight: 700 }}>
+              <i className="ti ti-circle-check"></i> Discharged
+            </span>
+          )}
           {isLocked ? (
             <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.08)', color: '#e2e8f0', borderColor: 'rgba(255,255,255,.2)' }} onClick={() => setUnlocked(true)}>
               <i className="ti ti-lock-open"></i> Unlock to Edit
@@ -583,16 +609,6 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                   <i className="ti ti-door-exit"></i> Discharge
                 </button>
               )}
-              {isDischarged && (
-                <button onClick={() => openPrintPopup(`/discharge-summary-print/${episodeId}`)} className="btn btn-sm" style={{ background: 'rgba(15,118,110,.2)', color: '#5eead4', borderColor: 'rgba(15,118,110,.4)' }}>
-                  <i className="ti ti-printer"></i> Print Discharge Summary
-                </button>
-              )}
-              {isDischarged && (
-                <span className="btn btn-sm" style={{ background: 'var(--green)', color: '#fff', border: 'none', cursor: 'default', fontWeight: 700 }}>
-                  <i className="ti ti-circle-check"></i> Discharged
-                </span>
-              )}
               {isDischarged && unlocked && (
                 <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.08)', color: '#e2e8f0', borderColor: 'rgba(255,255,255,.2)' }} onClick={() => { setUnlocked(false); refresh(); }}>
                   <i className="ti ti-lock"></i> Lock again
@@ -601,6 +617,18 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
             </>
           )}
         </div>
+      )}
+
+      {showDischargeConfirm && (
+        <ConfirmActionModal
+          icon="ti-door-exit" iconColor="var(--green)" iconBg="var(--green-lt)"
+          title="Discharge Patient?"
+          description={`This finalizes recovery for ${patient?.first_name} ${patient?.last_name}, generates the follow-up schedule, and locks this record. Make sure all vitals, medicines, and the discharge checklist are complete first.`}
+          confirmLabel="Yes, Discharge Patient"
+          loading={confirming}
+          onCancel={() => setShowDischargeConfirm(false)}
+          onConfirm={runDischarge}
+        />
       )}
     </div>
   );
