@@ -86,7 +86,6 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
   // outstanding" detail view, not the first thing a person should have
   // to scroll past to see today's invoices.
   const [needsActionOpen, setNeedsActionOpen] = useState(false);
-  const [showAllVisits, setShowAllVisits] = useState(false);
   const [pendingBillingTotal, setPendingBillingTotal] = useState(0);
   // Defaults to today -- pending bills should read as "what's due right
   // now", not a mixed list where a 2-week-old deferred item sits next
@@ -94,10 +93,6 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
   const [todayOnly, setTodayOnly] = useState(true);
 
   const todaysInvoicesValue = todaysInvoices.reduce((s, i) => s + Number(i.net || 0), 0);
-
-  const visitsWithBillingDue = todaysVisits.filter((v) => (billingByVisit[v.id]?.badge) === 'b-red');
-  const visitsFullyBilled = todaysVisits.length - visitsWithBillingDue.length;
-  const visitsToShow = showAllVisits ? todaysVisits : visitsWithBillingDue;
 
   const dischargedUnbilledShown = todayOnly
     ? dischargedUnbilled.filter((r) => isToday(r.discharge_date))
@@ -122,9 +117,7 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
         <RecentInvoicesTable invoices={todaysInvoices} />
       </div>
 
-      {/* TODAY'S VISITS -- pending-billing visits shown by default;
-          fully-billed visits collapse into a single expandable line
-          instead of padding out the table with rows needing no action. */}
+      {/* TODAY'S VISITS -- all visits for the day */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-title" style={{ marginBottom: 10 }}>
           <i className="ti ti-door-enter" style={{ color: 'var(--blue)' }}></i> Today&apos;s Visits
@@ -132,7 +125,7 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
         <table className="tbl">
           <thead><tr><th>Visit ID</th><th>Time</th><th>Patient</th><th>Type</th><th>Doctor</th><th>Status</th><th>Billing</th><th></th></tr></thead>
           <tbody>
-            {visitsToShow.map((v) => {
+            {todaysVisits.map((v) => {
               const billing = billingByVisit[v.id] || { count: 0, label: '--', badge: 'b-gray' };
               return (
                 <tr key={v.id}>
@@ -170,23 +163,11 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
                 </tr>
               );
             })}
-            {visitsToShow.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>
-                {todaysVisits.length === 0 ? 'No visits yet today.' : 'No visits with billing pending -- everything is settled.'}
-              </td></tr>
+            {todaysVisits.length === 0 && (
+              <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No visits yet today.</td></tr>
             )}
           </tbody>
         </table>
-        {!showAllVisits && visitsFullyBilled > 0 && (
-          <button type="button" className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setShowAllVisits(true)}>
-            <i className="ti ti-chevron-down"></i> Show {visitsFullyBilled} fully billed visit{visitsFullyBilled === 1 ? '' : 's'}
-          </button>
-        )}
-        {showAllVisits && (
-          <button type="button" className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setShowAllVisits(false)}>
-            <i className="ti ti-chevron-up"></i> Show pending billing only
-          </button>
-        )}
       </div>
 
       {/* NEEDS ACTION -- Surgery Billing + all four pending-billing
