@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { searchPatientsForBooking, getDoctors } from '@/app/(main)/appointments/actions';
 import { createWalkInVisit, getSurgeryTypeOptions, getPatientById } from '@/app/(main)/visits/actions';
+import VisitCreatedModal from '@/app/components/VisitCreatedModal';
 
 export default function NewVisitPage() {
   return (
@@ -35,6 +36,7 @@ function NewVisitForm() {
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [createdVisitInfo, setCreatedVisitInfo] = useState(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -153,7 +155,7 @@ function NewVisitForm() {
       return;
     }
 
-    router.push('/front-office-dashboard?visitCreated=1');
+    setCreatedVisitInfo({ patient: selectedPatient, visit: result.visit });
   }
 
   return (
@@ -312,6 +314,15 @@ function NewVisitForm() {
           </div>
         </form>
       </div>
+
+      {createdVisitInfo && (
+        <VisitCreatedModal
+          title="Visit Created"
+          subtitle={`${createdVisitInfo.patient.first_name} ${createdVisitInfo.patient.last_name} -- UHID: ${createdVisitInfo.patient.uhid}`}
+          visit={createdVisitInfo.visit}
+          onClose={() => router.push('/front-office-dashboard?visitCreated=1')}
+        />
+      )}
     </div>
   );
 }
