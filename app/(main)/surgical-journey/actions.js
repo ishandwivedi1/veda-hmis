@@ -310,90 +310,91 @@ export async function getSurgicalCaseDetail(caseId) {
     .single();
   if (error || !sc) return { error: 'Case not found.' };
 
-  // Biometry is patient-level now, not case-scoped -- reused across
-  // every future surgical case for that patient (readings don't
-  // meaningfully change for years). No more per-eye/per-case matching
-  // needed; just look up whatever's on file for this patient.
-  const { data: biometryRecords } = await supabase
-    .from('biometry_records')
-    .select('id, status, verify_remarks, verified_at')
-    .eq('patient_id', sc.patient_id)
-    .neq('status', 'Cancelled')
-    .order('created_at', { ascending: false });
+  // Everything below only depends on fields already on `sc` (patient_id,
+  // encounter_id, or just caseId) -- none of these seven depend on each
+  // other's results, so they run as one parallel wave instead of one
+  // after another. This was the main reason opening a surgical case felt
+  // slow: 8 fully sequential round trips, now 2 waves.
+  const [
+    { data: biometryRecords },
+    inHouseInvestigations,
+    { data: otSchedule },
+    { data: fitnessReferral },
+    { data: iolApproval },
+    externalTests,
+    advanceBalance,
+  ] = await Promise.all([
+    // Biometry is patient-level now, not case-scoped -- reused across
+    // every future surgical case for that patient (readings don't
+    // meaningfully change for years). No more per-eye/per-case matching
+    // needed; just look up whatever's on file for this patient.
+    supabase
+      .from('biometry_records')
+      .select('id, status, verify_remarks, verified_at')
+      .eq('patient_id', sc.patient_id)
+      .neq('status', 'Cancelled')
+      .order('created_at', { ascending: false }),
 
-  // In-house investigations -- ordered against this case's own
-  // consultation encounter, same investigation_orders table Doctor
-  // Consultation uses and the same Investigation module queue picks
-  // them up from. Fully generic -- Biometry shows up here too now,
-  // same as anything else (whatever the doctor feels like), not a
-  // separate hardcoded section.
-  let inHouseInvestigations = [];
-  if (sc.encounter_id) {
-    const { data } = await supabase
-      .from('investigation_orders')
-      .select('*')
-      .eq('encounter_id', sc.encounter_id)
-      .order('created_at', { ascending: false });
-    inHouseInvestigations = data || [];
-  }
+    // In-house investigations -- ordered against this case's own
+    // consultation encounter, same investigation_orders table Doctor
+    // Consultation uses and the same Investigation module queue picks
+    // them up from. Fully generic -- Biometry shows up here too now,
+    // same as anything else (whatever the doctor feels like), not a
+    // separate hardcoded section.
+    sc.encounter_id
+      ? supabase.from('investigation_orders').select('*').eq('encounter_id', sc.encounter_id).order('created_at', { ascending: false }).then((r) => r.data || [])
+      : Promise.resolve([]),
 
-  // Day-of-surgery live status -- OT Schedule / Intraop / Recovery
-  // already have solid, tested clinical workflows; this page doesn't
-  // rebuild them, it just shows where the case currently stands and
-  // deep-links into whichever one applies.
-  const { data: otSchedule } = await supabase
-    .from('ot_schedule')
-    .select('id, scheduled_date, status, master_ot_sessions(name)')
-    .eq('surgical_case_id', caseId)
-    .order('scheduled_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    // Day-of-surgery live status -- OT Schedule / Intraop / Recovery
+    // already have solid, tested clinical workflows; this page doesn't
+    // rebuild them, it just shows where the case currently stands and
+    // deep-links into whichever one applies.
+    supabase
+      .from('ot_schedule')
+      .select('id, scheduled_date, status, master_ot_sessions(name)')
+      .eq('surgical_case_id', caseId)
+      .order('scheduled_date', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
 
+    // Medical fitness stays a real doctor referral/review, same as
+    // Counselling -- this isn't a rubber-stamp checkbox, so it keeps its
+    // own dedicated review step rather than being folded into a form
+    // field here.
+    supabase
+      .from('medical_fitness_referrals')
+      .select('id, status, referred_at, fitness_notes')
+      .eq('surgical_case_id', caseId)
+      .order('referred_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+
+    // The surgeon's final IOL choice -- separate module/step from both
+    // Biometry (raw device recommendations) and this page's own package
+    // selection (billing category only).
+    supabase.from('iol_approvals').select('*, master_iol_catalog(brand, model, category)').eq('surgical_case_id', caseId).maybeSingle(),
+
+    getExternalTestsForCase(caseId),
+
+    // Payment step (M11's held advance balance, live) -- checked against
+    // the net package amount (price - discount) rather than the old
+    // never-actually-set advance_payment_id flag. See workspace.js.
+    sc.patient_id ? getAdvanceBalance(sc.patient_id) : Promise.resolve(0),
+  ]);
+
+  // recoveryEpisode and checkinCompletedAt both depend on otSchedule.id,
+  // so this second wave only fires once the first wave (which produced
+  // otSchedule) has resolved -- still just 2 waves total, not 8 steps.
   let recoveryEpisode = null;
   let checkinCompletedAt = null;
   if (otSchedule) {
-    const { data } = await supabase
-      .from('recovery_episodes')
-      .select('id, discharge_date')
-      .eq('ot_schedule_id', otSchedule.id)
-      .maybeSingle();
-    recoveryEpisode = data;
-
-    const { data: intraopRecord } = await supabase
-      .from('ot_intraop_records')
-      .select('checkin_completed_at')
-      .eq('ot_schedule_id', otSchedule.id)
-      .maybeSingle();
+    const [{ data: episode }, { data: intraopRecord }] = await Promise.all([
+      supabase.from('recovery_episodes').select('id, discharge_date').eq('ot_schedule_id', otSchedule.id).maybeSingle(),
+      supabase.from('ot_intraop_records').select('checkin_completed_at').eq('ot_schedule_id', otSchedule.id).maybeSingle(),
+    ]);
+    recoveryEpisode = episode;
     checkinCompletedAt = intraopRecord?.checkin_completed_at || null;
   }
-
-  // Medical fitness stays a real doctor referral/review, same as
-  // Counselling -- this isn't a rubber-stamp checkbox, so it keeps its
-  // own dedicated review step rather than being folded into a form
-  // field here.
-  const { data: fitnessReferral } = await supabase
-    .from('medical_fitness_referrals')
-    .select('id, status, referred_at, fitness_notes')
-    .eq('surgical_case_id', caseId)
-    .order('referred_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  // The surgeon's final IOL choice -- separate module/step from both
-  // Biometry (raw device recommendations) and this page's own package
-  // selection (billing category only).
-  const { data: iolApproval } = await supabase
-    .from('iol_approvals')
-    .select('*, master_iol_catalog(brand, model, category)')
-    .eq('surgical_case_id', caseId)
-    .maybeSingle();
-
-  const externalTests = await getExternalTestsForCase(caseId);
-
-  // Payment step (M11's held advance balance, live) -- checked against
-  // the net package amount (price - discount) rather than the old
-  // never-actually-set advance_payment_id flag. See workspace.js.
-  const advanceBalance = sc.patient_id ? await getAdvanceBalance(sc.patient_id) : 0;
 
   return {
     case: { ...sc, biometry_done: biometryRecords.some((b) => b.status === 'Measured') },

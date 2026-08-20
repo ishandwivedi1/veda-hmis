@@ -126,8 +126,9 @@ export default function SurgicalJourneyPage() {
   const router = useRouter();
 
   const refresh = useCallback(async () => {
-    setCases(await getMyActiveSurgicalCases());
-    setAwaiting(await getAwaitingReturnCases());
+    const [activeCases, awaitingCases] = await Promise.all([getMyActiveSurgicalCases(), getAwaitingReturnCases()]);
+    setCases(activeCases);
+    setAwaiting(awaitingCases);
     setLoading(false);
   }, []);
   const refreshDischargedToday = useCallback(async () => {

@@ -117,15 +117,22 @@ export async function getIolApprovalDetail(caseId) {
     .single();
   if (error || !sc) return { error: 'Case not found.' };
 
-  const { data: biometry } = await supabase
-    .from('biometry_records')
-    .select('id, verify_remarks, verified_at')
-    .eq('patient_id', sc.patient_id)
-    .eq('status', 'Measured')
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // biometry and approval only depend on caseId/patient_id from `sc`
+  // above, not on each other -- run together instead of one after another.
+  const [{ data: biometry }, { data: approval }] = await Promise.all([
+    supabase
+      .from('biometry_records')
+      .select('id, verify_remarks, verified_at')
+      .eq('patient_id', sc.patient_id)
+      .eq('status', 'Measured')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from('iol_approvals').select('*, master_iol_catalog(brand, model, category)').eq('surgical_case_id', caseId).maybeSingle(),
+  ]);
 
+  // recommendations genuinely depends on biometry.id, so it has to wait
+  // for the wave above to resolve first.
   let recommendations = [];
   if (biometry) {
     const { data } = await supabase
@@ -135,12 +142,6 @@ export async function getIolApprovalDetail(caseId) {
       .order('created_at', { ascending: true });
     recommendations = data || [];
   }
-
-  const { data: approval } = await supabase
-    .from('iol_approvals')
-    .select('*, master_iol_catalog(brand, model, category)')
-    .eq('surgical_case_id', caseId)
-    .maybeSingle();
 
   return { case: sc, biometry, recommendations, approval: approval || null };
 }
