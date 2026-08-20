@@ -51,23 +51,24 @@ export async function getOTAvailability(date) {
 export async function getOTMonthSummary(startDate, endDate) {
   const supabase = await createClient();
 
-  const { data: sessions } = await supabase.from('master_ot_sessions').select('capacity').eq('status', 'Active');
+  const { data: sessions } = await supabase.from('master_ot_sessions').select('id, name, capacity').eq('status', 'Active').order('start_time');
   const dailyCapacity = (sessions || []).reduce((sum, s) => sum + (s.capacity || 0), 0);
 
   const { data: bookings, error } = await supabase
     .from('ot_schedule')
-    .select('id, scheduled_date, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid))')
+    .select('id, scheduled_date, session_id, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid))')
     .gte('scheduled_date', startDate)
     .lte('scheduled_date', endDate)
     .neq('status', 'Cancelled')
     .order('scheduled_date', { ascending: true });
-  if (error) return { dailyCapacity, byDate: {} };
+  if (error) return { dailyCapacity, sessions: sessions || [], byDate: {} };
 
   const byDate = {};
   (bookings || []).forEach((b) => {
     if (!byDate[b.scheduled_date]) byDate[b.scheduled_date] = [];
     byDate[b.scheduled_date].push({
       id: b.id,
+      sessionId: b.session_id,
       sessionName: b.master_ot_sessions?.name || '--',
       procedureName: b.surgical_cases?.procedure_name || '--',
       eye: b.surgical_cases?.eye || '',
@@ -76,7 +77,44 @@ export async function getOTMonthSummary(startDate, endDate) {
     });
   });
 
-  return { dailyCapacity, byDate };
+  return { dailyCapacity, sessions: sessions || [], byDate };
+}
+
+// ── UPCOMING WEEK -- flat, chronological list of the next 7 real days'
+// bookings (today through +6), independent of whichever month the
+// calendar happens to be browsing. Used by the Calendar tab's "This
+// Week" widget so it always answers "what's coming up" regardless of
+// navigation state. ──
+export async function getOTUpcomingWeek() {
+  const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const weekEnd = new Date();
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  const weekEndIst = weekEnd.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+  const { data, error } = await supabase
+    .from('ot_schedule')
+    .select('id, scheduled_date, master_ot_sessions(name, start_time), surgical_cases(procedure_name, eye, priority, patients(first_name, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)')
+    .gte('scheduled_date', todayIst)
+    .lte('scheduled_date', weekEndIst)
+    .eq('status', 'Scheduled')
+    .order('scheduled_date', { ascending: true });
+  if (error) return [];
+
+  return (data || [])
+    .sort((a, b) => (a.scheduled_date + (a.master_ot_sessions?.start_time || '')).localeCompare(b.scheduled_date + (b.master_ot_sessions?.start_time || '')))
+    .map((b) => ({
+      id: b.id,
+      date: b.scheduled_date,
+      sessionName: b.master_ot_sessions?.name || '--',
+      startTime: b.master_ot_sessions?.start_time || null,
+      procedureName: b.surgical_cases?.procedure_name || '--',
+      eye: b.surgical_cases?.eye || '',
+      priority: b.surgical_cases?.priority || 'Routine',
+      patientName: b.surgical_cases?.patients ? `${b.surgical_cases.patients.first_name} ${b.surgical_cases.patients.last_name}` : '--',
+      uhid: b.surgical_cases?.patients?.uhid || '',
+      surgeonName: b.profiles?.full_name || null,
+    }));
 }
 
 export async function rescheduleOTSlot(otScheduleId, date, sessionId, reason) {
