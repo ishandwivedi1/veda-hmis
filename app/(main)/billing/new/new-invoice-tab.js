@@ -263,7 +263,7 @@ export default function NewInvoiceTab() {
   // (through this screen -> Finalize -> Collect Payment), unlike the
   // old auto-pay Package Billing tab.
   useEffect(() => {
-    if (!urlPkgCaseId || !contextPatient) return;
+    if (!urlPkgCaseId) return;
     if (pkgLoadedFor.current === urlPkgCaseId) return;
     pkgLoadedFor.current = urlPkgCaseId;
     (async () => {
@@ -271,11 +271,38 @@ export default function NewInvoiceTab() {
       if (result.error) { setError(result.error); return; }
       if (!result.item) return;
       const i = result.item;
+
+      // Establish patient/visit context directly from the package's own
+      // case data when nothing has set it yet -- Surgery Billing's "Bill
+      // Now" link only ever passes pkgCaseId, not visitId (a surgical
+      // case doesn't always have an open visit attached), so this can't
+      // rely on the urlVisitId effect above to have already run.
+      if (!contextPatient && i.patient) {
+        if (i.visitId) {
+          const details = await getVisitWithPatient(i.visitId);
+          if (!details.error) {
+            setContextPatient(details.visit.patients);
+            setContextVisit(details.visit);
+            const invResult = await getInvoicesForVisit(i.visitId);
+            setExistingInvoices(invResult.invoices || []);
+          }
+        } else {
+          setContextPatient(i.patient);
+        }
+        const visits = await getVisitsForPatient(i.patient.id);
+        setPatientVisits(visits);
+      }
+
       setPackageBreakup(i.breakup && i.breakup.length > 0 ? i.breakup : null);
       setSurgeryName(i.surgeryName || '');
       setSurgeryEyeField(i.surgeryEye || '');
       setSurgeryDoctorId(i.surgeonId || '');
-      const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
+      // Carry over the discount already recorded at Package Selection
+      // (Surgical Journey / Counselling / Register Surgery Directly) --
+      // previously always billed at the full package rate regardless of
+      // any discount on file for the case.
+      const discType = i.discount > 0 ? 'fixed' : 'none';
+      const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, discType, i.discount || 0);
       setDraftLines((prev) => [
         ...prev,
         {
@@ -283,7 +310,7 @@ export default function NewInvoiceTab() {
           sourcePkgCaseId: i.caseId,
           serviceCode: i.serviceCode, serviceName: i.name, dept: 'Surgery',
           qty: 1, rate: i.rate, gstPct: i.gstPct,
-          discType: 'none', discValue: 0, discReason: '',
+          discType, discValue: i.discount || 0, discReason: i.discount > 0 ? 'Package discount recorded at Package Selection' : '',
           ...computed,
         },
       ]);

@@ -556,7 +556,11 @@ export async function getDischargedUnbilledSurgeries() {
 }
 export async function getPackageForBilling(caseId) {
   const supabase = await createClient();
-  const { data: sc } = await supabase.from('surgical_cases').select('package_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price)').eq('id', caseId).maybeSingle();
+  const { data: sc } = await supabase
+    .from('surgical_cases')
+    .select('package_id, package_discount, visit_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price), patients:patient_id(id, first_name, last_name, uhid, mobile)')
+    .eq('id', caseId)
+    .maybeSingle();
   if (!sc?.master_packages) return { item: null };
 
   const { data: breakupItems } = await supabase
@@ -571,6 +575,9 @@ export async function getPackageForBilling(caseId) {
       serviceCode: sc.master_packages.code, rate: sc.master_packages.price, gstPct: 0,
       breakup: breakupItems || [],
       surgeryName: sc.procedure_name, surgeryEye: sc.eye, surgeonId: sc.surgeon_id, surgeonName: sc.profiles?.full_name || null,
+      discount: Number(sc.package_discount || 0),
+      patient: sc.patients || null,
+      visitId: sc.visit_id || null,
     },
   };
 }

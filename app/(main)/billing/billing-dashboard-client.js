@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import PendingBillingWidget from './pending-billing-widget';
 import RecentInvoicesTable from './recent-invoices-table';
@@ -82,6 +83,7 @@ function ScopeToggle({ todayOnly, onChange }) {
 }
 
 export default function BillingDashboardClient({ dischargedUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal }) {
+  const router = useRouter();
   // Needs Action starts collapsed -- it's the "here's what's still
   // outstanding" detail view, not the first thing a person should have
   // to scroll past to see today's invoices.
@@ -194,7 +196,7 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
                     {dischargedUnbilledShown.map((r) => {
                       const sc = r.surgical_cases;
                       return (
-                        <tr key={sc.id}>
+                        <tr key={sc.id} onClick={() => router.push(`/billing/new?pkgCaseId=${sc.id}`)} style={{ cursor: 'pointer' }}>
                           <td style={{ fontSize: 12 }}>{new Date(r.discharge_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
                           <td>
                             <strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong>
@@ -204,9 +206,9 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
                           <td style={{ fontSize: 12 }}>{sc.master_packages?.name || '--'}</td>
                           <td style={{ fontWeight: 600 }}>{RUPEE(sc.master_packages?.price)}</td>
                           <td>
-                            <Link href={`/billing/new?pkgCaseId=${sc.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                            <button type="button" className="btn btn-primary btn-sm" onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'none' }}>
                               <i className="ti ti-receipt"></i> Bill Now
-                            </Link>
+                            </button>
                           </td>
                         </tr>
                       );
