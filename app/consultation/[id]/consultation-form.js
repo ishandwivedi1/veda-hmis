@@ -41,6 +41,7 @@ import OptometryWorkspace from '@/app/(main)/optometry/[id]/optometry-workspace'
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
 import { PatientSnapshotBar, CarryForwardDiagnoses, VisitOutcomeSelector, NewInvestigationsSinceLastVisit, ContextSidebar } from './follow-up-panel';
 import { openPrintPopup } from '@/lib/printPopup';
+import ConfirmActionModal from '@/app/components/ConfirmActionModal';
 
 const WF_ITEMS = {
   Biometry: { icon: 'ti-ruler-measure', color: '#818cf8' },
@@ -125,6 +126,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForceClose, setShowForceClose] = useState(false);
+  // null | 'complete' | 'dilate' | 'investigate' | 'procedure' -- which
+  // of the bottom action bar's confirmation modals is currently open.
+  const [confirmAction, setConfirmAction] = useState(null);
   const [forceCloseReason, setForceCloseReason] = useState('');
   const [forceClosing, setForceClosing] = useState(false);
   const [showSurgery, setShowSurgery] = useState(false);
@@ -344,12 +348,16 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     refresh();
   }
 
-  async function handleSendForProcedure() {
+  function handleSendForProcedure() {
+    setConfirmAction('procedure');
+  }
+
+  async function runSendForProcedure() {
     setError('');
     setLoading(true);
     const result = await sendForProcedureFromConsultation(data.encounter.id);
     setLoading(false);
-    if (result.error) { setError(result.error); return; }
+    if (result.error) { setConfirmAction(null); setError(result.error); return; }
     finishAndClose();
   }
 
@@ -395,12 +403,16 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     router.push('/queue');
   }
 
-  async function handleComplete() {
+  function handleComplete() {
+    setConfirmAction('complete');
+  }
+
+  async function runComplete() {
     setError('');
     setLoading(true);
     const result = await completeConsultation(data.encounter.id, queueEntryId);
     setLoading(false);
-    if (result.error) { setError(result.error); return; }
+    if (result.error) { setConfirmAction(null); setError(result.error); return; }
     finishAndClose();
   }
 
@@ -453,14 +465,18 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     refresh();
   }
 
-  async function handleSendOut(kind) {
+  function handleSendOut(kind) {
+    setConfirmAction(kind === 'dilate' ? 'dilate' : 'investigate');
+  }
+
+  async function runSendOut(kind) {
     setError('');
     setLoading(true);
     const result = kind === 'dilate'
       ? await sendForDilationFromConsultation(queueEntryId, data.encounter.id)
       : await sendForInvestigationFromConsultation(queueEntryId, data.encounter.id);
     setLoading(false);
-    if (result.error) { setError(result.error); return; }
+    if (result.error) { setConfirmAction(null); setError(result.error); return; }
     finishAndClose();
   }
 
@@ -1184,6 +1200,51 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
               </button>
             )}
           </div>
+
+          {confirmAction === 'complete' && (
+            <ConfirmActionModal
+              icon="ti-circle-check" iconColor="var(--teal)" iconBg="rgba(13,148,136,.12)"
+              title="Complete Visit?"
+              description="This finalizes the consultation and closes this window. Make sure findings, diagnosis, and prescriptions are all saved before continuing."
+              confirmLabel="Yes, Complete Visit"
+              loading={loading}
+              onCancel={() => setConfirmAction(null)}
+              onConfirm={runComplete}
+            />
+          )}
+          {confirmAction === 'dilate' && (
+            <ConfirmActionModal
+              icon="ti-droplet" iconColor="var(--blue)" iconBg="var(--blue-lt)"
+              title="Send for Dilation?"
+              description="Routes the patient out for pupil dilation and closes this window. You'll pick the consultation back up once they return."
+              confirmLabel="Yes, Send for Dilation"
+              loading={loading}
+              onCancel={() => setConfirmAction(null)}
+              onConfirm={() => runSendOut('dilate')}
+            />
+          )}
+          {confirmAction === 'investigate' && (
+            <ConfirmActionModal
+              icon="ti-flask" iconColor="var(--purple)" iconBg="rgba(124,58,237,.12)"
+              title="Send for Investigation?"
+              description="Routes the patient for their pending investigation(s) and closes this window."
+              confirmLabel="Yes, Send for Investigation"
+              loading={loading}
+              onCancel={() => setConfirmAction(null)}
+              onConfirm={() => runSendOut('investigate')}
+            />
+          )}
+          {confirmAction === 'procedure' && (
+            <ConfirmActionModal
+              icon="ti-tool" iconColor="var(--amber)" iconBg="rgba(217,119,6,.12)"
+              title="Send for Procedure?"
+              description="Routes the patient for their pending procedure(s) and closes this window."
+              confirmLabel="Yes, Send for Procedure"
+              loading={loading}
+              onCancel={() => setConfirmAction(null)}
+              onConfirm={runSendForProcedure}
+            />
+          )}
 
           {/* Escape hatch -- for a visit that genuinely can't reach the
               diagnosis requirement above (patient left, no-show after
