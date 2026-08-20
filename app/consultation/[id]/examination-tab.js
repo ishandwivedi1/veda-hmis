@@ -38,7 +38,7 @@ const POST_SELECT_STRUCTS = ['CDR'];
 
 const REGIONS = {
   external: { structs: EXT_STRUCTS, templates: EXT_TEMPLATES, icon: 'ti-user', color: 'var(--g400)', title: 'External Examination', staged: false, multiSelect: true },
-  anterior: { structs: ANT_STRUCTS, templates: ANT_TEMPLATES, icon: 'ti-microscope', color: 'var(--teal)', title: 'Anterior Segment', staged: false },
+  anterior: { structs: ANT_STRUCTS, templates: ANT_TEMPLATES, icon: 'ti-microscope', color: 'var(--teal)', title: 'Anterior Segment', staged: false, multiSelect: true },
   posterior: {
     structsByStage: { without: POST_STRUCTS_WITHOUT, with: POST_STRUCTS_WITH },
     templates: POST_TEMPLATES, selectStructs: POST_SELECT_STRUCTS,
@@ -184,13 +184,12 @@ function StructRow({ struct, templates, eyeState, onSelect, onCustom, asSelect }
             key={opt}
             onClick={() => onSelect(opt)}
             style={{
-              padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', userSelect: 'none',
               border: `1.5px solid ${isSelected(opt) ? 'var(--blue)' : 'var(--g200)'}`,
               background: isSelected(opt) ? 'var(--blue)' : '#fff',
               color: isSelected(opt) ? '#fff' : 'var(--g600)',
             }}
           >
-            {isSelected(opt) && <i className="ti ti-check" style={{ fontSize: 10, marginRight: 3 }}></i>}
             {opt}
           </div>
         ))}

@@ -39,7 +39,7 @@ export default function Workspace({ visitId }) {
       const next = { ...prev };
       data.items.forEach((rx) => {
         if (rx.billing_status !== 'Pending') return;
-        if (!next[rx.id]) next[rx.id] = { drugId: rx.suggestedDrugId || '', qty: rx.qty || 1, discType: 'pct', discValue: 0 };
+        if (!next[rx.id]) next[rx.id] = { drugId: rx.suggestedDrugId || '', qty: rx.qty || 1, discType: 'fixed', discValue: 0 };
       });
       return next;
     });
@@ -242,11 +242,11 @@ export default function Workspace({ visitId }) {
                           <div style={{ display: 'flex', gap: 3 }}>
                             <select
                               className="fi fi-sm" style={{ width: 52, padding: '4px 2px' }}
-                              value={selections[rx.id]?.discType || 'pct'}
+                              value={selections[rx.id]?.discType || 'fixed'}
                               onChange={(e) => updateSelection(rx.id, 'discType', e.target.value)}
                             >
-                              <option value="pct">%</option>
                               <option value="fixed">Rs.</option>
+                              <option value="pct">%</option>
                             </select>
                             <input
                               type="number" min="0" className="fi fi-sm" style={{ width: 60 }}
