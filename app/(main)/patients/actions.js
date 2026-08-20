@@ -178,6 +178,20 @@ export async function registerAndCreateVisit(values) {
     return { patient: regResult.patient, visitError: visitResult.error };
   }
 
-  return { patient: regResult.patient, visit: visitResult.visit };
+  // Attach the assigned doctor's name so the success popup can show it
+  // -- createWalkInVisit now defaults this to Dr. Nisha Bachkheti when
+  // none is given (previously this call passed doctorId: null with no
+  // fallback, which left the OPD Case Sheet's doctor name blank at
+  // print time). Surfacing it here means front-desk sees it was
+  // actually assigned, right in the same popup, instead of only
+  // discovering it later on a printout.
+  let doctorName = null;
+  if (visitResult.visit?.doctor_id) {
+    const supabase = await createClient();
+    const { data: doctor } = await supabase.from('profiles').select('full_name').eq('id', visitResult.visit.doctor_id).maybeSingle();
+    doctorName = doctor?.full_name || null;
+  }
+
+  return { patient: regResult.patient, visit: { ...visitResult.visit, doctor_name: doctorName } };
 }
 

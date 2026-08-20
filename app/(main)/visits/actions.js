@@ -86,9 +86,30 @@ export async function checkInAppointment(appointmentId) {
 export async function createWalkInVisit(values) {
   const supabase = await createClient();
 
+  // A visit with no doctor assigned leaves the OPD Case Sheet's doctor
+  // name/reg-no blank at print time (visits.doctor_id is read directly).
+  // /visits/new's own form already resolves this default client-side
+  // before calling here, but Register & Create Visit (the Patient
+  // Registration page's one-click shortcut) was passing doctorId: null
+  // outright -- so the same default lives here too, server-side, to
+  // cover every caller uniformly rather than requiring each new caller
+  // to duplicate the same client-side lookup.
+  let doctorId = values.doctorId || null;
+  if (!doctorId) {
+    const { data: defaultDoctor } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('designation', 'Doctor')
+      .eq('status', 'Active')
+      .ilike('full_name', '%nisha bachkheti%')
+      .limit(1)
+      .maybeSingle();
+    doctorId = defaultDoctor?.id || null;
+  }
+
   const { data, error } = await supabase.rpc('create_walk_in_visit', {
     p_patient_id: values.patientId,
-    p_doctor_id: values.doctorId || null,
+    p_doctor_id: doctorId,
     p_visit_type: values.visitType,
     p_referral_source: values.referralSource || null,
     p_priority: values.priority || 'Routine',

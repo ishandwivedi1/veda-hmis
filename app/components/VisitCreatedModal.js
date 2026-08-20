@@ -24,7 +24,9 @@ export default function VisitCreatedModal({ title, subtitle, visit, onClose }) {
           </div>
         </div>
         <div style={{ fontSize: 13, color: 'var(--g600)', marginBottom: 18, lineHeight: 1.5 }}>
-          Visit {visit.visit_number ? <strong>{visit.visit_number}</strong> : 'has'} been created for today. Create the invoice now, or come back to it later from the Billing Dashboard.
+          Visit {visit.visit_number ? <strong>{visit.visit_number}</strong> : 'has'} been created for today.
+          {visit.doctor_name && <> Assigned to <strong>{visit.doctor_name}</strong>.</>}
+          {' '}Create the invoice now, or come back to it later from the Billing Dashboard.
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-sm" onClick={onClose}>Return to Dashboard</button>
