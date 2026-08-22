@@ -153,9 +153,13 @@ export async function getPharmacyWorkspace(visitId) {
       stepIds: sorted.map((s) => s.id),
       drug_name: first.drug_name,
       eye: first.eye,
-      dosage: [...new Set(sorted.map((s) => s.dosage))].join(' -> '),
-      duration: null,
-      plainFrequency: sorted.map((s) => `${plainFrequency(s.frequency)} x${s.duration}`).join(' -> ') + ', then stop',
+      // Structured, not a joined string -- dosage varies per step now,
+      // so a pharmacist needs each step's dosage/frequency/duration
+      // lined up together, not two separately-joined strings they have
+      // to mentally match back up (see Pharmacy Workspace's taper table).
+      steps: sorted.map((s, idx) => ({
+        step: idx + 1, dosage: s.dosage, frequency: plainFrequency(s.frequency), duration: s.duration,
+      })),
       billing_status: first.billing_status,
       status: first.status,
       qty: first.qty,

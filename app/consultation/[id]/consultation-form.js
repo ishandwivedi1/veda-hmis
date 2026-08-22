@@ -306,10 +306,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleAddTaperSchedule() {
     setError('');
     if (!rxDrug.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
-    if (!rxDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
-    // Any step left blank (e.g. one added before the doctor set a
-    // dosage) falls back to the main Dosage field's value.
+    // Dosage is per-step now -- any step left blank falls back to the
+    // main Dosage field's value, but the main field itself is no longer
+    // required on its own (a doctor may fill dosage only in the steps).
     const steps = taperSteps.map((s) => ({ ...s, dosage: s.dosage || rxDosage }));
+    if (steps.some((s) => !s.dosage.trim())) { setError('Select a dosage for every step of the tapering schedule.'); return; }
     const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, eye: rxIsOcular ? rxEye : 'Oral', steps });
     if (result.error) { setError(result.error); return; }
     setRxDrug(''); setRxDosage(''); setRxDrugTypeId(null); setRxIsOcular(true); setShowTaperBuilder(false);

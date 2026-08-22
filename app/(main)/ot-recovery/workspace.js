@@ -223,10 +223,11 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   async function handleAddTaperSchedule() {
     setError('');
     if (!medName.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
-    if (!medDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
-    // Any step left blank (e.g. one added before a dosage was set)
-    // falls back to the main Dosage field's value.
+    // Dosage is per-step now -- any step left blank falls back to the
+    // main Dosage field's value, but the main field itself is no longer
+    // required on its own.
     const steps = taperSteps.map((s) => ({ ...s, dosage: s.dosage || medDosage }));
+    if (steps.some((s) => !s.dosage.trim())) { setError('Select a dosage for every step of the tapering schedule.'); return; }
     const result = await addTaperedRecoveryMedication(episodeId, { name: medName, eye: medIsOcular ? medEye : 'Oral', steps }, medReason);
     if (result.error) { setError(result.error); return; }
     setMedName(''); setMedDosage(''); setMedDrugTypeId(null); setMedIsOcular(true); setMedReason(''); setShowTaperBuilder(false);

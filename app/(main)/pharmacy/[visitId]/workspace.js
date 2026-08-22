@@ -163,7 +163,7 @@ export default function Workspace({ visitId }) {
   const anyBillable = items.some((rx) => rx.billing_status === 'Pending');
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1180, margin: '0 auto' }}>
       <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={() => router.push('/pharmacy')}>
         <i className="ti ti-arrow-left"></i> Back to Dashboard
       </button>
@@ -228,9 +228,43 @@ export default function Workspace({ visitId }) {
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--g400)' }}>
-                          {rx.eye} &middot; {rx.dosage} &middot; {rx.plainFrequency}{rx.duration ? ` \u00b7 for ${rx.duration}` : ''}
-                        </div>
+                        {rx.isTaper ? (
+                          // Dosage, frequency, and duration can all differ
+                          // per step now -- a joined string ("2 tablets ->
+                          // 1 tablet" separate from "BD x1wk -> OD x1wk")
+                          // leaves the pharmacist guessing which dosage
+                          // pairs with which frequency. A real table
+                          // removes the ambiguity entirely.
+                          <div style={{ marginTop: 5, marginBottom: 4, border: '1px solid var(--purple)', borderRadius: 6, overflow: 'hidden' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                              <thead>
+                                <tr style={{ background: 'var(--purple-lt)' }}>
+                                  <th style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 700, width: 24, color: 'var(--purple)' }}>#</th>
+                                  <th style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 700, color: 'var(--purple)' }}>Dosage</th>
+                                  <th style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 700, color: 'var(--purple)' }}>Frequency</th>
+                                  <th style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 700, color: 'var(--purple)' }}>Duration</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rx.steps.map((s) => (
+                                  <tr key={s.step} style={{ borderTop: '1px solid var(--g100)' }}>
+                                    <td style={{ padding: '4px 8px', color: 'var(--g500)' }}>{s.step}</td>
+                                    <td style={{ padding: '4px 8px', fontWeight: 600 }}>{s.dosage}</td>
+                                    <td style={{ padding: '4px 8px' }}>{s.frequency}</td>
+                                    <td style={{ padding: '4px 8px' }}>{s.duration}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            <div style={{ padding: '4px 8px', fontSize: 10.5, color: 'var(--g500)', background: 'var(--g50)', borderTop: '1px solid var(--g100)' }}>
+                              Eye: {rx.eye} &middot; then stop
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: 'var(--g400)' }}>
+                            {rx.eye} &middot; {rx.dosage} &middot; {rx.plainFrequency}{rx.duration ? ` \u00b7 for ${rx.duration}` : ''}
+                          </div>
+                        )}
                         {isPending && rx.qtyComputed && (
                           <div style={{ fontSize: 10.5, color: 'var(--green)', marginTop: 2 }}>
                             <i className="ti ti-calculator"></i> Quantity computed from the {rx.isTaper ? 'full schedule' : 'dosage/frequency/duration'} -- verify before billing.
