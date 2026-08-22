@@ -318,6 +318,12 @@ export async function saveHistory(encounterId, fields) {
   const { error } = await supabase
     .from('encounters')
     .update({
+      // chief_complaint_entries is the source of truth (multiple
+      // complaints, each with its own duration/laterality). The four
+      // flat fields below are kept in sync as a derived summary for
+      // older readers (visit list preview, follow-up panel, visit
+      // summary print) that only expect a single complaint string.
+      chief_complaint_entries: fields.chiefComplaintEntries,
       chief_complaint: fields.chiefComplaint,
       chief_complaint_chips: fields.chiefComplaintChips,
       hx_duration: fields.hxDuration,
