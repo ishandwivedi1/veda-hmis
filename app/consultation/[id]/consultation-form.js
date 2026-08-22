@@ -134,7 +134,14 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [showSurgery, setShowSurgery] = useState(false);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
-  const [surgeryPreOp, setSurgeryPreOp] = useState('Both');
+  // Only IOL/lens surgeries (cataract, etc.) actually need Biometry --
+  // most surgeries (pterygium, DCR, chalazion, oculoplasty, and so on)
+  // don't. Defaults to None so nothing is required unless the doctor
+  // deliberately opts in for a case that needs it -- this used to
+  // default to 'Both' with no way to change it from this form at all
+  // (the select below didn't exist), silently requiring biometry &
+  // fitness clearance for every single surgery regardless of type.
+  const [surgeryPreOp, setSurgeryPreOp] = useState('None');
   const [surgeryNotes, setSurgeryNotes] = useState('');
   const [surgeryDecision, setSurgeryDecision] = useState('');
   const [editingSurgicalCaseId, setEditingSurgicalCaseId] = useState(null);
@@ -448,6 +455,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
     setSurgeryProcedure('');
+    setSurgeryPreOp('None');
     setSurgeryNotes('');
     setSurgeryDecision('');
     refresh();
@@ -1012,6 +1020,15 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                               </select>
                             </div>
                             <div style={{ marginBottom: 8 }}>
+                              <label className="flbl">Pre-Op Requirement</label>
+                              <select className="fi" value={editSurgeryPreOp} onChange={(e) => setEditSurgeryPreOp(e.target.value)}>
+                                <option value="None">None -- neither Biometry nor Medical Fitness needed</option>
+                                <option value="Biometry">Biometry only</option>
+                                <option value="Medical Fitness">Medical Fitness only</option>
+                                <option value="Both">Both Biometry &amp; Medical Fitness</option>
+                              </select>
+                            </div>
+                            <div style={{ marginBottom: 8 }}>
                               <label className="flbl">Notes</label>
                               <input className="fi" placeholder="Any notes for this surgery recommendation..." value={editSurgeryNotes} onChange={(e) => setEditSurgeryNotes(e.target.value)} />
                             </div>
@@ -1082,6 +1099,18 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <select className="fi" value={surgeryEye} onChange={(e) => setSurgeryEye(e.target.value)} style={{ width: 110 }}>
                         <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
                       </select>
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label className="flbl">Pre-Op Requirement</label>
+                      <select className="fi" value={surgeryPreOp} onChange={(e) => setSurgeryPreOp(e.target.value)}>
+                        <option value="None">None -- neither Biometry nor Medical Fitness needed</option>
+                        <option value="Biometry">Biometry only</option>
+                        <option value="Medical Fitness">Medical Fitness only</option>
+                        <option value="Both">Both Biometry &amp; Medical Fitness</option>
+                      </select>
+                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
+                        Only IOL/lens surgeries (e.g. cataract) need Biometry -- most surgeries (pterygium, DCR, chalazion, oculoplasty, etc.) don't. This is what Counselling requires before an OT date can be booked, so leave it at None unless this case genuinely needs it.
+                      </div>
                     </div>
                     <div style={{ marginBottom: 8 }}>
                       <label className="flbl">Notes</label>
