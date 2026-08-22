@@ -2,6 +2,40 @@
 
 import { createClient } from '@/lib/supabase-server';
 
+// ============================================================================
+// DO NOT DELETE OR MOVE THIS FILE.
+//
+// The Counselling *page* (app/(main)/counselling/page.js) was removed from
+// the sidebar nav and the Front Office Dashboard link on 2026-08-22 -- its
+// responsibilities were absorbed into Surgical Journey's own workspace.
+// But THIS FILE is not the Counselling page's private backend -- it is the
+// shared engine for the entire surgical case lifecycle, imported directly
+// by other live modules:
+//
+//   Consultation (app/consultation/[id]/consultation-form.js):
+//     markForSurgery, updateSurgicalCase, setDecision
+//
+//   Surgical Journey (app/(main)/surgical-journey/[id]/workspace.js):
+//     selectPackage, changePackage, updatePackageDiscount, getPackagesForCase,
+//     setDecision, markReadyForScheduling, bookOTSlot, getSurgeons
+//
+//   Surgical Journey (app/(main)/surgical-journey/actions.js):
+//     markForSurgery, setDecision
+//
+// Deleting or moving this file breaks surgery creation, package/billing
+// selection, the Ready-for-Scheduling gate, and OT slot booking across the
+// whole app -- not just Counselling. If a future cleanup wants this file
+// gone, first re-point every import above at wherever its logic moves to,
+// then verify with a full build before removing anything.
+//
+// A handful of functions below (biometry skip/unskip with an audit reason,
+// counselling-specific investigation ordering, case notes, the counselling
+// case list/history, mark-fitness-cleared, mark-investigations-complete,
+// refer-back-to-doctor) are genuinely only used by the now-unlinked
+// Counselling page and have no other caller -- those are safe to remove
+// later if/when the page itself is deleted, unlike everything listed above.
+// ============================================================================
+//
 // This file replaces the old "Surgical Coordination" module's actions file.
 // Booking an OT slot is the last step of the counselling workspace (see
 // bookOTSlot/getOTAvailability below). The calendar view itself, plus
