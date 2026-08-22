@@ -1,7 +1,6 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
-import { addInvestigationToSurgicalCase } from '@/lib/surgicalCaseInvestigations';
 
 // ============================================================================
 // DO NOT DELETE OR MOVE THIS FILE.
@@ -45,13 +44,19 @@ import { addInvestigationToSurgicalCase } from '@/lib/surgicalCaseInvestigations
 // completeOT), not here.
 // The following exports are used by OTHER modules and MUST keep the same
 // name + signature:
-//   markForSurgery(patientId, encounterId, procedureName, eye, investigations, fitnessRequired, notes, decision)
-//   updateSurgicalCase(caseId, procedureName, eye, investigations, fitnessRequired, notes)
+//   markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision)
+//   updateSurgicalCase(caseId, procedureName, eye, investigations, notes)
 //     -- imported by app/(main)/consultation/[id]/consultation-form.js
 //     -- investigations is [{name, eye}], the doctor's indicative pre-op
 //        investigations (see consultation-form.js's "Pre Op Requirement"
-//        field) -- forwarded into real investigation_orders via
-//        lib/surgicalCaseInvestigations.js, not stored here only.
+//        field), stored on indicative_investigations. NOT auto-ordered
+//        here -- Surgical Journey's Investigations step reads that
+//        column and shows them as one-click suggestions; the actual
+//        investigation_orders row only gets created when someone acts
+//        on it there (see lib/surgicalCaseInvestigations.js and
+//        surgical-journey/[id]/workspace.js's InvestigationsSection).
+//     -- fitness_required is always true (every surgical case needs
+//        Medical Fitness clearance) -- no per-case choice.
 // Everything else below is used only within the Counselling module.
 
 // ── Sending a patient to an ancillary service (Biometry, Dilation, ...)
@@ -149,9 +154,9 @@ export async function sendForDilation(caseId) {
 // surgery, as long as Counselling hasn't already started working with
 // it -- once package/decision work is underway, changes should go
 // through Counselling instead to avoid corrupting what's already locked.
-export async function updateSurgicalCase(caseId, procedureName, eye, investigations, fitnessRequired, notes) {
+export async function updateSurgicalCase(caseId, procedureName, eye, investigations, notes) {
   const supabase = await createClient();
-  const { data: sc } = await supabase.from('surgical_cases').select('status, encounter_id, patient_id, visit_id, indicative_investigations').eq('id', caseId).single();
+  const { data: sc } = await supabase.from('surgical_cases').select('status').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
   if (sc.status !== 'Pending Workup') {
     return { error: `This case has already moved to "${sc.status}" -- further changes should go through Counselling.` };
@@ -163,27 +168,13 @@ export async function updateSurgicalCase(caseId, procedureName, eye, investigati
     update.indicative_investigations = cleanInvestigations;
     update.biometry_required = cleanInvestigations.some((i) => i.name.trim().toLowerCase() === 'biometry');
   }
-  if (fitnessRequired !== undefined) update.fitness_required = !!fitnessRequired;
 
   const { error } = await supabase.from('surgical_cases').update(update).eq('id', caseId);
   if (error) return { error: error.message };
-
-  // Only forward investigations the doctor just added -- re-forwarding
-  // ones already sent on an earlier save would resurrect anything staff
-  // deliberately removed in Surgical Journey since then, which isn't
-  // "editable" in any useful sense.
-  if (investigations !== undefined) {
-    const already = new Set((sc.indicative_investigations || []).map((i) => `${i.name?.trim().toLowerCase()}|${i.eye || 'OU'}`));
-    const newlyAdded = cleanInvestigations.filter((i) => !already.has(`${i.name.trim().toLowerCase()}|${i.eye || 'OU'}`));
-    for (const inv of newlyAdded) {
-      await addInvestigationToSurgicalCase(supabase, sc, inv.name, inv.eye);
-    }
-  }
-
   return { success: true };
 }
 
-export async function markForSurgery(patientId, encounterId, procedureName, eye, investigations, fitnessRequired, notes, decision) {
+export async function markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision) {
   const supabase = await createClient();
 
   if (decision && !DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
@@ -223,13 +214,17 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
   // elsewhere in Consultation (see consultation-form.js's "Pre Op
   // Requirement" field) -- Biometry is just one more entry in that
   // list, not a separate hardcoded flag. biometry_required is derived
-  // from whether "Biometry" is among them; fitness_required is its own
-  // checkbox since Medical Fitness is a clearance workflow, not
-  // something orderable from the Investigations master.
+  // from whether "Biometry" is among them. These are indicative only --
+  // NOT auto-ordered here. Surgical Journey's Investigations step reads
+  // indicative_investigations to show them as one-click suggestions;
+  // the actual investigation_orders row only gets created when someone
+  // acts on that suggestion there (see addInHouseInvestigationForCase).
+  // Medical Fitness clearance is required for every surgical case, no
+  // per-case choice.
   const cleanInvestigations = (investigations || []).filter((i) => i?.name?.trim());
   const biometryRequired = cleanInvestigations.some((i) => i.name.trim().toLowerCase() === 'biometry');
 
-  const { data: newCase, error } = await supabase.from('surgical_cases').insert({
+  const { error } = await supabase.from('surgical_cases').insert({
     patient_id: patientId,
     encounter_id: encounterId,
     visit_id: encounter?.visit_id || null,
@@ -238,7 +233,7 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     eye,
     priority,
     biometry_required: biometryRequired,
-    fitness_required: !!fitnessRequired,
+    fitness_required: true,
     indicative_investigations: cleanInvestigations,
     notes: notes || null,
     // Patient's initial reaction, captured right here in OPD -- the
@@ -249,19 +244,8 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     // first change.
     decision: decision || null,
     decision_locked: decision === 'Accepted',
-  }).select('id, encounter_id, patient_id, visit_id').single();
+  });
   if (error) return { error: error.message };
-
-  // Forward the doctor's indicative investigations into real orders
-  // right away -- by the time anyone opens Surgical Journey, they're
-  // already there, pre-filled and individually editable/removable
-  // (see InvestigationsSection there), not just a note someone has to
-  // re-type. Best-effort per item: one failing (e.g. Biometry already
-  // ordered from a prior visit) shouldn't block the surgery from being
-  // marked.
-  for (const inv of cleanInvestigations) {
-    await addInvestigationToSurgicalCase(supabase, newCase, inv.name, inv.eye);
-  }
 
   return { success: true };
 }

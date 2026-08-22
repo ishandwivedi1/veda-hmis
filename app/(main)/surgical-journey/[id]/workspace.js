@@ -491,6 +491,36 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
         Optional -- add whatever this case actually needs, not a fixed checklist.
       </div>
 
+      {(() => {
+        // The doctor's indicative picks from Consultation's "Pre Op
+        // Requirement" field -- one-click suggestions, not
+        // auto-ordered. Filters out anything already ordered so a
+        // suggestion doesn't linger after it's been acted on (or was
+        // never relevant here in the first place).
+        const already = new Set(inHouseInvestigations.map((inv) => `${inv.name.trim().toLowerCase()}|${inv.eye}`));
+        const suggestions = (sc.indicative_investigations || []).filter(
+          (inv) => inv?.name?.trim() && !already.has(`${inv.name.trim().toLowerCase()}|${inv.eye || 'OU'}`)
+        );
+        if (suggestions.length === 0) return null;
+        return (
+          <div style={{ marginBottom: 14, padding: 10, background: 'var(--purple-lt)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--purple)', marginBottom: 6 }}>
+              <i className="ti ti-bulb"></i> Suggested from Consultation -- click to order
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {suggestions.map((inv, idx) => (
+                <button
+                  key={idx} type="button" className="btn btn-sm"
+                  onClick={() => onAction(addInHouseInvestigationForCase)(sc.id, inv.name, inv.eye || 'OU')}
+                >
+                  <i className="ti ti-plus"></i> {inv.name} ({inv.eye || 'OU'})
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>In-House Investigations</div>
         <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>Anything we do ourselves -- including Biometry, whatever the doctor feels this case needs.</div>

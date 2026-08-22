@@ -383,8 +383,8 @@ export async function getSurgicalCaseDetail(caseId) {
 // Thin wrapper so the new page's "Advise Surgery" button doesn't need
 // to import from Consultation directly -- same underlying function,
 // same surgical_cases row Counselling already reads.
-export async function adviseSurgery(patientId, encounterId, procedureName, eye, investigations, fitnessRequired, notes, decision) {
-  return markForSurgery(patientId, encounterId, procedureName, eye, investigations, fitnessRequired, notes, decision);
+export async function adviseSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision) {
+  return markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision);
 }
 
 // ── INVESTIGATIONS (Step 3) ────────────────────────────────────────
