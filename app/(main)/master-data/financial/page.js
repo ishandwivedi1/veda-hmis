@@ -7,7 +7,7 @@ import {
   getPackages, addPackage, updatePackage, deletePackage,
   getPackageLineItems, addPackageLineItem, removePackageLineItem,
   getDrugs, addDrug, updateDrug, deleteDrug,
-  getDrugTypes, addDrugType, updateDrugType, updateDrugTypeOcular, deleteDrugType,
+  getDrugTypes, addDrugType, updateDrugType, updateDrugTypeOcular, updateDrugTypeCountable, deleteDrugType,
   getDosageOptions, addDosageOption, removeDosageOption,
   getVendorsMaster, addVendorMaster, updateVendorMaster, deleteVendorMaster,
   getSurgeries,
@@ -445,7 +445,7 @@ export default function FinancialMastersPage() {
               {showTypesPanel && (
                 <div style={{ marginTop: 12 }}>
                   <div className="msg-info" style={{ marginBottom: 12 }}>
-                    <i className="ti ti-info-circle"></i> Each type&apos;s dosage options are what shows up in the doctor&apos;s Prescription dosage dropdown when a drug of that type is selected -- e.g. &quot;Apply thin layer&quot; for Eye Ointment instead of &quot;1 drop&quot;. The &quot;Eye medication&quot; toggle controls whether Prescription/Discharge medication forms ask for an Eye (RE/LE/BE) -- turn it off for tablets, capsules, syrups, injections, and anything else taken systemically.
+                    <i className="ti ti-info-circle"></i> Each type&apos;s dosage options are what shows up in the doctor&apos;s Prescription dosage dropdown when a drug of that type is selected -- e.g. &quot;Apply thin layer&quot; for Eye Ointment instead of &quot;1 drop&quot;. The &quot;Eye medication&quot; toggle controls whether Prescription/Discharge medication forms ask for an Eye (RE/LE/BE) -- turn it off for tablets, capsules, syrups, injections, and anything else taken systemically. The &quot;Countable&quot; toggle controls how Pharmacy quantities are computed -- on for Tablet/Capsule (dosage x frequency x duration is summed into one quantity, including across a tapering schedule), off for anything dispensed as a single bottle/tube/vial regardless of dose (drops, ointment, gel, syrup, injection).
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
                     <input className="fi" style={{ maxWidth: 260 }} placeholder="New type name (e.g. Suspension)" value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} />
@@ -466,6 +466,10 @@ export default function FinancialMastersPage() {
                         <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--g600)', cursor: 'pointer' }} title="Whether this type is applied to the eye (drops, ointments) -- controls whether Prescription/Discharge medication forms ask for Eye">
                           <input type="checkbox" checked={!!t.is_ocular} onChange={(e) => updateDrugTypeOcular(t.id, e.target.checked).then(refresh)} />
                           Eye medication
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--g600)', cursor: 'pointer' }} title="Whether Pharmacy computes a total quantity from dosage x frequency x duration (Tablet, Capsule) vs always dispensing a single bottle/tube/vial regardless of dose (drops, ointment, gel, syrup, injection)">
+                          <input type="checkbox" checked={!!t.is_countable} onChange={(e) => updateDrugTypeCountable(t.id, e.target.checked).then(refresh)} />
+                          Countable
                         </label>
                         <span style={{ marginLeft: 'auto' }}><StatusToggle record={t} table="master_drug_types" onUpdate={refresh} /></span>
                       </div>

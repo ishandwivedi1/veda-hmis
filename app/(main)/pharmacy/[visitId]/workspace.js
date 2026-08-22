@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   getPharmacyWorkspace,
   billPharmacyItems,
-  dispensePrescription,
+  dispenseAllForVisit,
   markPrescriptionDenied,
   markPrescriptionDeferred,
   resetPrescriptionBilling,
@@ -39,7 +39,11 @@ export default function Workspace({ visitId }) {
       const next = { ...prev };
       data.items.forEach((rx) => {
         if (rx.billing_status !== 'Pending') return;
-        if (!next[rx.id]) next[rx.id] = { drugId: rx.suggestedDrugId || '', qty: rx.qty || 1, discType: 'fixed', discValue: 0 };
+        // suggestedQty is Pharmacy's computed default -- a single unit
+        // for bottle/tube forms, or dosage x frequency x duration
+        // (summed across every step for a tapering schedule) for
+        // tablets/capsules. Always editable, never locked.
+        if (!next[rx.id]) next[rx.id] = { drugId: rx.suggestedDrugId || '', qty: rx.suggestedQty ?? rx.qty ?? 1, discType: 'fixed', discValue: 0 };
       });
       return next;
     });
@@ -106,7 +110,7 @@ export default function Workspace({ visitId }) {
       const t = lineTotal(rx);
       if (!t) { setError(`Pick a catalog match and quantity for ${rx.drug_name} before billing.`); return; }
       payload.push({
-        prescriptionId: rx.id,
+        prescriptionIds: rx.stepIds,
         drugName: rx.drug_name,
         serviceCode: t.drug.code,
         rate: t.drug.rate,
@@ -133,16 +137,21 @@ export default function Workspace({ visitId }) {
     refresh();
   }
 
-  async function handleDispense(rxId) {
+  async function handleDispense(rx) {
     setError('');
-    const result = await dispensePrescription(rxId);
+    // A tapering schedule's steps dispense together in one action --
+    // stepIds is a single-element array for a non-taper item, so this
+    // works identically either way.
+    const result = await dispenseAllForVisit(rx.stepIds);
     if (result.error) { setError(result.error); return; }
     refresh();
   }
 
-  async function handleAction(fn, rxId) {
+  async function handleAction(fn, rx) {
     setError('');
-    const result = await fn(rxId, noteDraft[rxId] || '');
+    // rx.id is a taper_group_id (not a real prescriptions.id) for a
+    // grouped tapering schedule -- act on every underlying step.
+    const result = await fn(rx.stepIds, noteDraft[rx.id] || '');
     if (result.error) { setError(result.error); return; }
     setExpandedNoteId(null);
     refresh();
@@ -211,8 +220,27 @@ export default function Workspace({ visitId }) {
                       </td>
                       <td>{i + 1}</td>
                       <td>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{rx.drug_name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--g400)' }}>{rx.eye} &middot; {rx.dosage} &middot; {rx.plainFrequency} &middot; for {rx.duration}</div>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                          {rx.drug_name}
+                          {rx.isTaper && (
+                            <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}>
+                              <i className="ti ti-chart-line"></i> Tapering
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--g400)' }}>
+                          {rx.eye} &middot; {rx.dosage} &middot; {rx.plainFrequency}{rx.duration ? ` \u00b7 for ${rx.duration}` : ''}
+                        </div>
+                        {isPending && rx.qtyComputed && (
+                          <div style={{ fontSize: 10.5, color: 'var(--green)', marginTop: 2 }}>
+                            <i className="ti ti-calculator"></i> Quantity computed from the {rx.isTaper ? 'full schedule' : 'dosage/frequency/duration'} -- verify before billing.
+                          </div>
+                        )}
+                        {isPending && rx.needsManualQty && (
+                          <div style={{ fontSize: 10.5, color: 'var(--amber)', marginTop: 2 }}>
+                            <i className="ti ti-alert-triangle"></i> {rx.taperNote}
+                          </div>
+                        )}
                         {isPending && (
                           <select
                             className="fi fi-sm"
@@ -271,10 +299,10 @@ export default function Workspace({ visitId }) {
                           </button>
                         )}
                         {rx.billing_status === 'Billed' && rx.status !== 'Dispensed' && (
-                          <button className="btn" style={{ padding: '2px 8px', fontSize: 10 }} onClick={() => handleDispense(rx.id)}>Dispense</button>
+                          <button className="btn" style={{ padding: '2px 8px', fontSize: 10 }} onClick={() => handleDispense(rx)}>Dispense</button>
                         )}
                         {isActioned && (
-                          <button className="btn" style={{ padding: '2px 8px', fontSize: 10 }} onClick={() => handleAction(resetPrescriptionBilling, rx.id)}>Undo</button>
+                          <button className="btn" style={{ padding: '2px 8px', fontSize: 10 }} onClick={() => handleAction(resetPrescriptionBilling, rx)}>Undo</button>
                         )}
                       </td>
                     </tr>
@@ -287,10 +315,10 @@ export default function Workspace({ visitId }) {
                               value={noteDraft[rx.id] || ''}
                               onChange={(e) => setNoteDraft((prev) => ({ ...prev, [rx.id]: e.target.value }))}
                             />
-                            <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={() => handleAction(markPrescriptionDenied, rx.id)}>
+                            <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={() => handleAction(markPrescriptionDenied, rx)}>
                               Declined / Bought Elsewhere
                             </button>
-                            <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={() => handleAction(markPrescriptionDeferred, rx.id)}>
+                            <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={() => handleAction(markPrescriptionDeferred, rx)}>
                               Deferred
                             </button>
                           </div>

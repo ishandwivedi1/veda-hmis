@@ -146,15 +146,14 @@ export async function addRecoveryMedication(episodeId, values, reason) {
   return { success: true };
 }
 
-// Tapering schedule -- same drug and dosage-per-administration across
-// steps as Consultation's tapering builder (the amount per dose stays
-// the same, only the frequency reduces over time), each step a
-// separate row sharing one taper_group_id.
+// Tapering schedule -- same drug across steps as Consultation's
+// tapering builder, but dosage, frequency, and duration can all vary
+// per step (e.g. 2 tablets tapering down to 1), each step a separate
+// row sharing one taper_group_id.
 export async function addTaperedRecoveryMedication(episodeId, values, reason) {
   const supabase = await createClient();
   if (!values.name?.trim()) return { error: 'Medicine name is required.' };
-  if (!values.dosage?.trim()) return { error: 'Dosage is required.' };
-  const steps = (values.steps || []).filter((s) => s.frequency && s.duration);
+  const steps = (values.steps || []).filter((s) => s.frequency && s.duration && s.dosage);
   if (steps.length < 2) return { error: 'A tapering schedule needs at least 2 steps.' };
 
   const { data: userData } = await supabase.auth.getUser();
@@ -162,8 +161,8 @@ export async function addTaperedRecoveryMedication(episodeId, values, reason) {
   const rows = steps.map((s, i) => ({
     recovery_episode_id: episodeId,
     name: values.name.trim(),
-    dosage: values.dosage, frequency: s.frequency, duration: s.duration, eye: values.eye || null,
-    sig: composeSig(values.dosage, s.frequency, s.duration),
+    dosage: s.dosage, frequency: s.frequency, duration: s.duration, eye: values.eye || null,
+    sig: composeSig(s.dosage, s.frequency, s.duration),
     reason: reason?.trim() || null,
     taper_group_id: taperGroupId, taper_step: i + 1,
     added_by: userData?.user?.id || null,

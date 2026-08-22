@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase-server';
 import { logJourneyEvent } from '@/lib/journey-events';
 import { plainFrequency } from '@/lib/prescriptionFormatting';
+import { computeDispenseQty } from '@/lib/pharmacyQuantity';
 
 function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -78,24 +79,97 @@ export async function getPharmacyWorkspace(visitId) {
       .select('*, invoice_line_items(qty, rate, disc, gst_pct, net), encounters!inner(visit_id)')
       .eq('encounters.visit_id', visitId)
       .order('created_at', { ascending: true }),
-    supabase.from('master_drugs').select('*').eq('status', 'Active').order('generic'),
+    supabase.from('master_drugs').select('*, master_drug_types(id, name, is_countable)').eq('status', 'Active').order('generic'),
   ]);
 
   // Suggest the closest catalog match per prescription so the
   // pharmacist isn't hunting through the whole drug list for every
   // line -- same ilike logic the auto-bill RPC already uses, just
   // surfaced here before billing instead of silently applied after.
-  // Also carries the doctor's exact instructions in plain language
-  // (same translation used on patient-facing prints) so the
-  // pharmacist sees precisely what to explain at the counter, not
-  // just the medical shorthand.
-  const items = (prescriptions || []).map((rx) => {
-    const match = (drugCatalog || []).find(
-      (d) => rx.drug_name?.toLowerCase().includes(d.generic?.toLowerCase()) ||
-             (d.brand && rx.drug_name?.toLowerCase().includes(d.brand.toLowerCase()))
+  function matchCatalog(drugName) {
+    return (drugCatalog || []).find(
+      (d) => drugName?.toLowerCase().includes(d.generic?.toLowerCase()) ||
+             (d.brand && drugName?.toLowerCase().includes(d.brand.toLowerCase()))
     );
-    return { ...rx, suggestedDrugId: match?.id || null, plainFrequency: plainFrequency(rx.frequency) };
+  }
+
+  // A tapering schedule is N rows in `prescriptions` (one per step) so
+  // it prints and edits cleanly, but Pharmacy shouldn't turn that into
+  // N separate purchases/dispenses -- the patient needs one bottle of
+  // eye drops, or one computed total of tablets, not four. Group rows
+  // sharing a taper_group_id into a single pharmacy line, and compute
+  // a suggested quantity from the whole schedule (see
+  // lib/pharmacyQuantity.js). Only groups still fully Pending are
+  // merged this way -- a group with mixed billing/dispensing status
+  // (only possible from before this grouping existed) is left as
+  // individual rows exactly as it always was, rather than guessing how
+  // to reconcile already-processed history.
+  const byTaperGroup = {};
+  const standaloneRows = [];
+  (prescriptions || []).forEach((rx) => {
+    if (rx.taper_group_id) {
+      (byTaperGroup[rx.taper_group_id] ||= []).push(rx);
+    } else {
+      standaloneRows.push(rx);
+    }
   });
+
+  function buildStandaloneItem(rx) {
+    const match = matchCatalog(rx.drug_name);
+    const isCountable = !!match?.master_drug_types?.is_countable;
+    const suggestion = rx.billing_status === 'Pending'
+      ? computeDispenseQty([{ dosage: rx.dosage, frequency: rx.frequency, duration: rx.duration }], isCountable)
+      : null;
+    return {
+      ...rx,
+      isTaper: false,
+      stepIds: [rx.id],
+      suggestedDrugId: match?.id || null,
+      plainFrequency: plainFrequency(rx.frequency),
+      suggestedQty: suggestion?.qty ?? null,
+      qtyComputed: suggestion?.computed ?? false,
+      needsManualQty: suggestion?.needsManualEntry ?? false,
+      taperNote: suggestion?.reason || null,
+    };
+  }
+
+  const items = standaloneRows.map(buildStandaloneItem);
+
+  Object.values(byTaperGroup).forEach((steps) => {
+    const sorted = [...steps].sort((a, b) => (a.taper_step || 0) - (b.taper_step || 0));
+    const consistentStatus = sorted.every((s) => s.billing_status === sorted[0].billing_status && s.status === sorted[0].status);
+    if (!consistentStatus) {
+      sorted.forEach((rx) => items.push(buildStandaloneItem(rx)));
+      return;
+    }
+    const first = sorted[0];
+    const match = matchCatalog(first.drug_name);
+    const isCountable = !!match?.master_drug_types?.is_countable;
+    const suggestion = first.billing_status === 'Pending' ? computeDispenseQty(sorted, isCountable) : null;
+    items.push({
+      id: first.taper_group_id,
+      taper_group_id: first.taper_group_id,
+      isTaper: true,
+      stepIds: sorted.map((s) => s.id),
+      drug_name: first.drug_name,
+      eye: first.eye,
+      dosage: [...new Set(sorted.map((s) => s.dosage))].join(' -> '),
+      duration: null,
+      plainFrequency: sorted.map((s) => `${plainFrequency(s.frequency)} x${s.duration}`).join(' -> ') + ', then stop',
+      billing_status: first.billing_status,
+      status: first.status,
+      qty: first.qty,
+      invoice_line_items: first.invoice_line_items,
+      created_at: first.created_at,
+      suggestedDrugId: match?.id || null,
+      suggestedQty: suggestion?.qty ?? null,
+      qtyComputed: suggestion?.computed ?? false,
+      needsManualQty: suggestion?.needsManualEntry ?? false,
+      taperNote: suggestion?.reason || null,
+    });
+  });
+
+  items.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   return {
     visit,
@@ -157,7 +231,12 @@ export async function billPharmacyItems(visitId, items) {
       .single();
     if (lineError) return { error: lineError.message };
 
-    await supabase
+    // A tapering schedule bills as ONE line item covering every step --
+    // every underlying prescriptions row (one per step) is updated to
+    // point at that same line item and quantity, not just the first.
+    // Non-taper items just have a single id here.
+    const ids = item.prescriptionIds && item.prescriptionIds.length > 0 ? item.prescriptionIds : [item.prescriptionId];
+    const { error: updError } = await supabase
       .from('prescriptions')
       .update({
         billing_status: 'Billed',
@@ -166,7 +245,8 @@ export async function billPharmacyItems(visitId, items) {
         invoice_line_item_id: line.id,
         billing_updated_at: new Date().toISOString(),
       })
-      .eq('id', item.prescriptionId);
+      .in('id', ids);
+    if (updError) return { error: updError.message };
   }
 
   await supabase.rpc('recompute_invoice_totals', { p_invoice_id: invoice.id });
@@ -284,9 +364,14 @@ export async function getPendingPrescriptionsForFrontOffice() {
   return Object.values(groups);
 }
 
-async function setPrescriptionBillingStatus(id, billingStatus, note) {
+// Accepts either a single prescription id or an array -- a tapering
+// schedule's Decline/Defer/Undo acts on every step together, since the
+// Pharmacy Workspace's "id" for a taper group is its taper_group_id,
+// not a row in `prescriptions`.
+async function setPrescriptionBillingStatus(idOrIds, billingStatus, note) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
+  const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
   const { error } = await supabase
     .from('prescriptions')
     .update({
@@ -295,22 +380,22 @@ async function setPrescriptionBillingStatus(id, billingStatus, note) {
       billing_updated_by: userData?.user?.id || null,
       billing_updated_at: new Date().toISOString(),
     })
-    .eq('id', id);
+    .in('id', ids);
   if (error) return { error: error.message };
   return { success: true };
 }
 
-export async function markPrescriptionDenied(id, note) {
-  return setPrescriptionBillingStatus(id, 'Denied', note);
+export async function markPrescriptionDenied(idOrIds, note) {
+  return setPrescriptionBillingStatus(idOrIds, 'Denied', note);
 }
 
-export async function markPrescriptionDeferred(id, note) {
-  return setPrescriptionBillingStatus(id, 'Deferred', note);
+export async function markPrescriptionDeferred(idOrIds, note) {
+  return setPrescriptionBillingStatus(idOrIds, 'Deferred', note);
 }
 
 // Undo a Denied/Deferred mark -- puts it back in the Front Office queue.
-export async function resetPrescriptionBilling(id) {
-  return setPrescriptionBillingStatus(id, 'Pending', null);
+export async function resetPrescriptionBilling(idOrIds) {
+  return setPrescriptionBillingStatus(idOrIds, 'Pending', null);
 }
 
 

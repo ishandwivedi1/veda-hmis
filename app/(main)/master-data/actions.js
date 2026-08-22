@@ -188,6 +188,18 @@ export async function updateDrugTypeOcular(id, isOcular) {
   if (error) return { error: error.message };
   return { success: true };
 }
+// Whether this type's dosage text is a discrete per-administration
+// count (Tablet: "1 tablet", Capsule: "2 capsules") that Pharmacy can
+// multiply by frequency x duration to compute a total quantity to
+// dispense -- vs a bottle/tube/vial form (drops, ointment, gel, syrup,
+// injection) that always dispenses as a single unit. See
+// lib/pharmacyQuantity.js for the computation itself.
+export async function updateDrugTypeCountable(id, isCountable) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('master_drug_types').update({ is_countable: isCountable }).eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
 export async function deleteDrugType(id, code) {
   const supabase = await createClient();
   return deleteMasterRecord(supabase, 'master_drug_types', id, code);

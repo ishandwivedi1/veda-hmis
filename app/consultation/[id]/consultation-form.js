@@ -156,11 +156,15 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [showRxSuggestions, setShowRxSuggestions] = useState(false);
   const [showRxBrowseAll, setShowRxBrowseAll] = useState(false);
   const [showTaperBuilder, setShowTaperBuilder] = useState(false);
+  // Dosage can now vary per step too (e.g. 2 tablets tapering down to
+  // 1 tablet, not just the frequency reducing) -- each step defaults to
+  // whatever's in the main Dosage field the moment the builder opens
+  // (the "first instance"), then is independently editable per step.
   const [taperSteps, setTaperSteps] = useState([
-    { frequency: 'QID', duration: '1 week' },
-    { frequency: 'TDS', duration: '1 week' },
-    { frequency: 'BD', duration: '1 week' },
-    { frequency: 'OD', duration: '1 week' },
+    { frequency: 'QID', duration: '1 week', dosage: '' },
+    { frequency: 'TDS', duration: '1 week', dosage: '' },
+    { frequency: 'BD', duration: '1 week', dosage: '' },
+    { frequency: 'OD', duration: '1 week', dosage: '' },
   ]);
   const [rxDosage, setRxDosage] = useState('1 drop');
   const [rxFrequency, setRxFrequency] = useState('BD');
@@ -294,7 +298,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setTaperSteps((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
   }
   function addTaperStep() {
-    setTaperSteps((prev) => [...prev, { frequency: 'OD', duration: '1 week' }]);
+    setTaperSteps((prev) => [...prev, { frequency: 'OD', duration: '1 week', dosage: rxDosage }]);
   }
   function removeTaperStep(index) {
     setTaperSteps((prev) => prev.filter((_, i) => i !== index));
@@ -303,7 +307,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setError('');
     if (!rxDrug.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
     if (!rxDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
-    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, dosage: rxDosage, eye: rxIsOcular ? rxEye : 'Oral', steps: taperSteps });
+    // Any step left blank (e.g. one added before the doctor set a
+    // dosage) falls back to the main Dosage field's value.
+    const steps = taperSteps.map((s) => ({ ...s, dosage: s.dosage || rxDosage }));
+    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, eye: rxIsOcular ? rxEye : 'Oral', steps });
     if (result.error) { setError(result.error); return; }
     setRxDrug(''); setRxDosage(''); setRxDrugTypeId(null); setRxIsOcular(true); setShowTaperBuilder(false);
     refresh();
@@ -893,17 +900,31 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 </div>
 
                 {!showTaperBuilder ? (
-                  <button className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginTop: 8 }} onClick={() => setShowTaperBuilder(true)}>
+                  <button
+                    className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginTop: 8 }}
+                    onClick={() => { setShowTaperBuilder(true); setTaperSteps((prev) => prev.map((s) => ({ ...s, dosage: s.dosage || rxDosage }))); }}
+                  >
                     <i className="ti ti-chart-line"></i> Add as Tapering Schedule instead
                   </button>
                 ) : (
                   <div style={{ marginTop: 10, padding: 12, background: 'var(--purple-lt)', borderRadius: 8 }}>
                     <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--purple)', marginBottom: 8 }}>
-                      <i className="ti ti-chart-line"></i> Tapering Schedule -- uses the Drug &amp; Dosage{rxIsOcular ? ' & Eye' : ''} entered above; frequency reduces step by step below
+                      <i className="ti ti-chart-line"></i> Tapering Schedule -- uses the Drug{rxIsOcular ? ' & Eye' : ''} entered above; dosage defaults to what you set above but can vary per step below, alongside frequency and duration
                     </div>
                     {taperSteps.map((s, i) => (
                       <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
                         <span style={{ fontSize: 11, color: 'var(--g500)', width: 16 }}>{i + 1}.</span>
+                        <select className="fi fi-sm" value={s.dosage} onChange={(e) => updateTaperStep(i, 'dosage', e.target.value)} style={{ maxWidth: 110 }}>
+                          <option value="">-- Dosage --</option>
+                          {(rxDrugTypeId ? dosageOptions.filter((o) => o.drug_type_id === rxDrugTypeId) : []).map((o) => (
+                            <option key={o.id} value={o.dosage_text}>{o.dosage_text}</option>
+                          ))}
+                          {!rxDrugTypeId && (
+                            <>
+                              <option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option>
+                            </>
+                          )}
+                        </select>
                         <select className="fi fi-sm" value={s.frequency} onChange={(e) => updateTaperStep(i, 'frequency', e.target.value)} style={{ maxWidth: 100 }}>
                           <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
                         </select>

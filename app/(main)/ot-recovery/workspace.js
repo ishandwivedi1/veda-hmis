@@ -74,11 +74,14 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [medReason, setMedReason] = useState('');
   const [showMedForm, setShowMedForm] = useState(false);
   const [showTaperBuilder, setShowTaperBuilder] = useState(false);
+  // Dosage can now vary per step too, same as the Doctor module's
+  // tapering builder -- each defaults to the main Dosage field's value
+  // the moment the builder opens, then is independently editable.
   const [taperSteps, setTaperSteps] = useState([
-    { frequency: 'QID', duration: '1 week' },
-    { frequency: 'TDS', duration: '1 week' },
-    { frequency: 'BD', duration: '1 week' },
-    { frequency: 'OD', duration: '1 week' },
+    { frequency: 'QID', duration: '1 week', dosage: '' },
+    { frequency: 'TDS', duration: '1 week', dosage: '' },
+    { frequency: 'BD', duration: '1 week', dosage: '' },
+    { frequency: 'OD', duration: '1 week', dosage: '' },
   ]);
   const [drugOptions, setDrugOptions] = useState([]);
   const [dosageOptions, setDosageOptions] = useState([]);
@@ -212,7 +215,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setTaperSteps((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
   }
   function addTaperStep() {
-    setTaperSteps((prev) => [...prev, { frequency: 'OD', duration: '1 week' }]);
+    setTaperSteps((prev) => [...prev, { frequency: 'OD', duration: '1 week', dosage: medDosage }]);
   }
   function removeTaperStep(index) {
     setTaperSteps((prev) => prev.filter((_, i) => i !== index));
@@ -221,7 +224,10 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setError('');
     if (!medName.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
     if (!medDosage.trim()) { setError('Select a dosage for the tapering schedule.'); return; }
-    const result = await addTaperedRecoveryMedication(episodeId, { name: medName, dosage: medDosage, eye: medIsOcular ? medEye : 'Oral', steps: taperSteps }, medReason);
+    // Any step left blank (e.g. one added before a dosage was set)
+    // falls back to the main Dosage field's value.
+    const steps = taperSteps.map((s) => ({ ...s, dosage: s.dosage || medDosage }));
+    const result = await addTaperedRecoveryMedication(episodeId, { name: medName, eye: medIsOcular ? medEye : 'Oral', steps }, medReason);
     if (result.error) { setError(result.error); return; }
     setMedName(''); setMedDosage(''); setMedDrugTypeId(null); setMedIsOcular(true); setMedReason(''); setShowTaperBuilder(false);
     refresh();
@@ -477,18 +483,32 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                             <option>Ongoing</option>
                           </select>
                         </div>
-                        <button className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginBottom: 6 }} onClick={() => setShowTaperBuilder(true)}>
+                        <button
+                          className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginBottom: 6 }}
+                          onClick={() => { setShowTaperBuilder(true); setTaperSteps((prev) => prev.map((s) => ({ ...s, dosage: s.dosage || medDosage }))); }}
+                        >
                           <i className="ti ti-chart-line"></i> Add as Tapering Schedule instead
                         </button>
                       </>
                     ) : (
                       <div style={{ marginBottom: 6, padding: 10, background: 'var(--purple-lt)', borderRadius: 8 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--purple)', marginBottom: 6 }}>
-                          <i className="ti ti-chart-line"></i> Tapering -- uses the Drug &amp; Dosage{medIsOcular ? ' & Eye' : ''} above; frequency reduces step by step
+                          <i className="ti ti-chart-line"></i> Tapering -- uses the Drug{medIsOcular ? ' & Eye' : ''} above; dosage defaults to what you set above but can vary per step, alongside frequency and duration
                         </div>
                         {taperSteps.map((s, i) => (
                           <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 5 }}>
                             <span style={{ fontSize: 10.5, color: 'var(--g500)', width: 14 }}>{i + 1}.</span>
+                            <select className="fi fi-sm" value={s.dosage} onChange={(e) => updateTaperStep(i, 'dosage', e.target.value)} style={{ maxWidth: 100 }}>
+                              <option value="">-- Dosage --</option>
+                              {(medDrugTypeId ? dosageOptions.filter((o) => o.drug_type_id === medDrugTypeId) : []).map((o) => (
+                                <option key={o.id} value={o.dosage_text}>{o.dosage_text}</option>
+                              ))}
+                              {!medDrugTypeId && (
+                                <>
+                                  <option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option>
+                                </>
+                              )}
+                            </select>
                             <select className="fi fi-sm" value={s.frequency} onChange={(e) => updateTaperStep(i, 'frequency', e.target.value)} style={{ maxWidth: 90 }}>
                               <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
                             </select>

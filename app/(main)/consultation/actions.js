@@ -487,23 +487,24 @@ export async function addPrescription(encounterId, values) {
   return { success: true };
 }
 
-// Tapering schedule -- same drug and dosage-per-administration across
-// steps (that's how tapering actually works clinically: the amount per
-// dose stays the same, e.g. 1 drop, only the frequency reduces over
-// time), each step a separate row sharing one taper_group_id so they
-// render and print as a single continuous instruction, not N unrelated
-// prescriptions.
+// Tapering schedule -- same drug across steps, but dosage, frequency,
+// and duration can all vary per step (e.g. 2 tablets tapering down to
+// 1, not just the frequency reducing), each step a separate row sharing
+// one taper_group_id so they render and print as a single continuous
+// instruction, not N unrelated prescriptions. Pharmacy separately
+// consolidates these rows into a single dispense/bill entry -- see
+// lib/pharmacyQuantity.js and app/(main)/pharmacy/actions.js.
 export async function addTaperedPrescription(encounterId, values) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
-  const steps = (values.steps || []).filter((s) => s.frequency && s.duration);
+  const steps = (values.steps || []).filter((s) => s.frequency && s.duration && s.dosage);
   if (steps.length < 2) return { error: 'A tapering schedule needs at least 2 steps.' };
 
   const taperGroupId = crypto.randomUUID();
   const rows = steps.map((s, i) => ({
     encounter_id: encounterId,
     drug_name: values.drugName,
-    dosage: values.dosage,
+    dosage: s.dosage,
     frequency: s.frequency,
     duration: s.duration,
     eye: values.eye,
@@ -513,7 +514,7 @@ export async function addTaperedPrescription(encounterId, values) {
 
   const { error } = await supabase.from('prescriptions').insert(rows);
   if (error) return { error: error.message };
-  const summary = steps.map((s) => `${s.frequency} x${s.duration}`).join(' -> ');
+  const summary = steps.map((s) => `${s.dosage} ${s.frequency} x${s.duration}`).join(' -> ');
   await addAudit(supabase, encounterId, `Tapering schedule added: ${values.drugName} (${values.eye}) -- ${summary}`, userData?.user?.id);
   return { success: true };
 }
