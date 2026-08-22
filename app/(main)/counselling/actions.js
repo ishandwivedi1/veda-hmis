@@ -644,31 +644,15 @@ export async function markFitnessCleared(caseId) {
 // require consent_taken.
 export async function markReadyForScheduling(caseId) {
   const supabase = await createClient();
-  const { data: sc } = await supabase.from('surgical_cases').select('*').eq('id', caseId).single();
+  const { data: sc } = await supabase.from('surgical_cases').select('id').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
 
-  if (sc.biometry_required !== false) {
-    const { count } = await supabase
-      .from('biometry_records')
-      .select('id', { count: 'exact', head: true })
-      .eq('patient_id', sc.patient_id)
-      .eq('status', 'Measured');
-    if (!count) return { error: 'VAL-SCC-002: Biometry must be complete.' };
-
-    // Can't book an OT slot without knowing which specific IOL is going
-    // in -- that's the surgeon's IOL Approval, a separate step/module
-    // from both Biometry (raw device recommendations) and this package
-    // selection (billing category only).
-    const { data: approval } = await supabase.from('iol_approvals').select('status').eq('surgical_case_id', caseId).maybeSingle();
-    if (approval?.status !== 'Approved') return { error: 'VAL-SCC-002: Surgeon IOL Approval must be complete.' };
-  }
-  if (!sc.package_id) return { error: 'VAL-SCC-002: Select a package first.' };
-  if (sc.decision !== 'Accepted') return { error: 'VAL-SCC-002: Patient decision must be Accepted.' };
-  // Medical Fitness clearance now happens *after* the OT date is
-  // booked (closer to the actual surgery date is more clinically
-  // useful than clearing weeks in advance), so it's intentionally not
-  // gated here anymore -- see FitnessSection in Surgical Journey.
-
+  // No prerequisite checks -- biometry, IOL approval, package selection,
+  // and patient decision are no longer required to give an OT date.
+  // Removed 2026-08-22 at explicit request: this platform covers every
+  // surgery type, many of which never needed these checks in the first
+  // place, and the checks were blocking booking even for cases that
+  // genuinely didn't need them.
   const { error } = await supabase.from('surgical_cases').update({ status: 'Ready for Scheduling' }).eq('id', caseId);
   if (error) return { error: error.message };
   return { success: true };

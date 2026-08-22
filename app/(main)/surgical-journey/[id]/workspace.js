@@ -936,7 +936,6 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
   }
 
   const canBook = sc.status === 'Ready for Scheduling';
-  const readyGateMet = sc.decision === 'Accepted';
 
   const [rescheduling, setRescheduling] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState('');
@@ -990,60 +989,50 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
   }
 
   return (
-    <Section num={num} color="var(--teal)" title="IOL Surgery Date &amp; Order" done={false} defaultOpen={readyGateMet} active={active}>
-      {!readyGateMet && (
-        <div style={{ fontSize: 11.5, color: 'var(--g400)', marginBottom: 10 }}>
-          <i className="ti ti-info-circle"></i> Waiting on Patient Decision first.
-        </div>
-      )}
-
-      {readyGateMet && (
-        <>
-          <div style={{ marginBottom: 10 }}>
-            <label className="flbl">Date</label>
-            {date ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--g50)', border: '1px solid var(--g200)', borderRadius: 8, padding: '8px 10px', fontSize: 12.5 }}>
-                <span><i className="ti ti-calendar"></i> {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}{sessionName ? ` -- ${sessionName}` : ''}</span>
-                <button className="btn btn-sm" onClick={openCalendarPicker}>Change</button>
-              </div>
-            ) : (
-              <button className="btn btn-sm" onClick={openCalendarPicker}>
-                <i className="ti ti-calendar"></i> Open OT Calendar
-              </button>
-            )}
+    <Section num={num} color="var(--teal)" title="IOL Surgery Date &amp; Order" done={false} defaultOpen active={active}>
+      <div style={{ marginBottom: 10 }}>
+        <label className="flbl">Date</label>
+        {date ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--g50)', border: '1px solid var(--g200)', borderRadius: 8, padding: '8px 10px', fontSize: 12.5 }}>
+            <span><i className="ti ti-calendar"></i> {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}{sessionName ? ` -- ${sessionName}` : ''}</span>
+            <button className="btn btn-sm" onClick={openCalendarPicker}>Change</button>
           </div>
-
-          <div style={{ marginBottom: 10 }}>
-            <label className="flbl">Surgeon</label>
-            <select className="fi fi-sm" value={surgeonId} onChange={(e) => setSurgeonId(e.target.value)}>
-              <option value="">--</option>
-              {surgeons.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-            </select>
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            <label className="flbl">IOL Order Notes</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input className="fi fi-sm" style={{ flex: 1 }} placeholder='e.g. "Ordered Alcon monofocal +21D from XYZ Optics, expected Friday"' value={iolNotes} onChange={(e) => setIolNotesLocal(e.target.value)} />
-              <button className="btn btn-sm" onClick={() => onAction(setIolOrderNotes)(sc.id, iolNotes)}>Save</button>
-            </div>
-          </div>
-
-          <button
-            className="btn btn-primary btn-sm"
-            disabled={!date || !sessionId}
-            onClick={async () => {
-              if (!canBook) {
-                const r = await onAction(markReadyForScheduling)(sc.id);
-                if (r?.error) return;
-              }
-              await onAction(bookOTSlot)(sc.id, date, sessionId, surgeonId || null, null);
-            }}
-          >
-            <i className="ti ti-calendar-check"></i> Give This Date
+        ) : (
+          <button className="btn btn-sm" onClick={openCalendarPicker}>
+            <i className="ti ti-calendar"></i> Open OT Calendar
           </button>
-        </>
-      )}
+        )}
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <label className="flbl">Surgeon</label>
+        <select className="fi fi-sm" value={surgeonId} onChange={(e) => setSurgeonId(e.target.value)}>
+          <option value="">--</option>
+          {surgeons.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+        </select>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label className="flbl">IOL Order Notes</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="fi fi-sm" style={{ flex: 1 }} placeholder='e.g. "Ordered Alcon monofocal +21D from XYZ Optics, expected Friday"' value={iolNotes} onChange={(e) => setIolNotesLocal(e.target.value)} />
+          <button className="btn btn-sm" onClick={() => onAction(setIolOrderNotes)(sc.id, iolNotes)}>Save</button>
+        </div>
+      </div>
+
+      <button
+        className="btn btn-primary btn-sm"
+        disabled={!date || !sessionId}
+        onClick={async () => {
+          if (!canBook) {
+            const r = await onAction(markReadyForScheduling)(sc.id);
+            if (r?.error) return;
+          }
+          await onAction(bookOTSlot)(sc.id, date, sessionId, surgeonId || null, null);
+        }}
+      >
+        <i className="ti ti-calendar-check"></i> Give This Date
+      </button>
     </Section>
   );
 }
