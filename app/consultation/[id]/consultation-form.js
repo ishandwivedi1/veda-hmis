@@ -134,20 +134,29 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [showSurgery, setShowSurgery] = useState(false);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
-  // Only IOL/lens surgeries (cataract, etc.) actually need Biometry --
-  // most surgeries (pterygium, DCR, chalazion, oculoplasty, and so on)
-  // don't. Defaults to None so nothing is required unless the doctor
-  // deliberately opts in for a case that needs it -- this used to
-  // default to 'Both' with no way to change it from this form at all
-  // (the select below didn't exist), silently requiring biometry &
-  // fitness clearance for every single surgery regardless of type.
-  const [surgeryPreOp, setSurgeryPreOp] = useState('None');
+  // Pre Op Requirement -- doctor picks the actual pre-op investigations
+  // this surgery needs (e.g. Biometry, or none) from the same
+  // Investigations master used in Section 1, plus a separate Medical
+  // Fitness checkbox (that's a clearance workflow, not something
+  // orderable from the Investigations list). These are indicative only
+  // -- forwarded into real investigation_orders the moment the surgery
+  // is marked, so Surgical Journey's own Investigations step opens with
+  // them already there, editable/removable, not re-entered from scratch.
+  // Replaces the old None/Biometry/Medical Fitness/Both single-select,
+  // which had no way to request anything other than those two things.
+  const [surgeryInvestigations, setSurgeryInvestigations] = useState([]);
+  const [surgeryInvName, setSurgeryInvName] = useState('');
+  const [surgeryInvEye, setSurgeryInvEye] = useState('OU');
+  const [surgeryFitnessRequired, setSurgeryFitnessRequired] = useState(false);
   const [surgeryNotes, setSurgeryNotes] = useState('');
   const [surgeryDecision, setSurgeryDecision] = useState('');
   const [editingSurgicalCaseId, setEditingSurgicalCaseId] = useState(null);
   const [editSurgeryProcedure, setEditSurgeryProcedure] = useState('');
   const [editSurgeryEye, setEditSurgeryEye] = useState('OU');
-  const [editSurgeryPreOp, setEditSurgeryPreOp] = useState('Both');
+  const [editSurgeryInvestigations, setEditSurgeryInvestigations] = useState([]);
+  const [editSurgeryInvName, setEditSurgeryInvName] = useState('');
+  const [editSurgeryInvEye, setEditSurgeryInvEye] = useState('OU');
+  const [editSurgeryFitnessRequired, setEditSurgeryFitnessRequired] = useState(false);
   const [editSurgeryNotes, setEditSurgeryNotes] = useState('');
   const [surgeryLoading, setSurgeryLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('optometry');
@@ -445,17 +454,36 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     finishAndClose();
   }
 
+  function addSurgeryInvestigation() {
+    if (!surgeryInvName.trim()) return;
+    setSurgeryInvestigations((list) => [...list, { name: surgeryInvName.trim(), eye: surgeryInvEye }]);
+    setSurgeryInvName('');
+  }
+  function removeSurgeryInvestigation(idx) {
+    setSurgeryInvestigations((list) => list.filter((_, i) => i !== idx));
+  }
+  function addEditSurgeryInvestigation() {
+    if (!editSurgeryInvName.trim()) return;
+    setEditSurgeryInvestigations((list) => [...list, { name: editSurgeryInvName.trim(), eye: editSurgeryInvEye }]);
+    setEditSurgeryInvName('');
+  }
+  function removeEditSurgeryInvestigation(idx) {
+    setEditSurgeryInvestigations((list) => list.filter((_, i) => i !== idx));
+  }
+
   async function handleMarkForSurgery() {
     setError('');
     if (!surgeryProcedure) { setError('Select a surgery.'); return; }
     if (!surgeryDecision) { setError("Select the patient's decision -- right now."); return; }
     setSurgeryLoading(true);
-    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryPreOp, surgeryNotes, surgeryDecision);
+    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryFitnessRequired, surgeryNotes, surgeryDecision);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
     setSurgeryProcedure('');
-    setSurgeryPreOp('None');
+    setSurgeryInvestigations([]);
+    setSurgeryInvName('');
+    setSurgeryFitnessRequired(false);
     setSurgeryNotes('');
     setSurgeryDecision('');
     refresh();
@@ -466,7 +494,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setEditingSurgicalCaseId(sc.id);
     setEditSurgeryProcedure(sc.procedure_name);
     setEditSurgeryEye(sc.eye);
-    setEditSurgeryPreOp(sc.biometry_required !== false && sc.fitness_required !== false ? 'Both' : sc.biometry_required !== false ? 'Biometry' : sc.fitness_required !== false ? 'Medical Fitness' : 'None');
+    setEditSurgeryInvestigations(sc.indicative_investigations || []);
+    setEditSurgeryInvName('');
+    setEditSurgeryFitnessRequired(!!sc.fitness_required);
     setEditSurgeryNotes(sc.notes || '');
   }
 
@@ -474,7 +504,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setError('');
     if (!editSurgeryProcedure) { setError('Select a surgery.'); return; }
     setSurgeryLoading(true);
-    const result = await updateSurgicalCase(editingSurgicalCaseId, editSurgeryProcedure, editSurgeryEye, editSurgeryPreOp, editSurgeryNotes);
+    const result = await updateSurgicalCase(editingSurgicalCaseId, editSurgeryProcedure, editSurgeryEye, editSurgeryInvestigations, editSurgeryFitnessRequired, editSurgeryNotes);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setEditingSurgicalCaseId(null);
@@ -1020,13 +1050,34 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                               </select>
                             </div>
                             <div style={{ marginBottom: 8 }}>
-                              <label className="flbl">Pre-Op Requirement</label>
-                              <select className="fi" value={editSurgeryPreOp} onChange={(e) => setEditSurgeryPreOp(e.target.value)}>
-                                <option value="None">None -- neither Biometry nor Medical Fitness needed</option>
-                                <option value="Biometry">Biometry only</option>
-                                <option value="Medical Fitness">Medical Fitness only</option>
-                                <option value="Both">Both Biometry &amp; Medical Fitness</option>
-                              </select>
+                              <label className="flbl">Pre Op Requirement</label>
+                              <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
+                                Indicative pre-op investigations for this surgery -- forwarded into Surgical Journey&apos;s own Investigations step, editable there.
+                              </div>
+                              {editSurgeryInvestigations.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                                  {editSurgeryInvestigations.map((inv, idx) => (
+                                    <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
+                                      {inv.name} ({inv.eye})
+                                      <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeEditSurgeryInvestigation(idx)}></i>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                                <select className="fi fi-sm" value={editSurgeryInvName} onChange={(e) => setEditSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
+                                  <option value="">-- Pick an investigation --</option>
+                                  {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                </select>
+                                <select className="fi fi-sm" value={editSurgeryInvEye} onChange={(e) => setEditSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
+                                  <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                                </select>
+                                <button type="button" className="btn btn-sm" onClick={addEditSurgeryInvestigation}><i className="ti ti-plus"></i></button>
+                              </div>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={editSurgeryFitnessRequired} onChange={(e) => setEditSurgeryFitnessRequired(e.target.checked)} />
+                                Medical Fitness clearance required
+                              </label>
                             </div>
                             <div style={{ marginBottom: 8 }}>
                               <label className="flbl">Notes</label>
@@ -1101,16 +1152,34 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       </select>
                     </div>
                     <div style={{ marginBottom: 8 }}>
-                      <label className="flbl">Pre-Op Requirement</label>
-                      <select className="fi" value={surgeryPreOp} onChange={(e) => setSurgeryPreOp(e.target.value)}>
-                        <option value="None">None -- neither Biometry nor Medical Fitness needed</option>
-                        <option value="Biometry">Biometry only</option>
-                        <option value="Medical Fitness">Medical Fitness only</option>
-                        <option value="Both">Both Biometry &amp; Medical Fitness</option>
-                      </select>
-                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
-                        Only IOL/lens surgeries (e.g. cataract) need Biometry -- most surgeries (pterygium, DCR, chalazion, oculoplasty, etc.) don't. This is what Counselling requires before an OT date can be booked, so leave it at None unless this case genuinely needs it.
+                      <label className="flbl">Pre Op Requirement</label>
+                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
+                        Only IOL/lens surgeries (e.g. cataract) genuinely need Biometry -- most surgeries (pterygium, DCR, chalazion, oculoplasty, etc.) need no pre-op investigation at all. Pick whatever this specific case needs from the Investigations master, same list as Section 1 -- these are indicative only, forwarded into Surgical Journey&apos;s own Investigations step (editable/removable there), not ordered from here.
                       </div>
+                      {surgeryInvestigations.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                          {surgeryInvestigations.map((inv, idx) => (
+                            <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
+                              {inv.name} ({inv.eye})
+                              <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeSurgeryInvestigation(idx)}></i>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                        <select className="fi fi-sm" value={surgeryInvName} onChange={(e) => setSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
+                          <option value="">-- Pick an investigation --</option>
+                          {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        </select>
+                        <select className="fi fi-sm" value={surgeryInvEye} onChange={(e) => setSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
+                          <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                        </select>
+                        <button type="button" className="btn btn-sm" onClick={addSurgeryInvestigation}><i className="ti ti-plus"></i></button>
+                      </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={surgeryFitnessRequired} onChange={(e) => setSurgeryFitnessRequired(e.target.checked)} />
+                        Medical Fitness clearance required
+                      </label>
                     </div>
                     <div style={{ marginBottom: 8 }}>
                       <label className="flbl">Notes</label>

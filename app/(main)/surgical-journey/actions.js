@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase-server';
 import { adviseBiometry } from '@/app/(main)/consultation/actions';
 import { markForSurgery, setDecision } from '@/app/(main)/counselling/actions';
 import { getAdvanceBalance } from '@/app/(main)/payments/actions';
+import { addInvestigationToSurgicalCase } from '@/lib/surgicalCaseInvestigations';
 
 // This module deliberately does NOT reimplement package selection,
 // biometry skip/unskip, decision recording, ready-for-scheduling, or OT
@@ -66,48 +67,16 @@ export async function getInvestigationOptionsForCase() {
 export async function addInHouseInvestigationForCase(caseId, name, eye) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
-  if (!name || !name.trim()) return { error: 'Select an investigation.' };
 
   const { data: sc } = await supabase.from('surgical_cases').select('encounter_id, patient_id, visit_id').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
-  if (!sc.encounter_id) return { error: 'This case has no linked consultation encounter to attach investigations to.' };
 
-  const resolvedEye = eye || 'OU';
-
-  // Don't let the same investigation get ordered twice for this case
-  // while an earlier order is still open (Ordered/In Progress).
-  const { data: dupe } = await supabase
-    .from('investigation_orders')
-    .select('id')
-    .eq('encounter_id', sc.encounter_id)
-    .eq('eye', resolvedEye)
-    .ilike('name', name.trim())
-    .in('status', ['Ordered', 'In Progress'])
-    .limit(1);
-  if (dupe && dupe.length > 0) {
-    return { error: `"${name.trim()}" (${resolvedEye}) is already ordered and still pending for this case.` };
-  }
-
-  // Biometry is patient-level and fulfilled through its own dedicated
-  // module -- same special-case Doctor Consultation's addInvestigation
-  // already does. A normal investigation_orders row is still created so
-  // it shows up in this same list with a status badge, but the actual
-  // biometry_records row (device readings, IOL recommendations) is what
-  // makes it real -- ensured here, same as everywhere else biometry
-  // gets ordered from.
-  if (name.trim().toLowerCase() === 'biometry') {
-    const result = await adviseBiometry(sc.patient_id, sc.visit_id, sc.encounter_id, null);
-    if (result.error) return result;
-  }
-
-  const { error } = await supabase.from('investigation_orders').insert({
-    encounter_id: sc.encounter_id, name: name.trim(), eye: resolvedEye, priority: 'Routine',
-  });
-  if (error) return { error: error.message };
+  const result = await addInvestigationToSurgicalCase(supabase, sc, name, eye);
+  if (result.error) return result;
 
   await supabase.from('encounter_audit_log').insert({
     encounter_id: sc.encounter_id,
-    message: `Investigation ordered from Surgical Journey: ${name.trim()} (${resolvedEye})`,
+    message: `Investigation ordered from Surgical Journey: ${name.trim()} (${eye || 'OU'})`,
     created_by: userData?.user?.id || null,
   });
 
@@ -414,8 +383,8 @@ export async function getSurgicalCaseDetail(caseId) {
 // Thin wrapper so the new page's "Advise Surgery" button doesn't need
 // to import from Consultation directly -- same underlying function,
 // same surgical_cases row Counselling already reads.
-export async function adviseSurgery(patientId, encounterId, procedureName, eye, preOpRequired, notes) {
-  return markForSurgery(patientId, encounterId, procedureName, eye, preOpRequired, notes);
+export async function adviseSurgery(patientId, encounterId, procedureName, eye, investigations, fitnessRequired, notes, decision) {
+  return markForSurgery(patientId, encounterId, procedureName, eye, investigations, fitnessRequired, notes, decision);
 }
 
 // ── INVESTIGATIONS (Step 3) ────────────────────────────────────────
