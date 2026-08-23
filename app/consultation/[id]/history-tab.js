@@ -34,6 +34,9 @@ function Chip({ label, selected, onClick }) {
 let ccIdCounter = 0;
 function makeComplaintId() { ccIdCounter += 1; return `cc-${Date.now()}-${ccIdCounter}`; }
 function blankComplaint() { return { id: makeComplaintId(), chips: [], text: '', duration: '', laterality: '' }; }
+function hasComplaintContent(c) {
+  return (c.chips && c.chips.length > 0) || !!c.text || !!c.duration || !!c.laterality;
+}
 
 // One eye can have a different complaint, duration, and laterality than
 // the other -- e.g. diminished vision OD x 3 months, redness OS x 2 days.
@@ -53,7 +56,12 @@ function formatComplaintEntry(e) {
 export default function HistoryTab({ encounter, findings, onSaved, hideOptometryBanner = false }) {
   // Multiple chief-complaint entries -- see formatComplaintEntry above.
   // Each entry: { id, chips: string[], text, duration, laterality }.
-  const [complaints, setComplaints] = useState([blankComplaint()]);
+  const [complaints, setComplaints] = useState(() => [blankComplaint()]);
+  // Ids of complaint entries currently shown as the full editable form;
+  // any complaint not in this set renders as a compact one-line summary
+  // (still clickable to re-expand). Keeps a multi-complaint encounter
+  // from turning into a wall of repeated forms.
+  const [expandedIds, setExpandedIds] = useState(() => new Set(complaints.map((c) => c.id)));
   const [hopi, setHopi] = useState('');
   const [ocular, setOcular] = useState([]);
   const [medical, setMedical] = useState([]);
@@ -94,21 +102,32 @@ export default function HistoryTab({ encounter, findings, onSaved, hideOptometry
     loadedEncounterId.current = encounter.id;
 
     const savedEntries = encounter.chief_complaint_entries;
+    let nextComplaints;
     if (Array.isArray(savedEntries) && savedEntries.length > 0) {
-      setComplaints(savedEntries.map((e) => ({
+      nextComplaints = savedEntries.map((e) => ({
         id: makeComplaintId(), chips: e.chips || [], text: e.text || '', duration: e.duration || '', laterality: e.laterality || '',
-      })));
+      }));
     } else if (encounter.chief_complaint || (encounter.chief_complaint_chips || []).length || encounter.hx_duration || encounter.hx_laterality) {
       // Legacy single-complaint encounter, recorded before multi-complaint
       // support -- migrate into the new shape for editing; it's written
       // back in the new format on the next autosave.
-      setComplaints([{
+      nextComplaints = [{
         id: makeComplaintId(), chips: encounter.chief_complaint_chips || [], text: encounter.chief_complaint || '',
         duration: encounter.hx_duration || '', laterality: encounter.hx_laterality || '',
-      }]);
+      }];
     } else {
-      setComplaints([blankComplaint()]);
+      nextComplaints = [blankComplaint()];
     }
+    setComplaints(nextComplaints);
+    // A single complaint always opens in the full form -- nothing to
+    // summarize. With several, only entries still missing details start
+    // expanded; already-filled ones load collapsed as a summary line,
+    // one click away from editing.
+    setExpandedIds(new Set(
+      nextComplaints.length === 1
+        ? [nextComplaints[0].id]
+        : nextComplaints.filter((c) => !hasComplaintContent(c)).map((c) => c.id)
+    ));
 
     setHopi(encounter.hx_hopi || '');
     setOcular(encounter.ocular_history || []);
@@ -124,11 +143,24 @@ export default function HistoryTab({ encounter, findings, onSaved, hideOptometry
   }
 
   function addComplaint() {
-    setComplaints((list) => [...list, blankComplaint()]);
+    const nc = blankComplaint();
+    setComplaints((list) => [...list, nc]);
+    // Collapse every existing entry to its summary line and open only
+    // the new blank one -- adding another complaint shouldn't leave
+    // every prior complaint sitting open as a full editable form.
+    setExpandedIds(new Set([nc.id]));
   }
   function removeComplaint(id) {
     // Always keep at least one entry -- an empty one, not a blank tab.
     setComplaints((list) => (list.length <= 1 ? list : list.filter((c) => c.id !== id)));
+    setExpandedIds((set) => { const s = new Set(set); s.delete(id); return s; });
+  }
+  function toggleExpand(id) {
+    setExpandedIds((set) => {
+      const s = new Set(set);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
   }
   function updateComplaint(id, field, value) {
     setComplaints((list) => list.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
@@ -205,55 +237,80 @@ export default function HistoryTab({ encounter, findings, onSaved, hideOptometry
 
         {optionsLoading && <span style={{ fontSize: 11, color: 'var(--g400)' }}>Loading options...</span>}
 
-        {complaints.map((c, idx) => (
-          <div
-            key={c.id}
-            style={{
-              border: '1px solid var(--g200)', borderRadius: 8, padding: '10px 12px',
-              marginBottom: 10, background: complaints.length > 1 ? 'var(--g50)' : 'transparent',
-            }}
-          >
-            {complaints.length > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{
-                  fontSize: 10, fontWeight: 700, color: '#fff', background: 'var(--blue)', borderRadius: 10,
-                  padding: '2px 9px', letterSpacing: '.3px',
-                }}>
-                  COMPLAINT {idx + 1}
-                </span>
-                <span onClick={() => removeComplaint(c.id)} title="Remove this complaint" style={{ cursor: 'pointer', lineHeight: 0 }}>
-                  <i className="ti ti-x" style={{ color: 'var(--red)' }}></i>
-                </span>
-              </div>
-            )}
+        {complaints.map((c, idx) => {
+          const isExpanded = complaints.length === 1 || expandedIds.has(c.id);
+          const summary = formatComplaintEntry(c);
+          return (
+            <div
+              key={c.id}
+              style={{
+                border: '1px solid var(--g200)', borderRadius: 8, padding: '10px 12px',
+                marginBottom: 10, background: complaints.length > 1 ? 'var(--g50)' : 'transparent',
+              }}
+            >
+              {complaints.length > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isExpanded ? 8 : 0 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, color: '#fff', background: 'var(--blue)', borderRadius: 10,
+                    padding: '2px 9px', letterSpacing: '.3px',
+                  }}>
+                    COMPLAINT {idx + 1}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span
+                      onClick={() => toggleExpand(c.id)}
+                      title={isExpanded ? 'Collapse to summary' : 'Edit this complaint'}
+                      style={{ cursor: 'pointer', lineHeight: 0 }}
+                    >
+                      <i className={`ti ti-${isExpanded ? 'chevron-up' : 'pencil'}`} style={{ color: 'var(--g500)' }}></i>
+                    </span>
+                    <span onClick={() => removeComplaint(c.id)} title="Remove this complaint" style={{ cursor: 'pointer', lineHeight: 0 }}>
+                      <i className="ti ti-x" style={{ color: 'var(--red)' }}></i>
+                    </span>
+                  </div>
+                </div>
+              )}
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-              {options.chief_complaint.map((chip) => (
-                <Chip key={chip} label={chip} selected={c.chips.includes(chip)} onClick={() => toggleComplaintChip(c.id, chip)} />
-              ))}
+              {isExpanded ? (
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                    {options.chief_complaint.map((chip) => (
+                      <Chip key={chip} label={chip} selected={c.chips.includes(chip)} onClick={() => toggleComplaintChip(c.id, chip)} />
+                    ))}
+                  </div>
+                  <input
+                    className="fi fi-sm" style={{ marginBottom: 10 }} placeholder="Or type complaint..."
+                    value={c.text} onChange={(e) => updateComplaint(c.id, 'text', e.target.value)}
+                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="flbl">Duration</label>
+                      <input
+                        className="fi fi-sm" value={c.duration} placeholder="e.g. 3 months"
+                        onChange={(e) => updateComplaint(c.id, 'duration', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="flbl">Laterality</label>
+                      <select className="fi fi-sm" value={c.laterality} onChange={(e) => updateComplaint(c.id, 'laterality', e.target.value)}>
+                        <option value="">--</option>
+                        {LATERALITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div
+                  onClick={() => toggleExpand(c.id)}
+                  title="Click to edit"
+                  style={{ fontSize: 12.5, color: summary ? 'var(--g700)' : 'var(--g400)', cursor: 'pointer', lineHeight: 1.4 }}
+                >
+                  {summary || 'No details entered -- click to edit'}
+                </div>
+              )}
             </div>
-            <input
-              className="fi fi-sm" style={{ marginBottom: 10 }} placeholder="Or type complaint..."
-              value={c.text} onChange={(e) => updateComplaint(c.id, 'text', e.target.value)}
-            />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label className="flbl">Duration</label>
-                <input
-                  className="fi fi-sm" value={c.duration} placeholder="e.g. 3 months"
-                  onChange={(e) => updateComplaint(c.id, 'duration', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="flbl">Laterality</label>
-                <select className="fi fi-sm" value={c.laterality} onChange={(e) => updateComplaint(c.id, 'laterality', e.target.value)}>
-                  <option value="">--</option>
-                  {LATERALITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
         <label className="flbl">History of present illness</label>
         <textarea className="fi fi-sm" rows={2} value={hopi} onChange={(e) => setHopi(e.target.value)} placeholder="Duration, onset, progression, associated symptoms, previous treatment..." />
