@@ -20,10 +20,10 @@ function groupPrescriptionsForPrint(prescriptions) {
         .filter((x) => x.taper_group_id === r.taper_group_id)
         .sort((a, b) => (a.taper_step || 0) - (b.taper_step || 0));
       out.push({
-        id: r.taper_group_id, drug_name: r.drug_name, eye: r.eye, dosage: r.dosage,
+        id: r.taper_group_id, drug_name: r.drug_name, eye: r.eye,
         isTaper: true,
-        frequency: steps.map((s) => `${plainFrequency(s.frequency)} x${s.duration}`).join(' -> ') + ', then stop',
-        duration: '',
+        frequency: steps.map((s) => `${s.dosage ? `${s.dosage}, ` : ''}${plainFrequency(s.frequency)} x${s.duration}`).join(' -> ') + ', then stop',
+        dosage: '', duration: '',
       });
     } else {
       out.push({ ...r, frequency: plainFrequency(r.frequency), isTaper: false });
@@ -145,8 +145,8 @@ export default async function VisitSummaryPrintPage({ params }) {
                     {r.drug_name}
                     {r.isTaper && <span style={{ fontSize: 9, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', marginLeft: 4 }}>(Taper)</span>}
                   </td>
-                  <td style={{ padding: '4px 4px' }}>{r.dosage}</td>
-                  <td style={{ padding: '4px 4px' }} colSpan={r.isTaper ? 2 : 1}>{r.frequency}</td>
+                  {!r.isTaper && <td style={{ padding: '4px 4px' }}>{r.dosage}</td>}
+                  <td style={{ padding: '4px 4px' }} colSpan={r.isTaper ? 3 : 1}>{r.frequency}</td>
                   {!r.isTaper && <td style={{ padding: '4px 4px' }}>{r.duration}</td>}
                   <td style={{ padding: '4px 4px' }}>{r.eye}</td>
                 </tr>
