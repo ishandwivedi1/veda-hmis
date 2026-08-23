@@ -27,15 +27,6 @@ function daysSinceDischarge(dischargeDate) {
   return Math.floor((new Date() - new Date(`${dischargeDate}T00:00:00`)) / (1000 * 60 * 60 * 24));
 }
 
-// >10 days since discharge without a follow-up visit is unusual enough
-// to flag red; 4-10 is the normal early-recovery window (still amber so
-// it stays visible); under 4 is fresh and not yet a concern.
-function daysBadgeClass(days) {
-  if (days > 10) return 'b-red';
-  if (days >= 4) return 'b-amber';
-  return 'b-gray';
-}
-
 function TabButton({ active, onClick, icon, label }) {
   return (
     <button
@@ -58,33 +49,26 @@ function StatCard({ label, value, caption, color }) {
   );
 }
 
-// Same list-row language as the OPD Doctor Dashboard's widgets (Waiting
-// in Optometry / IOL Approvals / Medical Fitness) -- a patient line with
-// context underneath and a right-aligned action button, so a surgeon
-// reads this dashboard exactly like they already read the OPD one.
-function WidgetRow({ title, subtitle, badge, badgeClass, onClick, actionLabel, actionIcon }) {
+// A pure count tile -- no patient names, no per-row list. The whole
+// card is a single click-through straight into the relevant workflow
+// page (Check-In, Intraop, Recovery, Post-Op, etc.), same as tapping a
+// stat card. Replaces the earlier per-patient WidgetRow list: the
+// surgeon wants "how many, and take me there," not a name list here.
+function WorkflowTile({ icon, iconColor, title, count, hint, onClick }) {
   return (
-    <div onClick={onClick} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}>
+    <div
+      onClick={onClick}
+      className="card"
+      style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+    >
       <div>
-        {title}
-        {badge && <span className={`badge ${badgeClass || 'b-gray'}`} style={{ marginLeft: 6, fontSize: 10 }}>{badge}</span>}
-        <div style={{ fontSize: 11, color: 'var(--g500)' }}>{subtitle}</div>
+        <div className="card-title" style={{ marginBottom: 4 }}><i className={`ti ${icon}`} style={{ color: iconColor }}></i> {title}</div>
+        {hint && <div style={{ fontSize: 11, color: 'var(--g500)' }}>{hint}</div>}
       </div>
-      <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <i className={`ti ${actionIcon}`}></i> {actionLabel}
-      </button>
-    </div>
-  );
-}
-
-function WidgetCard({ icon, iconColor, title, count, hint, children, empty }) {
-  return (
-    <div className="card">
-      <div className="card-head">
-        <div className="card-title"><i className={`ti ${icon}`} style={{ color: iconColor }}></i> {title}<span className="badge b-gray">{count}</span></div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--g800)' }}>{count}</div>
+        <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
       </div>
-      {hint && <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>{hint}</div>}
-      {count > 0 ? children : <div style={{ fontSize: 12, color: 'var(--g400)' }}>{empty}</div>}
     </div>
   );
 }
@@ -119,10 +103,10 @@ function CaseRow({ sc, dateLabel, dateValue, stage, onClick }) {
 }
 
 // ── DASHBOARD -- OPD-style: a top row of stat cards for today's shape
-// of the surgical pipeline, then a grid of workflow-stage widgets, one
-// per place a surgical case actually needs a person to act on it. Every
-// widget row opens the record directly, same as the OPD Dashboard's
-// Doctor Queue / IOL Approvals / Medical Fitness widgets do.
+// of the surgical pipeline, then a row of count tiles, one per place a
+// surgical case actually needs a person to act on it. Deliberately no
+// patient names here -- each tile is just a count, and clicking it
+// takes the surgeon straight to that workflow page to pick a patient.
 function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, postOpPending, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenAwaitingReturn }) {
   const today = todayIst();
   const todayScheduled = useMemo(() => scheduled.filter((b) => b.scheduled_date === today), [scheduled, today]);
@@ -156,91 +140,12 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, p
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginBottom: 20 }}>
-        <WidgetCard icon="ti-lens" iconColor="var(--indigo)" title="IOL Approval" count={iolApprovals.length} hint="Only a doctor can approve." empty="Nothing awaiting approval.">
-          {iolApprovals.map((b) => (
-            <WidgetRow
-              key={b.caseId}
-              title={`${b.patient?.first_name} ${b.patient?.last_name}`}
-              badge={b.eye} badgeClass="b-indigo"
-              subtitle={`${b.patient?.uhid || ''} -- ${b.procedureName || ''}`}
-              onClick={onOpenIol}
-              actionLabel="Approve" actionIcon="ti-lens"
-            />
-          ))}
-        </WidgetCard>
-
-        <WidgetCard icon="ti-clipboard-check" iconColor="var(--amber)" title="Patient Check-In" count={todayScheduled.length} hint="Scheduled for today, not yet checked in." empty="No one due for check-in today.">
-          {todayScheduled.map((b) => (
-            <WidgetRow
-              key={b.id}
-              title={patientName(b.surgical_cases)}
-              badge={b.surgical_cases?.eye} badgeClass="b-amber"
-              subtitle={`${b.surgical_cases?.patients?.uhid || ''} -- ${b.surgical_cases?.procedure_name || ''}`}
-              onClick={() => onOpenScheduled(b)}
-              actionLabel="Check In" actionIcon="ti-arrow-right"
-            />
-          ))}
-        </WidgetCard>
-
-        <WidgetCard icon="ti-scalpel" iconColor="var(--blue)" title="Intraoperative Management" count={inOt.length} hint="Checked in and in OT right now." empty="No one currently in OT.">
-          {inOt.map((b) => (
-            <WidgetRow
-              key={b.id}
-              title={patientName(b.surgical_cases)}
-              badge={b.surgical_cases?.eye} badgeClass="b-blue"
-              subtitle={`${b.surgical_cases?.patients?.uhid || ''} -- ${b.surgical_cases?.procedure_name || ''}`}
-              onClick={() => onOpenIntraop(b)}
-              actionLabel="Open" actionIcon="ti-arrow-right"
-            />
-          ))}
-        </WidgetCard>
-
-        <WidgetCard icon="ti-bed" iconColor="var(--purple)" title="Recovery & Discharge" count={inRecovery.length} hint="Surgery done, not yet discharged." empty="No one currently in recovery.">
-          {inRecovery.map((b) => (
-            <WidgetRow
-              key={b.id}
-              title={patientName(b.surgical_cases)}
-              badge={b.surgical_cases?.eye} badgeClass="b-purple"
-              subtitle={`${b.surgical_cases?.patients?.uhid || ''} -- ${b.surgical_cases?.procedure_name || ''}`}
-              onClick={() => onOpenRecovery(b)}
-              actionLabel="Open" actionIcon="ti-arrow-right"
-            />
-          ))}
-        </WidgetCard>
-
-        <WidgetCard icon="ti-stethoscope" iconColor="var(--teal)" title="Post-Op" count={postOpToday.length} hint="Turned up today for post-op review." empty="No post-op reviews today.">
-          {postOpToday.map((e) => (
-            <WidgetRow
-              key={e.id}
-              title={patientName(e.surgical_cases)}
-              badge={e.surgical_cases?.eye} badgeClass="b-teal"
-              subtitle={`${e.surgical_cases?.patients?.uhid || ''} -- ${e.surgical_cases?.procedure_name || ''}`}
-              onClick={() => onOpenPostOp(e)}
-              actionLabel="Open" actionIcon="ti-arrow-right"
-            />
-          ))}
-        </WidgetCard>
-
-        <WidgetCard
-          icon="ti-clock-hour-4" iconColor="var(--red)" title="Awaiting Return" count={awaitingReturn.length}
-          hint="Discharged, follow-up review not yet done." empty="No one currently awaiting a follow-up return."
-        >
-          {awaitingReturn.slice(0, 6).map((e) => (
-            <WidgetRow
-              key={e.id}
-              title={patientName(e.surgical_cases)}
-              badge={`${e.daysSince}d`} badgeClass={daysBadgeClass(e.daysSince)}
-              subtitle={`${e.surgical_cases?.patients?.uhid || ''} -- ${e.surgical_cases?.procedure_name || ''} -- discharged ${fmtDate(e.discharge_date)}`}
-              onClick={() => onOpenAwaitingReturn(e)}
-              actionLabel="View" actionIcon="ti-eye"
-            />
-          ))}
-          {awaitingReturn.length > 6 && (
-            <div style={{ fontSize: 11, color: 'var(--g500)', textAlign: 'center', paddingTop: 6, cursor: 'pointer' }} onClick={() => onOpenAwaitingReturn()}>
-              +{awaitingReturn.length - 6} more -- view all in Post-Op
-            </div>
-          )}
-        </WidgetCard>
+        <WorkflowTile icon="ti-lens" iconColor="var(--indigo)" title="IOL Approval" count={iolApprovals.length} hint="Only a doctor can approve." onClick={onOpenIol} />
+        <WorkflowTile icon="ti-clipboard-check" iconColor="var(--amber)" title="Patient Check-In" count={todayScheduled.length} hint="Scheduled for today, not yet checked in." onClick={onOpenScheduled} />
+        <WorkflowTile icon="ti-scalpel" iconColor="var(--blue)" title="Intraoperative Management" count={inOt.length} hint="Checked in and in OT right now." onClick={onOpenIntraop} />
+        <WorkflowTile icon="ti-bed" iconColor="var(--purple)" title="Recovery & Discharge" count={inRecovery.length} hint="Surgery done, not yet discharged." onClick={onOpenRecovery} />
+        <WorkflowTile icon="ti-stethoscope" iconColor="var(--teal)" title="Post-Op" count={postOpToday.length} hint="Turned up today for post-op review." onClick={onOpenPostOp} />
+        <WorkflowTile icon="ti-clock-hour-4" iconColor="var(--red)" title="Awaiting Return" count={awaitingReturn.length} hint="Discharged, follow-up review not yet done." onClick={onOpenAwaitingReturn} />
       </div>
     </div>
   );
@@ -324,35 +229,32 @@ export default function DoctorSurgeryDashboardPage() {
     return () => clearInterval(interval);
   }, [refresh]);
 
-  // Scheduled -- always send to Patient Check-In (matches the "Register
-  // Surgery / Check-In" entry point Surgery-type visits already land on).
-  function openScheduled(booking) {
-    router.push(`/patient-checkin?otScheduleId=${booking.id}`);
+  // Every tile below is a pure count -- no patient names shown on this
+  // dashboard -- so clicking always lands on the workflow page's own
+  // list/queue, not a specific patient's record. The surgeon picks the
+  // patient from there.
+  function openScheduled() {
+    router.push('/patient-checkin');
   }
 
-  function openIntraop(booking) {
-    router.push(`/ot-intraop?otScheduleId=${booking.id}`);
+  function openIntraop() {
+    router.push('/ot-intraop');
   }
 
-  function openRecovery(booking) {
-    if (booking.recoveryEpisodeId) router.push(`/ot-recovery?episodeId=${booking.recoveryEpisodeId}`);
+  function openRecovery() {
+    router.push('/ot-recovery');
   }
 
   function openIol() {
     router.push('/iol-approval');
   }
 
-  function openPostOp(episode) {
-    router.push(`/ot-postop?episodeId=${episode.id}`);
+  function openPostOp() {
+    router.push('/ot-postop');
   }
 
-  // Awaiting Return -- these patients haven't actually turned up yet, so
-  // (matching Post-Op's own "Pending Review" list) it opens read-only,
-  // not a live review. The "+N more" row passes no episode -- just land
-  // on the Post-Op dashboard to see the full pending list.
-  function openAwaitingReturn(episode) {
-    if (episode) router.push(`/ot-postop?episodeId=${episode.id}&readOnly=1`);
-    else router.push('/ot-postop');
+  function openAwaitingReturn() {
+    router.push('/ot-postop');
   }
 
   // History -- Recovery & Discharge workspace already renders discharged
