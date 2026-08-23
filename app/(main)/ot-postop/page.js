@@ -154,10 +154,16 @@ function HistoryTab({ rows, loading, onOpen }) {
 function PostOpPageInner() {
   const searchParams = useSearchParams();
   const deepLinkEpisodeId = searchParams.get('episodeId');
+  // Surgery Dashboard's "Awaiting Return" widget links here for patients
+  // who haven't actually turned up yet -- same reasoning as the
+  // Dashboard tab's own "Pending Review" list above (readOnly=true):
+  // nothing confirms the patient is present, so it opens for viewing
+  // only, not a live review.
+  const deepLinkReadOnly = searchParams.get('readOnly') === '1';
 
   const [activeTab, setActiveTab] = useState(deepLinkEpisodeId ? 'workspace' : 'dashboard');
   const [selectedId, setSelectedId] = useState(deepLinkEpisodeId || null);
-  const [workspaceReadOnly, setWorkspaceReadOnly] = useState(false);
+  const [workspaceReadOnly, setWorkspaceReadOnly] = useState(deepLinkReadOnly);
   const [cases, setCases] = useState([]);
   const [turnedUpToday, setTurnedUpToday] = useState([]);
   const [history, setHistory] = useState([]);

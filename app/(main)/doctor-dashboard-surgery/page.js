@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardHistory } from './actions';
 import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
-import { getPostOpTurnedUpToday } from '@/app/(main)/ot-postop/actions';
+import { getPostOpTurnedUpToday, getPostOpCaseList } from '@/app/(main)/ot-postop/actions';
 
 function patientName(sc) {
   const p = sc?.patients;
@@ -20,6 +20,20 @@ function fmtDate(d) {
 // discharge_date) coming back from Postgres -- string comparison is exact.
 function todayIst() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+function daysSinceDischarge(dischargeDate) {
+  if (!dischargeDate) return 0;
+  return Math.floor((new Date() - new Date(`${dischargeDate}T00:00:00`)) / (1000 * 60 * 60 * 24));
+}
+
+// >10 days since discharge without a follow-up visit is unusual enough
+// to flag red; 4-10 is the normal early-recovery window (still amber so
+// it stays visible); under 4 is fresh and not yet a concern.
+function daysBadgeClass(days) {
+  if (days > 10) return 'b-red';
+  if (days >= 4) return 'b-amber';
+  return 'b-gray';
 }
 
 function TabButton({ active, onClick, icon, label }) {
@@ -109,21 +123,35 @@ function CaseRow({ sc, dateLabel, dateValue, stage, onClick }) {
 // per place a surgical case actually needs a person to act on it. Every
 // widget row opens the record directly, same as the OPD Dashboard's
 // Doctor Queue / IOL Approvals / Medical Fitness widgets do.
-function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp }) {
+function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, postOpPending, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenAwaitingReturn }) {
   const today = todayIst();
   const todayScheduled = useMemo(() => scheduled.filter((b) => b.scheduled_date === today), [scheduled, today]);
   const inOt = useMemo(() => active.filter((b) => b.stage === 'Checked-In / In OT'), [active]);
   const inRecovery = useMemo(() => active.filter((b) => b.stage === 'In Recovery'), [active]);
   const dischargedToday = useMemo(() => history.filter((e) => e.discharge_date === today), [history, today]);
+  // "Awaiting Return" -- discharged from surgery, follow-up review still
+  // pending (recovery_episodes.closure_status IS NULL, same signal the
+  // Post-Op module itself uses), and not already accounted for by the
+  // "turned up today" widget so a patient never shows in both places at
+  // once. Sorted longest-waiting first so an overdue follow-up surfaces
+  // at the top.
+  const awaitingReturn = useMemo(() => {
+    const todayIds = new Set(postOpToday.map((e) => e.id));
+    return postOpPending
+      .filter((e) => !todayIds.has(e.id))
+      .map((e) => ({ ...e, daysSince: daysSinceDischarge(e.discharge_date) }))
+      .sort((a, b) => b.daysSince - a.daysSince);
+  }, [postOpPending, postOpToday]);
 
   return (
     <div>
       {error && <div className="msg-err" style={{ marginBottom: 16 }}><i className="ti ti-alert-triangle"></i> {error}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 20 }}>
         <StatCard label="Scheduled Today" value={todayScheduled.length} caption="Awaiting check-in" color="var(--amber)" />
         <StatCard label="In OT" value={inOt.length} caption="Checked in, intraoperative" color="var(--blue)" />
         <StatCard label="In Recovery" value={inRecovery.length} caption="Discharge pending" color="var(--purple)" />
+        <StatCard label="Awaiting Return" value={awaitingReturn.length} caption="Post-op follow-up pending" color="var(--red)" />
         <StatCard label="Discharged Today" value={dischargedToday.length} caption="Completed today" color="var(--green)" />
       </div>
 
@@ -192,6 +220,27 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, e
             />
           ))}
         </WidgetCard>
+
+        <WidgetCard
+          icon="ti-clock-hour-4" iconColor="var(--red)" title="Awaiting Return" count={awaitingReturn.length}
+          hint="Discharged, follow-up review not yet done." empty="No one currently awaiting a follow-up return."
+        >
+          {awaitingReturn.slice(0, 6).map((e) => (
+            <WidgetRow
+              key={e.id}
+              title={patientName(e.surgical_cases)}
+              badge={`${e.daysSince}d`} badgeClass={daysBadgeClass(e.daysSince)}
+              subtitle={`${e.surgical_cases?.patients?.uhid || ''} -- ${e.surgical_cases?.procedure_name || ''} -- discharged ${fmtDate(e.discharge_date)}`}
+              onClick={() => onOpenAwaitingReturn(e)}
+              actionLabel="View" actionIcon="ti-eye"
+            />
+          ))}
+          {awaitingReturn.length > 6 && (
+            <div style={{ fontSize: 11, color: 'var(--g500)', textAlign: 'center', paddingTop: 6, cursor: 'pointer' }} onClick={() => onOpenAwaitingReturn()}>
+              +{awaitingReturn.length - 6} more -- view all in Post-Op
+            </div>
+          )}
+        </WidgetCard>
       </div>
     </div>
   );
@@ -236,22 +285,25 @@ export default function DoctorSurgeryDashboardPage() {
   const [history, setHistory] = useState([]);
   const [iolApprovals, setIolApprovals] = useState([]);
   const [postOpToday, setPostOpToday] = useState([]);
+  const [postOpPending, setPostOpPending] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const [s, a, h, iol, postOp] = await Promise.all([
+      const [s, a, h, iol, postOp, postOpAll] = await Promise.all([
         getSurgeryDashboardScheduled(),
         getSurgeryDashboardActive(),
         getSurgeryDashboardHistory(),
         getPendingIolApprovals(),
         getPostOpTurnedUpToday(),
+        getPostOpCaseList(),
       ]);
       const firstError = s.error || a.error || h.error;
       setScheduled(s.rows); setActive(a.rows); setHistory(h.rows);
       setIolApprovals(iol || []);
       setPostOpToday(postOp || []);
+      setPostOpPending(postOpAll || []);
       setError(firstError || '');
       setLoadingHistory(false);
       if (firstError) console.error('Surgery Dashboard load error:', firstError);
@@ -294,6 +346,15 @@ export default function DoctorSurgeryDashboardPage() {
     router.push(`/ot-postop?episodeId=${episode.id}`);
   }
 
+  // Awaiting Return -- these patients haven't actually turned up yet, so
+  // (matching Post-Op's own "Pending Review" list) it opens read-only,
+  // not a live review. The "+N more" row passes no episode -- just land
+  // on the Post-Op dashboard to see the full pending list.
+  function openAwaitingReturn(episode) {
+    if (episode) router.push(`/ot-postop?episodeId=${episode.id}&readOnly=1`);
+    else router.push('/ot-postop');
+  }
+
   // History -- Recovery & Discharge workspace already renders discharged
   // episodes fine (Recovery's own History tab uses the same component).
   function openHistory(episode) {
@@ -304,7 +365,7 @@ export default function DoctorSurgeryDashboardPage() {
     <div>
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--g800)' }}>Surgery Dashboard</div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 2 }}>Every surgical case, and exactly where it needs attention -- across IOL Approval, Check-In, OT, Recovery, and Post-Op.</div>
+        <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 2 }}>Every surgical case, and exactly where it needs attention -- across IOL Approval, Check-In, OT, Recovery, Post-Op, and Awaiting Return.</div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -320,10 +381,10 @@ export default function DoctorSurgeryDashboardPage() {
       {activeTab === 'dashboard' && (
         <DashboardTab
           scheduled={scheduled} active={active} history={history}
-          iolApprovals={iolApprovals} postOpToday={postOpToday}
+          iolApprovals={iolApprovals} postOpToday={postOpToday} postOpPending={postOpPending}
           error={error}
           onOpenScheduled={openScheduled} onOpenIntraop={openIntraop} onOpenRecovery={openRecovery}
-          onOpenIol={openIol} onOpenPostOp={openPostOp}
+          onOpenIol={openIol} onOpenPostOp={openPostOp} onOpenAwaitingReturn={openAwaitingReturn}
         />
       )}
 
