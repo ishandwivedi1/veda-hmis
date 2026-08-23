@@ -215,6 +215,15 @@ export default function Workspace({ caseId }) {
   const sc = data.case;
   const patient = sc.patients;
 
+  // Same signal IOL Approval's own pending-queue already uses to decide
+  // whether a case needs it (getPendingIolApprovals: `.neq('biometry_required',
+  // false)`) -- biometry_required is set false at Counselling for cases
+  // that don't need an IOL power calculation, i.e. non-cataract surgery.
+  // Reused here so the IOL Approval section (and its slot in the
+  // numbering) simply doesn't exist for those cases, instead of showing
+  // as a locked step that can never be completed.
+  const isCataract = sc.biometry_required !== false;
+
   // Net payable for the Payment step = package list price minus
   // whatever discount was recorded at Package Selection. Advance
   // balance is the patient's live held-advance total (M11), not the
@@ -232,7 +241,11 @@ export default function Workspace({ caseId }) {
     decision: sc.decision === 'Accepted',
     investigations: data.biometryRecords.length > 0,
     package: !!sc.package_id,
-    iolApproval: data.iolApproval?.status === 'Approved',
+    // Vacuously done for non-cataract cases -- there's no IOL Approval
+    // section for them at all (see isCataract above), so this must
+    // never be the thing "currentStep" gets permanently stuck waiting
+    // on. Same pattern as `fitness` below (sc.fitness_required === false).
+    iolApproval: !isCataract || data.iolApproval?.status === 'Approved',
     iol: !!data.otSchedule,
     fitness: sc.fitness_cleared || sc.fitness_required === false || data.fitnessReferral?.status === 'Cleared',
     payment: netPackageAmount > 0 && advanceBalance >= netPackageAmount - 0.01,
@@ -241,6 +254,20 @@ export default function Workspace({ caseId }) {
     recovery: !!data.recoveryEpisode?.discharge_date,
   };
   const currentStep = Object.keys(stepDone).find((k) => !stepDone[k]) || null;
+
+  // Section numbers computed in order, skipping IOL Approval's slot
+  // entirely for non-cataract cases -- e.g. cataract runs 1-10 (with
+  // IOL Approval as 4, Surgery Date Booking as 5), non-cataract runs
+  // 1-9 straight through (Surgery Date Booking as 4), instead of a
+  // Surgery Date Booking numbered 5 with no section 4 above it.
+  let stepNum = 3; // 1 Patient Decision, 2 Investigations, 3 Package
+  const iolApprovalNum = isCataract ? ++stepNum : null;
+  const bookingNum = ++stepNum;
+  const fitnessNum = ++stepNum;
+  const paymentNum = ++stepNum;
+  const checkinNum = ++stepNum;
+  const intraopNum = ++stepNum;
+  const recoveryNum = ++stepNum;
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
@@ -254,10 +281,9 @@ export default function Workspace({ caseId }) {
       {ok && <div className="msg-ok" style={{ marginBottom: 12 }}>{ok}</div>}
 
       {/* 1. PATIENT DECISION -- the very first step. Once the patient
-          gives assent (Accepted), Investigations through Payment (steps
-          2-7) all unlock together -- no interdependency between them.
-          Patient Check-In and beyond stay locked until Payment is
-          complete. */}
+          gives assent (Accepted), Investigations through Payment all
+          unlock together -- no interdependency between them. Patient
+          Check-In and beyond stay locked until Payment is complete. */}
       <DecisionSection sc={sc} onAction={flash} onDecline={handleDecline} active={currentStep === 'decision'} />
 
       {/* 2. INVESTIGATIONS */}
@@ -266,20 +292,25 @@ export default function Workspace({ caseId }) {
       {/* 3. PACKAGE & IOL DECISION */}
       <PackageDecisionSection sc={sc} onAction={flash} active={currentStep === 'package'} />
 
-      {/* 4. IOL APPROVAL -- separate module: surgeon's final brand/power
-          sign-off, based on Biometry's device recommendations. */}
-      <IolApprovalSection sc={sc} iolApproval={data.iolApproval} active={currentStep === 'iolApproval'} refresh={refresh} />
+      {/* IOL APPROVAL -- cataract cases only (biometry_required =
+          false means this case never needed an IOL power calc, so
+          there's nothing for the surgeon to approve here). Skipped
+          entirely for other surgeries, not shown locked/disabled --
+          the numbering below closes the gap automatically. */}
+      {isCataract && (
+        <IolApprovalSection sc={sc} iolApproval={data.iolApproval} active={currentStep === 'iolApproval'} refresh={refresh} num={iolApprovalNum} />
+      )}
 
-      {/* 5. IOL PROCUREMENT + DATE + BOOK */}
-      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} iolApproval={data.iolApproval} onAction={flash} active={currentStep === 'iol'} num={5} />
+      {/* SURGERY DATE BOOKING */}
+      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} iolApproval={data.iolApproval} onAction={flash} active={currentStep === 'iol'} num={bookingNum} />
 
-      {/* 6. MEDICAL FITNESS -- comes after the surgery date is booked
+      {/* MEDICAL FITNESS -- comes after the surgery date is booked
           (pre-anaesthesia clearance closer to the actual surgery date
           is more clinically useful than clearing weeks in advance). */}
-      <FitnessSection sc={sc} fitnessReferral={data.fitnessReferral} onAction={flash} active={currentStep === 'fitness'} num={6} refresh={refresh} />
+      <FitnessSection sc={sc} fitnessReferral={data.fitnessReferral} onAction={flash} active={currentStep === 'fitness'} num={fitnessNum} refresh={refresh} />
 
-      {/* 7. PAYMENT */}
-      <Section num={7} color="var(--teal)" title="Payment" done={stepDone.payment} active={currentStep === 'payment'}>
+      {/* PAYMENT */}
+      <Section num={paymentNum} color="var(--teal)" title="Payment" done={stepDone.payment} active={currentStep === 'payment'}>
         {sc.decision !== 'Accepted' ? (
           <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first.</div>
         ) : !sc.master_packages ? (
@@ -321,15 +352,15 @@ export default function Workspace({ caseId }) {
         )}
       </Section>
 
-      {/* 8. PATIENT CHECK-IN */}
-      <PatientCheckinSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} paymentDone={stepDone.payment} active={currentStep === 'checkin'} num={8} />
+      {/* PATIENT CHECK-IN */}
+      <PatientCheckinSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} paymentDone={stepDone.payment} active={currentStep === 'checkin'} num={checkinNum} />
 
-      {/* 9. INTRAOPERATIVE MANAGEMENT */}
-      <IntraopManagementSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} active={currentStep === 'intraop'} num={9} />
+      {/* INTRAOPERATIVE MANAGEMENT */}
+      <IntraopManagementSection otSchedule={data.otSchedule} checkinCompletedAt={data.checkinCompletedAt} active={currentStep === 'intraop'} num={intraopNum} />
 
-      {/* 10. RECOVERY & DISCHARGE -- separate module: post-op recovery
+      {/* RECOVERY & DISCHARGE -- separate module: post-op recovery
           monitoring through to discharge. */}
-      <RecoveryDischargeSection otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} active={currentStep === 'recovery'} num={10} />
+      <RecoveryDischargeSection otSchedule={data.otSchedule} recoveryEpisode={data.recoveryEpisode} active={currentStep === 'recovery'} num={recoveryNum} />
     </div>
   );
 }
@@ -410,7 +441,7 @@ function FitnessSection({ sc, fitnessReferral, onAction, active, num, refresh })
 // Workspace comfortably; the tab signals back via postMessage and
 // closes itself once the approval is saved, returning focus straight
 // to Surgical Journey with the step refreshed. ──
-function IolApprovalSection({ sc, iolApproval, active, refresh }) {
+function IolApprovalSection({ sc, iolApproval, active, refresh, num }) {
   const approved = iolApproval?.status === 'Approved';
 
   useEffect(() => {
@@ -425,13 +456,13 @@ function IolApprovalSection({ sc, iolApproval, active, refresh }) {
 
   if (sc.decision !== 'Accepted') {
     return (
-      <Section num={5} color="var(--indigo)" title="IOL Approval" done={false} active={active}>
+      <Section num={num} color="var(--indigo)" title="IOL Approval" done={false} active={active}>
         <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first.</div>
       </Section>
     );
   }
   return (
-    <Section num={5} color="var(--indigo)" title="IOL Approval" done={approved} active={active}>
+    <Section num={num} color="var(--indigo)" title="IOL Approval" done={approved} active={active}>
       {approved ? (
         <div style={{ fontSize: 12.5 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
@@ -460,7 +491,7 @@ function IolApprovalSection({ sc, iolApproval, active, refresh }) {
   );
 }
 
-// ── 1. INVESTIGATIONS -- flexible and optional, not a fixed required
+// ── INVESTIGATIONS -- flexible and optional, not a fixed required
 // panel. Biometry stays its own thing (patient-level, dedicated flow).
 // Everything else splits into In-House (routes through our own
 // Investigation module, status + View Report) and External (done
@@ -613,7 +644,7 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
   );
 }
 
-// ── 1. PATIENT DECISION -- the first step. Set by the doctor at
+// ── PATIENT DECISION -- the first step. Set by the doctor at
 // advise-surgery time in OPD (Consultation), reflected here, and
 // updatable by Front Desk once the patient calls back. Uses the same
 // locked+reason semantics setDecision already enforces everywhere else
@@ -717,7 +748,7 @@ function DecisionSection({ sc, onAction, onDecline, active }) {
   );
 }
 
-// ── 3. PACKAGE & IOL DECISION ──────────────────────────────────────
+// ── PACKAGE & IOL DECISION ──────────────────────────────────────────
 function PackageDecisionSection({ sc, onAction, active }) {
   const [packages, setPackages] = useState([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
@@ -898,7 +929,7 @@ function PackageDecisionSection({ sc, onAction, active }) {
   );
 }
 
-// ── 4. IOL PROCUREMENT + DATE + BOOK SLOT ──────────────────────────
+// ── SURGERY DATE BOOKING (+ IOL PROCUREMENT NOTES) ──────────────────
 // Date+session picking lives entirely in the OT Calendar popup (picks
 // both together, posts back via postMessage) -- so there is no
 // separate session picker here anymore. Having one here too used to
@@ -942,7 +973,7 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
 
   if (otSchedule) {
     return (
-      <Section num={num} color="var(--teal)" title="IOL Surgery Date &amp; Order" done active={active}>
+      <Section num={num} color="var(--teal)" title="Surgery Date Booking" done active={active}>
         {!rescheduling ? (
           <div style={{ background: 'var(--green-lt)', border: '1px solid var(--green)', borderRadius: 8, padding: 10, fontSize: 12.5, marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span><i className="ti ti-calendar-check"></i> Booked -- {new Date(otSchedule.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}, {otSchedule.master_ot_sessions?.name} session</span>
@@ -989,7 +1020,7 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
   }
 
   return (
-    <Section num={num} color="var(--teal)" title="IOL Surgery Date &amp; Order" done={false} defaultOpen active={active}>
+    <Section num={num} color="var(--teal)" title="Surgery Date Booking" done={false} defaultOpen active={active}>
       <div style={{ marginBottom: 10 }}>
         <label className="flbl">Date</label>
         {date ? (
@@ -1037,7 +1068,7 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
   );
 }
 
-// ── 7. PATIENT CHECK-IN (live status, deep-link only) ──
+// ── PATIENT CHECK-IN (live status, deep-link only) ──
 function PatientCheckinSection({ otSchedule, checkinCompletedAt, paymentDone, active, num }) {
   if (!paymentDone) {
     return (
@@ -1079,7 +1110,7 @@ function PatientCheckinSection({ otSchedule, checkinCompletedAt, paymentDone, ac
   );
 }
 
-// ── 8. INTRAOPERATIVE MANAGEMENT (live status, deep-links only) --
+// ── INTRAOPERATIVE MANAGEMENT (live status, deep-links only) --
 // covers Check-In through the surgery itself. Recovery and discharge
 // are their own dedicated step below (9), not folded in here. ──
 function IntraopManagementSection({ otSchedule, checkinCompletedAt, active, num }) {
@@ -1125,7 +1156,7 @@ function IntraopManagementSection({ otSchedule, checkinCompletedAt, active, num 
   );
 }
 
-// ── 9. RECOVERY & DISCHARGE -- separate module: post-op recovery
+// ── RECOVERY & DISCHARGE -- separate module: post-op recovery
 // monitoring through to discharge. Deep-links straight to the
 // patient's recovery episode, opened as a real new tab (window.opener
 // intact) so it can signal back and close itself once discharge is
