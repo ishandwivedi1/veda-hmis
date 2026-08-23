@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardHistory } from './actions';
 import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
-import { getPostOpTurnedUpToday, getPostOpCaseList } from '@/app/(main)/ot-postop/actions';
+import { getPostOpTurnedUpToday } from '@/app/(main)/ot-postop/actions';
+import { getMyActiveSurgicalCases, getAwaitingReturnCases } from '@/app/(main)/surgical-journey/actions';
 
 function patientName(sc) {
   const p = sc?.patients;
@@ -20,11 +21,6 @@ function fmtDate(d) {
 // discharge_date) coming back from Postgres -- string comparison is exact.
 function todayIst() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-}
-
-function daysSinceDischarge(dischargeDate) {
-  if (!dischargeDate) return 0;
-  return Math.floor((new Date() - new Date(`${dischargeDate}T00:00:00`)) / (1000 * 60 * 60 * 24));
 }
 
 function TabButton({ active, onClick, icon, label }) {
@@ -73,6 +69,34 @@ function WorkflowTile({ icon, iconColor, title, count, hint, onClick }) {
   );
 }
 
+// Same click-through tile, but for Surgical Journey specifically --
+// shows two counts side by side (Active cases still moving through
+// workup/scheduling, and cases Awaiting Return -- patients who said
+// "Wants Time to Decide" and haven't come back yet) since that's the
+// one place on this dashboard the surgeon asked to see both numbers at
+// a glance, not just one.
+function DualCountTile({ icon, iconColor, title, hint, items, onClick }) {
+  return (
+    <div onClick={onClick} className="card" style={{ cursor: 'pointer' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
+          <div className="card-title" style={{ marginBottom: 4 }}><i className={`ti ${icon}`} style={{ color: iconColor }}></i> {title}</div>
+          {hint && <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>{hint}</div>}
+        </div>
+        <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+      </div>
+      <div style={{ display: 'flex', gap: 24 }}>
+        {items.map((it) => (
+          <div key={it.label}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: it.color || 'var(--g800)' }}>{it.value}</div>
+            <div style={{ fontSize: 11, color: 'var(--g500)' }}>{it.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const STAGE_COLORS = {
   'Scheduled': 'var(--amber)',
   'Checked-In / In OT': 'var(--blue)',
@@ -107,45 +131,38 @@ function CaseRow({ sc, dateLabel, dateValue, stage, onClick }) {
 // surgical case actually needs a person to act on it. Deliberately no
 // patient names here -- each tile is just a count, and clicking it
 // takes the surgeon straight to that workflow page to pick a patient.
-function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, postOpPending, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenAwaitingReturn }) {
+function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenSurgicalJourney }) {
   const today = todayIst();
   const todayScheduled = useMemo(() => scheduled.filter((b) => b.scheduled_date === today), [scheduled, today]);
   const inOt = useMemo(() => active.filter((b) => b.stage === 'Checked-In / In OT'), [active]);
   const inRecovery = useMemo(() => active.filter((b) => b.stage === 'In Recovery'), [active]);
   const dischargedToday = useMemo(() => history.filter((e) => e.discharge_date === today), [history, today]);
-  // "Awaiting Return" -- discharged from surgery, follow-up review still
-  // pending (recovery_episodes.closure_status IS NULL, same signal the
-  // Post-Op module itself uses), and not already accounted for by the
-  // "turned up today" widget so a patient never shows in both places at
-  // once. Sorted longest-waiting first so an overdue follow-up surfaces
-  // at the top.
-  const awaitingReturn = useMemo(() => {
-    const todayIds = new Set(postOpToday.map((e) => e.id));
-    return postOpPending
-      .filter((e) => !todayIds.has(e.id))
-      .map((e) => ({ ...e, daysSince: daysSinceDischarge(e.discharge_date) }))
-      .sort((a, b) => b.daysSince - a.daysSince);
-  }, [postOpPending, postOpToday]);
 
   return (
     <div>
       {error && <div className="msg-err" style={{ marginBottom: 16 }}><i className="ti ti-alert-triangle"></i> {error}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
         <StatCard label="Scheduled Today" value={todayScheduled.length} caption="Awaiting check-in" color="var(--amber)" />
         <StatCard label="In OT" value={inOt.length} caption="Checked in, intraoperative" color="var(--blue)" />
         <StatCard label="In Recovery" value={inRecovery.length} caption="Discharge pending" color="var(--purple)" />
-        <StatCard label="Awaiting Return" value={awaitingReturn.length} caption="Post-op follow-up pending" color="var(--red)" />
         <StatCard label="Discharged Today" value={dischargedToday.length} caption="Completed today" color="var(--green)" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginBottom: 20 }}>
+        <DualCountTile
+          icon="ti-route" iconColor="var(--indigo)" title="Surgical Workflow" hint="Working up to surgery, and those still deciding."
+          items={[
+            { label: 'Active', value: surgicalJourneyActive.length, color: 'var(--indigo)' },
+            { label: 'Awaiting Return', value: awaitingReturnCases.length, color: 'var(--amber)' },
+          ]}
+          onClick={onOpenSurgicalJourney}
+        />
         <WorkflowTile icon="ti-lens" iconColor="var(--indigo)" title="IOL Approval" count={iolApprovals.length} hint="Only a doctor can approve." onClick={onOpenIol} />
         <WorkflowTile icon="ti-clipboard-check" iconColor="var(--amber)" title="Patient Check-In" count={todayScheduled.length} hint="Scheduled for today, not yet checked in." onClick={onOpenScheduled} />
         <WorkflowTile icon="ti-scalpel" iconColor="var(--blue)" title="Intraoperative Management" count={inOt.length} hint="Checked in and in OT right now." onClick={onOpenIntraop} />
         <WorkflowTile icon="ti-bed" iconColor="var(--purple)" title="Recovery & Discharge" count={inRecovery.length} hint="Surgery done, not yet discharged." onClick={onOpenRecovery} />
         <WorkflowTile icon="ti-stethoscope" iconColor="var(--teal)" title="Post-Op" count={postOpToday.length} hint="Turned up today for post-op review." onClick={onOpenPostOp} />
-        <WorkflowTile icon="ti-clock-hour-4" iconColor="var(--red)" title="Awaiting Return" count={awaitingReturn.length} hint="Discharged, follow-up review not yet done." onClick={onOpenAwaitingReturn} />
       </div>
     </div>
   );
@@ -190,25 +207,28 @@ export default function DoctorSurgeryDashboardPage() {
   const [history, setHistory] = useState([]);
   const [iolApprovals, setIolApprovals] = useState([]);
   const [postOpToday, setPostOpToday] = useState([]);
-  const [postOpPending, setPostOpPending] = useState([]);
+  const [surgicalJourneyActive, setSurgicalJourneyActive] = useState([]);
+  const [awaitingReturnCases, setAwaitingReturnCases] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const [s, a, h, iol, postOp, postOpAll] = await Promise.all([
+      const [s, a, h, iol, postOp, sjActive, sjAwaitingReturn] = await Promise.all([
         getSurgeryDashboardScheduled(),
         getSurgeryDashboardActive(),
         getSurgeryDashboardHistory(),
         getPendingIolApprovals(),
         getPostOpTurnedUpToday(),
-        getPostOpCaseList(),
+        getMyActiveSurgicalCases(),
+        getAwaitingReturnCases(),
       ]);
       const firstError = s.error || a.error || h.error;
       setScheduled(s.rows); setActive(a.rows); setHistory(h.rows);
       setIolApprovals(iol || []);
       setPostOpToday(postOp || []);
-      setPostOpPending(postOpAll || []);
+      setSurgicalJourneyActive(sjActive || []);
+      setAwaitingReturnCases(sjAwaitingReturn || []);
       setError(firstError || '');
       setLoadingHistory(false);
       if (firstError) console.error('Surgery Dashboard load error:', firstError);
@@ -253,8 +273,8 @@ export default function DoctorSurgeryDashboardPage() {
     router.push('/ot-postop');
   }
 
-  function openAwaitingReturn() {
-    router.push('/ot-postop');
+  function openSurgicalJourney() {
+    router.push('/surgical-journey');
   }
 
   // History -- Recovery & Discharge workspace already renders discharged
@@ -267,7 +287,7 @@ export default function DoctorSurgeryDashboardPage() {
     <div>
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--g800)' }}>Surgery Dashboard</div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 2 }}>Every surgical case, and exactly where it needs attention -- across IOL Approval, Check-In, OT, Recovery, Post-Op, and Awaiting Return.</div>
+        <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 2 }}>Every surgical case, and exactly where it needs attention -- across Surgical Workflow, IOL Approval, Check-In, OT, Recovery, and Post-Op.</div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -283,10 +303,11 @@ export default function DoctorSurgeryDashboardPage() {
       {activeTab === 'dashboard' && (
         <DashboardTab
           scheduled={scheduled} active={active} history={history}
-          iolApprovals={iolApprovals} postOpToday={postOpToday} postOpPending={postOpPending}
+          iolApprovals={iolApprovals} postOpToday={postOpToday}
+          surgicalJourneyActive={surgicalJourneyActive} awaitingReturnCases={awaitingReturnCases}
           error={error}
           onOpenScheduled={openScheduled} onOpenIntraop={openIntraop} onOpenRecovery={openRecovery}
-          onOpenIol={openIol} onOpenPostOp={openPostOp} onOpenAwaitingReturn={openAwaitingReturn}
+          onOpenIol={openIol} onOpenPostOp={openPostOp} onOpenSurgicalJourney={openSurgicalJourney}
         />
       )}
 
