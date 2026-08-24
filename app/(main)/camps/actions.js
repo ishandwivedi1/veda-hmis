@@ -111,6 +111,10 @@ export async function listScreenings(campEventId) {
 export async function registerAttendee(campEventId, values) {
   if (!values.fullName?.trim()) return { error: 'Name is required.' };
   if (!values.phone?.trim()) return { error: 'Phone number is required.' };
+  // Same rule registerPatient() enforces for real patients -- catches
+  // a mistyped digit or a landline entered by mistake before it ends
+  // up unreachable for the WhatsApp follow-up or a doctor's call.
+  if (!/^\d{10}$/.test(values.phone.trim())) return { error: 'Mobile number must be 10 digits.' };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
@@ -131,6 +135,7 @@ export async function registerAttendee(campEventId, values) {
 }
 
 export async function updateRegistration(screeningId, values) {
+  if (values.phone?.trim() && !/^\d{10}$/.test(values.phone.trim())) return { error: 'Mobile number must be 10 digits.' };
   const supabase = await createClient();
   const { error } = await supabase
     .from('camp_screenings')

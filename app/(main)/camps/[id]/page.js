@@ -68,6 +68,7 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
   async function handleAdd() {
     setError('');
     if (!fullName.trim() || !phone.trim()) { setError('Name and phone are required.'); return; }
+    if (!/^\d{10}$/.test(phone.trim())) { setError('Mobile number must be 10 digits.'); return; }
     setSaving(true);
     const result = await registerAttendee(campEventId, { fullName, phone, age, gender, whatsappConsent });
     setSaving(false);
@@ -85,6 +86,7 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
   async function saveEdit() {
     setEditError('');
     if (!editValues.fullName.trim() || !editValues.phone.trim()) { setEditError('Name and phone are required.'); return; }
+    if (!/^\d{10}$/.test(editValues.phone.trim())) { setEditError('Mobile number must be 10 digits.'); return; }
     setEditSaving(true);
     const result = await updateRegistration(editingId, { ...editValues, fullName: toTitleCase(editValues.fullName) });
     setEditSaving(false);
@@ -99,7 +101,7 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-user-plus" style={{ color: 'var(--blue)' }}></i> Register Attendee</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 0.6fr 0.7fr', gap: 8, marginBottom: 10 }}>
           <input className="fi" placeholder="Full name*" value={fullName} onChange={(e) => setFullName(e.target.value)} onBlur={() => setFullName((v) => toTitleCase(v))} autoFocus />
-          <input className="fi" placeholder="Phone*" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <input className="fi" placeholder="Phone*" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={10} />
           <input className="fi" placeholder="Age" value={age} onChange={(e) => setAge(e.target.value)} />
           <select className="fi" value={gender} onChange={(e) => setGender(e.target.value)}>
             <option value="M">Male</option><option value="F">Female</option><option value="O">Other</option>
@@ -125,7 +127,7 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
                 <td colSpan={5} style={{ padding: 10 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 0.6fr 0.7fr auto auto', gap: 8, alignItems: 'center' }}>
                     <input className="fi fi-sm" value={editValues.fullName} onChange={(e) => setEditValues({ ...editValues, fullName: e.target.value })} onBlur={() => setEditValues((v) => ({ ...v, fullName: toTitleCase(v.fullName) }))} />
-                    <input className="fi fi-sm" value={editValues.phone} onChange={(e) => setEditValues({ ...editValues, phone: e.target.value })} />
+                    <input className="fi fi-sm" value={editValues.phone} onChange={(e) => setEditValues({ ...editValues, phone: e.target.value })} maxLength={10} />
                     <input className="fi fi-sm" value={editValues.age} onChange={(e) => setEditValues({ ...editValues, age: e.target.value })} />
                     <select className="fi fi-sm" value={editValues.gender} onChange={(e) => setEditValues({ ...editValues, gender: e.target.value })}>
                       <option value="M">Male</option><option value="F">Female</option><option value="O">Other</option>
@@ -374,10 +376,21 @@ function DoctorExamStation({ pending, done, onRefresh }) {
               <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--indigo-lt)', color: 'var(--indigo)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
                 {initials(selected.full_name)}
               </div>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div className="card-title" style={{ marginBottom: 1 }}>{selected.full_name}</div>
                 <div style={{ fontSize: 12, color: 'var(--g500)' }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
               </div>
+              {/* tel: opens the device's own dialer with the number
+                  pre-filled -- for when a finding needs a quick word
+                  with the patient right then, not a WhatsApp message
+                  that might not be seen for hours. */}
+              <a
+                href={`tel:+91${selected.phone.replace(/\D/g, '')}`}
+                className="btn btn-sm"
+                style={{ background: 'var(--green)', color: '#fff', border: 'none', textDecoration: 'none', flexShrink: 0 }}
+              >
+                <i className="ti ti-phone-call"></i> Call
+              </a>
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
