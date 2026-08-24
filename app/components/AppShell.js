@@ -19,6 +19,8 @@ const NAV_ITEMS = [
   { href: '/appointments', label: 'Appointments', icon: 'ti-calendar-event', group: 'Front Office' },
   { href: '/visits', label: 'Visits', icon: 'ti-door-enter', group: 'Front Office' },
 
+  // ── OUTREACH ──
+  { href: '/camps', label: 'Camps', icon: 'ti-map-pin', group: 'Outreach' },
   // ── FINANCE ──
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', group: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
@@ -65,6 +67,7 @@ const PAGE_TITLES = [
   { match: /^\/appointments/, title: 'Appointments' },
   { match: /^\/visits\/new/, title: 'Create Walk-in Visit' },
   { match: /^\/visits/, title: 'Visits' },
+  { match: /^\/camps/, title: 'Camps' },
   { match: /^\/queue/, title: 'Patient Flow' },
   { match: /^\/doctor-dashboard-surgery/, title: 'Surgery Dashboard' },
   { match: /^\/doctor-dashboard/, title: 'Doctor Dashboard' },
