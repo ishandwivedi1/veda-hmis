@@ -84,17 +84,18 @@ export async function listScreenings(campEventId) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('camp_screenings')
-    .select('*, patients:patient_id(id, uhid, first_name, last_name)')
+    .select('*, patients:patient_id(id, uhid, first_name, last_name), eye_checkup_profile:eye_checkup_by(full_name), doctor_review_profile:doctor_review_by(full_name)')
     .eq('camp_event_id', campEventId)
     .order('created_at', { ascending: true });
   if (error) return { error: error.message };
   return { rows: data || [] };
 }
 
-// Cheap, fast on-site entry -- a handful of fields, meant to take
-// under a minute per person. Anything more detailed happens later,
-// only for the subset who actually convert to real patients.
-export async function addScreening(campEventId, values) {
+// ── STAGE 1: REGISTRATION (reception) ──
+// Just enough to get someone into the roster fast -- name, phone,
+// rough age/gender, WhatsApp consent. Eye checkup and doctor exam
+// happen later, in their own rooms, by their own people.
+export async function registerAttendee(campEventId, values) {
   if (!values.fullName?.trim()) return { error: 'Name is required.' };
   if (!values.phone?.trim()) return { error: 'Phone number is required.' };
   const supabase = await createClient();
@@ -107,10 +108,6 @@ export async function addScreening(campEventId, values) {
       phone: values.phone.trim(),
       age: values.age ? parseInt(values.age, 10) : null,
       gender: values.gender || null,
-      va_od: values.vaOd?.trim() || null,
-      va_os: values.vaOs?.trim() || null,
-      finding: values.finding?.trim() || null,
-      referral_recommended: !!values.referralRecommended,
       whatsapp_consent: !!values.whatsappConsent,
       created_by: user?.id || null,
     })
@@ -120,7 +117,7 @@ export async function addScreening(campEventId, values) {
   return { screening: data };
 }
 
-export async function updateScreening(screeningId, values) {
+export async function updateRegistration(screeningId, values) {
   const supabase = await createClient();
   const { error } = await supabase
     .from('camp_screenings')
@@ -129,11 +126,41 @@ export async function updateScreening(screeningId, values) {
       phone: values.phone?.trim(),
       age: values.age ? parseInt(values.age, 10) : null,
       gender: values.gender || null,
+      whatsapp_consent: !!values.whatsappConsent,
+    })
+    .eq('id', screeningId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── STAGE 2: EYE CHECKUP (optometrist) ──
+export async function recordEyeCheckup(screeningId, values) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('camp_screenings')
+    .update({
       va_od: values.vaOd?.trim() || null,
       va_os: values.vaOs?.trim() || null,
+      eye_checkup_done_at: new Date().toISOString(),
+      eye_checkup_by: user?.id || null,
+    })
+    .eq('id', screeningId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── STAGE 3: DOCTOR EXAMINATION ──
+export async function recordDoctorExamination(screeningId, values) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from('camp_screenings')
+    .update({
       finding: values.finding?.trim() || null,
       referral_recommended: !!values.referralRecommended,
-      whatsapp_consent: !!values.whatsappConsent,
+      doctor_reviewed_at: new Date().toISOString(),
+      doctor_review_by: user?.id || null,
     })
     .eq('id', screeningId);
   if (error) return { error: error.message };
@@ -208,6 +235,7 @@ export async function sendCampScreeningWhatsApp(screeningId) {
     .single();
   if (error) return { error: error.message };
   if (!screening.whatsapp_consent) return { error: 'This person did not consent to be contacted on WhatsApp.' };
+  if (!screening.doctor_reviewed_at) return { error: 'Doctor examination is not complete yet -- the recommendation depends on it.' };
 
   const recommendation = screening.referral_recommended
     ? 'Our screening suggests you should visit us for a detailed eye checkup.'
@@ -241,6 +269,7 @@ export async function bulkSendCampScreeningWhatsApp(campEventId) {
     .select('id')
     .eq('camp_event_id', campEventId)
     .eq('whatsapp_consent', true)
+    .not('doctor_reviewed_at', 'is', null)
     .is('whatsapp_sent_at', null);
   if (error) return { error: error.message };
 
