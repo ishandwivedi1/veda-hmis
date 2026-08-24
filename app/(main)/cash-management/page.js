@@ -59,6 +59,7 @@ export default function CashManagementPage() {
   const [bulkClosing, setBulkClosing] = useState(false);
   const [unclosedPastDays, setUnclosedPastDays] = useState([]);
   const [closingPastDate, setClosingPastDate] = useState(null);
+  const [pastSummary, setPastSummary] = useState(null);
   const [pastReconRows, setPastReconRows] = useState([]);
   const [pastReconEdits, setPastReconEdits] = useState({});
   const [pastReconApprover, setPastReconApprover] = useState('');
@@ -126,7 +127,7 @@ export default function CashManagementPage() {
     if (billInputRef.current) billInputRef.current.value = '';
     setSuccess('Expense recorded.');
     refreshPettyCash();
-    refresh();
+    refreshReconciliation();
   }
 
   async function handleDeleteExpense(exp) {
@@ -135,7 +136,7 @@ export default function CashManagementPage() {
     const result = await deleteExpense(exp.id, exp.expense_date);
     if (result.error) { setError(result.error); return; }
     refreshPettyCash();
-    refresh();
+    refreshReconciliation();
   }
 
   async function handleAddCategory() {
@@ -149,22 +150,21 @@ export default function CashManagementPage() {
   }
 
   const refresh = useCallback(async () => {
-    // Fetch the summary once (it's the same expensive payments+joins
-    // query that getCloseDayReadiness used to re-fetch internally via
-    // getReconciliationData) and thread it through instead.
-    const summaryData = await getTodayCollectionSummary();
-
+    // Was previously a sequential await-then-Promise.all -- the other
+    // 5 fetches don't depend on the summary at all, only readiness
+    // does, so there's no reason to make them wait behind it.
     const [
-      revenueByDeptData, readinessData, historyData,
+      summaryData, revenueByDeptData, historyData,
       openingData, openQueueData, unclosedPastDaysData,
     ] = await Promise.all([
+      getTodayCollectionSummary(),
       getRevenueByDepartmentToday(),
-      getCloseDayReadiness(undefined, summaryData),
       getDayClosingHistory(),
       getDayOpening(),
       getOpenQueueEntriesToday(),
       getUnclosedPastDays(),
     ]);
+    const readinessData = await getCloseDayReadiness(undefined, summaryData);
     // readiness.alreadyClosed is the same day_closings check
     // isTodayClosed() used to make as a separate RPC round trip.
     const isClosed = readinessData.alreadyClosed;
@@ -184,6 +184,25 @@ export default function CashManagementPage() {
       setTodayClosingInfo(null);
     }
   }, []);
+
+  // Scoped refresh for the actual closing ritual -- saving one payment
+  // mode's reconciliation (or adding/removing a petty cash expense,
+  // which changes Cash's expected figure) doesn't change the
+  // underlying transactions for the day at all, so there's no reason
+  // to re-run the heavy payments+joins query, revenue-by-department,
+  // 30-row closing history, day opening, open queue, and unclosed-past-
+  // days checks every single time. Closing a day with 5 payment modes
+  // used to mean 5 full-page-equivalent reloads back to back -- this
+  // is the fix for that. Reuses the summary already in state (petty
+  // cash total is always fetched fresh inside getReconciliationData
+  // regardless, so Cash's expected figure still updates correctly).
+  const refreshReconciliation = useCallback(async () => {
+    if (!summary) { await refresh(); return; }
+    const readinessData = await getCloseDayReadiness(undefined, summary);
+    setReadiness(readinessData);
+    setReconRows(readinessData.reconciliation);
+    setClosedToday(readinessData.alreadyClosed);
+  }, [summary, refresh]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => { getApprovers().then(setApprovers); }, []);
@@ -211,7 +230,7 @@ export default function CashManagementPage() {
     const result = await saveReconciliation(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? reconApprover : null);
     if (result.error) { setError(result.error); return; }
     setSuccess(`${row.mode} reconciled.`);
-    refresh();
+    refreshReconciliation();
   }
 
   async function handleOpenDay() {
@@ -249,7 +268,14 @@ export default function CashManagementPage() {
     setClosingPastDate(date);
     setPastReconEdits({});
     setPastCloseNotes('');
-    setPastReconRows(await getReconciliationData(date));
+    // Fetched once per session and reused on every mode save below --
+    // the underlying transactions for a past, already-finished day
+    // never change mid-session, so there's no reason to re-run the
+    // heavy payments+joins query after every single save (same fix as
+    // the main today's-reconciliation flow above).
+    const summaryData = await getTodayCollectionSummary(date);
+    setPastSummary(summaryData);
+    setPastReconRows(await getReconciliationData(date, summaryData));
   }
 
   function updatePastReconField(mode, field, value) {
@@ -275,7 +301,7 @@ export default function CashManagementPage() {
     const result = await saveReconciliation(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? pastReconApprover : null, closingPastDate);
     if (result.error) { setError(result.error); return; }
     setSuccess(`${row.mode} reconciled for ${closingPastDate}.`);
-    setPastReconRows(await getReconciliationData(closingPastDate));
+    setPastReconRows(await getReconciliationData(closingPastDate, pastSummary));
   }
 
   async function handleClosePastDay() {
