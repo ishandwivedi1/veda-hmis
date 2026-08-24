@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import {
-  getCampEvent, listScreenings, registerAttendee, deleteScreening,
+  getCampEvent, listScreenings, registerAttendee, updateRegistration, deleteScreening,
   recordEyeCheckup, recordDoctorExamination,
   checkExistingPatientByPhone, linkScreeningToPatient, convertScreeningToPatient,
   sendCampScreeningWhatsApp, bulkSendCampScreeningWhatsApp,
@@ -48,7 +48,9 @@ function StationTab({ active, onClick, icon, label, count, color }) {
 
 // ── STATION 1: REGISTRATION -- reception's own room. Fast add form up
 // top, always visible; today's registrations listed below so they can
-// see who's already in without leaving this screen. ──
+// see who's already in without leaving this screen. Clicking a row
+// opens it for a quick correction (name misspelled, wrong number in a
+// hurry, etc.) instead of that mistake sitting there uneditable. ──
 function RegistrationStation({ campEventId, screenings, onRefresh }) {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -58,6 +60,11 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const [editingId, setEditingId] = useState(null);
+  const [editValues, setEditValues] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
   async function handleAdd() {
     setError('');
     if (!fullName.trim() || !phone.trim()) { setError('Name and phone are required.'); return; }
@@ -66,6 +73,23 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setFullName(''); setPhone(''); setAge(''); setGender('M'); setWhatsappConsent(true);
+    onRefresh();
+  }
+
+  function startEdit(s) {
+    setEditingId(s.id);
+    setEditValues({ fullName: s.full_name, phone: s.phone, age: s.age || '', gender: s.gender || 'M', whatsappConsent: s.whatsapp_consent });
+    setEditError('');
+  }
+
+  async function saveEdit() {
+    setEditError('');
+    if (!editValues.fullName.trim() || !editValues.phone.trim()) { setEditError('Name and phone are required.'); return; }
+    setEditSaving(true);
+    const result = await updateRegistration(editingId, { ...editValues, fullName: toTitleCase(editValues.fullName) });
+    setEditSaving(false);
+    if (result.error) { setEditError(result.error); return; }
+    setEditingId(null);
     onRefresh();
   }
 
@@ -91,38 +115,86 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
         </button>
       </div>
 
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>Registered so far ({screenings.length})</div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>Registered so far ({screenings.length}) -- click a row to fix a mistake</div>
       <table className="tbl">
-        <thead><tr><th>Name</th><th>Phone</th><th>Age/Gender</th><th>Time</th></tr></thead>
+        <thead><tr><th>Name</th><th>Phone</th><th>Age/Gender</th><th>Time</th><th></th></tr></thead>
         <tbody>
           {[...screenings].reverse().map((s) => (
-            <tr key={s.id}>
-              <td>{s.full_name}</td>
-              <td style={{ fontSize: 12 }}>{s.phone}</td>
-              <td style={{ fontSize: 12 }}>{s.age || '--'}{s.gender ? `/${s.gender}` : ''}</td>
-              <td style={{ fontSize: 11, color: 'var(--g400)' }}>{fmtTime(s.created_at)}</td>
-            </tr>
+            editingId === s.id ? (
+              <tr key={s.id} style={{ background: 'var(--blue-lt)' }}>
+                <td colSpan={5} style={{ padding: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 0.6fr 0.7fr auto auto', gap: 8, alignItems: 'center' }}>
+                    <input className="fi fi-sm" value={editValues.fullName} onChange={(e) => setEditValues({ ...editValues, fullName: e.target.value })} onBlur={() => setEditValues((v) => ({ ...v, fullName: toTitleCase(v.fullName) }))} />
+                    <input className="fi fi-sm" value={editValues.phone} onChange={(e) => setEditValues({ ...editValues, phone: e.target.value })} />
+                    <input className="fi fi-sm" value={editValues.age} onChange={(e) => setEditValues({ ...editValues, age: e.target.value })} />
+                    <select className="fi fi-sm" value={editValues.gender} onChange={(e) => setEditValues({ ...editValues, gender: e.target.value })}>
+                      <option value="M">Male</option><option value="F">Female</option><option value="O">Other</option>
+                    </select>
+                    <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={editSaving}><i className="ti ti-check"></i></button>
+                    <button className="btn btn-sm" onClick={() => setEditingId(null)}><i className="ti ti-x"></i></button>
+                  </div>
+                  {editError && <div className="msg-err" style={{ marginTop: 8 }}>{editError}</div>}
+                </td>
+              </tr>
+            ) : (
+              <tr key={s.id} onClick={() => startEdit(s)} style={{ cursor: 'pointer' }}>
+                <td>{s.full_name}</td>
+                <td style={{ fontSize: 12 }}>{s.phone}</td>
+                <td style={{ fontSize: 12 }}>{s.age || '--'}{s.gender ? `/${s.gender}` : ''}</td>
+                <td style={{ fontSize: 11, color: 'var(--g400)' }}>{fmtTime(s.created_at)}</td>
+                <td><i className="ti ti-pencil" style={{ color: 'var(--g400)' }}></i></td>
+              </tr>
+            )
           ))}
-          {screenings.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--g400)' }}>No one registered yet.</td></tr>}
+          {screenings.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--g400)' }}>No one registered yet.</td></tr>}
         </tbody>
       </table>
     </div>
   );
 }
 
-// ── STATION 2: EYE CHECKUP -- optometrist's room. A queue of people
-// who've registered but haven't had VA recorded yet; pick one, enter
-// VA, Save & Next automatically clears back to the queue. ──
+// A single row in the LHS queue -- color-coded so pending vs
+// already-seen is obvious at a glance without reading the text:
+// plain/white for pending, green-tinted for done. Selected item gets
+// a blue border regardless of stage, since a done person can be
+// reselected to correct what was recorded.
+function QueueRow({ s, selected, done, onClick, subtitle }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        padding: '10px 12px', borderRadius: 8, marginBottom: 6, cursor: 'pointer',
+        border: '1.5px solid', borderColor: selected ? 'var(--blue)' : done ? 'var(--green)' : 'var(--g200)',
+        background: selected ? 'var(--blue-lt)' : done ? 'var(--green-lt)' : '#fff',
+      }}
+    >
+      <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 5 }}>
+        {s.full_name}
+        {done && <i className="ti ti-check" style={{ color: 'var(--green)', fontSize: 13 }}></i>}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--g500)' }}>{subtitle}</div>
+    </div>
+  );
+}
+
+// ── STATION 2: EYE CHECKUP -- optometrist's room. Queue on the left
+// (pending on top, already-checked below in green), selected person's
+// form on the right. Picking an already-checked person re-opens their
+// VA for correction instead of leaving a mistake stuck on record. ──
 function EyeCheckupStation({ pending, done, onRefresh }) {
-  const [selected, setSelected] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
   const [vaOd, setVaOd] = useState('');
   const [vaOs, setVaOs] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const all = [...pending, ...done];
+  const selected = all.find((s) => s.id === selectedId) || null;
+  const wasPending = selected && !selected.eye_checkup_done_at;
+
   function pick(s) {
-    setSelected(s);
-    setVaOd(''); setVaOs('');
+    setSelectedId(s.id);
+    setVaOd(s.va_od || ''); setVaOs(s.va_os || '');
     setError('');
   }
 
@@ -132,71 +204,79 @@ function EyeCheckupStation({ pending, done, onRefresh }) {
     const result = await recordEyeCheckup(selected.id, { vaOd, vaOs });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
-    setSelected(null);
+    // A fresh (pending) entry auto-advances to the next person waiting
+    // -- keeps the optometrist moving through the line without an
+    // extra click. Editing an already-done record just confirms and
+    // drops back to the queue instead of implying there's a "next".
+    if (wasPending) {
+      const remaining = pending.filter((s) => s.id !== selected.id);
+      if (remaining.length > 0) { pick(remaining[0]); onRefresh(); return; }
+    }
+    setSelectedId(null);
     onRefresh();
   }
 
-  if (selected) {
-    return (
-      <div className="card" style={{ maxWidth: 420 }}>
-        <button className="btn btn-sm" style={{ marginBottom: 10 }} onClick={() => setSelected(null)}><i className="ti ti-arrow-left"></i> Back to queue</button>
-        <div className="card-title" style={{ marginBottom: 2 }}>{selected.full_name}</div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 14 }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-          <div><label className="flbl">VA -- Right eye (OD)</label><input className="fi" value={vaOd} onChange={(e) => setVaOd(e.target.value)} placeholder="e.g. 6/9" autoFocus /></div>
-          <div><label className="flbl">VA -- Left eye (OS)</label><input className="fi" value={vaOs} onChange={(e) => setVaOs(e.target.value)} placeholder="e.g. 6/12" /></div>
-        </div>
-        {error && <div className="msg-err" style={{ marginBottom: 10 }}>{error}</div>}
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-          <i className="ti ti-check"></i> {saving ? 'Saving...' : 'Save & Next'}
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>Waiting for eye checkup ({pending.length})</div>
-      {pending.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: 24, color: 'var(--g400)' }}>Queue is empty -- everyone registered has been checked.</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-          {pending.map((s) => (
-            <div key={s.id} onClick={() => pick(s)} className="card" style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div><strong>{s.full_name}</strong> <span style={{ fontSize: 11.5, color: 'var(--g400)' }}>{s.phone} -- {s.age || '--'}{s.gender ? `/${s.gender}` : ''}</span></div>
-              <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
-            </div>
-          ))}
+    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16, alignItems: 'flex-start' }}>
+      <div>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>
+          Waiting ({pending.length}) -- Checked ({done.length})
         </div>
-      )}
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>Already checked ({done.length})</div>
-      <table className="tbl">
-        <thead><tr><th>Name</th><th>VA (OD/OS)</th><th>By</th></tr></thead>
-        <tbody>
-          {done.map((s) => (
-            <tr key={s.id}><td>{s.full_name}</td><td style={{ fontSize: 12 }}>{s.va_od || '--'} / {s.va_os || '--'}</td><td style={{ fontSize: 11, color: 'var(--g400)' }}>{s.eye_checkup_profile?.full_name || '--'}</td></tr>
+        <div style={{ maxHeight: 560, overflowY: 'auto', paddingRight: 4 }}>
+          {pending.map((s) => (
+            <QueueRow key={s.id} s={s} selected={selectedId === s.id} done={false} onClick={() => pick(s)} subtitle={`${s.phone} -- ${s.age || '--'}${s.gender ? `/${s.gender}` : ''}`} />
           ))}
-          {done.length === 0 && <tr><td colSpan={3} style={{ textAlign: 'center', padding: 16, color: 'var(--g400)' }}>None yet.</td></tr>}
-        </tbody>
-      </table>
+          {done.map((s) => (
+            <QueueRow key={s.id} s={s} selected={selectedId === s.id} done onClick={() => pick(s)} subtitle={`VA ${s.va_od || '--'} / ${s.va_os || '--'}`} />
+          ))}
+          {all.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 12 }}>No one registered yet.</div>}
+        </div>
+      </div>
+
+      <div className="card">
+        {!selected ? (
+          <div style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>
+            <i className="ti ti-eye" style={{ fontSize: 24, marginBottom: 8, display: 'block' }}></i>
+            Select someone from the queue on the left.
+          </div>
+        ) : (
+          <>
+            <div className="card-title" style={{ marginBottom: 2 }}>{selected.full_name}</div>
+            <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 14 }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14, maxWidth: 420 }}>
+              <div><label className="flbl">VA -- Right eye (OD)</label><input className="fi" value={vaOd} onChange={(e) => setVaOd(e.target.value)} placeholder="e.g. 6/9" autoFocus /></div>
+              <div><label className="flbl">VA -- Left eye (OS)</label><input className="fi" value={vaOs} onChange={(e) => setVaOs(e.target.value)} placeholder="e.g. 6/12" /></div>
+            </div>
+            {error && <div className="msg-err" style={{ marginBottom: 10, maxWidth: 420 }}>{error}</div>}
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              <i className="ti ti-check"></i> {saving ? 'Saving...' : wasPending ? 'Save & Next' : 'Save Changes'}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-// ── STATION 3: DOCTOR EXAM -- doctor's room. Same queue pattern, but
-// only pulls from people who've cleared the eye checkup, and shows VA
-// results for context before the doctor records a finding. ──
+// ── STATION 3: DOCTOR EXAM -- doctor's room. Same split-screen queue
+// pattern, but only pulls from people who've cleared the eye checkup,
+// and shows VA for context. Already-examined people are reselectable
+// here too, to correct a finding. ──
 function DoctorExamStation({ pending, done, onRefresh }) {
-  const [selected, setSelected] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
   const [finding, setFinding] = useState('');
   const [referralRecommended, setReferralRecommended] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const all = [...pending, ...done];
+  const selected = all.find((s) => s.id === selectedId) || null;
+  const wasPending = selected && !selected.doctor_reviewed_at;
+
   function pick(s) {
-    setSelected(s);
-    setFinding(''); setReferralRecommended(false);
+    setSelectedId(s.id);
+    setFinding(s.finding || ''); setReferralRecommended(!!s.referral_recommended);
     setError('');
   }
 
@@ -205,66 +285,64 @@ function DoctorExamStation({ pending, done, onRefresh }) {
     const result = await recordDoctorExamination(selected.id, { finding, referralRecommended });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
-    setSelected(null);
+    if (wasPending) {
+      const remaining = pending.filter((s) => s.id !== selected.id);
+      if (remaining.length > 0) { pick(remaining[0]); onRefresh(); return; }
+    }
+    setSelectedId(null);
     onRefresh();
   }
 
-  if (selected) {
-    return (
-      <div className="card" style={{ maxWidth: 460 }}>
-        <button className="btn btn-sm" style={{ marginBottom: 10 }} onClick={() => setSelected(null)}><i className="ti ti-arrow-left"></i> Back to queue</button>
-        <div className="card-title" style={{ marginBottom: 2 }}>{selected.full_name}</div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 4 }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
-        <div style={{ fontSize: 12.5, background: 'var(--g50)', borderRadius: 8, padding: '6px 10px', marginBottom: 14, display: 'inline-block' }}>
-          VA: OD {selected.va_od || '--'} / OS {selected.va_os || '--'}
-        </div>
-
-        <label className="flbl">Finding</label>
-        <textarea className="fi" rows={2} style={{ marginBottom: 10 }} value={finding} onChange={(e) => setFinding(e.target.value)} placeholder="e.g. possible cataract, high refractive error, normal..." autoFocus />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', marginBottom: 14 }}>
-          <input type="checkbox" checked={referralRecommended} onChange={(e) => setReferralRecommended(e.target.checked)} />
-          Recommend a hospital visit for detailed checkup
-        </label>
-        {error && <div className="msg-err" style={{ marginBottom: 10 }}>{error}</div>}
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-          <i className="ti ti-check"></i> {saving ? 'Saving...' : 'Save & Next'}
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>Waiting for doctor examination ({pending.length})</div>
-      {pending.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: 24, color: 'var(--g400)' }}>Queue is empty -- nobody's waiting on you right now.</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-          {pending.map((s) => (
-            <div key={s.id} onClick={() => pick(s)} className="card" style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div><strong>{s.full_name}</strong> <span style={{ fontSize: 11.5, color: 'var(--g400)' }}>{s.phone} -- VA {s.va_od || '--'}/{s.va_os || '--'}</span></div>
-              <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
-            </div>
-          ))}
+    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16, alignItems: 'flex-start' }}>
+      <div>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>
+          Waiting ({pending.length}) -- Examined ({done.length})
         </div>
-      )}
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>Already examined ({done.length})</div>
-      <table className="tbl">
-        <thead><tr><th>Name</th><th>Finding</th><th>By</th></tr></thead>
-        <tbody>
-          {done.map((s) => (
-            <tr key={s.id}>
-              <td>{s.full_name}</td>
-              <td style={{ fontSize: 12 }}>{s.finding || <span style={{ color: 'var(--g400)' }}>No issues noted</span>}{s.referral_recommended && <span className="badge b-amber" style={{ marginLeft: 6, fontSize: 10 }}>Referral</span>}</td>
-              <td style={{ fontSize: 11, color: 'var(--g400)' }}>{s.doctor_review_profile?.full_name || '--'}</td>
-            </tr>
+        <div style={{ maxHeight: 560, overflowY: 'auto', paddingRight: 4 }}>
+          {pending.map((s) => (
+            <QueueRow key={s.id} s={s} selected={selectedId === s.id} done={false} onClick={() => pick(s)} subtitle={`${s.phone} -- VA ${s.va_od || '--'}/${s.va_os || '--'}`} />
           ))}
-          {done.length === 0 && <tr><td colSpan={3} style={{ textAlign: 'center', padding: 16, color: 'var(--g400)' }}>None yet.</td></tr>}
-        </tbody>
-      </table>
+          {done.map((s) => (
+            <QueueRow key={s.id} s={s} selected={selectedId === s.id} done onClick={() => pick(s)} subtitle={s.referral_recommended ? 'Referral recommended' : (s.finding || 'No issues noted')} />
+          ))}
+          {all.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 12 }}>No one's cleared the eye checkup yet.</div>}
+        </div>
+      </div>
+
+      <div className="card">
+        {!selected ? (
+          <div style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>
+            <i className="ti ti-stethoscope" style={{ fontSize: 24, marginBottom: 8, display: 'block' }}></i>
+            Select someone from the queue on the left.
+          </div>
+        ) : (
+          <>
+            <div className="card-title" style={{ marginBottom: 2 }}>{selected.full_name}</div>
+            <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 4 }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
+            <div style={{ fontSize: 12.5, background: 'var(--g50)', borderRadius: 8, padding: '6px 10px', marginBottom: 14, display: 'inline-block' }}>
+              VA: OD {selected.va_od || '--'} / OS {selected.va_os || '--'}
+            </div>
+
+            <div style={{ maxWidth: 460 }}>
+              <label className="flbl">Finding</label>
+              <textarea className="fi" rows={2} style={{ marginBottom: 10 }} value={finding} onChange={(e) => setFinding(e.target.value)} placeholder="e.g. possible cataract, high refractive error, normal..." autoFocus />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', marginBottom: 14 }}>
+                <input type="checkbox" checked={referralRecommended} onChange={(e) => setReferralRecommended(e.target.checked)} />
+                Recommend a hospital visit for detailed checkup
+              </label>
+              {error && <div className="msg-err" style={{ marginBottom: 10 }}>{error}</div>}
+              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                <i className="ti ti-check"></i> {saving ? 'Saving...' : wasPending ? 'Save & Next' : 'Save Changes'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
+
 
 function ConvertModal({ screening, onClose, onConverted }) {
   const nameParts = (screening.full_name || '').trim().split(/\s+/);
