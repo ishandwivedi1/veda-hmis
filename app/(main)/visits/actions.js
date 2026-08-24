@@ -185,7 +185,7 @@ export async function resendVisitWhatsApp(visitId) {
   return { success: true };
 }
 
-const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Post-operative Review', 'Emergency', 'Surgery'];
+const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Surgery Evaluation', 'Post-operative Review', 'Emergency', 'Surgery'];
 
 // Doctor / visit type / priority can be corrected after check-in --
 // front desk mistakes happen. Scoped to Open visits only; a closed or
