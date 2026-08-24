@@ -318,6 +318,13 @@ export async function getOTCaseDetail(otScheduleId) {
     consentForms[f.key] = files && files.length > 0 ? files[0] : null;
   }));
 
+  // Same fact assertCheckinDayLock enforces server-side on every save --
+  // fetched here too so the workspace can show the lock as the very
+  // first thing on load, before the person starts filling anything in,
+  // instead of only discovering it from an error after clicking Save.
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const activeVisitToday = await hasActiveVisitToday(supabase, sc?.patient_id, todayIst);
+
   return {
     booking, biometryPlans: approval ? [approval] : [],
     intraop: intraop || null,
@@ -325,6 +332,7 @@ export async function getOTCaseDetail(otScheduleId) {
     events: (events || []).filter((e) => e.kind === 'Event'),
     complications: (events || []).filter((e) => e.kind === 'Complication'),
     consentForms,
+    hasActiveVisitToday: activeVisitToday,
   };
 }
 

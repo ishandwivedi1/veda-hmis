@@ -192,14 +192,25 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
-  const { booking, biometryPlans, intraop, consumables, events, complications, consentForms } = data;
+  const { booking, biometryPlans, intraop, consumables, events, complications, consentForms, hasActiveVisitToday } = data;
   const sc = booking.surgical_cases;
   const patient = sc.patients;
   const isCompleted = booking.status === 'Completed';
+  // Same signal Surgical Journey uses to gate its own IOL Approval
+  // section -- biometry_required false means this case never needed
+  // an IOL power calc, i.e. non-cataract surgery. The IOL Verification
+  // card below only makes sense for cataract cases.
+  const isCataract = sc.biometry_required !== false;
   // Check-in day lock (mirrors assertCheckinDayLock server-side) --
-  // shown proactively here so staff see WHY before they click anything,
-  // rather than only discovering it from an error after the fact.
+  // BOTH conditions checked here, same as the server: (1) today is the
+  // scheduled OT day, and (2) the patient has an actual active visit
+  // today (front-desk arrival), not just that OT Schedule happens to
+  // say "today". This used to only be enforced server-side, discovered
+  // only after filling in the form and clicking Save -- now it's the
+  // first thing checked, before the person can interact with anything.
   const isWrongDayForCheckin = booking.status === 'Scheduled' && booking.scheduled_date !== todayIst();
+  const isMissingActiveVisit = booking.status === 'Scheduled' && !isWrongDayForCheckin && !hasActiveVisitToday;
+  const checkinLocked = isWrongDayForCheckin || isMissingActiveVisit;
   // Once completed, the intraoperative fields are locked for reference
   // unless explicitly unlocked -- same "Unlock to Edit" pattern as a
   // completed Doctor Consultation, so a genuine correction (wrong
@@ -504,7 +515,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
         </div>
       )}
 
-      {isWrongDayForCheckin && (
+      {checkinLocked && (
         <div
           className="msg-info"
           style={{
@@ -515,8 +526,16 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
         >
           <i className="ti ti-lock"></i>
           <span>
-            Check-in locked -- this surgery is scheduled for {new Date(`${booking.scheduled_date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
-            {booking.scheduled_date > todayIst() ? ', which hasn\u2019t arrived yet' : ' and was never checked in that day'}. Check-in only works on the scheduled day itself -- use OT Schedule to reschedule if needed.
+            {isWrongDayForCheckin ? (
+              <>
+                Check-in locked -- this surgery is scheduled for {new Date(`${booking.scheduled_date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
+                {booking.scheduled_date > todayIst() ? ', which hasn\u2019t arrived yet' : ' and was never checked in that day'}. Check-in only works on the scheduled day itself -- use OT Schedule to reschedule if needed.
+              </>
+            ) : (
+              <>
+                Check-in locked -- this patient has no active visit today. Create a visit for them (Visit Type: Surgery) in Visits before checking in.
+              </>
+            )}
           </span>
         </div>
       )}
@@ -603,6 +622,18 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
           <>
 
           {subTab === 'checkin' && (
+          <>
+          {checkinLocked ? (
+            <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--g500)' }}>
+              <i className="ti ti-lock" style={{ fontSize: 28, color: 'var(--red)', marginBottom: 8, display: 'block' }}></i>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Check-in is locked</div>
+              <div style={{ fontSize: 12, maxWidth: 420, margin: '0 auto' }}>
+                {isWrongDayForCheckin
+                  ? 'This surgery is not scheduled for today. See the notice above for details.'
+                  : 'This patient has no active visit today. Create a visit for them (Visit Type: Surgery) in Visits, then come back here.'}
+              </div>
+            </div>
+          ) : (
           <>
           {/* Single lock/unlock control for the entire Check-In page --
               consent forms, checklist, anaesthesia, and implant
@@ -711,12 +742,13 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             {intraop?.anaesthesia_recorded_at && <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6 }}><i className="ti ti-check"></i> Recorded</div>}
           </div>
 
-          {/* IOL Verification -- confirms the physical IOL on hand
-              matches the approved plan, BEFORE surgery. This is
-              deliberately separate from "what was actually implanted",
-              which is recorded in Intraoperative Management -- a
-              complication can force a different IOL to go in than the
-              one verified present here. */}
+          {/* IOL Verification -- cataract cases only. Confirms the
+              physical IOL on hand matches the approved plan, BEFORE
+              surgery. This is deliberately separate from "what was
+              actually implanted", which is recorded in Intraoperative
+              Management -- a complication can force a different IOL to
+              go in than the one verified present here. */}
+          {isCataract && (
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-disc" style={{ color: 'var(--indigo)' }}></i> IOL Verification -- Physical Check</div>
             <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
@@ -836,6 +868,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
               </button>
             )}
           </div>
+          )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button className="btn" onClick={onBack}><i className="ti ti-arrow-left"></i> Back to Dashboard</button>
@@ -847,6 +880,8 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
               </button>
             )}
           </div>
+          </>
+          )}
           </>
           )}
 
