@@ -409,3 +409,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .content-area { padding: 12px; }
   .tbl { font-size: 11.5px; }
 }
+
+/* Camp station queue rows (Eye Checkup / Doctor Exam) -- a gentle
+   hover lift, smoother than the flat .card default, since these rows
+   are clicked through rapidly in a live queue. */
+.queue-row { transition: box-shadow .14s ease, transform .14s ease; }
+.queue-row:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }

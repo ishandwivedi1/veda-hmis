@@ -155,6 +155,7 @@ export async function recordEyeCheckup(screeningId, values) {
     .update({
       va_od: values.vaOd?.trim() || null,
       va_os: values.vaOs?.trim() || null,
+      optometrist_notes: values.notes?.trim() || null,
       eye_checkup_done_at: new Date().toISOString(),
       eye_checkup_by: user?.id || null,
     })

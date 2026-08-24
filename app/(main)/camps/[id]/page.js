@@ -153,26 +153,64 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
   );
 }
 
-// A single row in the LHS queue -- color-coded so pending vs
-// already-seen is obvious at a glance without reading the text:
-// plain/white for pending, green-tinted for done. Selected item gets
-// a blue border regardless of stage, since a done person can be
-// reselected to correct what was recorded.
+function initials(name) {
+  const parts = (name || '').trim().split(/\s+/);
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
+}
+
+// Section label inside the queue -- a colored dot + uppercase label +
+// count, so "who's waiting" vs "who's already been seen" reads as two
+// distinct zones at a glance, not just a color difference on each row.
+function QueueSectionHeader({ label, count, color, withDivider }) {
+  return (
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 7,
+        fontSize: 10.5, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.06em',
+        padding: withDivider ? '14px 4px 8px' : '2px 4px 8px',
+        borderTop: withDivider ? '1px solid var(--g200)' : 'none',
+        marginTop: withDivider ? 6 : 0,
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }}></span>
+      {label}
+      <span style={{ marginLeft: 'auto', color: 'var(--g400)' }}>{count}</span>
+    </div>
+  );
+}
+
+// One entry in the queue -- an initials avatar (a checkmark once
+// seen), name, and context line. Left accent bar carries the state
+// color even at a glance from across the room: gray for waiting,
+// green for already seen, blue whenever selected (a done person is
+// still reselectable to correct what was recorded).
 function QueueRow({ s, selected, done, onClick, subtitle }) {
   return (
     <div
       onClick={onClick}
+      className="queue-row"
       style={{
-        padding: '10px 12px', borderRadius: 8, marginBottom: 6, cursor: 'pointer',
-        border: '1.5px solid', borderColor: selected ? 'var(--blue)' : done ? 'var(--green)' : 'var(--g200)',
-        background: selected ? 'var(--blue-lt)' : done ? 'var(--green-lt)' : '#fff',
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '9px 12px', borderRadius: 'var(--r)', marginBottom: 6, cursor: 'pointer',
+        background: selected ? 'var(--blue-lt)' : '#fff',
+        boxShadow: selected ? 'var(--shadow-md)' : 'var(--shadow-sm)',
+        border: '1px solid', borderColor: selected ? 'var(--blue)' : 'var(--g200)',
+        borderLeft: '4px solid', borderLeftColor: selected ? 'var(--blue)' : done ? 'var(--green)' : 'var(--g300)',
       }}
     >
-      <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 5 }}>
-        {s.full_name}
-        {done && <i className="ti ti-check" style={{ color: 'var(--green)', fontSize: 13 }}></i>}
+      <div style={{
+        width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 11, fontWeight: 700,
+        background: done ? 'var(--green-lt)' : 'var(--g100)',
+        color: done ? 'var(--green)' : 'var(--g600)',
+      }}>
+        {done ? <i className="ti ti-check" style={{ fontSize: 14 }}></i> : initials(s.full_name)}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--g500)' }}>{subtitle}</div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--g800)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.full_name}</div>
+        <div style={{ fontSize: 11, color: 'var(--g500)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
+      </div>
     </div>
   );
 }
@@ -185,6 +223,7 @@ function EyeCheckupStation({ pending, done, onRefresh }) {
   const [selectedId, setSelectedId] = useState(null);
   const [vaOd, setVaOd] = useState('');
   const [vaOs, setVaOs] = useState('');
+  const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -194,14 +233,14 @@ function EyeCheckupStation({ pending, done, onRefresh }) {
 
   function pick(s) {
     setSelectedId(s.id);
-    setVaOd(s.va_od || ''); setVaOs(s.va_os || '');
+    setVaOd(s.va_od || ''); setVaOs(s.va_os || ''); setNotes(s.optometrist_notes || '');
     setError('');
   }
 
   async function handleSave() {
     if (!vaOd.trim() && !vaOs.trim()) { setError('Enter at least one eye\u2019s VA.'); return; }
     setSaving(true);
-    const result = await recordEyeCheckup(selected.id, { vaOd, vaOs });
+    const result = await recordEyeCheckup(selected.id, { vaOd, vaOs, notes });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     // A fresh (pending) entry auto-advances to the next person waiting
@@ -218,22 +257,23 @@ function EyeCheckupStation({ pending, done, onRefresh }) {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16, alignItems: 'flex-start' }}>
-      <div>
-        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>
-          Waiting ({pending.length}) -- Checked ({done.length})
-        </div>
-        <div style={{ maxHeight: 560, overflowY: 'auto', paddingRight: 4 }}>
-          {pending.map((s) => (
-            <QueueRow key={s.id} s={s} selected={selectedId === s.id} done={false} onClick={() => pick(s)} subtitle={`${s.phone} -- ${s.age || '--'}${s.gender ? `/${s.gender}` : ''}`} />
-          ))}
-          {done.map((s) => (
-            <QueueRow key={s.id} s={s} selected={selectedId === s.id} done onClick={() => pick(s)} subtitle={`VA ${s.va_od || '--'} / ${s.va_os || '--'}`} />
-          ))}
-          {all.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 12 }}>No one registered yet.</div>}
-        </div>
+      <div style={{ background: 'var(--g50)', borderRadius: 'var(--r-lg)', padding: '10px 8px', maxHeight: 620, overflowY: 'auto' }}>
+        <QueueSectionHeader label="Waiting" count={pending.length} color="var(--teal)" />
+        {pending.map((s) => (
+          <QueueRow key={s.id} s={s} selected={selectedId === s.id} done={false} onClick={() => pick(s)} subtitle={`${s.phone} -- ${s.age || '--'}${s.gender ? `/${s.gender}` : ''}`} />
+        ))}
+        {pending.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)', padding: '4px 4px 10px' }}>Everyone registered has been checked.</div>}
+
+        <QueueSectionHeader label="Already Seen" count={done.length} color="var(--green)" withDivider />
+        {done.map((s) => (
+          <QueueRow key={s.id} s={s} selected={selectedId === s.id} done onClick={() => pick(s)} subtitle={`VA ${s.va_od || '--'} / ${s.va_os || '--'}`} />
+        ))}
+        {done.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)', padding: '4px 4px 6px' }}>None yet.</div>}
+
+        {all.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 12 }}>No one registered yet.</div>}
       </div>
 
-      <div className="card">
+      <div className="card" style={{ boxShadow: 'var(--shadow-md)' }}>
         {!selected ? (
           <div style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>
             <i className="ti ti-eye" style={{ fontSize: 24, marginBottom: 8, display: 'block' }}></i>
@@ -241,12 +281,23 @@ function EyeCheckupStation({ pending, done, onRefresh }) {
           </div>
         ) : (
           <>
-            <div className="card-title" style={{ marginBottom: 2 }}>{selected.full_name}</div>
-            <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 14 }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--teal-lt)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                {initials(selected.full_name)}
+              </div>
+              <div>
+                <div className="card-title" style={{ marginBottom: 1 }}>{selected.full_name}</div>
+                <div style={{ fontSize: 12, color: 'var(--g500)' }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
+              </div>
+            </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14, maxWidth: 420 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10, maxWidth: 420 }}>
               <div><label className="flbl">VA -- Right eye (OD)</label><input className="fi" value={vaOd} onChange={(e) => setVaOd(e.target.value)} placeholder="e.g. 6/9" autoFocus /></div>
               <div><label className="flbl">VA -- Left eye (OS)</label><input className="fi" value={vaOs} onChange={(e) => setVaOs(e.target.value)} placeholder="e.g. 6/12" /></div>
+            </div>
+            <div style={{ maxWidth: 420, marginBottom: 14 }}>
+              <label className="flbl">Notes <span style={{ fontWeight: 400, color: 'var(--g400)' }}>(optional -- visible to the doctor)</span></label>
+              <textarea className="fi" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. difficulty with pinhole, uncooperative child, wears glasses already..." />
             </div>
             {error && <div className="msg-err" style={{ marginBottom: 10, maxWidth: 420 }}>{error}</div>}
             <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
@@ -295,22 +346,23 @@ function DoctorExamStation({ pending, done, onRefresh }) {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16, alignItems: 'flex-start' }}>
-      <div>
-        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>
-          Waiting ({pending.length}) -- Examined ({done.length})
-        </div>
-        <div style={{ maxHeight: 560, overflowY: 'auto', paddingRight: 4 }}>
-          {pending.map((s) => (
-            <QueueRow key={s.id} s={s} selected={selectedId === s.id} done={false} onClick={() => pick(s)} subtitle={`${s.phone} -- VA ${s.va_od || '--'}/${s.va_os || '--'}`} />
-          ))}
-          {done.map((s) => (
-            <QueueRow key={s.id} s={s} selected={selectedId === s.id} done onClick={() => pick(s)} subtitle={s.referral_recommended ? 'Referral recommended' : (s.finding || 'No issues noted')} />
-          ))}
-          {all.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 12 }}>No one's cleared the eye checkup yet.</div>}
-        </div>
+      <div style={{ background: 'var(--g50)', borderRadius: 'var(--r-lg)', padding: '10px 8px', maxHeight: 620, overflowY: 'auto' }}>
+        <QueueSectionHeader label="Waiting" count={pending.length} color="var(--indigo)" />
+        {pending.map((s) => (
+          <QueueRow key={s.id} s={s} selected={selectedId === s.id} done={false} onClick={() => pick(s)} subtitle={`${s.phone} -- VA ${s.va_od || '--'}/${s.va_os || '--'}`} />
+        ))}
+        {pending.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)', padding: '4px 4px 10px' }}>Nobody's waiting on you right now.</div>}
+
+        <QueueSectionHeader label="Already Seen" count={done.length} color="var(--green)" withDivider />
+        {done.map((s) => (
+          <QueueRow key={s.id} s={s} selected={selectedId === s.id} done onClick={() => pick(s)} subtitle={s.referral_recommended ? 'Referral recommended' : (s.finding || 'No issues noted')} />
+        ))}
+        {done.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)', padding: '4px 4px 6px' }}>None yet.</div>}
+
+        {all.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: 12 }}>No one's cleared the eye checkup yet.</div>}
       </div>
 
-      <div className="card">
+      <div className="card" style={{ boxShadow: 'var(--shadow-md)' }}>
         {!selected ? (
           <div style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>
             <i className="ti ti-stethoscope" style={{ fontSize: 24, marginBottom: 8, display: 'block' }}></i>
@@ -318,10 +370,25 @@ function DoctorExamStation({ pending, done, onRefresh }) {
           </div>
         ) : (
           <>
-            <div className="card-title" style={{ marginBottom: 2 }}>{selected.full_name}</div>
-            <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 4 }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
-            <div style={{ fontSize: 12.5, background: 'var(--g50)', borderRadius: 8, padding: '6px 10px', marginBottom: 14, display: 'inline-block' }}>
-              VA: OD {selected.va_od || '--'} / OS {selected.va_os || '--'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--indigo-lt)', color: 'var(--indigo)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                {initials(selected.full_name)}
+              </div>
+              <div>
+                <div className="card-title" style={{ marginBottom: 1 }}>{selected.full_name}</div>
+                <div style={{ fontSize: 12, color: 'var(--g500)' }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12.5, background: 'var(--g50)', borderRadius: 8, padding: '6px 10px' }}>
+                VA: OD {selected.va_od || '--'} / OS {selected.va_os || '--'}
+              </div>
+              {selected.optometrist_notes && (
+                <div style={{ fontSize: 12.5, background: 'var(--teal-lt)', color: 'var(--teal)', borderRadius: 8, padding: '6px 10px' }}>
+                  <i className="ti ti-notes"></i> {selected.optometrist_notes}
+                </div>
+              )}
             </div>
 
             <div style={{ maxWidth: 460 }}>
