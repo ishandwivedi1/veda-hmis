@@ -4,6 +4,19 @@ import { createClient } from '@/lib/supabase-server';
 import { registerPatient } from '@/app/(main)/patients/actions';
 import { sendWhatsAppTemplate } from '@/lib/whatsapp';
 
+// Matches register_patient's initcap(trim(...)) normalization on the
+// real Patients table -- camp registration is rushed by nature (50-60
+// people, one line each), so names typed in all-caps, all-lowercase,
+// or inconsistent case get straightened out here rather than trusting
+// a hurried entry to always get it right.
+function toTitleCase(str) {
+  if (!str) return str;
+  return str
+    .trim()
+    .toLowerCase()
+    .replace(/(^|[\s-'])\S/g, (c) => c.toUpperCase());
+}
+
 // ── CAMP EVENTS ──
 export async function listCampEvents() {
   const supabase = await createClient();
@@ -104,7 +117,7 @@ export async function registerAttendee(campEventId, values) {
     .from('camp_screenings')
     .insert({
       camp_event_id: campEventId,
-      full_name: values.fullName.trim(),
+      full_name: toTitleCase(values.fullName.trim()),
       phone: values.phone.trim(),
       age: values.age ? parseInt(values.age, 10) : null,
       gender: values.gender || null,
@@ -122,7 +135,7 @@ export async function updateRegistration(screeningId, values) {
   const { error } = await supabase
     .from('camp_screenings')
     .update({
-      full_name: values.fullName?.trim(),
+      full_name: values.fullName?.trim() ? toTitleCase(values.fullName.trim()) : values.fullName?.trim(),
       phone: values.phone?.trim(),
       age: values.age ? parseInt(values.age, 10) : null,
       gender: values.gender || null,

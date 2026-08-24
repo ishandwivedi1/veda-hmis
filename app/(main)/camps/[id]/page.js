@@ -18,6 +18,17 @@ function fmtTime(t) {
   return new Date(t).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
 }
 
+// Same normalization as the real Patients registration form -- applied
+// on blur so what the receptionist sees already matches what gets
+// saved, instead of only fixing it after the fact server-side.
+function toTitleCase(str) {
+  if (!str) return str;
+  return str
+    .trim()
+    .toLowerCase()
+    .replace(/(^|[\s-'])\S/g, (c) => c.toUpperCase());
+}
+
 function StationTab({ active, onClick, icon, label, count, color }) {
   return (
     <button
@@ -63,7 +74,7 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-user-plus" style={{ color: 'var(--blue)' }}></i> Register Attendee</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 0.6fr 0.7fr', gap: 8, marginBottom: 10 }}>
-          <input className="fi" placeholder="Full name*" value={fullName} onChange={(e) => setFullName(e.target.value)} autoFocus />
+          <input className="fi" placeholder="Full name*" value={fullName} onChange={(e) => setFullName(e.target.value)} onBlur={() => setFullName((v) => toTitleCase(v))} autoFocus />
           <input className="fi" placeholder="Phone*" value={phone} onChange={(e) => setPhone(e.target.value)} />
           <input className="fi" placeholder="Age" value={age} onChange={(e) => setAge(e.target.value)} />
           <select className="fi" value={gender} onChange={(e) => setGender(e.target.value)}>
@@ -286,8 +297,8 @@ function ConvertModal({ screening, onClose, onConverted }) {
         <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 14 }}>Pre-filled from the camp entry -- check and complete before registering.</div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-          <div><label className="flbl">First name<sup style={{ color: 'var(--red)' }}>*</sup></label><input className="fi" value={firstName} onChange={(e) => setFirstName(e.target.value)} /></div>
-          <div><label className="flbl">Last name</label><input className="fi" value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
+          <div><label className="flbl">First name<sup style={{ color: 'var(--red)' }}>*</sup></label><input className="fi" value={firstName} onChange={(e) => setFirstName(e.target.value)} onBlur={() => setFirstName((v) => toTitleCase(v))} /></div>
+          <div><label className="flbl">Last name</label><input className="fi" value={lastName} onChange={(e) => setLastName(e.target.value)} onBlur={() => setLastName((v) => toTitleCase(v))} /></div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
           <div><label className="flbl">Age</label><input className="fi" value={age} onChange={(e) => setAge(e.target.value)} /></div>
