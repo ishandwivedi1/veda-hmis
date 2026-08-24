@@ -959,16 +959,17 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             ))}
           </div>
 
-          {/* Implant Verification -- what was ACTUALLY implanted,
-              recorded here in Intraop, checked against the approved
-              plan. Deliberately independent of Check-In's own physical
-              verification (cv state, verified_iol_ columns) below -- a
-              complication can force a different IOL to actually go in
-              than the one verified present at check-in, and this is
-              where that gets documented. Defaults from Check-In's
-              verification when nothing's been recorded here yet (see
-              init effect), but is fully editable and never overwrites
-              verified_iol_*. */}
+          {/* Implant Verification -- cataract cases only. What was
+              ACTUALLY implanted, recorded here in Intraop, checked
+              against the approved plan. Deliberately independent of
+              Check-In's own physical verification (cv state,
+              verified_iol_ columns) below -- a complication can force
+              a different IOL to actually go in than the one verified
+              present at check-in, and this is where that gets
+              documented. Defaults from Check-In's verification when
+              nothing's been recorded here yet (see init effect), but
+              is fully editable and never overwrites verified_iol_*. */}
+          {isCataract && (
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-disc" style={{ color: 'var(--indigo)' }}></i> Implant Verification</div>
 
@@ -1078,6 +1079,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
               <div><label className="flbl">Serial / Batch number<sup style={{ color: 'var(--red)', marginLeft: 2 }}>*</sup></label><input className="fi fi-sm" value={imSerial} onChange={(e) => setImSerial(e.target.value)} disabled={isReadOnly} /></div>
             </div>
           </div>
+          )}
 
           {/* Notes */}
           <div className="card">
