@@ -41,7 +41,7 @@ function initials(name) {
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
 }
 
-const ARRIVAL_STAGE_COLOR = { 'In OT': 'var(--blue)', 'In Recovery': 'var(--purple)', 'Discharged': 'var(--green)' };
+const ARRIVAL_STAGE_COLOR = { 'Checked In': 'var(--amber)', 'In OT': 'var(--blue)', 'In Recovery': 'var(--purple)', 'Discharged': 'var(--green)' };
 
 // Normalizes the three different row shapes (ot_schedule "active" rows,
 // surgical_cases rows, recovery_episodes rows) into one common row
@@ -50,7 +50,7 @@ const ARRIVAL_STAGE_COLOR = { 'In OT': 'var(--blue)', 'In Recovery': 'var(--purp
 function normalizeArrival(row, stageLabel) {
   const sc = row.surgical_cases;
   const p = sc?.patients;
-  const href = stageLabel === 'In OT' ? `/ot-intraop?otScheduleId=${row.id}` : `/ot-recovery?episodeId=${stageLabel === 'In Recovery' ? row.recoveryEpisodeId : row.id}`;
+  const href = (stageLabel === 'Checked In' || stageLabel === 'In OT') ? `/ot-intraop?otScheduleId=${row.id}` : `/ot-recovery?episodeId=${stageLabel === 'In Recovery' ? row.recoveryEpisodeId : row.id}`;
   return { key: `arr-${row.id}`, name: p ? `${p.first_name} ${p.last_name}` : 'Unknown', uhid: p?.uhid, subtitle: `${sc?.procedure_name || ''}${sc?.eye ? ` (${sc.eye})` : ''}`, stageLabel, href };
 }
 function normalizeSurgicalEval(c) {
@@ -73,7 +73,7 @@ function ArrivalColumn({ icon, color, title, items, emptyText, showStage, border
     <div style={{ padding: '14px 16px', borderTop: '1px solid var(--g200)', borderLeft: borderLeft ? '1px solid var(--g200)' : 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
         <i className={`ti ${icon}`} style={{ color, fontSize: 15 }}></i>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--g700)' }}>{title}</span>
+        <span style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--g700)' }}>{title}</span>
         <span className="badge" style={{ background: items.length > 0 ? `${color}20` : 'var(--g100)', color: items.length > 0 ? color : 'var(--g400)', marginLeft: 'auto' }}>{items.length}</span>
       </div>
       {items.length === 0 ? (
@@ -235,6 +235,15 @@ function SurgicalWorkflowGroup({ active, awaitingConfirmation, stages, onOpenSur
 function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, surgicalEvalArrivals, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenSurgicalJourney, onOpenMedicalFitness }) {
   const today = todayIst();
   const todayScheduled = useMemo(() => scheduled.filter((b) => b.scheduled_date === today), [scheduled, today]);
+  // "Scheduled for today, not yet checked in" is the Patient Check-In
+  // tile's own hint text -- so its count has to exclude anyone who's
+  // already reported, not just anyone still in 'Scheduled' OT status.
+  // A patient reports (patient_reported_at gets stamped) the moment
+  // they check in, well before staff move their OT status to 'In
+  // Progress' -- without this split, someone standing in pre-op prep
+  // right now still reads as "hasn't arrived."
+  const notYetCheckedIn = useMemo(() => todayScheduled.filter((b) => !b.patient_reported_at), [todayScheduled]);
+  const checkedInNotStarted = useMemo(() => todayScheduled.filter((b) => b.patient_reported_at && b.status === 'Scheduled'), [todayScheduled]);
   const inOt = useMemo(() => active.filter((b) => b.stage === 'Checked-In / In OT'), [active]);
   const inRecovery = useMemo(() => active.filter((b) => b.stage === 'In Recovery'), [active]);
   const dischargedToday = useMemo(() => history.filter((e) => e.discharge_date === today), [history, today]);
@@ -242,12 +251,16 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, s
   // Same underlying rows as the tiles below, but scoped to TODAY's
   // arrivals specifically -- someone still in recovery from
   // yesterday still counts on the "Recovery & Discharge" pipeline
-  // tile, but isn't one of today's arrivals.
+  // tile, but isn't one of today's arrivals. Includes checkedInNotStarted
+  // -- reported today but still pre-op, not yet moved into OT -- which
+  // was the actual gap: they'd genuinely walked in but weren't
+  // showing up anywhere on this dashboard.
   const arrivedForSurgery = useMemo(() => [
+    ...checkedInNotStarted.map((b) => normalizeArrival(b, 'Checked In')),
     ...inOt.filter((b) => b.scheduled_date === today).map((b) => normalizeArrival(b, 'In OT')),
     ...inRecovery.filter((b) => b.scheduled_date === today).map((b) => normalizeArrival(b, 'In Recovery')),
     ...dischargedToday.map((b) => normalizeArrival(b, 'Discharged')),
-  ], [inOt, inRecovery, dischargedToday, today]);
+  ], [checkedInNotStarted, inOt, inRecovery, dischargedToday, today]);
 
   const surgicalEvalRows = useMemo(() => surgicalEvalArrivals.map(normalizeSurgicalEval), [surgicalEvalArrivals]);
   const postOpTodayRows = useMemo(() => postOpToday.map(normalizePostOp), [postOpToday]);
@@ -270,7 +283,7 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, s
         stages={[
           { icon: 'ti-heartbeat', color: 'var(--red)', title: 'Medical Fitness', count: medicalFitnessQueue.length, onClick: onOpenMedicalFitness },
           { icon: 'ti-lens', color: 'var(--green)', title: 'IOL Approval', count: iolApprovals.length, onClick: onOpenIol },
-          { icon: 'ti-clipboard-check', color: 'var(--amber)', title: 'Patient Check-In', count: todayScheduled.length, onClick: onOpenScheduled },
+          { icon: 'ti-clipboard-check', color: 'var(--amber)', title: 'Patient Check-In', count: notYetCheckedIn.length, onClick: onOpenScheduled },
           { icon: 'ti-scalpel', color: 'var(--blue)', title: 'Intraoperative Mgmt', count: inOt.length, onClick: onOpenIntraop },
           { icon: 'ti-bed', color: 'var(--purple)', title: 'Recovery & Discharge', count: inRecovery.length, onClick: onOpenRecovery },
         ]}
