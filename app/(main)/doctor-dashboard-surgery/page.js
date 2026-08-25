@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardHistory } from './actions';
 import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
 import { getPostOpTurnedUpToday } from '@/app/(main)/ot-postop/actions';
-import { getSurgicalCaseLists, getSurgicalTrackArrivalsToday } from '@/app/(main)/surgical-journey/actions';
+import { getSurgicalCaseLists, getSurgicalEvaluationArrivalsToday } from '@/app/(main)/surgical-journey/actions';
 import { getMedicalFitnessQueue } from '@/app/(main)/medical-fitness/actions';
 
 function patientName(sc) {
@@ -36,32 +36,6 @@ function TabButton({ active, onClick, icon, label }) {
   );
 }
 
-// A pure count tile -- no patient names, no per-row list. The whole
-// card is a single click-through straight into the relevant workflow
-// page (Check-In, Intraop, Recovery, Post-Op, etc.), same as tapping a
-// stat card. Replaces the earlier per-patient WidgetRow list: the
-// surgeon wants "how many, and take me there," not a name list here.
-// A zero count is dimmed -- nothing pending there shouldn't compete
-// visually with tiles that actually need attention.
-function WorkflowTile({ icon, iconColor, title, count, hint, onClick }) {
-  return (
-    <div
-      onClick={onClick}
-      className="card"
-      style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-    >
-      <div>
-        <div className="card-title" style={{ marginBottom: 4 }}><i className={`ti ${icon}`} style={{ color: iconColor }}></i> {title}</div>
-        {hint && <div style={{ fontSize: 11, color: 'var(--g500)' }}>{hint}</div>}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        <div style={{ fontSize: 26, fontWeight: 800, color: count > 0 ? 'var(--g800)' : 'var(--g300)' }}>{count}</div>
-        <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
-      </div>
-    </div>
-  );
-}
-
 function initials(name) {
   const parts = (name || '').trim().split(/\s+/);
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
@@ -69,69 +43,94 @@ function initials(name) {
 
 const ARRIVAL_STAGE_COLOR = { 'In OT': 'var(--blue)', 'In Recovery': 'var(--purple)', 'Discharged': 'var(--green)' };
 
-// Normalizes the three different row shapes (ot_schedule "active" rows
-// for In OT/In Recovery, recovery_episodes "history" rows for
-// Discharged) into one common shape so they can render in a single
-// list, each linking straight to wherever that patient actually is
-// right now.
+// Normalizes the three different row shapes (ot_schedule "active" rows,
+// surgical_cases rows, recovery_episodes rows) into one common row
+// shape so all three columns below can render the same way -- each
+// linking straight to wherever that patient's record actually lives.
 function normalizeArrival(row, stageLabel) {
   const sc = row.surgical_cases;
   const p = sc?.patients;
   const href = stageLabel === 'In OT' ? `/ot-intraop?otScheduleId=${row.id}` : `/ot-recovery?episodeId=${stageLabel === 'In Recovery' ? row.recoveryEpisodeId : row.id}`;
-  return {
-    key: `${stageLabel}-${row.id}`,
-    name: p ? `${p.first_name} ${p.last_name}` : 'Unknown',
-    uhid: p?.uhid, procedure: sc?.procedure_name, eye: sc?.eye,
-    stageLabel, href,
-  };
+  return { key: `arr-${row.id}`, name: p ? `${p.first_name} ${p.last_name}` : 'Unknown', uhid: p?.uhid, subtitle: `${sc?.procedure_name || ''}${sc?.eye ? ` (${sc.eye})` : ''}`, stageLabel, href };
+}
+function normalizeSurgicalEval(c) {
+  const p = c.patients;
+  return { key: `eval-${c.id}`, name: p ? `${p.first_name} ${p.last_name}` : 'Unknown', uhid: p?.uhid, subtitle: `${c.procedure_name || ''}${c.eye ? ` (${c.eye})` : ''}`, href: `/surgical-journey/${c.id}` };
+}
+function normalizePostOp(e) {
+  const sc = e.surgical_cases;
+  const p = sc?.patients;
+  return { key: `postop-${e.id}`, name: p ? `${p.first_name} ${p.last_name}` : 'Unknown', uhid: p?.uhid, subtitle: `${sc?.procedure_name || ''}${sc?.eye ? ` (${sc.eye})` : ''}`, href: `/ot-postop?episodeId=${e.id}` };
 }
 
-// ── TODAY'S ARRIVALS -- the direct answer to "who has actually walked
-// through the door today," in the order a surgical patient actually
-// moves through: evaluation first, then the surgery itself, then the
-// post-op review. Sits above the workflow tile grid (which shows
-// WHERE each case currently stands) since this answers a different
-// question -- THAT they arrived -- and deliberately doesn't duplicate
-// any of the tile counts below: this is a same-day arrival view, the
-// tiles are a pipeline-stage view.
-//
-// Color coding ties each card to its counterpart elsewhere on this
-// dashboard/app, not arbitrary: cyan = pre-op/evaluation, blue = the
-// OT/surgery day itself (matches Intraoperative Management below),
-// teal = post-op (matches the Post-Op module everywhere else it
-// appears). ──
-function TodaysArrivals({ arrivedForSurgery, surgicalEvalCount, postOpTodayCount, onOpenSurgicalJourney, onOpenPostOp }) {
+// One column within Today's Surgery Related Visits -- header (icon,
+// title, count) then a scrollable list of real patient rows, each a
+// direct link into that patient's actual record (Surgical Journey for
+// evaluation, Intraop/Recovery for surgery day, Post-Op for review) --
+// not a generic module landing page.
+function ArrivalColumn({ icon, color, title, items, emptyText, showStage, borderLeft }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: 16, marginBottom: 20, alignItems: 'start' }}>
-      <WorkflowTile icon="ti-door-enter" iconColor="var(--cyan)" title="Surgical Evaluation" count={surgicalEvalCount} hint="Arrived today for evaluation, investigation, or advance." onClick={onOpenSurgicalJourney} />
-
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 2 }}>
-          <i className="ti ti-scalpel" style={{ color: 'var(--blue)' }}></i> Surgeries Today
-          <span className="badge" style={{ background: arrivedForSurgery.length > 0 ? 'var(--blue-lt)' : 'var(--g100)', color: arrivedForSurgery.length > 0 ? 'var(--blue)' : 'var(--g400)', marginLeft: 8 }}>{arrivedForSurgery.length}</span>
+    <div style={{ padding: '14px 16px', borderTop: '1px solid var(--g200)', borderLeft: borderLeft ? '1px solid var(--g200)' : 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+        <i className={`ti ${icon}`} style={{ color, fontSize: 15 }}></i>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--g700)' }}>{title}</span>
+        <span className="badge" style={{ background: items.length > 0 ? `${color}20` : 'var(--g100)', color: items.length > 0 ? color : 'var(--g400)', marginLeft: 'auto' }}>{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <div style={{ fontSize: 11.5, color: 'var(--g400)', padding: '6px 0' }}>{emptyText}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
+          {items.map((a) => (
+            <a key={a.key} href={a.href} className="queue-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 'var(--r)', border: '1px solid var(--g200)', textDecoration: 'none', color: 'inherit' }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, fontWeight: 700, background: 'var(--g100)', color: 'var(--g600)' }}>
+                {initials(a.name)}
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 11.5, color: 'var(--g800)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--g500)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.uhid}{a.subtitle ? ` -- ${a.subtitle}` : ''}</div>
+              </div>
+              {showStage && a.stageLabel && (
+                <span className="badge" style={{ background: `${ARRIVAL_STAGE_COLOR[a.stageLabel]}20`, color: ARRIVAL_STAGE_COLOR[a.stageLabel], fontWeight: 700, fontSize: 9, flexShrink: 0 }}>{a.stageLabel}</span>
+              )}
+            </a>
+          ))}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Checked in today for their OT slot -- in OT, in recovery, or already discharged.</div>
-        {arrivedForSurgery.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--g400)', padding: '10px 0' }}>No one has checked in for surgery yet today.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
-            {arrivedForSurgery.map((a) => (
-              <a key={a.key} href={a.href} className="queue-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--r)', border: '1px solid var(--g200)', textDecoration: 'none', color: 'inherit' }}>
-                <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, background: 'var(--g100)', color: 'var(--g600)' }}>
-                  {initials(a.name)}
-                </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--g800)' }}>{a.name} <span style={{ fontWeight: 400, color: 'var(--g400)', fontSize: 11 }}>{a.uhid}</span></div>
-                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{a.procedure}{a.eye ? ` (${a.eye})` : ''}</div>
-                </div>
-                <span className="badge" style={{ background: `${ARRIVAL_STAGE_COLOR[a.stageLabel]}20`, color: ARRIVAL_STAGE_COLOR[a.stageLabel], fontWeight: 700, flexShrink: 0 }}>{a.stageLabel}</span>
-              </a>
-            ))}
-          </div>
-        )}
+      )}
+    </div>
+  );
+}
+
+// ── TODAY'S SURGERY RELATED VISITS -- same full-width-banner-plus-
+// divided-strip treatment as Surgical Workflow below it, since that's
+// the pattern that landed well. Order matches the actual patient
+// journey: Surgical Evaluation, then Surgeries Today, then Post-Op
+// Review. Every column shows real patient rows now, not just a count
+// -- each one a direct link into that specific patient's actual
+// record (Surgical Journey / Intraop-Recovery / Post-Op), not a
+// generic module page. Sits above the workflow strip since it answers
+// a different question (THAT they arrived, not WHERE the case
+// currently stands) -- no count here repeats a count below.
+//
+// Color coding: cyan = pre-op/evaluation, blue = the OT/surgery day
+// itself (matches Intraoperative Mgmt in the strip below -- same
+// concept), teal = post-op (matches the Post-Op module everywhere
+// else it's shown).
+function TodaysArrivals({ surgicalEval, arrivedForSurgery, postOpToday, onOpenSurgicalJourney }) {
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+      <div
+        onClick={onOpenSurgicalJourney}
+        style={{ cursor: 'pointer', padding: '16px 20px', background: 'var(--blue-lt)' }}
+      >
+        <div className="card-title" style={{ marginBottom: 2 }}><i className="ti ti-door-enter" style={{ color: 'var(--blue)' }}></i> Today's Surgery Related Visits</div>
+        <div style={{ fontSize: 11, color: 'var(--g500)' }}>Everyone who has walked in today, across the whole surgical journey.</div>
       </div>
 
-      <WorkflowTile icon="ti-stethoscope" iconColor="var(--teal)" title="Post-Op Review" count={postOpTodayCount} hint="Turned up today for post-op review." onClick={onOpenPostOp} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <ArrivalColumn icon="ti-door-enter" color="var(--cyan)" title="Surgical Evaluation" items={surgicalEval} emptyText="No one arrived for evaluation yet today." />
+        <ArrivalColumn icon="ti-scalpel" color="var(--blue)" title="Surgeries Today" items={arrivedForSurgery} emptyText="No one has checked in for surgery yet today." showStage borderLeft />
+        <ArrivalColumn icon="ti-stethoscope" color="var(--teal)" title="Post-Op Review" items={postOpToday} emptyText="No post-op reviews yet today." borderLeft />
+      </div>
     </div>
   );
 }
@@ -233,7 +232,7 @@ function SurgicalWorkflowGroup({ active, awaitingConfirmation, stages, onOpenSur
 // two separate sections rather than one wall of numbers -- and no
 // count appears in both, so nothing is shown twice in two different
 // visual styles.
-function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, surgicalEvalArrivalsCount, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenSurgicalJourney, onOpenMedicalFitness }) {
+function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, surgicalEvalArrivals, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenSurgicalJourney, onOpenMedicalFitness }) {
   const today = todayIst();
   const todayScheduled = useMemo(() => scheduled.filter((b) => b.scheduled_date === today), [scheduled, today]);
   const inOt = useMemo(() => active.filter((b) => b.stage === 'Checked-In / In OT'), [active]);
@@ -250,16 +249,18 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, s
     ...dischargedToday.map((b) => normalizeArrival(b, 'Discharged')),
   ], [inOt, inRecovery, dischargedToday, today]);
 
+  const surgicalEvalRows = useMemo(() => surgicalEvalArrivals.map(normalizeSurgicalEval), [surgicalEvalArrivals]);
+  const postOpTodayRows = useMemo(() => postOpToday.map(normalizePostOp), [postOpToday]);
+
   return (
     <div>
       {error && <div className="msg-err" style={{ marginBottom: 16 }}><i className="ti ti-alert-triangle"></i> {error}</div>}
 
       <TodaysArrivals
+        surgicalEval={surgicalEvalRows}
         arrivedForSurgery={arrivedForSurgery}
-        surgicalEvalCount={surgicalEvalArrivalsCount}
-        postOpTodayCount={postOpToday.length}
+        postOpToday={postOpTodayRows}
         onOpenSurgicalJourney={onOpenSurgicalJourney}
-        onOpenPostOp={onOpenPostOp}
       />
 
       <SurgicalWorkflowGroup
@@ -320,13 +321,13 @@ export default function DoctorSurgeryDashboardPage() {
   const [surgicalJourneyActive, setSurgicalJourneyActive] = useState([]);
   const [awaitingReturnCases, setAwaitingReturnCases] = useState([]);
   const [medicalFitnessQueue, setMedicalFitnessQueue] = useState([]);
-  const [surgicalEvalArrivalsCount, setSurgicalEvalArrivalsCount] = useState(0);
+  const [surgicalEvalArrivals, setSurgicalEvalArrivals] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const [s, a, h, iol, postOp, surgicalCaseLists, medFitness, surgicalEvalArrivals] = await Promise.all([
+      const [s, a, h, iol, postOp, surgicalCaseLists, medFitness, surgicalEvalArrivalsData] = await Promise.all([
         getSurgeryDashboardScheduled(),
         getSurgeryDashboardActive(),
         getSurgeryDashboardHistory(),
@@ -334,7 +335,7 @@ export default function DoctorSurgeryDashboardPage() {
         getPostOpTurnedUpToday(),
         getSurgicalCaseLists(),
         getMedicalFitnessQueue(),
-        getSurgicalTrackArrivalsToday(),
+        getSurgicalEvaluationArrivalsToday(),
       ]);
       const firstError = s.error || a.error || h.error;
       setScheduled(s.rows); setActive(a.rows); setHistory(h.rows);
@@ -343,7 +344,7 @@ export default function DoctorSurgeryDashboardPage() {
       setSurgicalJourneyActive(surgicalCaseLists.active || []);
       setAwaitingReturnCases(surgicalCaseLists.awaitingConfirmation || []);
       setMedicalFitnessQueue(medFitness || []);
-      setSurgicalEvalArrivalsCount((surgicalEvalArrivals || []).length);
+      setSurgicalEvalArrivals(surgicalEvalArrivalsData || []);
       setError(firstError || '');
       setLoadingHistory(false);
       if (firstError) console.error('Surgery Dashboard load error:', firstError);
@@ -388,10 +389,6 @@ export default function DoctorSurgeryDashboardPage() {
     router.push('/medical-fitness');
   }
 
-  function openPostOp() {
-    router.push('/ot-postop');
-  }
-
   function openSurgicalJourney() {
     router.push('/surgical-journey');
   }
@@ -404,10 +401,6 @@ export default function DoctorSurgeryDashboardPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--g800)' }}>Surgery Dashboard</div>
-      </div>
-
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 4, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 520, flex: 1 }}>
           <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
@@ -423,10 +416,10 @@ export default function DoctorSurgeryDashboardPage() {
           scheduled={scheduled} active={active} history={history}
           iolApprovals={iolApprovals} postOpToday={postOpToday}
           surgicalJourneyActive={surgicalJourneyActive} awaitingReturnCases={awaitingReturnCases}
-          medicalFitnessQueue={medicalFitnessQueue} surgicalEvalArrivalsCount={surgicalEvalArrivalsCount}
+          medicalFitnessQueue={medicalFitnessQueue} surgicalEvalArrivals={surgicalEvalArrivals}
           error={error}
           onOpenScheduled={openScheduled} onOpenIntraop={openIntraop} onOpenRecovery={openRecovery}
-          onOpenIol={openIol} onOpenPostOp={openPostOp} onOpenSurgicalJourney={openSurgicalJourney}
+          onOpenIol={openIol} onOpenSurgicalJourney={openSurgicalJourney}
           onOpenMedicalFitness={openMedicalFitness}
         />
       )}

@@ -305,6 +305,39 @@ export async function getSurgicalTrackArrivalsToday() {
   return [...new Set((data || []).map((v) => v.patient_id))];
 }
 
+// Same arrivals as above, but with the actual case + patient detail
+// needed to show a name list and link straight into that patient's
+// Surgical Journey case -- used on the Surgeon Dashboard, which per
+// feedback needs real patient rows here too, not just a count.
+// Eligibility (create_walk_in_visit/check_in_appointment) guarantees
+// every arrival has exactly one open case, so this is a clean 1:1
+// join, not a fan-out.
+export async function getSurgicalEvaluationArrivalsToday() {
+  const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const { data: visits, error } = await supabase
+    .from('visits')
+    .select('patient_id')
+    .in('visit_type', SURGICAL_TRACK_VISIT_TYPES)
+    .gte('created_at', `${todayIst}T00:00:00`);
+  if (error || !visits || visits.length === 0) return [];
+
+  const patientIds = [...new Set(visits.map((v) => v.patient_id))];
+  const { data: cases, error: casesError } = await supabase
+    .from('surgical_cases')
+    .select('id, patient_id, procedure_name, eye, patients:patient_id(first_name, last_name, uhid)')
+    .in('patient_id', patientIds)
+    .not('status', 'in', '("Completed","Cancelled")');
+  if (casesError) return [];
+
+  const seen = new Set();
+  return (cases || []).filter((c) => {
+    if (seen.has(c.patient_id)) return false;
+    seen.add(c.patient_id);
+    return true;
+  });
+}
+
 // ── CASE DETAIL ─────────────────────────────────────────────────────
 
 export async function getSurgicalCaseDetail(caseId) {
