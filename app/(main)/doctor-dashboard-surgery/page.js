@@ -62,34 +62,6 @@ function WorkflowTile({ icon, iconColor, title, count, hint, onClick }) {
   );
 }
 
-// Same click-through tile, but for Surgical Journey specifically --
-// shows two counts side by side (Active cases -- advance paid, or
-// surgery already done -- and cases Awaiting Confirmation -- no
-// advance paid yet, regardless of decision or booking status) since
-// that's the one place on this dashboard the surgeon asked to see
-// both numbers at a glance, not just one.
-function DualCountTile({ icon, iconColor, title, hint, items, onClick }) {
-  return (
-    <div onClick={onClick} className="card" style={{ cursor: 'pointer' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div>
-          <div className="card-title" style={{ marginBottom: 4 }}><i className={`ti ${icon}`} style={{ color: iconColor }}></i> {title}</div>
-          {hint && <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>{hint}</div>}
-        </div>
-        <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
-      </div>
-      <div style={{ display: 'flex', gap: 24 }}>
-        {items.map((it) => (
-          <div key={it.label}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: it.value > 0 ? (it.color || 'var(--g800)') : 'var(--g300)' }}>{it.value}</div>
-            <div style={{ fontSize: 11, color: 'var(--g500)' }}>{it.label}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function initials(name) {
   const parts = (name || '').trim().split(/\s+/);
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
@@ -115,20 +87,27 @@ function normalizeArrival(row, stageLabel) {
 }
 
 // ── TODAY'S ARRIVALS -- the direct answer to "who has actually walked
-// through the door today," across all three moments a surgical
-// patient shows up: coming in for evaluation/investigation/advance,
-// coming in for the surgery itself, and coming back for a post-op
-// review. Sits above the workflow tile grid (which shows WHERE each
-// case currently stands) since this answers a different question --
-// THAT they arrived -- and deliberately doesn't duplicate any of the
-// tile counts below: this is a same-day arrival view, the tiles are a
-// pipeline-stage view. ──
+// through the door today," in the order a surgical patient actually
+// moves through: evaluation first, then the surgery itself, then the
+// post-op review. Sits above the workflow tile grid (which shows
+// WHERE each case currently stands) since this answers a different
+// question -- THAT they arrived -- and deliberately doesn't duplicate
+// any of the tile counts below: this is a same-day arrival view, the
+// tiles are a pipeline-stage view.
+//
+// Color coding ties each card to its counterpart elsewhere on this
+// dashboard/app, not arbitrary: cyan = pre-op/evaluation, blue = the
+// OT/surgery day itself (matches Intraoperative Management below),
+// teal = post-op (matches the Post-Op module everywhere else it
+// appears). ──
 function TodaysArrivals({ arrivedForSurgery, surgicalEvalCount, postOpTodayCount, onOpenSurgicalJourney, onOpenPostOp }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: 16, marginBottom: 20, alignItems: 'start' }}>
+      <WorkflowTile icon="ti-door-enter" iconColor="var(--cyan)" title="Surgical Evaluation" count={surgicalEvalCount} hint="Arrived today for evaluation, investigation, or advance." onClick={onOpenSurgicalJourney} />
+
       <div className="card">
         <div className="card-title" style={{ marginBottom: 2 }}>
-          <i className="ti ti-scalpel" style={{ color: 'var(--blue)' }}></i> Day of Surgery
+          <i className="ti ti-scalpel" style={{ color: 'var(--blue)' }}></i> Surgeries Today
           <span className="badge" style={{ background: arrivedForSurgery.length > 0 ? 'var(--blue-lt)' : 'var(--g100)', color: arrivedForSurgery.length > 0 ? 'var(--blue)' : 'var(--g400)', marginLeft: 8 }}>{arrivedForSurgery.length}</span>
         </div>
         <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Checked in today for their OT slot -- in OT, in recovery, or already discharged.</div>
@@ -152,10 +131,7 @@ function TodaysArrivals({ arrivedForSurgery, surgicalEvalCount, postOpTodayCount
         )}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <WorkflowTile icon="ti-door-enter" iconColor="var(--cyan)" title="Surgical Evaluation" count={surgicalEvalCount} hint="Arrived today for evaluation, investigation, or advance." onClick={onOpenSurgicalJourney} />
-        <WorkflowTile icon="ti-stethoscope" iconColor="var(--teal)" title="Post-Op Review" count={postOpTodayCount} hint="Turned up today for post-op review." onClick={onOpenPostOp} />
-      </div>
+      <WorkflowTile icon="ti-stethoscope" iconColor="var(--teal)" title="Post-Op Review" count={postOpTodayCount} hint="Turned up today for post-op review." onClick={onOpenPostOp} />
     </div>
   );
 }
@@ -186,6 +162,67 @@ function CaseRow({ sc, dateLabel, dateValue, stage, onClick }) {
       <td><StageBadge stage={stage} /></td>
       <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
     </tr>
+  );
+}
+
+// ── SURGICAL WORKFLOW GROUP -- Medical Fitness, IOL Approval, Check-In,
+// Intraoperative Management, and Recovery & Discharge aren't peers of
+// Surgical Workflow, they're STAGES within it -- the same case moving
+// through the same journey. Previously all six sat as equal-sized
+// tiles side by side, which flattened that relationship. Now Surgical
+// Workflow is a full-width header banner (with its own Active /
+// Awaiting Confirmation counts, still one click to the list), and the
+// five stages sit underneath it as a single divided strip, inside the
+// same card -- reads as one group, not six unrelated ones.
+//
+// Color coding: indigo for the banner itself (the umbrella), then each
+// stage gets a color tied to real meaning -- green for IOL Approval
+// (a green light), red for Medical Fitness (a medical clearance flag),
+// amber for Check-In (arrival/waiting, matches Patient Check-In
+// elsewhere), blue for Intraop (matches Surgeries Today above -- same
+// OT-day concept), purple for Recovery (matches its own badge color on
+// Surgical Journey's own list page). ──
+function SurgicalWorkflowGroup({ active, awaitingConfirmation, stages, onOpenSurgicalJourney }) {
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+      <div
+        onClick={onOpenSurgicalJourney}
+        style={{ cursor: 'pointer', padding: '16px 20px', background: 'var(--indigo-lt)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}
+      >
+        <div>
+          <div className="card-title" style={{ marginBottom: 2 }}><i className="ti ti-route" style={{ color: 'var(--indigo)' }}></i> Surgical Workflow</div>
+          <div style={{ fontSize: 11, color: 'var(--g500)' }}>Advance paid vs. still awaiting confirmation.</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: active > 0 ? 'var(--indigo)' : 'var(--g300)' }}>{active}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>Active</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: awaitingConfirmation > 0 ? 'var(--amber)' : 'var(--g300)' }}>{awaitingConfirmation}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--g500)' }}>Awaiting Confirmation</div>
+          </div>
+          <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stages.length}, 1fr)` }}>
+        {stages.map((s, i) => (
+          <div
+            key={s.title}
+            onClick={s.onClick}
+            style={{
+              cursor: 'pointer', padding: '14px 12px', textAlign: 'center',
+              borderTop: '1px solid var(--g200)', borderLeft: i > 0 ? '1px solid var(--g200)' : 'none',
+            }}
+          >
+            <i className={`ti ${s.icon}`} style={{ color: s.color, fontSize: 16 }}></i>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--g700)', marginTop: 4 }}>{s.title}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.count > 0 ? 'var(--g800)' : 'var(--g300)', marginTop: 2 }}>{s.count}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -225,25 +262,18 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, s
         onOpenPostOp={onOpenPostOp}
       />
 
-      {/* 6 tiles across 3 columns -- clean two rows (3 + 3). Post-Op
-          isn't repeated here -- it's already in Today's Arrivals above
-          with the identical count; showing it twice was exactly the
-          duplicate-number problem this redesign set out to fix. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
-        <DualCountTile
-          icon="ti-route" iconColor="var(--indigo)" title="Surgical Workflow" hint="Advance paid vs. still awaiting confirmation."
-          items={[
-            { label: 'Active', value: surgicalJourneyActive.length, color: 'var(--indigo)' },
-            { label: 'Awaiting Confirmation', value: awaitingReturnCases.length, color: 'var(--amber)' },
-          ]}
-          onClick={onOpenSurgicalJourney}
-        />
-        <WorkflowTile icon="ti-heartbeat" iconColor="var(--red)" title="Medical Fitness" count={medicalFitnessQueue.length} hint="Referred, fitness clearance pending." onClick={onOpenMedicalFitness} />
-        <WorkflowTile icon="ti-lens" iconColor="var(--indigo)" title="IOL Approval" count={iolApprovals.length} hint="Only a doctor can approve." onClick={onOpenIol} />
-        <WorkflowTile icon="ti-clipboard-check" iconColor="var(--amber)" title="Patient Check-In" count={todayScheduled.length} hint="Scheduled for today, not yet checked in." onClick={onOpenScheduled} />
-        <WorkflowTile icon="ti-scalpel" iconColor="var(--blue)" title="Intraoperative Management" count={inOt.length} hint="Checked in and in OT right now." onClick={onOpenIntraop} />
-        <WorkflowTile icon="ti-bed" iconColor="var(--purple)" title="Recovery & Discharge" count={inRecovery.length} hint="Surgery done, not yet discharged." onClick={onOpenRecovery} />
-      </div>
+      <SurgicalWorkflowGroup
+        active={surgicalJourneyActive.length}
+        awaitingConfirmation={awaitingReturnCases.length}
+        onOpenSurgicalJourney={onOpenSurgicalJourney}
+        stages={[
+          { icon: 'ti-heartbeat', color: 'var(--red)', title: 'Medical Fitness', count: medicalFitnessQueue.length, onClick: onOpenMedicalFitness },
+          { icon: 'ti-lens', color: 'var(--green)', title: 'IOL Approval', count: iolApprovals.length, onClick: onOpenIol },
+          { icon: 'ti-clipboard-check', color: 'var(--amber)', title: 'Patient Check-In', count: todayScheduled.length, onClick: onOpenScheduled },
+          { icon: 'ti-scalpel', color: 'var(--blue)', title: 'Intraoperative Mgmt', count: inOt.length, onClick: onOpenIntraop },
+          { icon: 'ti-bed', color: 'var(--purple)', title: 'Recovery & Discharge', count: inRecovery.length, onClick: onOpenRecovery },
+        ]}
+      />
     </div>
   );
 }
@@ -376,7 +406,6 @@ export default function DoctorSurgeryDashboardPage() {
     <div>
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--g800)' }}>Surgery Dashboard</div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 2 }}>Who's arrived today, and where every case currently stands.</div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
