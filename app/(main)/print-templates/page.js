@@ -49,7 +49,7 @@ PLACEHOLDER_REFERENCE.opd_case_sheet = [
   '{{#if hasDiagnoses}}...{{/if}}', 'diagnoses (loop: name, eye, notes)',
   '{{#if hasPrescriptions}}...{{/if}}', 'prescriptions (loop: drug, eye, dosage, frequency, duration)',
   '{{#if advice}}...{{/if}}', '{{#if followup_text}}...{{/if}}',
-  '{{#if isNewConsultation}}...{{/if}} (15-day validity / free follow-up note -- New Consultation only)',
+  '{{#if isNewConsultation}}...{{/if}} (15-day validity / free follow-up note -- New Consultation only)', 'consultation_valid_until',
 ];
 
 PLACEHOLDER_REFERENCE.glasses_prescription = [
