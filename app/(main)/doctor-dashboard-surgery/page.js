@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardHistory } from './actions';
+import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardHistory, getSurgeryEvaluationQueue } from './actions';
 import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
 import { getPostOpTurnedUpToday } from '@/app/(main)/ot-postop/actions';
 import { getMyActiveSurgicalCases, getAwaitingReturnCases } from '@/app/(main)/surgical-journey/actions';
@@ -132,7 +132,7 @@ function CaseRow({ sc, dateLabel, dateValue, stage, onClick }) {
 // surgical case actually needs a person to act on it. Deliberately no
 // patient names here -- each tile is just a count, and clicking it
 // takes the surgeon straight to that workflow page to pick a patient.
-function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenSurgicalJourney, onOpenMedicalFitness }) {
+function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, surgeryEvalQueue, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenSurgicalJourney, onOpenMedicalFitness, onCallSurgeryEval }) {
   const today = todayIst();
   const todayScheduled = useMemo(() => scheduled.filter((b) => b.scheduled_date === today), [scheduled, today]);
   const inOt = useMemo(() => active.filter((b) => b.stage === 'Checked-In / In OT'), [active]);
@@ -149,6 +149,36 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, s
         <StatCard label="In Recovery" value={inRecovery.length} caption="Discharge pending" color="var(--purple)" />
         <StatCard label="Discharged Today" value={dischargedToday.length} caption="Completed today" color="var(--green)" />
       </div>
+
+      {/* Unlike every tile below, this is a live action queue -- the
+          surgeon picks up a specific waiting patient and starts seeing
+          them, same as Doctor Dashboard's own queue does for OPD. It
+          doesn't map to "go look at a module" the way the count tiles
+          do, so it gets names and a Call button instead of a count. */}
+      {surgeryEvalQueue.length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            <i className="ti ti-clipboard-pulse" style={{ color: 'var(--cyan)' }}></i> Surgery Evaluation Queue
+            <span className="badge b-gray" style={{ marginLeft: 6 }}>{surgeryEvalQueue.length}</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+            Here for biometry/investigation or a surgical assessment -- no OPD vision workup needed first.
+          </div>
+          {surgeryEvalQueue.map((e) => (
+            <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12.5 }}>
+              <div>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
+                {e.visits?.patients?.first_name} {e.visits?.patients?.last_name}
+                <span className="badge" style={{ background: 'var(--cyan-lt)', color: 'var(--cyan)', marginLeft: 6, fontSize: 10 }}>{e.visits?.visit_type}</span>
+                <div style={{ fontSize: 11, color: 'var(--g400)' }}>{e.visits?.patients?.uhid}</div>
+              </div>
+              <button className="btn btn-sm btn-primary" onClick={() => onCallSurgeryEval(e)}>
+                <i className="ti ti-phone-call"></i> Call
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 7 tiles across 4 columns -- lands as two rows (4 + 3) instead of
           spilling into an odd third row at 3 columns. */}
@@ -214,12 +244,13 @@ export default function DoctorSurgeryDashboardPage() {
   const [surgicalJourneyActive, setSurgicalJourneyActive] = useState([]);
   const [awaitingReturnCases, setAwaitingReturnCases] = useState([]);
   const [medicalFitnessQueue, setMedicalFitnessQueue] = useState([]);
+  const [surgeryEvalQueue, setSurgeryEvalQueue] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const [s, a, h, iol, postOp, sjActive, sjAwaitingReturn, medFitness] = await Promise.all([
+      const [s, a, h, iol, postOp, sjActive, sjAwaitingReturn, medFitness, surgeryEval] = await Promise.all([
         getSurgeryDashboardScheduled(),
         getSurgeryDashboardActive(),
         getSurgeryDashboardHistory(),
@@ -228,6 +259,7 @@ export default function DoctorSurgeryDashboardPage() {
         getMyActiveSurgicalCases(),
         getAwaitingReturnCases(),
         getMedicalFitnessQueue(),
+        getSurgeryEvaluationQueue(),
       ]);
       const firstError = s.error || a.error || h.error;
       setScheduled(s.rows); setActive(a.rows); setHistory(h.rows);
@@ -236,6 +268,7 @@ export default function DoctorSurgeryDashboardPage() {
       setSurgicalJourneyActive(sjActive || []);
       setAwaitingReturnCases(sjAwaitingReturn || []);
       setMedicalFitnessQueue(medFitness || []);
+      setSurgeryEvalQueue(surgeryEval.rows || []);
       setError(firstError || '');
       setLoadingHistory(false);
       if (firstError) console.error('Surgery Dashboard load error:', firstError);
@@ -255,6 +288,18 @@ export default function DoctorSurgeryDashboardPage() {
     const interval = setInterval(refresh, 15000);
     return () => clearInterval(interval);
   }, [refresh]);
+
+  // Opens the same /consultation/[id] workspace Doctor Dashboard uses,
+  // in the same reused window -- these are ordinary department =
+  // 'Doctor' queue entries under the hood, just surfaced here instead.
+  function callSurgeryEval(entry) {
+    const win = window.open(`/consultation/${entry.id}`, 'doctor-consultation-window');
+    if (win) {
+      const poll = setInterval(() => {
+        if (win.closed) { clearInterval(poll); refresh(); }
+      }, 800);
+    }
+  }
 
   // Every tile below is a pure count -- no patient names shown on this
   // dashboard -- so clicking always lands on the workflow page's own
@@ -316,11 +361,11 @@ export default function DoctorSurgeryDashboardPage() {
           scheduled={scheduled} active={active} history={history}
           iolApprovals={iolApprovals} postOpToday={postOpToday}
           surgicalJourneyActive={surgicalJourneyActive} awaitingReturnCases={awaitingReturnCases}
-          medicalFitnessQueue={medicalFitnessQueue}
+          medicalFitnessQueue={medicalFitnessQueue} surgeryEvalQueue={surgeryEvalQueue}
           error={error}
           onOpenScheduled={openScheduled} onOpenIntraop={openIntraop} onOpenRecovery={openRecovery}
           onOpenIol={openIol} onOpenPostOp={openPostOp} onOpenSurgicalJourney={openSurgicalJourney}
-          onOpenMedicalFitness={openMedicalFitness}
+          onOpenMedicalFitness={openMedicalFitness} onCallSurgeryEval={callSurgeryEval}
         />
       )}
 
