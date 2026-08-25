@@ -137,21 +137,27 @@ function NewVisitForm() {
       return;
     }
 
-    // Surgery visits now always land on Patient Check-In -- that's the
-    // single place a surgical patient's day-of status gets resolved,
-    // whether or not today happens to be their scheduled OT day. If
-    // today's booking was found, deep-link straight into it (zero extra
-    // clicks, same as before); otherwise Patient Check-In's own landing
-    // resolver (?patientId=) takes over and shows staff exactly what's
-    // going on -- a booking for a different day that may need
-    // rescheduling, or no case at all needing "Register Surgery
-    // Directly". Non-Surgery visits are unaffected.
-    if (visitType === 'Surgery') {
-      if (result.otScheduleId) {
-        router.push(`/patient-checkin?otScheduleId=${result.otScheduleId}`);
+    // Surgery, Surgery Evaluation, and Investigation Only all land
+    // directly on the patient's Surgical Journey case -- that's the
+    // one place a front-desk executive can see exactly what's needed
+    // next (booking, payment, check-in status, awaiting confirmation),
+    // rather than a generic Patient Check-In screen. Falls back to
+    // Patient Check-In's own "Register Surgery Directly" resolver only
+    // if genuinely no case exists at all for this patient.
+    if (['Surgery', 'Surgery Evaluation', 'Investigation Only'].includes(visitType)) {
+      if (result.surgicalCaseId) {
+        router.push(`/surgical-journey/${result.surgicalCaseId}`);
       } else {
         router.push(`/patient-checkin?patientId=${selectedPatient.id}`);
       }
+      return;
+    }
+
+    // Post-operative Review never needs an invoice created at front
+    // desk -- skip the Create Invoice prompt entirely and go straight
+    // back to the dashboard.
+    if (visitType === 'Post-operative Review') {
+      router.push('/front-office-dashboard?visitCreated=1');
       return;
     }
 

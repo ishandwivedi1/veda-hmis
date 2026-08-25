@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardHistory } from './actions';
+import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardDischargedToday, getSurgeryDashboardHistory } from './actions';
 import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
 import { getPostOpTurnedUpToday } from '@/app/(main)/ot-postop/actions';
 import { getSurgicalCaseLists, getSurgicalEvaluationArrivalsToday } from '@/app/(main)/surgical-journey/actions';
@@ -232,7 +232,7 @@ function SurgicalWorkflowGroup({ active, awaitingConfirmation, stages, onOpenSur
 // two separate sections rather than one wall of numbers -- and no
 // count appears in both, so nothing is shown twice in two different
 // visual styles.
-function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, surgicalEvalArrivals, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenSurgicalJourney, onOpenMedicalFitness }) {
+function DashboardTab({ scheduled, active, dischargedToday, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, surgicalEvalArrivals, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenSurgicalJourney, onOpenMedicalFitness }) {
   const today = todayIst();
   const todayScheduled = useMemo(() => scheduled.filter((b) => b.scheduled_date === today), [scheduled, today]);
   // Two genuinely different moments, previously conflated:
@@ -250,7 +250,6 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, s
   const checkedInNotStarted = useMemo(() => todayScheduled.filter((b) => b.ot_intraop_records?.checkin_completed_at && b.status === 'Scheduled'), [todayScheduled]);
   const inOt = useMemo(() => active.filter((b) => b.stage === 'Checked-In / In OT'), [active]);
   const inRecovery = useMemo(() => active.filter((b) => b.stage === 'In Recovery'), [active]);
-  const dischargedToday = useMemo(() => history.filter((e) => e.discharge_date === today), [history, today]);
 
   // Same underlying rows as the tiles below, but scoped to TODAY's
   // arrivals specifically -- someone still in recovery from
@@ -334,30 +333,34 @@ export default function DoctorSurgeryDashboardPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [scheduled, setScheduled] = useState([]);
   const [active, setActive] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [dischargedToday, setDischargedToday] = useState([]);
   const [iolApprovals, setIolApprovals] = useState([]);
   const [postOpToday, setPostOpToday] = useState([]);
   const [surgicalJourneyActive, setSurgicalJourneyActive] = useState([]);
   const [awaitingReturnCases, setAwaitingReturnCases] = useState([]);
   const [medicalFitnessQueue, setMedicalFitnessQueue] = useState([]);
   const [surgicalEvalArrivals, setSurgicalEvalArrivals] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
 
+  // Only what the Dashboard tab actually needs -- getSurgeryDashboardHistory's
+  // full 200-row joined history is fetched separately (below), only when the
+  // History tab is actually opened, not on every 15s poll regardless of
+  // which tab is showing. That query alone was likely the single biggest
+  // contributor to this dashboard feeling slow.
   const refresh = useCallback(async () => {
     try {
-      const [s, a, h, iol, postOp, surgicalCaseLists, medFitness, surgicalEvalArrivalsData] = await Promise.all([
+      const [s, a, dischargedTodayResult, iol, postOp, surgicalCaseLists, medFitness, surgicalEvalArrivalsData] = await Promise.all([
         getSurgeryDashboardScheduled(),
         getSurgeryDashboardActive(),
-        getSurgeryDashboardHistory(),
+        getSurgeryDashboardDischargedToday(),
         getPendingIolApprovals(),
         getPostOpTurnedUpToday(),
         getSurgicalCaseLists(),
         getMedicalFitnessQueue(),
         getSurgicalEvaluationArrivalsToday(),
       ]);
-      const firstError = s.error || a.error || h.error;
-      setScheduled(s.rows); setActive(a.rows); setHistory(h.rows);
+      const firstError = s.error || a.error || dischargedTodayResult.error;
+      setScheduled(s.rows); setActive(a.rows); setDischargedToday(dischargedTodayResult.rows);
       setIolApprovals(iol || []);
       setPostOpToday(postOp || []);
       setSurgicalJourneyActive(surgicalCaseLists.active || []);
@@ -365,7 +368,6 @@ export default function DoctorSurgeryDashboardPage() {
       setMedicalFitnessQueue(medFitness || []);
       setSurgicalEvalArrivals(surgicalEvalArrivalsData || []);
       setError(firstError || '');
-      setLoadingHistory(false);
       if (firstError) console.error('Surgery Dashboard load error:', firstError);
     } catch (e) {
       // Belt-and-braces: even if a Server Action call itself fails
@@ -374,9 +376,21 @@ export default function DoctorSurgeryDashboardPage() {
       // something visible shows up instead of an infinite spinner.
       console.error('Surgery Dashboard refresh failed:', e);
       setError(e?.message || 'Failed to load Surgery Dashboard.');
-      setLoadingHistory(false);
     }
   }, []);
+
+  // The heavy 200-row history query -- lazy-loaded only when the
+  // History tab is actually selected, and only re-fetched if they
+  // switch back to it, not on the 15s poll interval.
+  const [fullHistory, setFullHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const refreshFullHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    const h = await getSurgeryDashboardHistory();
+    setFullHistory(h.rows || []);
+    setLoadingHistory(false);
+  }, []);
+  useEffect(() => { if (activeTab === 'history') refreshFullHistory(); }, [activeTab, refreshFullHistory]);
 
   useEffect(() => {
     refresh();
@@ -432,7 +446,7 @@ export default function DoctorSurgeryDashboardPage() {
 
       {activeTab === 'dashboard' && (
         <DashboardTab
-          scheduled={scheduled} active={active} history={history}
+          scheduled={scheduled} active={active} dischargedToday={dischargedToday}
           iolApprovals={iolApprovals} postOpToday={postOpToday}
           surgicalJourneyActive={surgicalJourneyActive} awaitingReturnCases={awaitingReturnCases}
           medicalFitnessQueue={medicalFitnessQueue} surgicalEvalArrivals={surgicalEvalArrivals}
@@ -443,7 +457,7 @@ export default function DoctorSurgeryDashboardPage() {
         />
       )}
 
-      {activeTab === 'history' && <HistoryTab rows={history} loading={loadingHistory} onOpen={openHistory} />}
+      {activeTab === 'history' && <HistoryTab rows={fullHistory} loading={loadingHistory} onOpen={openHistory} />}
     </div>
   );
 }

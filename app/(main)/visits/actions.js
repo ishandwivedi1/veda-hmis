@@ -67,6 +67,35 @@ function deferVisitWhatsApp(visit, triggeredBy) {
   });
 }
 
+// Finds the surgical case a front-desk redirect should land on -- the
+// open case booked for today's OT if there is one, otherwise just the
+// patient's (only) open case. Shared by Surgery, Surgery Evaluation,
+// and Investigation Only redirects below -- all three need "which
+// case is this" resolved the same way, and Surgery Evaluation/
+// Investigation Only are guaranteed by the RPC's own eligibility
+// check to always have one.
+async function getRelevantSurgicalCaseId(supabase, patientId) {
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const { data: cases } = await supabase.from('surgical_cases').select('id').eq('patient_id', patientId).neq('status', 'Cancelled');
+  const caseIds = (cases || []).map((c) => c.id);
+  if (caseIds.length === 0) return { caseId: null, otScheduleId: null, surgeryNotScheduled: true };
+
+  const { data: match } = await supabase
+    .from('ot_schedule')
+    .select('id, surgical_case_id')
+    .in('surgical_case_id', caseIds)
+    .eq('scheduled_date', todayIst)
+    .in('status', ['Scheduled', 'In Progress'])
+    .limit(1);
+  if (match && match.length > 0) return { caseId: match[0].surgical_case_id, otScheduleId: match[0].id, surgeryNotScheduled: false };
+
+  // No booking for today specifically -- still redirect to their
+  // (only) open case so front desk sees the real state (not yet
+  // booked, awaiting confirmation, etc.) directly on Surgical
+  // Journey, rather than a dead end.
+  return { caseId: caseIds[0], otScheduleId: null, surgeryNotScheduled: true };
+}
+
 export async function checkInAppointment(appointmentId) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('check_in_appointment', {
@@ -80,7 +109,13 @@ export async function checkInAppointment(appointmentId) {
   const { data: { user } } = await supabase.auth.getUser();
   deferVisitWhatsApp(data, user?.id);
 
-  return { visit: data };
+  let surgicalCaseId = null;
+  if (['Surgery', 'Surgery Evaluation', 'Investigation Only'].includes(data?.visit_type) && data?.patient_id) {
+    const result = await getRelevantSurgicalCaseId(supabase, data.patient_id);
+    surgicalCaseId = result.caseId;
+  }
+
+  return { visit: data, surgicalCaseId };
 }
 
 export async function createWalkInVisit(values) {
@@ -130,29 +165,20 @@ export async function createWalkInVisit(values) {
   // that attach step silently touches zero rows and the visit still
   // gets created successfully, leaving the patient invisible in OT
   // Schedule with no indication anything went wrong. Surface that here
-  // instead of letting it be discovered later in OT.
+  // instead of letting it be discovered later in OT. Surgery Evaluation
+  // and Investigation Only are guaranteed by the RPC's own eligibility
+  // check to always have an open case, so this always resolves for them.
   let surgeryNotScheduled = false;
   let otScheduleId = null;
-  if (values.visitType === 'Surgery' && data?.patient_id) {
-    const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    const { data: cases } = await supabase.from('surgical_cases').select('id').eq('patient_id', data.patient_id).neq('status', 'Cancelled');
-    const caseIds = (cases || []).map((c) => c.id);
-    if (caseIds.length === 0) {
-      surgeryNotScheduled = true;
-    } else {
-      const { data: match } = await supabase
-        .from('ot_schedule')
-        .select('id')
-        .in('surgical_case_id', caseIds)
-        .eq('scheduled_date', todayIst)
-        .in('status', ['Scheduled', 'In Progress'])
-        .limit(1);
-      surgeryNotScheduled = !match || match.length === 0;
-      otScheduleId = match && match.length > 0 ? match[0].id : null;
-    }
+  let surgicalCaseId = null;
+  if (['Surgery', 'Surgery Evaluation', 'Investigation Only'].includes(values.visitType) && data?.patient_id) {
+    const result = await getRelevantSurgicalCaseId(supabase, data.patient_id);
+    surgeryNotScheduled = result.surgeryNotScheduled;
+    otScheduleId = result.otScheduleId;
+    surgicalCaseId = result.caseId;
   }
 
-  return { visit: data, surgeryNotScheduled, otScheduleId };
+  return { visit: data, surgeryNotScheduled, otScheduleId, surgicalCaseId };
 }
 
 export async function getSurgeryTypeOptions() {

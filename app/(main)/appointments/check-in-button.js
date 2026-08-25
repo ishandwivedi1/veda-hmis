@@ -20,6 +20,14 @@ export default function CheckInButton({ appointmentId }) {
       return;
     }
 
+    // Same redirect as the walk-in flow -- a Surgery/Surgery
+    // Evaluation/Investigation Only appointment lands directly on the
+    // patient's Surgical Journey case, not a generic dashboard.
+    if (result.surgicalCaseId) {
+      router.push(`/surgical-journey/${result.surgicalCaseId}`);
+      return;
+    }
+
     router.push('/front-office-dashboard?visitCreated=1');
   }
 

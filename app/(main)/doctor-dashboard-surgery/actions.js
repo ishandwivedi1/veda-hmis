@@ -94,6 +94,26 @@ export async function getSurgeryDashboardActive() {
   }
 }
 
+// Scoped, lightweight version for the Dashboard tab's live poll --
+// only needs "discharged today" (a handful of rows), not the full
+// 200-row joined history. The full getSurgeryDashboardHistory below
+// is still needed for the History tab, but has no business running
+// every 15 seconds regardless of which tab is even open.
+export async function getSurgeryDashboardDischargedToday() {
+  try {
+    const supabase = await createClient();
+    const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const { data, error } = await supabase
+      .from('recovery_episodes')
+      .select('id, discharge_date, ot_schedule_id, surgical_cases(id, surgery_code, procedure_name, eye, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+      .eq('discharge_date', todayIst);
+    if (error) return { rows: [], error: error.message };
+    return { rows: (data || []).filter((e) => e.surgical_cases), error: null };
+  } catch (e) {
+    return { rows: [], error: e?.message || 'Unknown error loading Discharged Today.' };
+  }
+}
+
 export async function getSurgeryDashboardHistory() {
   try {
     const supabase = await createClient();

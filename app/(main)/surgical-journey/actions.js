@@ -160,23 +160,17 @@ export async function setTreatmentInstructions(caseId, instructions) {
 // History split used elsewhere (OT Intraop, Recovery, Medical Fitness).
 async function getDischargeDatesByCase(supabase, completedCaseIds) {
   if (completedCaseIds.length === 0) return {};
-  const { data: schedules } = await supabase
-    .from('ot_schedule')
-    .select('id, surgical_case_id')
-    .in('surgical_case_id', completedCaseIds);
-  const scheduleIds = (schedules || []).map((s) => s.id);
-  if (scheduleIds.length === 0) return {};
-  const scheduleToCase = Object.fromEntries((schedules || []).map((s) => [s.id, s.surgical_case_id]));
+  // recovery_episodes carries surgical_case_id directly -- no need to
+  // go via ot_schedule as an intermediate lookup. Was 2 sequential
+  // round trips (ot_schedule to find schedule IDs, THEN
+  // recovery_episodes filtered by those), now 1.
   const { data: episodes } = await supabase
     .from('recovery_episodes')
-    .select('ot_schedule_id, discharge_date')
-    .in('ot_schedule_id', scheduleIds)
+    .select('surgical_case_id, discharge_date')
+    .in('surgical_case_id', completedCaseIds)
     .not('discharge_date', 'is', null);
   const byCase = {};
-  (episodes || []).forEach((e) => {
-    const caseId = scheduleToCase[e.ot_schedule_id];
-    if (caseId) byCase[caseId] = e.discharge_date;
-  });
+  (episodes || []).forEach((e) => { byCase[e.surgical_case_id] = e.discharge_date; });
   return byCase;
 }
 
@@ -208,19 +202,29 @@ async function getOpenSurgicalCasesWithBalances() {
   const cases = data || [];
 
   const completedIds = cases.filter((c) => c.status === 'Completed').map((c) => c.id);
-  const dischargeDates = await getDischargeDatesByCase(supabase, completedIds);
+  // patientIds computed from the full set, not the post-filter "open"
+  // list, specifically so this can run in parallel with the discharge-
+  // dates lookup instead of waiting on it -- a handful of extra
+  // balances fetched for cases that turn out to be filtered out below
+  // costs nothing, but serializing these two independent queries was
+  // pure wasted latency.
+  const patientIds = [...new Set(cases.map((c) => c.patient_id))];
+
+  const [dischargeDates, ledgerRows] = await Promise.all([
+    getDischargeDatesByCase(supabase, completedIds),
+    patientIds.length > 0
+      ? supabase.from('patient_ledger').select('patient_id, amount').in('patient_id', patientIds).then((r) => r.data || [])
+      : Promise.resolve([]),
+  ]);
+
   const open = cases.filter((c) => !(c.status === 'Completed' && dischargeDates[c.id] && dischargeDates[c.id] <= todayIst));
 
-  const patientIds = [...new Set(open.map((c) => c.patient_id))];
+  // patient_ledger.amount is signed (deposits positive, consumption
+  // negative against invoices), so a plain per-patient sum is the
+  // live balance -- same math get_advance_balance's RPC does, just
+  // batched for every patient here instead of one call each.
   const balances = {};
-  if (patientIds.length > 0) {
-    // patient_ledger.amount is signed (deposits positive, consumption
-    // negative against invoices), so a plain per-patient sum is the
-    // live balance -- same math get_advance_balance's RPC does, just
-    // batched for every patient here instead of one call each.
-    const { data: ledgerRows } = await supabase.from('patient_ledger').select('patient_id, amount').in('patient_id', patientIds);
-    (ledgerRows || []).forEach((r) => { balances[r.patient_id] = (balances[r.patient_id] || 0) + Number(r.amount); });
-  }
+  ledgerRows.forEach((r) => { balances[r.patient_id] = (balances[r.patient_id] || 0) + Number(r.amount); });
 
   return open.map((c) => ({ ...c, advanceBalance: balances[c.patient_id] || 0 }));
 }
