@@ -164,6 +164,7 @@ function elapsedMin(iso) {
 export function ContextSidebar({ patientId, previousVisitSummary, encounter, auditLog, isAdmin, openInvestigations, activeWorkflows, pendingRx, wfItems }) {
   const [showSummary, setShowSummary] = useState(false);
   const [events, setEvents] = useState(null);
+  const [auditLogOpen, setAuditLogOpen] = useState(false);
 
   useEffect(() => {
     if (!patientId) return;
@@ -281,19 +282,31 @@ export function ContextSidebar({ patientId, previousVisitSummary, encounter, aud
         </div>
       )}
 
-      {/* Audit Log is Administrator-only. */}
+      {/* Audit Log is Administrator-only -- collapsed into a dropdown by
+          default since it's reference material, not something needed
+          at a glance during the consultation. */}
       {isAdmin && auditLog && (
         <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title" style={{ marginBottom: 10, fontSize: 12.5 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
-          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-            {auditLog.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>No activity yet.</div>}
-            {auditLog.map((a) => (
-              <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)' }}>
-                <div style={{ color: 'var(--teal)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
-                <div>{a.message}</div>
-              </div>
-            ))}
+          <div
+            className="card-title"
+            style={{ marginBottom: auditLogOpen ? 10 : 0, fontSize: 12.5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+            onClick={() => setAuditLogOpen((v) => !v)}
+          >
+            <i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log
+            <span className="badge b-gray" style={{ marginLeft: 8 }}>{auditLog.length}</span>
+            <i className={`ti ${auditLogOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ marginLeft: 'auto', color: 'var(--g400)' }}></i>
           </div>
+          {auditLogOpen && (
+            <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+              {auditLog.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>No activity yet.</div>}
+              {auditLog.map((a) => (
+                <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)' }}>
+                  <div style={{ color: 'var(--teal)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                  <div>{a.message}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

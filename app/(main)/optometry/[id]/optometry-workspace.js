@@ -262,6 +262,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
   const [leIopInput, setLeIopInput] = useState('');
   const [picker, setPicker] = useState(null); // { kind: 'sphcyl'|'axis', fieldKey }
   const [showRefInstructions, setShowRefInstructions] = useState(false);
+  const [auditLogOpen, setAuditLogOpen] = useState(false);
 
   const [error, setError] = useState('');
   const [okMsg, setOkMsg] = useState('');
@@ -1178,17 +1179,31 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
         </AsmtSection>
       </div>
 
-      {/* AUDIT LOG -- Administrator-only */}
+      {/* AUDIT LOG -- Administrator-only, collapsed into a dropdown by
+          default since it's reference material, not something needed
+          at a glance while working through the assessment. */}
       {isAdmin && (
         <div className="card">
-          <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log</div>
-          {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity yet.</div>}
-          {auditLog.map((a) => (
-            <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8 }}>
-              <span style={{ color: 'var(--g400)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-              <span>{a.message}</span>
-            </div>
-          ))}
+          <div
+            className="card-title"
+            style={{ marginBottom: auditLogOpen ? 10 : 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+            onClick={() => setAuditLogOpen((v) => !v)}
+          >
+            <i className="ti ti-clock" style={{ color: 'var(--g400)' }}></i> Audit Log
+            <span className="badge b-gray" style={{ marginLeft: 8 }}>{auditLog.length}</span>
+            <i className={`ti ${auditLogOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ marginLeft: 'auto', color: 'var(--g400)' }}></i>
+          </div>
+          {auditLogOpen && (
+            <>
+              {auditLog.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No activity yet.</div>}
+              {auditLog.map((a) => (
+                <div key={a.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g100)', display: 'flex', gap: 8 }}>
+                  <span style={{ color: 'var(--g400)' }}>{new Date(a.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                  <span>{a.message}</span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
 
