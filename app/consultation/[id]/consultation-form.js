@@ -132,6 +132,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [forceCloseReason, setForceCloseReason] = useState('');
   const [forceClosing, setForceClosing] = useState(false);
   const [showSurgery, setShowSurgery] = useState(false);
+  // When set, the surgery form below is adding a COMBINED procedure
+  // (e.g. Anti-VEGF Injection alongside an already-marked Cataract
+  // surgery on this same visit) rather than the visit's first surgical
+  // case -- see startCombineProcedure/handleMarkForSurgery.
+  const [combineWithCaseId, setCombineWithCaseId] = useState(null);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
   // Pre Op Requirement -- doctor picks the actual pre-op investigations
@@ -473,16 +478,33 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     if (!surgeryProcedure) { setError('Select a surgery.'); return; }
     if (!surgeryDecision) { setError("Select the patient's decision -- right now."); return; }
     setSurgeryLoading(true);
-    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision);
+    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision, combineWithCaseId);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
+    setCombineWithCaseId(null);
     setSurgeryProcedure('');
     setSurgeryInvestigations([]);
     setSurgeryInvName('');
     setSurgeryNotes('');
     setSurgeryDecision('');
     refresh();
+  }
+
+  // Opens the same surgery form used for the visit's first case, but
+  // tagged to link the new procedure to an existing one on this visit
+  // -- e.g. advising Anti-VEGF Injection alongside a Cataract surgery
+  // already marked, performed together in the same OT sitting.
+  function startCombineProcedure(caseId) {
+    setError('');
+    setCombineWithCaseId(caseId);
+    setSurgeryProcedure('');
+    setSurgeryEye('OU');
+    setSurgeryInvestigations([]);
+    setSurgeryInvName('');
+    setSurgeryNotes('');
+    setSurgeryDecision('');
+    setShowSurgery(true);
   }
 
   function startEditSurgicalCase(sc) {
@@ -1029,110 +1051,141 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
               <div className="card" style={{ marginBottom: 20 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery</div>
 
-                {data.surgicalCases.length > 0 ? (
+                {data.surgicalCases.length > 0 && (
                   <div>
-                    {data.surgicalCases.map((sc) => (
-                      <div key={sc.id}>
-                        {editingSurgicalCaseId === sc.id ? (
-                          <div style={{ padding: '8px 0' }}>
-                            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                              <select className="fi" value={editSurgeryProcedure} onChange={(e) => setEditSurgeryProcedure(e.target.value)} style={{ flex: 2 }}>
-                                <option value="">-- Select surgery --</option>
-                                {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                              </select>
-                              <select className="fi" value={editSurgeryEye} onChange={(e) => setEditSurgeryEye(e.target.value)} style={{ width: 110 }}>
-                                <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
-                              </select>
-                            </div>
-                            <div style={{ marginBottom: 8 }}>
-                              <label className="flbl">Pre Op Requirement</label>
-                              <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
-                                Indicative pre-op investigations for this surgery -- shown as one-click suggestions in Surgical Journey&apos;s own Investigations step; the actual order is placed from there, not here.
+                    {data.surgicalCases.map((sc) => {
+                      // Sibling procedures sharing this case's combo_group_id
+                      // (e.g. this card is Cataract, sibling is Anti-VEGF
+                      // Injection) -- computed client-side since every
+                      // surgical case for this visit is already loaded.
+                      const comboSiblings = sc.combo_group_id
+                        ? data.surgicalCases.filter((other) => other.id !== sc.id && other.combo_group_id === sc.combo_group_id)
+                        : [];
+                      return (
+                        <div key={sc.id}>
+                          {editingSurgicalCaseId === sc.id ? (
+                            <div style={{ padding: '8px 0' }}>
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                                <select className="fi" value={editSurgeryProcedure} onChange={(e) => setEditSurgeryProcedure(e.target.value)} style={{ flex: 2 }}>
+                                  <option value="">-- Select surgery --</option>
+                                  {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                </select>
+                                <select className="fi" value={editSurgeryEye} onChange={(e) => setEditSurgeryEye(e.target.value)} style={{ width: 110 }}>
+                                  <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
+                                </select>
                               </div>
-                              {editSurgeryInvestigations.length > 0 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
-                                  {editSurgeryInvestigations.map((inv, idx) => (
-                                    <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
-                                      {inv.name} ({inv.eye})
-                                      <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeEditSurgeryInvestigation(idx)}></i>
-                                    </span>
-                                  ))}
+                              <div style={{ marginBottom: 8 }}>
+                                <label className="flbl">Pre Op Requirement</label>
+                                <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
+                                  Indicative pre-op investigations for this surgery -- shown as one-click suggestions in Surgical Journey&apos;s own Investigations step; the actual order is placed from there, not here.
+                                </div>
+                                {editSurgeryInvestigations.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                                    {editSurgeryInvestigations.map((inv, idx) => (
+                                      <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
+                                        {inv.name} ({inv.eye})
+                                        <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeEditSurgeryInvestigation(idx)}></i>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <select className="fi fi-sm" value={editSurgeryInvName} onChange={(e) => setEditSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
+                                    <option value="">-- Pick an investigation --</option>
+                                    {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                  </select>
+                                  <select className="fi fi-sm" value={editSurgeryInvEye} onChange={(e) => setEditSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
+                                    <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                                  </select>
+                                  <button type="button" className="btn btn-sm" onClick={addEditSurgeryInvestigation}><i className="ti ti-plus"></i></button>
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: 8 }}>
+                                <label className="flbl">Notes</label>
+                                <input className="fi" placeholder="Any notes for this surgery recommendation..." value={editSurgeryNotes} onChange={(e) => setEditSurgeryNotes(e.target.value)} />
+                              </div>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button className="btn btn-primary btn-sm" onClick={handleUpdateSurgicalCase} disabled={surgeryLoading}>
+                                  {surgeryLoading ? 'Saving...' : 'Save'}
+                                </button>
+                                <button className="btn btn-sm" onClick={() => setEditingSurgicalCaseId(null)}>Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ padding: '6px 0' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                                <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
+                                <span style={{ flex: 1 }}>
+                                  <strong>{sc.procedure_name}</strong> -- {sc.eye === 'OD' ? 'Right (OD)' : sc.eye === 'OS' ? 'Left (OS)' : sc.eye === 'OU' ? 'Both (OU)' : sc.eye}
+                                </span>
+                                <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
+                                {sc.status === 'Pending Workup' && (
+                                  <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => startEditSurgicalCase(sc)}>
+                                    <i className="ti ti-edit"></i> Edit
+                                  </button>
+                                )}
+                              </div>
+                              {comboSiblings.length > 0 && (
+                                <div style={{ fontSize: 11.5, color: 'var(--indigo)', marginTop: 3, marginLeft: 22 }}>
+                                  <i className="ti ti-stack-2"></i> Combined surgery -- performed together with {comboSiblings.map((s) => `${s.procedure_name} (${s.eye})`).join(', ')}
                                 </div>
                               )}
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                <select className="fi fi-sm" value={editSurgeryInvName} onChange={(e) => setEditSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
-                                  <option value="">-- Pick an investigation --</option>
-                                  {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                </select>
-                                <select className="fi fi-sm" value={editSurgeryInvEye} onChange={(e) => setEditSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
-                                  <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
-                                </select>
-                                <button type="button" className="btn btn-sm" onClick={addEditSurgeryInvestigation}><i className="ti ti-plus"></i></button>
-                              </div>
-                            </div>
-                            <div style={{ marginBottom: 8 }}>
-                              <label className="flbl">Notes</label>
-                              <input className="fi" placeholder="Any notes for this surgery recommendation..." value={editSurgeryNotes} onChange={(e) => setEditSurgeryNotes(e.target.value)} />
-                            </div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button className="btn btn-primary btn-sm" onClick={handleUpdateSurgicalCase} disabled={surgeryLoading}>
-                                {surgeryLoading ? 'Saving...' : 'Save'}
-                              </button>
-                              <button className="btn btn-sm" onClick={() => setEditingSurgicalCaseId(null)}>Cancel</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div style={{ padding: '6px 0' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                              <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
-                              <span style={{ flex: 1 }}>
-                                <strong>{sc.procedure_name}</strong> -- {sc.eye === 'OD' ? 'Right (OD)' : sc.eye === 'OS' ? 'Left (OS)' : sc.eye === 'OU' ? 'Both (OU)' : sc.eye}
-                              </span>
-                              <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
-                              {sc.status === 'Pending Workup' && (
-                                <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => startEditSurgicalCase(sc)}>
-                                  <i className="ti ti-edit"></i> Edit
-                                </button>
+                              {sc.notes && (
+                                <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3, marginLeft: 22 }}><i className="ti ti-notes"></i> {sc.notes}</div>
                               )}
-                            </div>
-                            {sc.notes && (
-                              <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3, marginLeft: 22 }}><i className="ti ti-notes"></i> {sc.notes}</div>
-                            )}
-                            <div style={{ marginTop: 6, marginLeft: 22 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Patient's Decision</div>
-                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                {[
-                                  { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
-                                  { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
-                                  { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
-                                ].map((d) => (
-                                  <button
-                                    key={d.v} type="button" className="btn" style={{ padding: '3px 9px', fontSize: 11, background: sc.decision === d.v ? d.color : '', color: sc.decision === d.v ? '#fff' : '', border: sc.decision === d.v ? 'none' : undefined }}
-                                    onClick={async () => {
-                                      const reason = sc.decision_locked && sc.decision !== d.v ? window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it:`) : null;
-                                      if (sc.decision_locked && sc.decision !== d.v && !reason) return;
-                                      const result = await setDecision(sc.id, d.v, reason);
-                                      if (result.error) { setError(result.error); return; }
-                                      refresh();
-                                    }}
-                                  >
-                                    {d.label}
-                                  </button>
-                                ))}
+                              <div style={{ marginTop: 6, marginLeft: 22 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Patient's Decision</div>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  {[
+                                    { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
+                                    { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
+                                    { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
+                                  ].map((d) => (
+                                    <button
+                                      key={d.v} type="button" className="btn" style={{ padding: '3px 9px', fontSize: 11, background: sc.decision === d.v ? d.color : '', color: sc.decision === d.v ? '#fff' : '', border: sc.decision === d.v ? 'none' : undefined }}
+                                      onClick={async () => {
+                                        const reason = sc.decision_locked && sc.decision !== d.v ? window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it:`) : null;
+                                        if (sc.decision_locked && sc.decision !== d.v && !reason) return;
+                                        const result = await setDecision(sc.id, d.v, reason);
+                                        if (result.error) { setError(result.error); return; }
+                                        refresh();
+                                      }}
+                                    >
+                                      {d.label}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>One surgical case per visit -- already marked for this visit.</div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ) : !showSurgery ? (
-                  <button className="btn" onClick={() => setShowSurgery(true)}>
-                    <i className="ti ti-scalpel"></i> Mark for IPD Procedure
-                  </button>
+                )}
+
+                {!showSurgery ? (
+                  <div style={{ marginTop: data.surgicalCases.length > 0 ? 10 : 0 }}>
+                    {data.surgicalCases.length === 0 ? (
+                      <button className="btn" onClick={() => setShowSurgery(true)}>
+                        <i className="ti ti-scalpel"></i> Mark for IPD Procedure
+                      </button>
+                    ) : data.surgicalCases.some((sc) => sc.status === 'Pending Workup') ? (
+                      <button className="btn" onClick={() => startCombineProcedure(data.surgicalCases.find((sc) => sc.status === 'Pending Workup').id)}>
+                        <i className="ti ti-stack-2"></i> Add Combined Procedure
+                      </button>
+                    ) : (
+                      <div style={{ fontSize: 11, color: 'var(--g400)' }}>Already marked for this visit.</div>
+                    )}
+                  </div>
                 ) : (
                   <div>
+                    {combineWithCaseId && (
+                      <div style={{ fontSize: 11.5, color: 'var(--indigo)', marginBottom: 10, padding: '7px 10px', background: 'var(--g50)', borderRadius: 6, border: '1px solid var(--indigo)' }}>
+                        <i className="ti ti-stack-2"></i> Adding a combined procedure -- performed together with{' '}
+                        <strong>{data.surgicalCases.find((sc) => sc.id === combineWithCaseId)?.procedure_name}</strong> in the same OT sitting, billed as a separate package.
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                       <select className="fi" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }}>
                         <option value="">-- Select surgery --</option>
@@ -1197,7 +1250,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
                         {surgeryLoading ? 'Saving...' : 'Save'}
                       </button>
-                      <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
+                      <button className="btn btn-sm" onClick={() => { setShowSurgery(false); setCombineWithCaseId(null); }}>Cancel</button>
                     </div>
                   </div>
                 )}

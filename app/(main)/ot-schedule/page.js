@@ -14,6 +14,19 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// Combined surgeries (e.g. Cataract with Anti-VEGF Injection) share a
+// combo_group_id and are always booked into the identical OT sitting
+// -- computed against the same already-fetched list rather than a
+// separate query, so staff see the linkage right in the Procedure
+// column instead of two unrelated-looking rows.
+function comboLabel(row, list) {
+  const groupId = row.surgical_cases?.combo_group_id;
+  if (!groupId) return null;
+  const siblings = list.filter((r) => r.id !== row.id && r.surgical_cases?.combo_group_id === groupId);
+  if (siblings.length === 0) return null;
+  return siblings.map((r) => `${r.surgical_cases?.procedure_name} (${r.surgical_cases?.eye})`).join(', ');
+}
+
 function RescheduleForm({ booking, onDone }) {
   const [date, setDate] = useState('');
   const [sessions, setSessions] = useState([]);
@@ -149,7 +162,14 @@ function ScheduledOTTab() {
                     {s.surgical_cases?.patients?.first_name} {s.surgical_cases?.patients?.last_name}
                     <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{s.surgical_cases?.patients?.uhid}</span>
                   </td>
-                  <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
+                  <td>
+                    {s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}
+                    {comboLabel(s, schedule) && (
+                      <div style={{ fontSize: 10.5, color: 'var(--indigo)', marginTop: 2 }}>
+                        <i className="ti ti-stack-2"></i> + {comboLabel(s, schedule)}
+                      </div>
+                    )}
+                  </td>
                   <td>{s.profiles?.full_name || '--'}</td>
                   <td>
                     <span className={`badge ${STATUS_BADGE[s.status] || 'b-gray'}`}>{s.status}</span>

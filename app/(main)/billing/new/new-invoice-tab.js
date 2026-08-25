@@ -269,51 +269,60 @@ export default function NewInvoiceTab() {
     (async () => {
       const result = await getPackageForBilling(urlPkgCaseId);
       if (result.error) { setError(result.error); return; }
-      if (!result.item) return;
-      const i = result.item;
+      if (!result.items || result.items.length === 0) return;
+      const [primary, ...rest] = result.items;
 
       // Establish patient/visit context directly from the package's own
       // case data when nothing has set it yet -- Surgery Billing's "Bill
       // Now" link only ever passes pkgCaseId, not visitId (a surgical
       // case doesn't always have an open visit attached), so this can't
       // rely on the urlVisitId effect above to have already run.
-      if (!contextPatient && i.patient) {
-        if (i.visitId) {
-          const details = await getVisitWithPatient(i.visitId);
+      if (!contextPatient && primary.patient) {
+        if (primary.visitId) {
+          const details = await getVisitWithPatient(primary.visitId);
           if (!details.error) {
             setContextPatient(details.visit.patients);
             setContextVisit(details.visit);
-            const invResult = await getInvoicesForVisit(i.visitId);
+            const invResult = await getInvoicesForVisit(primary.visitId);
             setExistingInvoices(invResult.invoices || []);
           }
         } else {
-          setContextPatient(i.patient);
+          setContextPatient(primary.patient);
         }
-        const visits = await getVisitsForPatient(i.patient.id);
+        const visits = await getVisitsForPatient(primary.patient.id);
         setPatientVisits(visits);
       }
 
-      setPackageBreakup(i.breakup && i.breakup.length > 0 ? i.breakup : null);
-      setSurgeryName(i.surgeryName || '');
-      setSurgeryEyeField(i.surgeryEye || '');
-      setSurgeryDoctorId(i.surgeonId || '');
-      // Carry over the discount already recorded at Package Selection
-      // (Surgical Journey / Counselling / Register Surgery Directly) --
-      // previously always billed at the full package rate regardless of
-      // any discount on file for the case.
-      const discType = i.discount > 0 ? 'fixed' : 'none';
-      const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, discType, i.discount || 0);
-      setDraftLines((prev) => [
-        ...prev,
-        {
+      // Manual Surgery/Eye/Doctor fields and the package breakup display
+      // only show one procedure's details (a print fallback for when
+      // the invoice's real case lookup misses) -- the primary case's,
+      // same as before. Every procedure still gets its own real line
+      // item below, combined or not.
+      setPackageBreakup(primary.breakup && primary.breakup.length > 0 ? primary.breakup : null);
+      setSurgeryName(primary.surgeryName || '');
+      setSurgeryEyeField(primary.surgeryEye || '');
+      setSurgeryDoctorId(primary.surgeonId || '');
+
+      // Combined surgeries (e.g. Cataract with Anti-VEGF Injection) keep
+      // separate packages/prices per procedure -- each becomes its own
+      // line item here, billed together on this one invoice.
+      const newLines = result.items.map((i) => {
+        // Carry over the discount already recorded at Package Selection
+        // (Surgical Journey / Counselling / Register Surgery Directly) --
+        // previously always billed at the full package rate regardless of
+        // any discount on file for the case.
+        const discType = i.discount > 0 ? 'fixed' : 'none';
+        const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, discType, i.discount || 0);
+        return {
           tempId: nextTempId.current++,
           sourcePkgCaseId: i.caseId,
           serviceCode: i.serviceCode, serviceName: i.name, dept: 'Surgery',
           qty: 1, rate: i.rate, gstPct: i.gstPct,
           discType, discValue: i.discount || 0, discReason: i.discount > 0 ? 'Package discount recorded at Package Selection' : '',
           ...computed,
-        },
-      ]);
+        };
+      });
+      setDraftLines((prev) => [...prev, ...newLines]);
     })();
   }, [urlPkgCaseId, contextPatient]);
 
@@ -461,8 +470,15 @@ export default function NewInvoiceTab() {
     const billedBioIds = draftLines.map((l) => l.sourceBioId).filter(Boolean);
     if (billedBioIds.length > 0) await markBiometryBilled(billedBioIds, created.invoice.id);
 
-    const billedPkgCaseId = draftLines.find((l) => l.sourcePkgCaseId)?.sourcePkgCaseId;
-    if (billedPkgCaseId) await markPackageBilled(billedPkgCaseId, created.invoice.id);
+    // Every surgery package line gets marked billed -- a combined
+    // surgery adds more than one sourcePkgCaseId line (separate package
+    // per procedure, billed together on this one invoice), so each of
+    // those cases needs to flip out of the Pending Package Billing
+    // queue, not just the first one.
+    const billedPkgCaseIds = [...new Set(draftLines.map((l) => l.sourcePkgCaseId).filter(Boolean))];
+    for (const pkgCaseId of billedPkgCaseIds) {
+      await markPackageBilled(pkgCaseId, created.invoice.id);
+    }
 
     // Fields are always editable now (whether prefilled from a case via
     // the automatic route, or entered by hand), so whatever's in the

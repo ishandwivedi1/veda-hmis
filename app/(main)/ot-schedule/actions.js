@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 
-const OT_SELECT = '*, surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)';
+const OT_SELECT = '*, surgical_cases(procedure_name, eye, combo_group_id, patients(first_name, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)';
 
 // ── SCHEDULED OT -- upcoming bookings that haven't happened yet.
 // Reschedulable while still in this state; once a patient checks in

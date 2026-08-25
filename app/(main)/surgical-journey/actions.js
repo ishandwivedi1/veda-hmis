@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { adviseBiometry } from '@/app/(main)/consultation/actions';
-import { markForSurgery, setDecision } from '@/app/(main)/counselling/actions';
+import { markForSurgery, setDecision, getComboSiblings } from '@/app/(main)/counselling/actions';
 import { getAdvanceBalance } from '@/app/(main)/payments/actions';
 import { addInvestigationToSurgicalCase } from '@/lib/surgicalCaseInvestigations';
 import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
@@ -372,6 +372,7 @@ export async function getSurgicalCaseDetail(caseId) {
     { data: iolApproval },
     externalTests,
     advanceBalance,
+    comboSiblings,
   ] = await Promise.all([
     // Biometry is patient-level now, not case-scoped -- reused across
     // every future surgical case for that patient (readings don't
@@ -429,6 +430,11 @@ export async function getSurgicalCaseDetail(caseId) {
     // the net package amount (price - discount) rather than the old
     // never-actually-set advance_payment_id flag. See workspace.js.
     sc.patient_id ? getAdvanceBalance(sc.patient_id) : Promise.resolve(0),
+
+    // Combined surgery -- other procedures advised and always scheduled
+    // together with this one (e.g. Cataract with Anti-VEGF Injection).
+    // [] for a standalone case.
+    getComboSiblings(caseId),
   ]);
 
   // recoveryEpisode and checkinCompletedAt both depend on otSchedule.id,
@@ -456,6 +462,7 @@ export async function getSurgicalCaseDetail(caseId) {
     checkinCompletedAt,
     recoveryEpisode,
     advanceBalance: Number(advanceBalance) || 0,
+    comboSiblings: comboSiblings || [],
   };
 }
 
@@ -463,8 +470,8 @@ export async function getSurgicalCaseDetail(caseId) {
 // Thin wrapper so the new page's "Advise Surgery" button doesn't need
 // to import from Consultation directly -- same underlying function,
 // same surgical_cases row Counselling already reads.
-export async function adviseSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision) {
-  return markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision);
+export async function adviseSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision, linkedCaseId) {
+  return markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision, linkedCaseId);
 }
 
 // ── INVESTIGATIONS (Step 3) ────────────────────────────────────────

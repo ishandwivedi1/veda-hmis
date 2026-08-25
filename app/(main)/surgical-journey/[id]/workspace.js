@@ -21,7 +21,7 @@ import { openPopup, openTab } from '@/lib/popup';
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
 // ── HEADER (editable) ──────────────────────────────────────────────
-function CaseHeader({ sc, patient, onAction }) {
+function CaseHeader({ sc, patient, onAction, comboSiblings = [] }) {
   const [editing, setEditing] = useState(false);
   const [surgeries, setSurgeries] = useState([]);
   const [procedureName, setProcedureName] = useState(sc.procedure_name);
@@ -66,6 +66,11 @@ function CaseHeader({ sc, patient, onAction }) {
             <div style={{ fontSize: 10.5, opacity: 0.7, marginTop: 2 }}>
               Advised: {new Date(sc.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
             </div>
+            {comboSiblings.length > 0 && (
+              <div style={{ fontSize: 11, marginTop: 6, background: 'rgba(255,255,255,.15)', borderRadius: 6, padding: '4px 8px', display: 'inline-block' }}>
+                <i className="ti ti-stack-2"></i> Combined with: {comboSiblings.map((s) => `${s.procedure_name} (${EYE_LABEL[s.eye] || s.eye})`).join(', ')}
+              </div>
+            )}
           </div>
         ) : null}
       </div>
@@ -275,7 +280,7 @@ export default function Workspace({ caseId }) {
         <i className="ti ti-arrow-left"></i> All Cases
       </button>
 
-      <CaseHeader sc={sc} patient={patient} onAction={flash} />
+      <CaseHeader sc={sc} patient={patient} onAction={flash} comboSiblings={data.comboSiblings} />
 
       {error && <div className="msg-err" style={{ marginBottom: 12 }}>{error}</div>}
       {ok && <div className="msg-ok" style={{ marginBottom: 12 }}>{ok}</div>}
@@ -302,7 +307,7 @@ export default function Workspace({ caseId }) {
       )}
 
       {/* SURGERY DATE BOOKING */}
-      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} iolApproval={data.iolApproval} onAction={flash} active={currentStep === 'iol'} num={bookingNum} />
+      <IolAndBookingSection sc={sc} otSchedule={data.otSchedule} iolApproval={data.iolApproval} onAction={flash} active={currentStep === 'iol'} num={bookingNum} comboSiblings={data.comboSiblings} />
 
       {/* MEDICAL FITNESS -- comes after the surgery date is booked
           (pre-anaesthesia clearance closer to the actual surgery date
@@ -900,7 +905,7 @@ function PackageDecisionSection({ sc, onAction, active }) {
 // both together, posts back via postMessage) -- so there is no
 // separate session picker here anymore. Having one here too used to
 // mean picking the session twice for the same booking.
-function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, num }) {
+function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, num, comboSiblings = [] }) {
   const [iolNotes, setIolNotesLocal] = useState(sc.iol_order_notes || '');
   const [surgeons, setSurgeons] = useState([]);
   const [surgeonId, setSurgeonId] = useState(sc.surgeon_id || '');
@@ -1016,6 +1021,13 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
           <button className="btn btn-sm" onClick={() => onAction(setIolOrderNotes)(sc.id, iolNotes)}>Save</button>
         </div>
       </div>
+
+      {comboSiblings.length > 0 && (
+        <div style={{ fontSize: 11.5, color: 'var(--indigo)', marginBottom: 10, padding: '7px 10px', background: 'var(--g50)', borderRadius: 6, border: '1px solid var(--indigo)' }}>
+          <i className="ti ti-stack-2"></i> This is a combined surgery -- booking this date also books{' '}
+          {comboSiblings.map((s) => `${s.procedure_name} (${s.eye})`).join(', ')} into the identical OT sitting.
+        </div>
+      )}
 
       <button
         className="btn btn-primary btn-sm"

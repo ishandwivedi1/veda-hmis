@@ -44,7 +44,16 @@ import { createClient } from '@/lib/supabase-server';
 // completeOT), not here.
 // The following exports are used by OTHER modules and MUST keep the same
 // name + signature:
-//   markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision)
+//   markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision, linkedCaseId)
+//     -- linkedCaseId (added 2026-08) is optional: pass an existing
+//        surgical_cases.id on the SAME visit to mark this new procedure
+//        as part of a combined surgery with it (e.g. Cataract with
+//        Anti-VEGF Injection). Both cases end up sharing a
+//        combo_group_id, which bookOTSlot uses to always schedule them
+//        into the identical OT sitting together. Omit for the normal
+//        single-procedure case -- nothing changes for existing callers.
+//   getComboSiblings(caseId) -- returns the other procedure(s) sharing
+//        this case's combo_group_id, [] for a standalone case.
 //   updateSurgicalCase(caseId, procedureName, eye, investigations, notes)
 //     -- imported by app/(main)/consultation/[id]/consultation-form.js
 //     -- investigations is [{name, eye}], the doctor's indicative pre-op
@@ -174,7 +183,14 @@ export async function updateSurgicalCase(caseId, procedureName, eye, investigati
   return { success: true };
 }
 
-export async function markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision) {
+// linkedCaseId is optional -- when provided, this new procedure is
+// explicitly being advised TOGETHER with an existing surgical case on
+// the same visit (e.g. Cataract advised first, then Anti-VEGF Injection
+// added as a combined procedure). Both cases end up sharing the same
+// combo_group_id, which is what keeps them locked to the same OT
+// sitting at booking time (see bookOTSlot below) -- this is the one
+// explicit exception to the "one visit, one surgical case" rule.
+export async function markForSurgery(patientId, encounterId, procedureName, eye, investigations, notes, decision, linkedCaseId) {
   const supabase = await createClient();
 
   if (decision && !DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
@@ -187,11 +203,32 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     .eq('id', encounterId)
     .single();
 
-  // BR: one visit, one surgical case -- checked against visit_id (not
-  // just this encounter), since a visit can span more than one
-  // encounter (e.g. consultation reopened) and the case should still
-  // only be created once.
-  if (encounter?.visit_id) {
+  let comboGroupId = null;
+  if (linkedCaseId) {
+    const { data: linked } = await supabase
+      .from('surgical_cases')
+      .select('id, visit_id, combo_group_id, status')
+      .eq('id', linkedCaseId)
+      .neq('status', 'Cancelled')
+      .maybeSingle();
+    if (!linked || linked.visit_id !== encounter?.visit_id) {
+      return { error: 'Could not find the procedure to combine with on this visit.' };
+    }
+    if (linked.status !== 'Pending Workup') {
+      return { error: `That procedure has already moved to "${linked.status}" -- combined procedures can only be added while both are still Pending Workup.` };
+    }
+    comboGroupId = linked.combo_group_id;
+    if (!comboGroupId) {
+      comboGroupId = crypto.randomUUID();
+      await supabase.from('surgical_cases').update({ combo_group_id: comboGroupId }).eq('id', linked.id);
+    }
+  } else if (encounter?.visit_id) {
+    // BR: one visit, one surgical case -- checked against visit_id (not
+    // just this encounter), since a visit can span more than one
+    // encounter (e.g. consultation reopened) and the case should still
+    // only be created once. The one exception is an explicit combined
+    // procedure (linkedCaseId above), e.g. Cataract with Anti-VEGF
+    // Injection performed together.
     const { data: existing } = await supabase
       .from('surgical_cases')
       .select('id, procedure_name, eye')
@@ -199,7 +236,7 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
       .neq('status', 'Cancelled')
       .limit(1);
     if (existing && existing.length > 0) {
-      return { error: `This visit already has a surgical case marked (${existing[0].procedure_name} -- ${existing[0].eye}). Only one is allowed per visit.` };
+      return { error: `This visit already has a surgical case marked (${existing[0].procedure_name} -- ${existing[0].eye}). Use "Add Combined Procedure" if these are being performed together, or only one is allowed per visit.` };
     }
   }
 
@@ -236,6 +273,7 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     fitness_required: true,
     indicative_investigations: cleanInvestigations,
     notes: notes || null,
+    combo_group_id: comboGroupId,
     // Patient's initial reaction, captured right here in OPD -- the
     // FIRST step of the surgical journey now, not something deferred to
     // Counselling. 'Accepted' locks immediately (matches setDecision's
@@ -250,6 +288,24 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
   return { success: true };
 }
 
+// ── Combined surgery -- other procedures sharing this case's
+// combo_group_id (e.g. this case is Cataract, sibling is Anti-VEGF
+// Injection). Returns [] for a standalone case. Used to show the
+// linkage everywhere a single case is displayed, so staff never
+// mistake a combined surgery for two unrelated ones. ──
+export async function getComboSiblings(caseId) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('combo_group_id').eq('id', caseId).maybeSingle();
+  if (!sc?.combo_group_id) return [];
+  const { data } = await supabase
+    .from('surgical_cases')
+    .select('id, procedure_name, eye, status')
+    .eq('combo_group_id', sc.combo_group_id)
+    .neq('id', caseId)
+    .neq('status', 'Cancelled');
+  return data || [];
+}
+
 // ── Cases list for the Counselling workspace (richer -- surgeon, decision, IOL type) ──
 export async function getCounsellingCases() {
   const supabase = await createClient();
@@ -257,7 +313,7 @@ export async function getCounsellingCases() {
     .from('surgical_cases')
     .select(`
       id, patient_id, encounter_id, procedure_name, eye, priority, status,
-      iol_category, decision, decision_reason,
+      iol_category, decision, decision_reason, combo_group_id,
       biometry_done, biometry_required, biometry_skip_reason,
       fitness_cleared, fitness_required, investigations_complete,
       package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
@@ -327,7 +383,7 @@ export async function getCounsellingHistory() {
     .from('surgical_cases')
     .select(`
       id, patient_id, encounter_id, procedure_name, eye, priority, status,
-      iol_category, decision, decision_reason,
+      iol_category, decision, decision_reason, combo_group_id,
       biometry_done, biometry_required, biometry_skip_reason,
       fitness_cleared, fitness_required, investigations_complete,
       package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
@@ -716,26 +772,79 @@ async function ensureFitnessReferral(supabase, caseId) {
   });
 }
 
+// Combined surgeries (e.g. Cataract with Anti-VEGF Injection) are
+// always locked to the same OT sitting -- booking one of them books
+// every sibling sharing its combo_group_id, atomically, into the
+// identical date/session/room via book_ot_slot_combo. A standalone
+// case (no combo_group_id) goes through the original single-case
+// book_ot_slot exactly as before -- nothing changes for the normal
+// case.
 export async function bookOTSlot(caseId, date, sessionId, surgeonId, notes) {
   const supabase = await createClient();
   if (!date) return { error: 'Date is required.' };
   if (!sessionId) return { error: 'Select an OT session.' };
 
-  const { data, error } = await supabase.rpc('book_ot_slot', {
-    p_case_id: caseId,
-    p_date: date,
-    p_session_id: sessionId,
-    p_surgeon_id: surgeonId || null,
-    p_notes: notes || null,
-  });
-  if (error) return { error: error.message };
-  if (data?.error) return { error: data.error };
+  const { data: sc } = await supabase.from('surgical_cases').select('combo_group_id').eq('id', caseId).maybeSingle();
+
+  let caseIds = [caseId];
+  if (sc?.combo_group_id) {
+    const { data: siblings } = await supabase
+      .from('surgical_cases')
+      .select('id, status')
+      .eq('combo_group_id', sc.combo_group_id)
+      .neq('status', 'Cancelled');
+
+    // A sibling that's already moved past scheduling (Scheduled,
+    // Completed, ...) can't be folded into a fresh booking -- that
+    // would silently re-book or duplicate an already-scheduled
+    // procedure. Anything still Pending Workup is auto-promoted to
+    // Ready for Scheduling right here (same no-prerequisite-checks
+    // behavior as markReadyForScheduling below) so staff don't have to
+    // separately click through every linked procedure before booking
+    // once, together, covers all of them.
+    const alreadyProgressed = (siblings || []).find((s) => s.id !== caseId && !['Pending Workup', 'Ready for Scheduling'].includes(s.status));
+    if (alreadyProgressed) {
+      return { error: 'One of the combined procedures has already moved past scheduling -- this combined booking cannot proceed automatically.' };
+    }
+    const toPromote = (siblings || []).filter((s) => s.status === 'Pending Workup').map((s) => s.id);
+    if (toPromote.length > 0) {
+      await supabase.from('surgical_cases').update({ status: 'Ready for Scheduling' }).in('id', toPromote);
+    }
+    caseIds = (siblings || []).map((s) => s.id);
+    if (!caseIds.includes(caseId)) caseIds.push(caseId);
+  }
+
+  if (caseIds.length === 1) {
+    const { data, error } = await supabase.rpc('book_ot_slot', {
+      p_case_id: caseId,
+      p_date: date,
+      p_session_id: sessionId,
+      p_surgeon_id: surgeonId || null,
+      p_notes: notes || null,
+    });
+    if (error) return { error: error.message };
+    if (data?.error) return { error: data.error };
+  } else {
+    const { data, error } = await supabase.rpc('book_ot_slot_combo', {
+      p_case_ids: caseIds,
+      p_date: date,
+      p_session_id: sessionId,
+      p_surgeon_id: surgeonId || null,
+      p_notes: notes || null,
+    });
+    if (error) return { error: error.message };
+    if (data?.error) return { error: data.error };
+  }
 
   // Medical Fitness now enters the workflow automatically once a
   // surgery date exists, instead of needing a separate "Refer to
   // Doctor" click -- closer to the actual surgery date is when
-  // clearance is clinically useful anyway.
-  await ensureFitnessReferral(supabase, caseId);
+  // clearance is clinically useful anyway. Every procedure in a combo
+  // gets its own referral -- one clearance visit still covers both in
+  // practice, but each keeps its own tracked record.
+  for (const id of caseIds) {
+    await ensureFitnessReferral(supabase, id);
+  }
 
   return { success: true };
 }
