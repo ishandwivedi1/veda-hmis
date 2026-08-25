@@ -137,14 +137,14 @@ function NewVisitForm() {
       return;
     }
 
-    // Surgery, Surgery Evaluation, and Investigation Only all land
-    // directly on the patient's Surgical Journey case -- that's the
-    // one place a front-desk executive can see exactly what's needed
-    // next (booking, payment, check-in status, awaiting confirmation),
+    // Surgery and Surgery Evaluation both land directly on the
+    // patient's Surgical Journey case -- that's the one place a
+    // front-desk executive can see exactly what's needed next
+    // (booking, payment, check-in status, awaiting confirmation),
     // rather than a generic Patient Check-In screen. Falls back to
     // Patient Check-In's own "Register Surgery Directly" resolver only
     // if genuinely no case exists at all for this patient.
-    if (['Surgery', 'Surgery Evaluation', 'Investigation Only'].includes(visitType)) {
+    if (['Surgery', 'Surgery Evaluation'].includes(visitType)) {
       if (result.surgicalCaseId) {
         router.push(`/surgical-journey/${result.surgicalCaseId}`);
       } else {
@@ -262,11 +262,10 @@ function NewVisitForm() {
               <select className="fi" value={visitType} onChange={(e) => { setVisitType(e.target.value); if (e.target.value !== 'Surgery') setSurgeryType(''); }}>
                 <option>New Consultation</option>
                 <option>Follow-up</option>
-                <option>Investigation Only</option>
                 <option>Surgery Evaluation</option>
+                <option>Surgery</option>
                 <option>Post-operative Review</option>
                 <option>Emergency</option>
-                <option>Surgery</option>
               </select>
             </div>
             {visitType === 'Surgery' && (
