@@ -1129,7 +1129,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   </div>
                 ) : !showSurgery ? (
                   <button className="btn" onClick={() => setShowSurgery(true)}>
-                    <i className="ti ti-scalpel"></i> Mark for Surgery
+                    <i className="ti ti-scalpel"></i> Mark for IPD Procedure
                   </button>
                 ) : (
                   <div>

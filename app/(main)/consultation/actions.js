@@ -130,10 +130,10 @@ export async function getConsultationData(queueEntryId) {
       .from('visits')
       .select('id, encounters(id, started_at, status, diagnoses(id, name, category, eye, status, created_at))')
       .eq('patient_id', patientId),
-    // So "Mark for Surgery" can show what's already been marked instead
-    // of silently reverting to a blank button after saving. Scoped by
-    // visit_id (one visit, one surgical case), not just this encounter,
-    // since a visit can span more than one encounter.
+    // So "Mark for IPD Procedure" can show what's already been marked
+    // instead of silently reverting to a blank button after saving.
+    // Scoped by visit_id (one visit, one surgical case), not just this
+    // encounter, since a visit can span more than one encounter.
     supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority, biometry_required, fitness_required, indicative_investigations, notes, decision, decision_locked').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
   ]);
 
