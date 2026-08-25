@@ -189,7 +189,14 @@ async function getDischargeDatesByCase(supabase, completedCaseIds) {
 // falling into the gap between this list, Discharged Today, and
 // History (none of which match a future date), which is what made a
 // mis-dated case vanish from the module entirely.
-export async function getMyActiveSurgicalCases() {
+// Shared base for both lists below -- the full set of surgical cases
+// still "in play" (not Cancelled, and not a Completed case that's
+// already been discharged before today), each annotated with the
+// patient's live advance balance. Bulk ledger lookup (one query for
+// every patient at once) instead of calling get_advance_balance once
+// per case -- avoids an N+1 round trip for what could be dozens of
+// open cases.
+async function getOpenSurgicalCasesWithBalances() {
   const supabase = await createClient();
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
@@ -202,8 +209,40 @@ export async function getMyActiveSurgicalCases() {
 
   const completedIds = cases.filter((c) => c.status === 'Completed').map((c) => c.id);
   const dischargeDates = await getDischargeDatesByCase(supabase, completedIds);
+  const open = cases.filter((c) => !(c.status === 'Completed' && dischargeDates[c.id] && dischargeDates[c.id] <= todayIst));
 
-  return cases.filter((c) => !(c.status === 'Completed' && dischargeDates[c.id] && dischargeDates[c.id] <= todayIst));
+  const patientIds = [...new Set(open.map((c) => c.patient_id))];
+  const balances = {};
+  if (patientIds.length > 0) {
+    // patient_ledger.amount is signed (deposits positive, consumption
+    // negative against invoices), so a plain per-patient sum is the
+    // live balance -- same math get_advance_balance's RPC does, just
+    // batched for every patient here instead of one call each.
+    const { data: ledgerRows } = await supabase.from('patient_ledger').select('patient_id, amount').in('patient_id', patientIds);
+    (ledgerRows || []).forEach((r) => { balances[r.patient_id] = (balances[r.patient_id] || 0) + Number(r.amount); });
+  }
+
+  return open.map((c) => ({ ...c, advanceBalance: balances[c.patient_id] || 0 }));
+}
+
+// Active Cases + Awaiting Confirmation, split by whether any advance
+// has actually been paid -- not by decision or booking status. Per
+// hospital feedback: a patient can say yes and even take a surgery
+// date, then never show up with the money, so the only real
+// confirmation signal is advance payment. status = 'Completed' is
+// always treated as confirmed regardless of balance -- the surgery
+// already happened, so the question is moot by then. decision =
+// 'Declined' is excluded from both lists (same as before this
+// change) -- a patient who's declined isn't someone to chase for an
+// advance.
+export async function getSurgicalCaseLists() {
+  const open = await getOpenSurgicalCasesWithBalances();
+  const eligible = open.filter((c) => c.decision !== 'Declined');
+  const active = eligible.filter((c) => c.status === 'Completed' || c.advanceBalance > 0);
+  const awaitingConfirmation = eligible
+    .filter((c) => c.status !== 'Completed' && c.advanceBalance <= 0)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  return { active, awaitingConfirmation };
 }
 
 // Discharged TODAY -- kept visible on the front page instead of
@@ -247,23 +286,7 @@ export async function getCompletedSurgicalCases() {
   return cases.filter((c) => c.status === 'Cancelled' || (c.status === 'Completed' && dischargeDates[c.id] && dischargeDates[c.id] < todayIst));
 }
 
-// Patients whose decision is "Wants Time to Decide" and haven't
-// resolved it yet (accepted or declined). Front desk's follow-up list.
-// Ordered oldest-first so the ones most overdue for a call surface at
-// the top.
-export async function getAwaitingReturnCases() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('surgical_cases')
-    .select('*, patients:patient_id(first_name, last_name, uhid, mobile)')
-    .eq('decision', 'Wants Time to Decide')
-    .not('status', 'in', '("Completed","Cancelled")')
-    .order('created_at', { ascending: true });
-  if (error) return [];
-  return data || [];
-}
-
-// Which patients (out of Active Cases / Awaiting Return) have actually
+// Which patients (out of Active Cases / Awaiting Confirmation) have actually
 // walked in today, specifically for this -- a Surgery Evaluation or
 // Investigation Only visit (create_walk_in_visit/check_in_appointment
 // only allow these when an open surgical case already exists, so

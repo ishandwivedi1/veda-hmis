@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardHistory } from './actions';
 import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
 import { getPostOpTurnedUpToday } from '@/app/(main)/ot-postop/actions';
-import { getMyActiveSurgicalCases, getAwaitingReturnCases } from '@/app/(main)/surgical-journey/actions';
+import { getSurgicalCaseLists } from '@/app/(main)/surgical-journey/actions';
 import { getMedicalFitnessQueue } from '@/app/(main)/medical-fitness/actions';
 
 function patientName(sc) {
@@ -71,11 +71,11 @@ function WorkflowTile({ icon, iconColor, title, count, hint, onClick }) {
 }
 
 // Same click-through tile, but for Surgical Journey specifically --
-// shows two counts side by side (Active cases still moving through
-// workup/scheduling, and cases Awaiting Return -- patients who said
-// "Wants Time to Decide" and haven't come back yet) since that's the
-// one place on this dashboard the surgeon asked to see both numbers at
-// a glance, not just one.
+// shows two counts side by side (Active cases -- advance paid, or
+// surgery already done -- and cases Awaiting Confirmation -- no
+// advance paid yet, regardless of decision or booking status) since
+// that's the one place on this dashboard the surgeon asked to see
+// both numbers at a glance, not just one.
 function DualCountTile({ icon, iconColor, title, hint, items, onClick }) {
   return (
     <div onClick={onClick} className="card" style={{ cursor: 'pointer' }}>
@@ -154,10 +154,10 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, s
           spilling into an odd third row at 3 columns. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
         <DualCountTile
-          icon="ti-route" iconColor="var(--indigo)" title="Surgical Workflow" hint="Working up to surgery, and those still deciding."
+          icon="ti-route" iconColor="var(--indigo)" title="Surgical Workflow" hint="Advance paid vs. still awaiting confirmation."
           items={[
             { label: 'Active', value: surgicalJourneyActive.length, color: 'var(--indigo)' },
-            { label: 'Awaiting Return', value: awaitingReturnCases.length, color: 'var(--amber)' },
+            { label: 'Awaiting Confirmation', value: awaitingReturnCases.length, color: 'var(--amber)' },
           ]}
           onClick={onOpenSurgicalJourney}
         />
@@ -219,22 +219,21 @@ export default function DoctorSurgeryDashboardPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [s, a, h, iol, postOp, sjActive, sjAwaitingReturn, medFitness] = await Promise.all([
+      const [s, a, h, iol, postOp, surgicalCaseLists, medFitness] = await Promise.all([
         getSurgeryDashboardScheduled(),
         getSurgeryDashboardActive(),
         getSurgeryDashboardHistory(),
         getPendingIolApprovals(),
         getPostOpTurnedUpToday(),
-        getMyActiveSurgicalCases(),
-        getAwaitingReturnCases(),
+        getSurgicalCaseLists(),
         getMedicalFitnessQueue(),
       ]);
       const firstError = s.error || a.error || h.error;
       setScheduled(s.rows); setActive(a.rows); setHistory(h.rows);
       setIolApprovals(iol || []);
       setPostOpToday(postOp || []);
-      setSurgicalJourneyActive(sjActive || []);
-      setAwaitingReturnCases(sjAwaitingReturn || []);
+      setSurgicalJourneyActive(surgicalCaseLists.active || []);
+      setAwaitingReturnCases(surgicalCaseLists.awaitingConfirmation || []);
       setMedicalFitnessQueue(medFitness || []);
       setError(firstError || '');
       setLoadingHistory(false);

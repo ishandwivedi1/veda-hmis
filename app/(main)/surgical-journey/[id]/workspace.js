@@ -311,9 +311,7 @@ export default function Workspace({ caseId }) {
 
       {/* PAYMENT */}
       <Section num={paymentNum} color="var(--teal)" title="Payment" done={stepDone.payment} active={currentStep === 'payment'}>
-        {sc.decision !== 'Accepted' ? (
-          <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first.</div>
-        ) : !sc.master_packages ? (
+        {!sc.master_packages ? (
           <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Select a package first to determine the amount payable.</div>
         ) : (
           <div>
@@ -385,13 +383,6 @@ function FitnessSection({ sc, fitnessReferral, onAction, active, num, refresh })
     return () => window.removeEventListener('message', handleMessage);
   }, [fitnessReferral?.id, refresh]);
 
-  if (sc.decision !== 'Accepted') {
-    return (
-      <Section num={num} color="var(--red)" title="Medical Fitness" done={false} active={active}>
-        <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first.</div>
-      </Section>
-    );
-  }
   return (
     <Section num={num} color="var(--red)" title="Medical Fitness" done={cleared} active={active}>
       {sc.fitness_required === false && !fitnessReferral ? (
@@ -454,13 +445,6 @@ function IolApprovalSection({ sc, iolApproval, active, refresh, num }) {
     return () => window.removeEventListener('message', handleMessage);
   }, [sc.id, refresh]);
 
-  if (sc.decision !== 'Accepted') {
-    return (
-      <Section num={num} color="var(--indigo)" title="IOL Approval" done={false} active={active}>
-        <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first.</div>
-      </Section>
-    );
-  }
   return (
     <Section num={num} color="var(--indigo)" title="IOL Approval" done={approved} active={active}>
       {approved ? (
@@ -504,17 +488,8 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
   const [extTestName, setExtTestName] = useState('');
   const [expandedTestId, setExpandedTestId] = useState(null);
   const biometryOrdered = biometryRecords.length > 0;
-  const decided = sc.decision === 'Accepted';
 
-  useEffect(() => { if (decided) getInvestigationOptionsForCase().then(setInvOptions); }, [decided]);
-
-  if (!decided) {
-    return (
-      <Section num={2} color="var(--purple)" title="Investigations" done={false}>
-        <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first.</div>
-      </Section>
-    );
-  }
+  useEffect(() => { getInvestigationOptionsForCase().then(setInvOptions); }, []);
 
   return (
     <Section num={2} color="var(--purple)" title="Investigations" done={biometryOrdered} active={active}>
@@ -764,19 +739,10 @@ function PackageDecisionSection({ sc, onAction, active }) {
   const [discountEditReason, setDiscountEditReason] = useState('');
   const [discountError, setDiscountError] = useState('');
   const [savingDiscount, setSavingDiscount] = useState(false);
-  const decided = sc.decision === 'Accepted';
 
   useEffect(() => {
-    if (decided) getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoadingPackages(false); });
-  }, [decided, sc.iol_category]);
-
-  if (!decided) {
-    return (
-      <Section num={3} color="var(--indigo)" title="Package" done={false} active={active}>
-        <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Waiting on Patient Decision first.</div>
-      </Section>
-    );
-  }
+    getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoadingPackages(false); });
+  }, [sc.iol_category]);
 
   const selectedPreview = packages.find((p) => p.id === selectedPackageId);
   const discountNum = Number(discountInput) || 0;
@@ -806,7 +772,7 @@ function PackageDecisionSection({ sc, onAction, active }) {
   }
 
   return (
-    <Section num={3} color="var(--indigo)" title="Package" done={!!sc.package_id} defaultOpen={decided && !sc.package_id} active={active}>
+    <Section num={3} color="var(--indigo)" title="Package" done={!!sc.package_id} defaultOpen={!sc.package_id} active={active}>
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Package</div>
         {sc.master_packages ? (

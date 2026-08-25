@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getMyActiveSurgicalCases, getAwaitingReturnCases, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, recordManualReminder, getSurgicalTrackArrivalsToday } from './actions';
+import { getSurgicalCaseLists, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, recordManualReminder, getSurgicalTrackArrivalsToday } from './actions';
 
 const STAGE_LABEL = {
   'Pending Workup': 'Working Up',
@@ -127,7 +127,7 @@ export default function SurgicalJourneyPage() {
   const router = useRouter();
 
   const refresh = useCallback(async () => {
-    const [activeCases, awaitingCases, arrivals] = await Promise.all([getMyActiveSurgicalCases(), getAwaitingReturnCases(), getSurgicalTrackArrivalsToday()]);
+    const [{ active: activeCases, awaitingConfirmation: awaitingCases }, arrivals] = await Promise.all([getSurgicalCaseLists(), getSurgicalTrackArrivalsToday()]);
     setCases(activeCases);
     setAwaiting(awaitingCases);
     setArrivedToday(new Set(arrivals));
@@ -144,7 +144,6 @@ export default function SurgicalJourneyPage() {
 
   useEffect(() => { refresh(); refreshDischargedToday(); refreshHistory(); }, [refresh, refreshDischargedToday, refreshHistory]);
 
-  const proceeding = cases.filter((c) => c.decision !== 'Wants Time to Decide' && c.decision !== 'Declined');
   // Whoever's physically here right now goes first -- that's who the
   // surgeon actually needs to see, not just the longest-overdue call.
   const awaitingSorted = [...awaiting].sort((a, b) => (arrivedToday.has(b.patient_id) ? 1 : 0) - (arrivedToday.has(a.patient_id) ? 1 : 0));
@@ -168,11 +167,11 @@ export default function SurgicalJourneyPage() {
           {awaiting.length > 0 && (
             <div className="card" style={{ marginBottom: 16, borderColor: 'var(--amber)' }}>
               <div className="card-title" style={{ marginBottom: 4 }}>
-                <i className="ti ti-clock-pause" style={{ color: 'var(--amber)' }}></i> Awaiting Return
+                <i className="ti ti-clock-pause" style={{ color: 'var(--amber)' }}></i> Awaiting Confirmation
                 <span className="badge b-amber" style={{ marginLeft: 8 }}>{awaiting.length}</span>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
-                Advised surgery, said they'd come back another day. Worth a call if it's been a while.
+                No advance paid yet -- surgery isn't confirmed until it is, even if a date's already been booked. Worth a call if it's been a while.
               </div>
               {awaitingSorted.map((c) => (
                 <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
@@ -182,6 +181,7 @@ export default function SurgicalJourneyPage() {
                   <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => router.push(`/surgical-journey/${c.id}`)}>
                     <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
                     <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>
+                    {c.status === 'Scheduled' && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>Date booked, unpaid</span>}
                     {c.reminder_count > 0 && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>{c.reminder_count} call{c.reminder_count > 1 ? 's' : ''} logged</span>}
                     {arrivedToday.has(c.patient_id) && (
                       <span className="badge b-green" style={{ marginLeft: 6, fontSize: 10 }}><i className="ti ti-door-enter"></i> Arrived Today</span>
@@ -204,10 +204,10 @@ export default function SurgicalJourneyPage() {
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}>
               <i className="ti ti-list-numbers" style={{ color: 'var(--indigo)' }}></i> Active Cases
-              <span className="badge b-gray" style={{ marginLeft: 8 }}>{proceeding.length}</span>
+              <span className="badge b-gray" style={{ marginLeft: 8 }}>{cases.length}</span>
             </div>
             {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>}
-            {!loading && proceeding.map((c) => (
+            {!loading && cases.map((c) => (
               <div key={c.id} onClick={() => router.push(`/surgical-journey/${c.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
                 <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--indigo)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
                   {c.patients?.first_name?.charAt(0)}
@@ -225,7 +225,7 @@ export default function SurgicalJourneyPage() {
                 <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
               </div>
             ))}
-            {!loading && proceeding.length === 0 && (
+            {!loading && cases.length === 0 && (
               <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No active surgical cases right now.</div>
             )}
           </div>
