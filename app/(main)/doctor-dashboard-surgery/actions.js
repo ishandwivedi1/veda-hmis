@@ -23,7 +23,16 @@ import { createClient } from '@/lib/supabase-server';
 //     the single completion signal -- matches the fix already in place
 //     for Recovery/Surgical Journey (future-dated discharge_date bug).
 
-const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, patient_id, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
+// ot_intraop_records.ot_schedule_id is UNIQUE, so this embed is
+// always a single object (or null), never an array. Needed to tell
+// "has arrived" (patient_reported_at, stamped automatically the
+// moment a Surgery visit is created) apart from "has actually
+// completed check-in" (checkin_completed_at, stamped only once the
+// consent/checklist/IOL-verification workflow in Patient Check-In is
+// done) -- two genuinely different moments that were being
+// conflated, showing patients as "Checked In" when they'd only
+// walked in the door.
+const CASE_SELECT = '*, master_ot_sessions(name), ot_intraop_records(checkin_completed_at), surgical_cases(id, surgery_code, procedure_name, eye, patient_id, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
 
 // Every function below returns { rows, error } instead of a bare array
 // or throwing -- a thrown/rejected promise from a Server Action leaves
