@@ -6,9 +6,6 @@ import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect }
 import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
 import { getOpenPostOpEpisodeForPatient } from '@/app/(main)/ot-postop/actions';
 import { useRouter } from 'next/navigation';
-import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
-import { WorkspaceTab as MedicalFitnessWorkspace } from '@/app/(main)/medical-fitness/page';
-import { getMedicalFitnessToday } from '@/app/(main)/medical-fitness/actions';
 import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
 
 function elapsedMin(isoString) {
@@ -62,7 +59,7 @@ function TabButton({ active, onClick, icon, label, disabled }) {
   );
 }
 
-function DashboardTab({ active, intermediate, completed, optometryWaiting, biometryApprovals, medicalFitnessToday, visitTypeCounts, totalVisitsToday, error, onRunAction, onOpen, onOpenBiometry, onOpenMedicalFitness }) {
+function DashboardTab({ active, intermediate, completed, optometryWaiting, visitTypeCounts, totalVisitsToday, error, onRunAction, onOpen }) {
   const inConsultation = active.find((e) => e.status === 'In Consultation');
   const waitingCount = active.filter((e) => e.status === 'Waiting' || e.status === 'Ready for Review').length;
 
@@ -93,10 +90,21 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginBottom: 20 }}>
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title" style={{ color: 'var(--blue)' }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Doctor Queue<span className="badge b-gray">{active.length}</span></div>
+      {/* TODAY'S OPD VISITS -- Doctor Queue, Intermediate Queue and
+          Completed Today unified under one banner heading, matching
+          the "Today's Surgery Related Visits" treatment on the
+          Surgery Dashboard (banner header + divided column strip). */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+        <div style={{ padding: '16px 20px', background: 'var(--blue-lt)' }}>
+          <div className="card-title" style={{ marginBottom: 2 }}><i className="ti ti-stethoscope" style={{ color: 'var(--blue)' }}></i> Today's OPD Visits</div>
+          <div style={{ fontSize: 11, color: 'var(--g500)' }}>Doctor queue, intermediate holds, and completions for today.</div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div style={{ padding: '14px 16px', borderTop: '1px solid var(--g200)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <i className="ti ti-stethoscope" style={{ color: 'var(--blue)', fontSize: 15 }}></i>
+            <span style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--g700)' }}>Doctor Queue</span>
+            <span className="badge b-gray" style={{ marginLeft: 'auto' }}>{active.length}</span>
           </div>
           <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => onRunAction(doctorCallNext)} disabled={!!inConsultation}>
             <i className="ti ti-bell-ringing"></i> Call Next
@@ -148,9 +156,11 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
             buried further down, since it's just as time-sensitive
             (patients sent out for Dilation/Investigation/Biometry who
             need to be pulled back in). */}
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title" style={{ color: 'var(--purple)' }}><i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)' }}></i> Intermediate Queue<span className="badge b-gray">{intermediate.length}</span></div>
+        <div style={{ padding: '14px 16px', borderTop: '1px solid var(--g200)', borderLeft: '1px solid var(--g200)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <i className="ti ti-arrows-exchange" style={{ color: 'var(--purple)', fontSize: 15 }}></i>
+            <span style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--g700)' }}>Intermediate Queue</span>
+            <span className="badge b-gray" style={{ marginLeft: 'auto' }}>{intermediate.length}</span>
           </div>
           {intermediate.map((e) => (
             <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
@@ -174,9 +184,11 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
         {/* COMPLETED TODAY -- moved in alongside Doctor Queue and
             Intermediate Queue (was buried in the lower grid) so all
             three time-sensitive lists sit in one row, equally sized. */}
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title" style={{ color: 'var(--green)' }}><i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Completed Today<span className="badge b-green">{completed.length}</span></div>
+        <div style={{ padding: '14px 16px', borderTop: '1px solid var(--g200)', borderLeft: '1px solid var(--g200)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <i className="ti ti-circle-check" style={{ color: 'var(--green)', fontSize: 15 }}></i>
+            <span style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--g700)' }}>Completed Today</span>
+            <span className="badge b-green" style={{ marginLeft: 'auto' }}>{completed.length}</span>
           </div>
           {completed.slice(0, 8).map((e) => (
             <div
@@ -194,6 +206,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
             </div>
           ))}
           {completed.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing completed yet today.</div>}
+        </div>
         </div>
       </div>
 
@@ -244,42 +257,6 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, biome
             </div>
           ))}
           {optometryWaiting.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No one currently waiting in Optometry.</div>}
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title"><i className="ti ti-lens" style={{ color: 'var(--indigo)' }}></i> IOL Approvals<span className="badge b-gray">{biometryApprovals.length}</span></div>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Only a doctor can approve. Opens IOL Approval.</div>
-          {biometryApprovals.map((b) => (
-            <div key={b.caseId} onClick={() => onOpenBiometry()} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}>
-              <div>
-                {b.patient?.first_name} {b.patient?.last_name}
-                <span className="badge b-indigo" style={{ marginLeft: 6, fontSize: 10 }}>{b.eye}</span>
-                <div style={{ fontSize: 11, color: 'var(--g500)' }}>{b.patient?.uhid} -- {b.procedureName}</div>
-              </div>
-              <button className="btn btn-sm btn-primary"><i className="ti ti-lens"></i> Approve</button>
-            </div>
-          ))}
-          {biometryApprovals.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing awaiting approval.</div>}
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title"><i className="ti ti-heart-rate-monitor" style={{ color: 'var(--amber)' }}></i> Medical Fitness<span className="badge b-gray">{medicalFitnessToday.length}</span></div>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>Today's referrals only.</div>
-          {medicalFitnessToday.map((r) => (
-            <div key={r.id} onClick={() => onOpenMedicalFitness(r.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12, cursor: 'pointer' }}>
-              <div>
-                {r.visits?.patients?.first_name} {r.visits?.patients?.last_name}
-                <VisitTypeBadge type={r.visits?.visit_type} />
-                <div style={{ fontSize: 11, color: 'var(--g500)' }}>{r.visits?.patients?.uhid} -- {r.surgical_cases?.procedure_name}</div>
-              </div>
-              <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Review</button>
-            </div>
-          ))}
-          {medicalFitnessToday.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing pending today.</div>}
         </div>
       </div>
     </div>
@@ -333,13 +310,10 @@ export default function DoctorDashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [postOpEpisodeId, setPostOpEpisodeId] = useState(null);
-  const [medFitnessId, setMedFitnessId] = useState(null);
   const [active, setActive] = useState([]);
   const [intermediate, setIntermediate] = useState([]);
   const [completed, setCompleted] = useState([]);
   const [optometryWaiting, setOptometryWaiting] = useState([]);
-  const [biometryApprovals, setBiometryApprovals] = useState([]);
-  const [medicalFitnessToday, setMedicalFitnessToday] = useState([]);
   const [visitTypeCounts, setVisitTypeCounts] = useState({});
   const [totalVisitsToday, setTotalVisitsToday] = useState(0);
   const [history, setHistory] = useState([]);
@@ -347,19 +321,13 @@ export default function DoctorDashboardPage() {
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
-    const [result, biometryApprovals, medicalFitness] = await Promise.all([
-      getDoctorDashboardData(),
-      getPendingIolApprovals(),
-      getMedicalFitnessToday(),
-    ]);
+    const result = await getDoctorDashboardData();
     setActive(result.active);
     setIntermediate(result.intermediate);
     setCompleted(result.completed);
     setOptometryWaiting(result.optometryWaiting);
     setVisitTypeCounts(result.visitTypeCounts);
     setTotalVisitsToday(result.totalVisitsToday);
-    setBiometryApprovals(biometryApprovals);
-    setMedicalFitnessToday(medicalFitness);
   }, []);
 
   const refreshHistory = useCallback(async () => {
@@ -389,7 +357,6 @@ export default function DoctorDashboardPage() {
         return;
       }
       setPostOpEpisodeId(episodeId);
-      setMedFitnessId(null);
       setActiveTab('workspace');
       return;
     }
@@ -408,20 +375,9 @@ export default function DoctorDashboardPage() {
     }
   }
 
-  function openBiometry() {
-    router.push('/iol-approval');
-  }
-
-  function openMedicalFitness(id) {
-    setPostOpEpisodeId(null); setBiometryId(null);
-    setMedFitnessId(id);
-    setActiveTab('workspace');
-  }
-
   function handleBack() {
     refresh(); refreshHistory();
     setPostOpEpisodeId(null);
-    setMedFitnessId(null);
     setActiveTab('dashboard');
   }
 
@@ -431,7 +387,7 @@ export default function DoctorDashboardPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 4, background: 'var(--g100)', borderRadius: 8, padding: 4, maxWidth: 520, flex: 1 }}>
             <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon="ti-layout-dashboard" label="Dashboard" />
-            <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!postOpEpisodeId && !medFitnessId} />
+            <TabButton active={activeTab === 'workspace'} onClick={() => setActiveTab('workspace')} icon="ti-clipboard-text" label="Workspace" disabled={!postOpEpisodeId} />
             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
           </div>
           <button className="btn btn-sm" style={{ marginLeft: 16 }} onClick={() => router.push('/doctor-dashboard-surgery')}>
@@ -443,25 +399,15 @@ export default function DoctorDashboardPage() {
       {activeTab === 'dashboard' && (
         <DashboardTab
           active={active} intermediate={intermediate} completed={completed} optometryWaiting={optometryWaiting}
-          biometryApprovals={biometryApprovals} medicalFitnessToday={medicalFitnessToday}
           visitTypeCounts={visitTypeCounts} totalVisitsToday={totalVisitsToday}
           error={error} onRunAction={runAction} onOpen={openConsultation}
-          onOpenBiometry={openBiometry} onOpenMedicalFitness={openMedicalFitness}
         />
       )}
 
       {activeTab === 'workspace' && postOpEpisodeId && (
         <PostOpWorkspace episodeId={postOpEpisodeId} onBack={handleBack} onUpdate={() => {}} />
       )}
-      {activeTab === 'workspace' && medFitnessId && (
-        <div>
-          <button className="btn btn-sm" style={{ marginBottom: 12 }} onClick={handleBack}>
-            <i className="ti ti-arrow-left"></i> Dashboard
-          </button>
-          <MedicalFitnessWorkspace referralId={medFitnessId} onDone={handleBack} />
-        </div>
-      )}
-      {activeTab === 'workspace' && !postOpEpisodeId && !medFitnessId && (
+      {activeTab === 'workspace' && !postOpEpisodeId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select a patient from the Dashboard or History.</div>
       )}
 
