@@ -1,22 +1,6 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
-import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
-
-// Doctor Dashboard is OPD-only -- a patient here purely for biometry/
-// investigation or specifically for surgical assessment belongs on
-// the Surgeon Dashboard instead (see doctor-dashboard-surgery/actions.js
-// getSurgeryEvaluationQueue, the complementary filter). Department
-// stays 'Doctor' for both -- same token, same underlying queue_entries
-// row, same consultation window -- this is purely which dashboard
-// surfaces it, done as a post-fetch filter rather than a new queue
-// department so none of the dozen other places that already key off
-// department = 'Doctor' (investigation routing, patient timeline,
-// workflow monitor, etc.) need to change or even know this split
-// exists.
-function excludeSurgicalTrack(entries) {
-  return (entries || []).filter((e) => !SURGICAL_TRACK_VISIT_TYPES.includes(e.visits?.visit_type));
-}
 
 export async function getDoctorDashboardData() {
   const supabase = await createClient();
@@ -65,8 +49,7 @@ export async function getDoctorDashboardData() {
   });
 
   return {
-    active: excludeSurgicalTrack(active), intermediate: excludeSurgicalTrack(intermediate),
-    completed: excludeSurgicalTrack(completed), optometryWaiting: optometryWaiting || [],
+    active: active || [], intermediate: intermediate || [], completed: completed || [], optometryWaiting: optometryWaiting || [],
     visitTypeCounts, totalVisitsToday: todaysVisits?.length || 0,
   };
 }
@@ -82,7 +65,7 @@ export async function getDoctorHistory() {
     .order('completed_at', { ascending: false })
     .limit(200);
   if (error) return [];
-  return excludeSurgicalTrack(data).filter((e) => e.visits?.patients);
+  return (data || []).filter((e) => e.visits?.patients);
 }
 
 

@@ -1,7 +1,6 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
-import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
 
 // ── SURGERY DASHBOARD -- doctor-facing view of the surgical pipeline,
 // parallel to the OPD Doctor Dashboard but scoped entirely to
@@ -99,32 +98,5 @@ export async function getSurgeryDashboardHistory() {
     return { rows: (data || []).filter((e) => e.surgical_cases), error: null };
   } catch (e) {
     return { rows: [], error: e?.message || 'Unknown error loading surgery History.' };
-  }
-}
-
-// ── SURGERY EVALUATION QUEUE -- patients here purely for biometry/
-// investigation or specifically for a surgical assessment. These are
-// still ordinary department = 'Doctor' queue_entries (same token
-// series, same /consultation/[id] workspace, same investigation
-// send-out machinery) -- they're pulled out here by visit_type
-// (SURGICAL_TRACK_VISIT_TYPES) rather than living in a separate queue
-// department, which is exactly why Doctor Dashboard's own queries
-// exclude the same list: one filter, two complementary views, so
-// they can never both show (or both miss) the same patient. ──
-export async function getSurgeryEvaluationQueue() {
-  try {
-    const supabase = await createClient();
-    const today = new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase
-      .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(id, first_name, last_name, uhid, age, gender))')
-      .eq('department', 'Doctor')
-      .in('status', ['Waiting', 'Ready for Review', 'In Consultation'])
-      .gte('issued_at', today)
-      .order('issued_at', { ascending: true });
-    if (error) return { rows: [], error: error.message };
-    return { rows: (data || []).filter((e) => SURGICAL_TRACK_VISIT_TYPES.includes(e.visits?.visit_type)), error: null };
-  } catch (e) {
-    return { rows: [], error: e?.message || 'Unknown error loading Surgery Evaluation queue.' };
   }
 }

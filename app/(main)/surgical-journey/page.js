@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getMyActiveSurgicalCases, getAwaitingReturnCases, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, recordManualReminder } from './actions';
+import { getMyActiveSurgicalCases, getAwaitingReturnCases, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, recordManualReminder, getSurgicalTrackArrivalsToday } from './actions';
 
 const STAGE_LABEL = {
   'Pending Workup': 'Working Up',
@@ -117,6 +117,7 @@ export default function SurgicalJourneyPage() {
   const [activeTab, setActiveTab] = useState('active');
   const [cases, setCases] = useState([]);
   const [awaiting, setAwaiting] = useState([]);
+  const [arrivedToday, setArrivedToday] = useState(new Set());
   const [dischargedToday, setDischargedToday] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,9 +127,10 @@ export default function SurgicalJourneyPage() {
   const router = useRouter();
 
   const refresh = useCallback(async () => {
-    const [activeCases, awaitingCases] = await Promise.all([getMyActiveSurgicalCases(), getAwaitingReturnCases()]);
+    const [activeCases, awaitingCases, arrivals] = await Promise.all([getMyActiveSurgicalCases(), getAwaitingReturnCases(), getSurgicalTrackArrivalsToday()]);
     setCases(activeCases);
     setAwaiting(awaitingCases);
+    setArrivedToday(new Set(arrivals));
     setLoading(false);
   }, []);
   const refreshDischargedToday = useCallback(async () => {
@@ -143,6 +145,9 @@ export default function SurgicalJourneyPage() {
   useEffect(() => { refresh(); refreshDischargedToday(); refreshHistory(); }, [refresh, refreshDischargedToday, refreshHistory]);
 
   const proceeding = cases.filter((c) => c.decision !== 'Wants Time to Decide' && c.decision !== 'Declined');
+  // Whoever's physically here right now goes first -- that's who the
+  // surgeon actually needs to see, not just the longest-overdue call.
+  const awaitingSorted = [...awaiting].sort((a, b) => (arrivedToday.has(b.patient_id) ? 1 : 0) - (arrivedToday.has(a.patient_id) ? 1 : 0));
 
   return (
     <div>
@@ -169,7 +174,7 @@ export default function SurgicalJourneyPage() {
               <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
                 Advised surgery, said they'd come back another day. Worth a call if it's been a while.
               </div>
-              {awaiting.map((c) => (
+              {awaitingSorted.map((c) => (
                 <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
                   <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--amber)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
                     {c.patients?.first_name?.charAt(0)}
@@ -178,6 +183,9 @@ export default function SurgicalJourneyPage() {
                     <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
                     <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>
                     {c.reminder_count > 0 && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>{c.reminder_count} call{c.reminder_count > 1 ? 's' : ''} logged</span>}
+                    {arrivedToday.has(c.patient_id) && (
+                      <span className="badge b-green" style={{ marginLeft: 6, fontSize: 10 }}><i className="ti ti-door-enter"></i> Arrived Today</span>
+                    )}
                     <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                       {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye} -- {c.patients?.mobile}
                     </div>
@@ -207,6 +215,9 @@ export default function SurgicalJourneyPage() {
                 <div style={{ flex: 1 }}>
                   <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
                   <span className={`badge ${STAGE_BADGE[c.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{STAGE_LABEL[c.status] || c.status}</span>
+                  {arrivedToday.has(c.patient_id) && (
+                    <span className="badge b-green" style={{ marginLeft: 6, fontSize: 10 }}><i className="ti ti-door-enter"></i> Arrived Today</span>
+                  )}
                   <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                     {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye}{c.master_packages ? ` -- ${c.master_packages.name}` : ''}
                   </div>

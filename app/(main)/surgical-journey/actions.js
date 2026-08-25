@@ -5,6 +5,7 @@ import { adviseBiometry } from '@/app/(main)/consultation/actions';
 import { markForSurgery, setDecision } from '@/app/(main)/counselling/actions';
 import { getAdvanceBalance } from '@/app/(main)/payments/actions';
 import { addInvestigationToSurgicalCase } from '@/lib/surgicalCaseInvestigations';
+import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
 
 // This module deliberately does NOT reimplement package selection,
 // biometry skip/unskip, decision recording, ready-for-scheduling, or OT
@@ -260,6 +261,25 @@ export async function getAwaitingReturnCases() {
     .order('created_at', { ascending: true });
   if (error) return [];
   return data || [];
+}
+
+// Which patients (out of Active Cases / Awaiting Return) have actually
+// walked in today, specifically for this -- a Surgery Evaluation or
+// Investigation Only visit (create_walk_in_visit/check_in_appointment
+// only allow these when an open surgical case already exists, so
+// finding one here always means it's for the case shown, never
+// something unrelated). Returns patient_ids as a Set so the page can
+// do a plain lookup per row instead of a per-row query.
+export async function getSurgicalTrackArrivalsToday() {
+  const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const { data, error } = await supabase
+    .from('visits')
+    .select('patient_id, created_at')
+    .in('visit_type', SURGICAL_TRACK_VISIT_TYPES)
+    .gte('created_at', `${todayIst}T00:00:00`);
+  if (error) return [];
+  return [...new Set((data || []).map((v) => v.patient_id))];
 }
 
 // ── CASE DETAIL ─────────────────────────────────────────────────────
