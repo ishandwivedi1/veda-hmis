@@ -18,6 +18,60 @@ export async function getPatientById(patientId) {
   return data || null;
 }
 
+// Surfaces the patient's last visit automatically once selected on the
+// New Visit form, so front desk can bill correctly without having to
+// go look it up -- in particular, the OPD Case Sheet for a New
+// Consultation now prints a 15-day free follow-up window (see
+// buildOpdCaseSheetContext's isNewConsultation flag), so front desk
+// needs to see at a glance whether today's Follow-up falls inside that
+// window (no consultation charge) or outside it (charge applies).
+export async function getLastVisitInfo(patientId) {
+  if (!patientId) return null;
+  const supabase = await createClient();
+
+  const { data: lastVisit } = await supabase
+    .from('visits')
+    .select('visit_type, created_at')
+    .eq('patient_id', patientId)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!lastVisit) return { hasPriorVisit: false };
+
+  // The free follow-up window is always anchored to the most recent
+  // New Consultation, even if the last visit shown above was itself a
+  // Follow-up already inside that window (so a second Follow-up still
+  // reads correctly rather than resetting the clock).
+  const { data: lastConsultation } = await supabase
+    .from('visits')
+    .select('created_at')
+    .eq('patient_id', patientId)
+    .eq('visit_type', 'New Consultation')
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let freeFollowUpUntil = null;
+  let withinFreeWindow = false;
+  if (lastConsultation) {
+    const windowEnd = new Date(lastConsultation.created_at);
+    windowEnd.setDate(windowEnd.getDate() + 15);
+    freeFollowUpUntil = windowEnd.toISOString();
+    withinFreeWindow = new Date() <= windowEnd;
+  }
+
+  return {
+    hasPriorVisit: true,
+    lastVisitType: lastVisit.visit_type,
+    lastVisitDate: lastVisit.created_at,
+    freeFollowUpUntil,
+    withinFreeWindow,
+  };
+}
+
 export async function getDoctorOptionsForVisit() {
   const supabase = await createClient();
   const { data } = await supabase

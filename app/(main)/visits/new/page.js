@@ -3,8 +3,56 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { searchPatientsForBooking, getDoctors } from '@/app/(main)/appointments/actions';
-import { createWalkInVisit, getSurgeryTypeOptions, getPatientById } from '@/app/(main)/visits/actions';
+import { createWalkInVisit, getSurgeryTypeOptions, getPatientById, getLastVisitInfo } from '@/app/(main)/visits/actions';
 import VisitCreatedModal from '@/app/components/VisitCreatedModal';
+
+function fmtDate(iso) {
+  if (!iso) return '--';
+  return new Date(iso).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function daysAgo(iso) {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+}
+
+// Shown automatically the moment a patient is selected -- front desk
+// needs to see this without asking, so they can bill a Follow-up
+// correctly (free within 15 days of the last New Consultation, billed
+// after that window closes).
+function LastVisitPanel({ loading, info }) {
+  if (loading) {
+    return <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 8 }}><i className="ti ti-loader-2"></i> Checking last visit...</div>;
+  }
+  if (!info) return null;
+  if (!info.hasPriorVisit) {
+    return <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 8 }}><i className="ti ti-info-circle"></i> First visit -- no prior visits on record.</div>;
+  }
+
+  const ago = daysAgo(info.lastVisitDate);
+
+  return (
+    <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'var(--g50, #f7f8fa)', border: '1px solid var(--g200)', fontSize: 12 }}>
+      <div>
+        <i className="ti ti-history" style={{ color: 'var(--g500)' }}></i>{' '}
+        Last visit: <strong>{fmtDate(info.lastVisitDate)}</strong> ({info.lastVisitType}) -- {ago === 0 ? 'today' : `${ago} day${ago === 1 ? '' : 's'} ago`}
+      </div>
+      {info.freeFollowUpUntil && (
+        <div style={{ marginTop: 4 }}>
+          {info.withinFreeWindow ? (
+            <span className="badge b-green">
+              <i className="ti ti-circle-check"></i> Free follow-up until {fmtDate(info.freeFollowUpUntil)}
+            </span>
+          ) : (
+            <span className="badge b-amber">
+              <i className="ti ti-alert-circle"></i> Free follow-up window ended {fmtDate(info.freeFollowUpUntil)} -- bill consultation charge
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function NewVisitPage() {
   return (
@@ -25,6 +73,8 @@ function NewVisitForm() {
   const [searched, setSearched] = useState(false);
   const [prefillLoading, setPrefillLoading] = useState(!!prefillPatientId);
   const [prefillError, setPrefillError] = useState('');
+  const [lastVisitInfo, setLastVisitInfo] = useState(null);
+  const [lastVisitLoading, setLastVisitLoading] = useState(false);
 
   const [doctors, setDoctors] = useState([]);
   const [doctorId, setDoctorId] = useState('');
@@ -71,6 +121,19 @@ function NewVisitForm() {
     });
     return () => { cancelled = true; };
   }, [prefillPatientId]);
+
+  // Shows automatically the moment a patient is selected -- front desk
+  // shouldn't have to look this up separately to bill a Follow-up
+  // correctly.
+  useEffect(() => {
+    if (!selectedPatient?.id) { setLastVisitInfo(null); return; }
+    let cancelled = false;
+    setLastVisitLoading(true);
+    getLastVisitInfo(selectedPatient.id).then((info) => {
+      if (!cancelled) { setLastVisitInfo(info); setLastVisitLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [selectedPatient?.id]);
 
   async function handleSearch() {
     if (!searchQuery.trim()) return;
@@ -209,7 +272,9 @@ function NewVisitForm() {
                   Change
                 </button>
               </div>
-            ) : (
+            ) : null}
+            {selectedPatient && <LastVisitPanel loading={lastVisitLoading} info={lastVisitInfo} />}
+            {!prefillLoading && !selectedPatient && (
               <>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input
