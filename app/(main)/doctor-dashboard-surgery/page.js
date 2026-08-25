@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardHistory } from './actions';
 import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
 import { getPostOpTurnedUpToday } from '@/app/(main)/ot-postop/actions';
-import { getSurgicalCaseLists } from '@/app/(main)/surgical-journey/actions';
+import { getSurgicalCaseLists, getSurgicalTrackArrivalsToday } from '@/app/(main)/surgical-journey/actions';
 import { getMedicalFitnessQueue } from '@/app/(main)/medical-fitness/actions';
 
 function patientName(sc) {
@@ -36,21 +36,13 @@ function TabButton({ active, onClick, icon, label }) {
   );
 }
 
-function StatCard({ label, value, caption, color }) {
-  return (
-    <div className="card" style={{ borderTop: `3px solid ${color}` }}>
-      <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{value}</div>
-      <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>{caption}</div>
-    </div>
-  );
-}
-
 // A pure count tile -- no patient names, no per-row list. The whole
 // card is a single click-through straight into the relevant workflow
 // page (Check-In, Intraop, Recovery, Post-Op, etc.), same as tapping a
 // stat card. Replaces the earlier per-patient WidgetRow list: the
 // surgeon wants "how many, and take me there," not a name list here.
+// A zero count is dimmed -- nothing pending there shouldn't compete
+// visually with tiles that actually need attention.
 function WorkflowTile({ icon, iconColor, title, count, hint, onClick }) {
   return (
     <div
@@ -63,7 +55,7 @@ function WorkflowTile({ icon, iconColor, title, count, hint, onClick }) {
         {hint && <div style={{ fontSize: 11, color: 'var(--g500)' }}>{hint}</div>}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--g800)' }}>{count}</div>
+        <div style={{ fontSize: 26, fontWeight: 800, color: count > 0 ? 'var(--g800)' : 'var(--g300)' }}>{count}</div>
         <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
       </div>
     </div>
@@ -89,10 +81,80 @@ function DualCountTile({ icon, iconColor, title, hint, items, onClick }) {
       <div style={{ display: 'flex', gap: 24 }}>
         {items.map((it) => (
           <div key={it.label}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: it.color || 'var(--g800)' }}>{it.value}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: it.value > 0 ? (it.color || 'var(--g800)') : 'var(--g300)' }}>{it.value}</div>
             <div style={{ fontSize: 11, color: 'var(--g500)' }}>{it.label}</div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function initials(name) {
+  const parts = (name || '').trim().split(/\s+/);
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
+}
+
+const ARRIVAL_STAGE_COLOR = { 'In OT': 'var(--blue)', 'In Recovery': 'var(--purple)', 'Discharged': 'var(--green)' };
+
+// Normalizes the three different row shapes (ot_schedule "active" rows
+// for In OT/In Recovery, recovery_episodes "history" rows for
+// Discharged) into one common shape so they can render in a single
+// list, each linking straight to wherever that patient actually is
+// right now.
+function normalizeArrival(row, stageLabel) {
+  const sc = row.surgical_cases;
+  const p = sc?.patients;
+  const href = stageLabel === 'In OT' ? `/ot-intraop?otScheduleId=${row.id}` : `/ot-recovery?episodeId=${stageLabel === 'In Recovery' ? row.recoveryEpisodeId : row.id}`;
+  return {
+    key: `${stageLabel}-${row.id}`,
+    name: p ? `${p.first_name} ${p.last_name}` : 'Unknown',
+    uhid: p?.uhid, procedure: sc?.procedure_name, eye: sc?.eye,
+    stageLabel, href,
+  };
+}
+
+// ── TODAY'S ARRIVALS -- the direct answer to "who has actually walked
+// through the door today," across all three moments a surgical
+// patient shows up: coming in for evaluation/investigation/advance,
+// coming in for the surgery itself, and coming back for a post-op
+// review. Sits above the workflow tile grid (which shows WHERE each
+// case currently stands) since this answers a different question --
+// THAT they arrived -- and deliberately doesn't duplicate any of the
+// tile counts below: this is a same-day arrival view, the tiles are a
+// pipeline-stage view. ──
+function TodaysArrivals({ arrivedForSurgery, surgicalEvalCount, postOpTodayCount, onOpenSurgicalJourney, onOpenPostOp }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 2 }}>
+          <i className="ti ti-scalpel" style={{ color: 'var(--blue)' }}></i> Day of Surgery
+          <span className="badge" style={{ background: arrivedForSurgery.length > 0 ? 'var(--blue-lt)' : 'var(--g100)', color: arrivedForSurgery.length > 0 ? 'var(--blue)' : 'var(--g400)', marginLeft: 8 }}>{arrivedForSurgery.length}</span>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Checked in today for their OT slot -- in OT, in recovery, or already discharged.</div>
+        {arrivedForSurgery.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--g400)', padding: '10px 0' }}>No one has checked in for surgery yet today.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+            {arrivedForSurgery.map((a) => (
+              <a key={a.key} href={a.href} className="queue-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--r)', border: '1px solid var(--g200)', textDecoration: 'none', color: 'inherit' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, background: 'var(--g100)', color: 'var(--g600)' }}>
+                  {initials(a.name)}
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--g800)' }}>{a.name} <span style={{ fontWeight: 400, color: 'var(--g400)', fontSize: 11 }}>{a.uhid}</span></div>
+                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{a.procedure}{a.eye ? ` (${a.eye})` : ''}</div>
+                </div>
+                <span className="badge" style={{ background: `${ARRIVAL_STAGE_COLOR[a.stageLabel]}20`, color: ARRIVAL_STAGE_COLOR[a.stageLabel], fontWeight: 700, flexShrink: 0 }}>{a.stageLabel}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <WorkflowTile icon="ti-door-enter" iconColor="var(--cyan)" title="Surgical Evaluation" count={surgicalEvalCount} hint="Arrived today for evaluation, investigation, or advance." onClick={onOpenSurgicalJourney} />
+        <WorkflowTile icon="ti-stethoscope" iconColor="var(--teal)" title="Post-Op Review" count={postOpTodayCount} hint="Turned up today for post-op review." onClick={onOpenPostOp} />
       </div>
     </div>
   );
@@ -127,32 +189,47 @@ function CaseRow({ sc, dateLabel, dateValue, stage, onClick }) {
   );
 }
 
-// ── DASHBOARD -- OPD-style: a top row of stat cards for today's shape
-// of the surgical pipeline, then a row of count tiles, one per place a
-// surgical case actually needs a person to act on it. Deliberately no
-// patient names here -- each tile is just a count, and clicking it
-// takes the surgeon straight to that workflow page to pick a patient.
-function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenSurgicalJourney, onOpenMedicalFitness }) {
+// ── DASHBOARD -- Today's Arrivals up top (who's actually walked
+// through the door today, across all three surgical-patient
+// journeys), then the workflow tile grid below it (where every case
+// currently stands in the pipeline). Two different questions, kept in
+// two separate sections rather than one wall of numbers -- and no
+// count appears in both, so nothing is shown twice in two different
+// visual styles.
+function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, surgicalJourneyActive, awaitingReturnCases, medicalFitnessQueue, surgicalEvalArrivalsCount, error, onOpenScheduled, onOpenIntraop, onOpenRecovery, onOpenIol, onOpenPostOp, onOpenSurgicalJourney, onOpenMedicalFitness }) {
   const today = todayIst();
   const todayScheduled = useMemo(() => scheduled.filter((b) => b.scheduled_date === today), [scheduled, today]);
   const inOt = useMemo(() => active.filter((b) => b.stage === 'Checked-In / In OT'), [active]);
   const inRecovery = useMemo(() => active.filter((b) => b.stage === 'In Recovery'), [active]);
   const dischargedToday = useMemo(() => history.filter((e) => e.discharge_date === today), [history, today]);
 
+  // Same underlying rows as the tiles below, but scoped to TODAY's
+  // arrivals specifically -- someone still in recovery from
+  // yesterday still counts on the "Recovery & Discharge" pipeline
+  // tile, but isn't one of today's arrivals.
+  const arrivedForSurgery = useMemo(() => [
+    ...inOt.filter((b) => b.scheduled_date === today).map((b) => normalizeArrival(b, 'In OT')),
+    ...inRecovery.filter((b) => b.scheduled_date === today).map((b) => normalizeArrival(b, 'In Recovery')),
+    ...dischargedToday.map((b) => normalizeArrival(b, 'Discharged')),
+  ], [inOt, inRecovery, dischargedToday, today]);
+
   return (
     <div>
       {error && <div className="msg-err" style={{ marginBottom: 16 }}><i className="ti ti-alert-triangle"></i> {error}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
-        <StatCard label="Scheduled Today" value={todayScheduled.length} caption="Awaiting check-in" color="var(--amber)" />
-        <StatCard label="In OT" value={inOt.length} caption="Checked in, intraoperative" color="var(--blue)" />
-        <StatCard label="In Recovery" value={inRecovery.length} caption="Discharge pending" color="var(--purple)" />
-        <StatCard label="Discharged Today" value={dischargedToday.length} caption="Completed today" color="var(--green)" />
-      </div>
+      <TodaysArrivals
+        arrivedForSurgery={arrivedForSurgery}
+        surgicalEvalCount={surgicalEvalArrivalsCount}
+        postOpTodayCount={postOpToday.length}
+        onOpenSurgicalJourney={onOpenSurgicalJourney}
+        onOpenPostOp={onOpenPostOp}
+      />
 
-      {/* 7 tiles across 4 columns -- lands as two rows (4 + 3) instead of
-          spilling into an odd third row at 3 columns. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+      {/* 6 tiles across 3 columns -- clean two rows (3 + 3). Post-Op
+          isn't repeated here -- it's already in Today's Arrivals above
+          with the identical count; showing it twice was exactly the
+          duplicate-number problem this redesign set out to fix. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
         <DualCountTile
           icon="ti-route" iconColor="var(--indigo)" title="Surgical Workflow" hint="Advance paid vs. still awaiting confirmation."
           items={[
@@ -166,7 +243,6 @@ function DashboardTab({ scheduled, active, history, iolApprovals, postOpToday, s
         <WorkflowTile icon="ti-clipboard-check" iconColor="var(--amber)" title="Patient Check-In" count={todayScheduled.length} hint="Scheduled for today, not yet checked in." onClick={onOpenScheduled} />
         <WorkflowTile icon="ti-scalpel" iconColor="var(--blue)" title="Intraoperative Management" count={inOt.length} hint="Checked in and in OT right now." onClick={onOpenIntraop} />
         <WorkflowTile icon="ti-bed" iconColor="var(--purple)" title="Recovery & Discharge" count={inRecovery.length} hint="Surgery done, not yet discharged." onClick={onOpenRecovery} />
-        <WorkflowTile icon="ti-stethoscope" iconColor="var(--teal)" title="Post-Op" count={postOpToday.length} hint="Turned up today for post-op review." onClick={onOpenPostOp} />
       </div>
     </div>
   );
@@ -214,12 +290,13 @@ export default function DoctorSurgeryDashboardPage() {
   const [surgicalJourneyActive, setSurgicalJourneyActive] = useState([]);
   const [awaitingReturnCases, setAwaitingReturnCases] = useState([]);
   const [medicalFitnessQueue, setMedicalFitnessQueue] = useState([]);
+  const [surgicalEvalArrivalsCount, setSurgicalEvalArrivalsCount] = useState(0);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const [s, a, h, iol, postOp, surgicalCaseLists, medFitness] = await Promise.all([
+      const [s, a, h, iol, postOp, surgicalCaseLists, medFitness, surgicalEvalArrivals] = await Promise.all([
         getSurgeryDashboardScheduled(),
         getSurgeryDashboardActive(),
         getSurgeryDashboardHistory(),
@@ -227,6 +304,7 @@ export default function DoctorSurgeryDashboardPage() {
         getPostOpTurnedUpToday(),
         getSurgicalCaseLists(),
         getMedicalFitnessQueue(),
+        getSurgicalTrackArrivalsToday(),
       ]);
       const firstError = s.error || a.error || h.error;
       setScheduled(s.rows); setActive(a.rows); setHistory(h.rows);
@@ -235,6 +313,7 @@ export default function DoctorSurgeryDashboardPage() {
       setSurgicalJourneyActive(surgicalCaseLists.active || []);
       setAwaitingReturnCases(surgicalCaseLists.awaitingConfirmation || []);
       setMedicalFitnessQueue(medFitness || []);
+      setSurgicalEvalArrivalsCount((surgicalEvalArrivals || []).length);
       setError(firstError || '');
       setLoadingHistory(false);
       if (firstError) console.error('Surgery Dashboard load error:', firstError);
@@ -297,7 +376,7 @@ export default function DoctorSurgeryDashboardPage() {
     <div>
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--g800)' }}>Surgery Dashboard</div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 2 }}>Every surgical case, and exactly where it needs attention -- across Surgical Workflow, Medical Fitness, IOL Approval, Check-In, OT, Recovery, and Post-Op.</div>
+        <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 2 }}>Who's arrived today, and where every case currently stands.</div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -315,7 +394,7 @@ export default function DoctorSurgeryDashboardPage() {
           scheduled={scheduled} active={active} history={history}
           iolApprovals={iolApprovals} postOpToday={postOpToday}
           surgicalJourneyActive={surgicalJourneyActive} awaitingReturnCases={awaitingReturnCases}
-          medicalFitnessQueue={medicalFitnessQueue}
+          medicalFitnessQueue={medicalFitnessQueue} surgicalEvalArrivalsCount={surgicalEvalArrivalsCount}
           error={error}
           onOpenScheduled={openScheduled} onOpenIntraop={openIntraop} onOpenRecovery={openRecovery}
           onOpenIol={openIol} onOpenPostOp={openPostOp} onOpenSurgicalJourney={openSurgicalJourney}
