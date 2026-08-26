@@ -1151,6 +1151,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                             {sc.notes && (
                               <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3, marginLeft: 22 }}><i className="ti ti-notes"></i> {sc.notes}</div>
                             )}
+                            {sc.indicative_investigations && sc.indicative_investigations.length > 0 && (
+                              <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3, marginLeft: 22 }}>
+                                <i className="ti ti-flask"></i> Pre Op Requirement: {sc.indicative_investigations.map((inv) => `${inv.name} (${inv.eye})`).join(', ')}
+                              </div>
+                            )}
                             <div style={{ marginTop: 6, marginLeft: 22 }}>
                               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Patient's Decision</div>
                               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1174,58 +1179,61 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                                 ))}
                               </div>
                             </div>
-
-                            {/* ADDITIONAL PROCEDURES -- this surgical_cases
-                                row is still the whole surgery: one OT
-                                booking, one check-in, one consent. This
-                                just lists other procedures performed in
-                                the same sitting (e.g. Anti-VEGF Injection
-                                alongside Cataract) -- each gets its own
-                                package/price, picked later in Surgical
-                                Journey. */}
-                            <div style={{ marginTop: 10, marginLeft: 22 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Procedures in This Surgery</div>
-                              {data.caseProcedures.map((p) => (
-                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>
-                                  <i className="ti ti-point" style={{ color: 'var(--g400)' }}></i>
-                                  <span style={{ flex: 1 }}>
-                                    {p.procedure_name} -- {p.eye === 'OD' ? 'Right (OD)' : p.eye === 'OS' ? 'Left (OS)' : 'Both (OU)'}
-                                    {p.notes && <span style={{ color: 'var(--g400)' }}> ({p.notes})</span>}
-                                  </span>
-                                  {sc.status === 'Pending Workup' && (
-                                    <i className="ti ti-trash" style={{ cursor: 'pointer', color: 'var(--red)' }} onClick={() => handleRemoveCaseProcedure(p.id)}></i>
-                                  )}
-                                </div>
-                              ))}
-                              {sc.status === 'Pending Workup' && (
-                                !showAddProcedure ? (
-                                  <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginTop: 4 }} onClick={() => setShowAddProcedure(true)}>
-                                    <i className="ti ti-plus"></i> Add Procedure
-                                  </button>
-                                ) : (
-                                  <div style={{ marginTop: 6, padding: 8, background: 'var(--g50)', borderRadius: 6 }}>
-                                    <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                                      <select className="fi fi-sm" value={addProcName} onChange={(e) => setAddProcName(e.target.value)} style={{ flex: 2 }}>
-                                        <option value="">-- Select procedure --</option>
-                                        {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                      </select>
-                                      <select className="fi fi-sm" value={addProcEye} onChange={(e) => setAddProcEye(e.target.value)} style={{ width: 100 }}>
-                                        <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
-                                      </select>
-                                    </div>
-                                    <input className="fi fi-sm" placeholder="Notes (optional)" value={addProcNotes} onChange={(e) => setAddProcNotes(e.target.value)} style={{ marginBottom: 6 }} />
-                                    <div style={{ display: 'flex', gap: 6 }}>
-                                      <button className="btn btn-primary btn-sm" onClick={() => handleAddCaseProcedure(sc.id)} disabled={addProcLoading}>
-                                        {addProcLoading ? 'Adding...' : 'Add'}
-                                      </button>
-                                      <button className="btn btn-sm" onClick={() => { setShowAddProcedure(false); setAddProcName(''); setAddProcNotes(''); }}>Cancel</button>
-                                    </div>
-                                  </div>
-                                )
-                              )}
-                            </div>
                           </div>
                         )}
+
+                        {/* ADDITIONAL PROCEDURES -- deliberately OUTSIDE the
+                            edit/display ternary above so it stays visible
+                            even while the primary procedure is being
+                            edited, instead of disappearing until Save is
+                            clicked. This surgical_cases row is still the
+                            whole surgery: one OT booking, one check-in,
+                            one consent. This just lists other procedures
+                            performed in the same sitting (e.g. Anti-VEGF
+                            Injection alongside Cataract) -- each gets its
+                            own package/price, picked later in Surgical
+                            Journey. */}
+                        <div style={{ marginTop: 10, marginLeft: 22 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Additional Procedures in This Surgery</div>
+                          {data.caseProcedures.map((p) => (
+                            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>
+                              <i className="ti ti-point" style={{ color: 'var(--g400)' }}></i>
+                              <span style={{ flex: 1 }}>
+                                {p.procedure_name} -- {p.eye === 'OD' ? 'Right (OD)' : p.eye === 'OS' ? 'Left (OS)' : 'Both (OU)'}
+                                {p.notes && <span style={{ color: 'var(--g400)' }}> ({p.notes})</span>}
+                              </span>
+                              {sc.status === 'Pending Workup' && (
+                                <i className="ti ti-trash" style={{ cursor: 'pointer', color: 'var(--red)' }} onClick={() => handleRemoveCaseProcedure(p.id)}></i>
+                              )}
+                            </div>
+                          ))}
+                          {sc.status === 'Pending Workup' && (
+                            !showAddProcedure ? (
+                              <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginTop: 4 }} onClick={() => setShowAddProcedure(true)}>
+                                <i className="ti ti-plus"></i> Add Procedure
+                              </button>
+                            ) : (
+                              <div style={{ marginTop: 6, padding: 8, background: 'var(--g50)', borderRadius: 6 }}>
+                                <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                                  <select className="fi fi-sm" value={addProcName} onChange={(e) => setAddProcName(e.target.value)} style={{ flex: 2 }}>
+                                    <option value="">-- Select procedure --</option>
+                                    {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                  </select>
+                                  <select className="fi fi-sm" value={addProcEye} onChange={(e) => setAddProcEye(e.target.value)} style={{ width: 100 }}>
+                                    <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                                  </select>
+                                </div>
+                                <input className="fi fi-sm" placeholder="Notes (optional)" value={addProcNotes} onChange={(e) => setAddProcNotes(e.target.value)} style={{ marginBottom: 6 }} />
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button className="btn btn-primary btn-sm" onClick={() => handleAddCaseProcedure(sc.id)} disabled={addProcLoading}>
+                                    {addProcLoading ? 'Adding...' : 'Add'}
+                                  </button>
+                                  <button className="btn btn-sm" onClick={() => { setShowAddProcedure(false); setAddProcName(''); setAddProcNotes(''); }}>Cancel</button>
+                                </div>
+                              </div>
+                            )
+                          )}
+                        </div>
                       </div>
                     ))}
                     <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>One surgical case per visit -- already marked for this visit.</div>
