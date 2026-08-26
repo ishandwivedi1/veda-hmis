@@ -324,13 +324,30 @@ export async function getSurgicalEvaluationArrivalsToday() {
     .select('patient_id')
     .in('visit_type', SURGICAL_TRACK_VISIT_TYPES)
     .gte('created_at', `${todayIst}T00:00:00`);
-  if (error || !visits || visits.length === 0) return [];
+  if (error) return [];
 
-  const patientIds = [...new Set(visits.map((v) => v.patient_id))];
+  const patientIds = new Set((visits || []).map((v) => v.patient_id));
+
+  // Patients marked for surgery during a REGULAR OPD visit (New
+  // Consultation, Follow-up, etc.) whom the doctor flagged, at visit
+  // completion, as wanting same-day surgical evaluation -- otherwise
+  // they'd only ever show up on the Surgical Journey screen, never
+  // here, since their actual visit today isn't a surgical-track visit
+  // type at all. See markSameDaySurgicalEval.
+  const { data: sameDayCases } = await supabase
+    .from('surgical_cases')
+    .select('patient_id')
+    .eq('same_day_surgical_eval', true)
+    .gte('created_at', `${todayIst}T00:00:00`)
+    .not('status', 'in', '("Completed","Cancelled")');
+  (sameDayCases || []).forEach((c) => patientIds.add(c.patient_id));
+
+  if (patientIds.size === 0) return [];
+
   const { data: cases, error: casesError } = await supabase
     .from('surgical_cases')
     .select('id, patient_id, procedure_name, eye, patients:patient_id(first_name, last_name, uhid)')
-    .in('patient_id', patientIds)
+    .in('patient_id', [...patientIds])
     .not('status', 'in', '("Completed","Cancelled")');
   if (casesError) return [];
 

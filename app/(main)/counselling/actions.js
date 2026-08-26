@@ -61,6 +61,10 @@ import { createClient } from '@/lib/supabase-server';
 //        investigations/notes/decision from the start (added 2026-08,
 //        replaces calling markForSurgery twice, which let the two
 //        procedures' investigations drift out of sync).
+//   markSameDaySurgicalEval(encounterId, wantsEval) -- flags every
+//        surgical case on this encounter as wanting same-day surgical
+//        evaluation, so they show on the Surgeon Dashboard today even
+//        though the OPD visit itself isn't a surgical-track visit type.
 //   updateSurgicalCase(caseId, procedureName, eye, investigations, notes)
 //     -- imported by app/(main)/consultation/[id]/consultation-form.js
 //     -- investigations is [{name, eye}], the doctor's indicative pre-op
@@ -377,6 +381,27 @@ export async function markForSurgeryBatch(patientId, encounterId, procedures, in
   const { error } = await supabase.from('surgical_cases').insert(rows);
   if (error) return { error: error.message };
 
+  return { success: true };
+}
+
+// Asked at OPD visit completion, right after a surgery is advised --
+// some patients undergo surgical evaluation the SAME day, independent
+// of whether they've decided to go ahead. Without this flag they'd
+// only ever show up on the Surgical Journey screen today, since their
+// actual OPD visit_type (New Consultation, Follow-up, etc.) isn't one
+// of SURGICAL_TRACK_VISIT_TYPES -- that's normally what makes a
+// patient appear in the Surgeon Dashboard's Surgical Evaluation
+// section (see getSurgicalEvaluationArrivalsToday). Applies to every
+// surgical case created on this encounter, since a combined surgery
+// advises more than one procedure together and both should show up.
+export async function markSameDaySurgicalEval(encounterId, wantsEval) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('surgical_cases')
+    .update({ same_day_surgical_eval: !!wantsEval })
+    .eq('encounter_id', encounterId)
+    .neq('status', 'Cancelled');
+  if (error) return { error: error.message };
   return { success: true };
 }
 

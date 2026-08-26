@@ -34,7 +34,8 @@ import {
   carryForwardDiagnosis,
 } from '@/app/(main)/consultation/actions';
 import { openPopup } from '@/lib/popup';
-import { markForSurgery, markForSurgeryBatch, updateSurgicalCase, setDecision } from '@/app/(main)/counselling/actions';
+import { markForSurgery, markForSurgeryBatch, markSameDaySurgicalEval, updateSurgicalCase, setDecision } from '@/app/(main)/counselling/actions';
+import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
 import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import OptometryWorkspace from '@/app/(main)/optometry/[id]/optometry-workspace';
@@ -129,6 +130,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   // null | 'complete' | 'dilate' | 'investigate' | 'procedure' -- which
   // of the bottom action bar's confirmation modals is currently open.
   const [confirmAction, setConfirmAction] = useState(null);
+  // Asked inside the Complete Visit confirmation, only when this
+  // encounter just advised a surgery AND the visit itself isn't
+  // already a surgical-track visit type (Surgery Evaluation etc.) --
+  // those already show on the Surgeon Dashboard on their own. null
+  // means "not answered yet" (default is treated as No on complete).
+  const [sameDayEvalChoice, setSameDayEvalChoice] = useState(null);
   const [forceCloseReason, setForceCloseReason] = useState('');
   const [forceClosing, setForceClosing] = useState(false);
   const [showSurgery, setShowSurgery] = useState(false);
@@ -440,12 +447,21 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   function handleComplete() {
+    setSameDayEvalChoice(null);
     setConfirmAction('complete');
   }
 
   async function runComplete() {
     setError('');
     setLoading(true);
+    // Some patients undergo surgical evaluation the SAME day a surgery
+    // is advised, independent of whether they've decided yet -- flip
+    // this before completing so they show on the Surgeon Dashboard's
+    // Surgical Evaluation section today rather than only being
+    // reachable from the Surgical Journey screen.
+    if (needsSameDayEvalPrompt && sameDayEvalChoice !== null) {
+      await markSameDaySurgicalEval(data.encounter.id, sameDayEvalChoice);
+    }
     const result = await completeConsultation(data.encounter.id, queueEntryId);
     setLoading(false);
     if (result.error) { setConfirmAction(null); setError(result.error); return; }
@@ -604,6 +620,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   const patient = data.entry.visits.patients;
+  // Only prompted when this encounter actually advised a surgery AND
+  // the visit itself isn't already a surgical-track visit type
+  // (Surgery Evaluation, Investigation Only) -- those already surface
+  // on the Surgeon Dashboard on their own via visit_type, no flag
+  // needed.
+  const needsSameDayEvalPrompt = data.surgicalCases.length > 0 && !SURGICAL_TRACK_VISIT_TYPES.includes(data.entry.visits.visit_type);
   const activeWorkflows = data.workflowRequests.filter((w) => w.status === 'Requested');
   const openInvestigations = data.investigations.filter((i) => i.status !== 'Available' && i.status !== 'Cancelled');
   const pendingRx = data.prescriptions.filter((r) => r.status !== 'Dispensed');
@@ -1448,7 +1470,34 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
               loading={loading}
               onCancel={() => setConfirmAction(null)}
               onConfirm={runComplete}
-            />
+            >
+              {needsSameDayEvalPrompt && (
+                <div style={{ padding: '10px 12px', background: 'var(--g50)', border: '1px solid var(--indigo)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--g700)', marginBottom: 8 }}>
+                    <i className="ti ti-stethoscope" style={{ color: 'var(--indigo)' }}></i> Does the patient want to get evaluated for surgery today?
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 8 }}>
+                    Independent of their decision -- if yes, they'll show up in the Surgeon Dashboard's Surgical Evaluation section right away instead of only on Surgical Journey.
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button" className="btn btn-sm"
+                      style={{ background: sameDayEvalChoice === true ? 'var(--green)' : '', color: sameDayEvalChoice === true ? '#fff' : '', border: sameDayEvalChoice === true ? 'none' : undefined }}
+                      onClick={() => setSameDayEvalChoice(true)}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button" className="btn btn-sm"
+                      style={{ background: sameDayEvalChoice === false ? 'var(--g500)' : '', color: sameDayEvalChoice === false ? '#fff' : '', border: sameDayEvalChoice === false ? 'none' : undefined }}
+                      onClick={() => setSameDayEvalChoice(false)}
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              )}
+            </ConfirmActionModal>
           )}
           {confirmAction === 'dilate' && (
             <ConfirmActionModal

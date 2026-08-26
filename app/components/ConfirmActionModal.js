@@ -17,6 +17,7 @@ export default function ConfirmActionModal({
   onConfirm,
   onCancel,
   loading = false,
+  children,
 }) {
   return (
     <div onClick={loading ? undefined : onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -27,7 +28,8 @@ export default function ConfirmActionModal({
           </span>
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--g800)' }}>{title}</div>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--g600)', marginBottom: 18, lineHeight: 1.5 }}>{description}</div>
+        <div style={{ fontSize: 13, color: 'var(--g600)', marginBottom: children ? 12 : 18, lineHeight: 1.5 }}>{description}</div>
+        {children && <div style={{ marginBottom: 18 }}>{children}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-sm" onClick={onCancel} disabled={loading}>{cancelLabel}</button>
           <button type="button" className="btn btn-sm btn-primary" onClick={onConfirm} disabled={loading}>{loading ? workingLabel : confirmLabel}</button>
