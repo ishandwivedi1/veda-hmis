@@ -192,7 +192,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
-  const { booking, biometryPlans, intraop, consumables, events, complications, consentForms, hasActiveVisitToday } = data;
+  const { booking, biometryPlans, intraop, consumables, events, complications, consentForms, hasActiveVisitToday, caseProcedures } = data;
   const sc = booking.surgical_cases;
   const patient = sc.patients;
   const isCompleted = booking.status === 'Completed';
@@ -452,7 +452,9 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
         <div style={{ background: 'rgba(255,255,255,.15)', padding: '5px 12px', borderRadius: 8, fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{sc.surgery_code || booking.id.slice(0, 8)}</div>
         <div>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{patient.first_name} {patient.last_name}</div>
-          <div style={{ fontSize: 11, opacity: .8 }}>{patient.uhid} -- {sc.procedure_name} {sc.eye} -- {sc.profiles?.full_name} -- {booking.master_ot_sessions?.name}</div>
+          <div style={{ fontSize: 11, opacity: .8 }}>
+            {patient.uhid} -- {sc.procedure_name} {sc.eye}{caseProcedures?.length > 0 ? ` + ${caseProcedures.map((p) => `${p.procedure_name} ${p.eye}`).join(', ')}` : ''} -- {sc.profiles?.full_name} -- {booking.master_ot_sessions?.name}
+          </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{isCompleted ? 'Surgery Completed' : booking.status}</span>
@@ -573,6 +575,11 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 4 }}><i className="ti ti-scalpel"></i> Procedure</div>
               <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>{sc.procedure_name}</div>
               {sc.surgery_code && <div style={{ fontSize: 10.5, color: 'var(--g500)', marginTop: 2 }}>{sc.surgery_code}</div>}
+              {caseProcedures?.length > 0 && (
+                <div style={{ fontSize: 10.5, color: 'var(--indigo)', marginTop: 4 }}>
+                  <i className="ti ti-plus"></i> {caseProcedures.map((p) => `${p.procedure_name} (${p.eye})`).join(', ')}
+                </div>
+              )}
             </div>
             <div style={{ background: '#fff', border: '1px solid var(--g200)', borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid var(--blue)' }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 4 }}><i className="ti ti-eye"></i> Eye</div>

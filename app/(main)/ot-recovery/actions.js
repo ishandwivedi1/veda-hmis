@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase-server';
 import { DISCHARGE_ITEMS } from './constants';
 import { getDrugs, getDosageOptions } from '../master-data/actions';
+import { getCaseProcedures } from '@/app/(main)/counselling/actions';
 
 // Same Pharmacy drug list + dosage master used in the Doctor
 // (Consultation) module's prescription form -- so post-op medication
@@ -92,7 +93,7 @@ export async function getRecoveryEpisodeDetail(episodeId) {
 
   const sc = episode.surgical_cases;
 
-  const [{ data: intraop }, { data: approval }, { data: meds }, { data: followups }, { data: complications }] = await Promise.all([
+  const [{ data: intraop }, { data: approval }, { data: meds }, { data: followups }, { data: complications }, caseProcedures] = await Promise.all([
     supabase.from('ot_intraop_records').select('implant_power, implant_manufacturer, implant_model, surgical_outcome, outcome_remarks').eq('ot_schedule_id', episode.ot_schedule_id).maybeSingle(),
     // Planned IOL comes from the surgeon's IOL Approval now, matched by
     // surgical_case_id (a real FK, always available) -- not biometry,
@@ -102,11 +103,17 @@ export async function getRecoveryEpisodeDetail(episodeId) {
     supabase.from('recovery_medications').select('*').eq('recovery_episode_id', episodeId).order('added_at'),
     supabase.from('recovery_followups').select('*').eq('recovery_episode_id', episodeId).order('scheduled_date'),
     supabase.from('recovery_complications').select('*').eq('recovery_episode_id', episodeId).order('occurred_at'),
+    // Additional procedures within the same surgery (e.g. Anti-VEGF
+    // Injection alongside a Cataract case) -- shown alongside the
+    // primary procedure everywhere Recovery displays it, including the
+    // Discharge Summary printout.
+    getCaseProcedures(sc.id),
   ]);
 
   return {
     episode, sc, intraop: intraop || null, biometryPlans: approval ? [approval] : [],
     meds: meds || [], followups: followups || [], complications: complications || [],
+    caseProcedures,
   };
 }
 

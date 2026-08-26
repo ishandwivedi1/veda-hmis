@@ -43,6 +43,12 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [saving, setSaving] = useState(false);
   const [showDischargeConfirm, setShowDischargeConfirm] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // Set once discharge actually succeeds -- swaps the confirm modal
+  // into a success state with a Print Discharge Summary button, since
+  // this workspace usually closes itself right after (opened as a
+  // popup from Surgical Journey), which meant the person never got a
+  // chance to print before the window vanished.
+  const [dischargeComplete, setDischargeComplete] = useState(false);
 
   const [admissionDate, setAdmissionDate] = useState('');
   const [surgeryDate, setSurgeryDate] = useState('');
@@ -130,7 +136,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;
 
-  const { episode, sc, intraop, biometryPlans, meds, followups } = data;
+  const { episode, sc, intraop, biometryPlans, meds, followups, caseProcedures } = data;
   const patient = sc.patients;
   const isDischarged = !!episode.discharge_date;
   const isClosed = !!episode.closure_status;
@@ -262,7 +268,17 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     const result = await confirmDischarge(episodeId, checklist, dischargeNotes, instructions, dischargeDate, followupPlan);
     setConfirming(false);
     if (result.error) { setShowDischargeConfirm(false); setError(result.error); return; }
+    // Don't auto-close or navigate away yet -- give the person a chance
+    // to print the discharge summary right here first, since this
+    // workspace is usually opened as a popup and would otherwise close
+    // itself before they ever saw the print option.
+    setDischargeComplete(true);
+    refresh();
+  }
+
+  function finishAfterDischarge() {
     setShowDischargeConfirm(false);
+    setDischargeComplete(false);
     // Opened as a deep link from Surgical Journey (a real opener window
     // exists) -- signal completion back and close this tab. Same
     // close-on-complete pattern as IOL Approval, Medical Fitness,
@@ -272,9 +288,8 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
       window.close();
       return;
     }
-    setOk('Patient discharged. Discharge summary is ready to print. Follow-up schedule generated.');
+    setOk('Patient discharged. Follow-up schedule generated.');
     onUpdate();
-    refresh();
   }
 
   return (
@@ -285,7 +300,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name} -- {patient?.age} {patient?.gender}</div>
-          <div style={{ fontSize: 11, opacity: .8 }}>{patient?.uhid} -- {sc.procedure_name} {sc.eye} -- {sc.profiles?.full_name}</div>
+          <div style={{ fontSize: 11, opacity: .8 }}>
+            {patient?.uhid} -- {sc.procedure_name} {sc.eye}{caseProcedures?.length > 0 ? ` + ${caseProcedures.map((p) => `${p.procedure_name} ${p.eye}`).join(', ')}` : ''} -- {sc.profiles?.full_name}
+          </div>
         </div>
         <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{isClosed ? 'Episode Closed' : isDischarged ? 'Discharged' : 'Recovery'}</span>
         <button className="btn btn-sm" style={{ borderColor: 'rgba(255,255,255,.3)', background: 'rgba(255,255,255,.1)', color: '#fff' }} onClick={onBack}><i className="ti ti-arrow-left"></i> Dashboard</button>
@@ -324,6 +341,11 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
               <div><label className="flbl">Discharge date</label><input type="date" className="fi fi-sm" max={todayIst()} value={isDischarged ? episode.discharge_date : dischargeDate} onChange={(e) => setDischargeDate(e.target.value)} disabled={isDischarged || isClosed} /></div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}><span style={{ color: 'var(--g500)' }}>Procedure</span><strong>{sc.procedure_name}</strong></div>
+            {caseProcedures?.map((p) => (
+              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                <span style={{ color: 'var(--g500)' }}>Additional Procedure</span><strong>{p.procedure_name} ({p.eye})</strong>
+              </div>
+            ))}
             {biometryPlans.map((p) => (
               <div key={p.eye} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                 <span style={{ color: 'var(--g500)' }}>Implanted IOL ({p.eye})</span><strong style={{ color: 'var(--indigo)', fontFamily: 'monospace', fontSize: 11 }}>{intraop?.implant_power || p.power} D -- {p.master_iol_catalog?.category}</strong>
@@ -640,7 +662,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
         </div>
       )}
 
-      {showDischargeConfirm && (
+      {showDischargeConfirm && !dischargeComplete && (
         <ConfirmActionModal
           icon="ti-door-exit" iconColor="var(--green)" iconBg="var(--green-lt)"
           title="Discharge Patient?"
@@ -650,6 +672,25 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
           onCancel={() => setShowDischargeConfirm(false)}
           onConfirm={runDischarge}
         />
+      )}
+
+      {dischargeComplete && (
+        <ConfirmActionModal
+          icon="ti-circle-check" iconColor="var(--green)" iconBg="var(--green-lt)"
+          title="Patient Discharged"
+          description={`${patient?.first_name} ${patient?.last_name} has been discharged and the follow-up schedule has been generated.`}
+          confirmLabel="Close"
+          cancelLabel="Print Later"
+          onCancel={finishAfterDischarge}
+          onConfirm={finishAfterDischarge}
+        >
+          <button
+            type="button" className="btn btn-primary btn-sm" style={{ width: '100%' }}
+            onClick={() => openPrintPopup(`/discharge-summary-print/${episodeId}`)}
+          >
+            <i className="ti ti-printer"></i> Print Discharge Summary
+          </button>
+        </ConfirmActionModal>
       )}
     </div>
   );

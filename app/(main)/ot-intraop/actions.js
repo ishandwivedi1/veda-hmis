@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase-server';
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { ensureRecoveryEpisode } from '../ot-recovery/actions';
 import { getSurgicalConsumablesMaster } from '../master-data/actions';
+import { getCaseProcedures } from '@/app/(main)/counselling/actions';
 
 // Same Surgical Consumables Clinical Master used to seed both the
 // Patient Check-In dropdown and the Intraoperative Management
@@ -343,6 +344,11 @@ export async function getOTCaseDetail(otScheduleId) {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const activeVisitToday = await hasActiveVisitToday(supabase, sc?.patient_id, todayIst);
 
+  // Additional procedures within the same surgery (e.g. Anti-VEGF
+  // Injection alongside a Cataract case) -- shown alongside the
+  // primary procedure at Check-In and in Intraoperative Management.
+  const caseProcedures = sc?.id ? await getCaseProcedures(sc.id) : [];
+
   return {
     booking, biometryPlans: approval ? [approval] : [],
     intraop: intraop || null,
@@ -351,6 +357,7 @@ export async function getOTCaseDetail(otScheduleId) {
     complications: (events || []).filter((e) => e.kind === 'Complication'),
     consentForms,
     hasActiveVisitToday: activeVisitToday,
+    caseProcedures,
   };
 }
 
