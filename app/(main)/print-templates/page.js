@@ -47,8 +47,6 @@ PLACEHOLDER_REFERENCE.opd_case_sheet = [
   '{{#if hasExamFindingsWith}}...{{/if}}', 'examFindingsWith (loop: structure, eye, finding -- abnormal only)',
   '{{#if hasExamExtra}}...{{/if}}', 'examExtra (loop: label, value -- CDR, gonioscopy, disc appearance per stage, remarks)',
   '{{#if hasDiagnoses}}...{{/if}}', 'diagnoses (loop: name, eye, notes)',
-  '{{#if hasSurgery}}...{{/if}}', 'surgery_procedure_name', 'surgery_eye',
-  '{{#if isCombinedSurgery}}...{{/if}}', 'combinedSurgeryProcedures (loop: name, eye -- combined surgery, e.g. Cataract with Anti-VEGF Injection)',
   '{{#if hasPrescriptions}}...{{/if}}', 'prescriptions (loop: drug, eye, dosage, frequency, duration)',
   '{{#if advice}}...{{/if}}', '{{#if followup_text}}...{{/if}}',
   '{{#if isNewConsultation}}...{{/if}} (15-day validity / free follow-up note -- New Consultation only)', 'consultation_valid_until',

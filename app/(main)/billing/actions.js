@@ -554,34 +554,14 @@ export async function getDischargedUnbilledSurgeries() {
   if (error) return [];
   return (data || []).filter((r) => r.surgical_cases);
 }
-// Shapes one surgical_cases row (with its package/patient joins already
-// selected) into a billing line item -- shared by the primary case and
-// any combined-surgery siblings below.
-function shapePackageBillingItem(sc, breakupItems) {
-  return {
-    caseId: sc.id, name: sc.master_packages.name, matched: true,
-    serviceCode: sc.master_packages.code, rate: sc.master_packages.price, gstPct: 0,
-    breakup: breakupItems || [],
-    surgeryName: sc.procedure_name, surgeryEye: sc.eye, surgeonId: sc.surgeon_id, surgeonName: sc.profiles?.full_name || null,
-    discount: Number(sc.package_discount || 0),
-    patient: sc.patients || null,
-    visitId: sc.visit_id || null,
-  };
-}
-
-// Combined surgeries (e.g. Cataract with Anti-VEGF Injection) keep
-// separate packages/prices per procedure, but bill together on ONE
-// invoice -- this returns every not-yet-billed package in the combo as
-// its own line item, not just the case that was clicked through from
-// the Front Office widget.
 export async function getPackageForBilling(caseId) {
   const supabase = await createClient();
   const { data: sc } = await supabase
     .from('surgical_cases')
-    .select('id, package_id, package_discount, visit_id, procedure_name, eye, surgeon_id, combo_group_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price), patients:patient_id(id, first_name, last_name, uhid, mobile)')
+    .select('package_id, package_discount, visit_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price), patients:patient_id(id, first_name, last_name, uhid, mobile)')
     .eq('id', caseId)
     .maybeSingle();
-  if (!sc?.master_packages) return { items: [] };
+  if (!sc?.master_packages) return { item: null };
 
   const { data: breakupItems } = await supabase
     .from('package_line_items')
@@ -589,29 +569,17 @@ export async function getPackageForBilling(caseId) {
     .eq('package_id', sc.package_id)
     .order('sort_order');
 
-  const items = [shapePackageBillingItem(sc, breakupItems)];
-
-  if (sc.combo_group_id) {
-    const { data: siblings } = await supabase
-      .from('surgical_cases')
-      .select('id, package_id, package_discount, visit_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price), patients:patient_id(id, first_name, last_name, uhid, mobile)')
-      .eq('combo_group_id', sc.combo_group_id)
-      .eq('package_billed', false)
-      .not('package_id', 'is', null)
-      .neq('id', caseId);
-
-    for (const sib of siblings || []) {
-      if (!sib.master_packages) continue;
-      const { data: sibBreakup } = await supabase
-        .from('package_line_items')
-        .select('description, amount')
-        .eq('package_id', sib.package_id)
-        .order('sort_order');
-      items.push(shapePackageBillingItem(sib, sibBreakup));
-    }
-  }
-
-  return { items };
+  return {
+    item: {
+      caseId, name: sc.master_packages.name, matched: true,
+      serviceCode: sc.master_packages.code, rate: sc.master_packages.price, gstPct: 0,
+      breakup: breakupItems || [],
+      surgeryName: sc.procedure_name, surgeryEye: sc.eye, surgeonId: sc.surgeon_id, surgeonName: sc.profiles?.full_name || null,
+      discount: Number(sc.package_discount || 0),
+      patient: sc.patients || null,
+      visitId: sc.visit_id || null,
+    },
+  };
 }
 
 // Called once the invoice carrying this package is actually saved --

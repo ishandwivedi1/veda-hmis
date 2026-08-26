@@ -34,7 +34,7 @@ import {
   carryForwardDiagnosis,
 } from '@/app/(main)/consultation/actions';
 import { openPopup } from '@/lib/popup';
-import { markForSurgery, markForSurgeryBatch, markSameDaySurgicalEval, updateSurgicalCase, setDecision } from '@/app/(main)/counselling/actions';
+import { markForSurgery, markSameDaySurgicalEval, updateSurgicalCase, setDecision } from '@/app/(main)/counselling/actions';
 import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
 import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
@@ -139,23 +139,8 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [forceCloseReason, setForceCloseReason] = useState('');
   const [forceClosing, setForceClosing] = useState(false);
   const [showSurgery, setShowSurgery] = useState(false);
-  // When set, the surgery form below is adding a COMBINED procedure to
-  // an ALREADY-SAVED case (e.g. doctor forgot Anti-VEGF Injection when
-  // first advising Cataract surgery and comes back to add it) -- the
-  // normal path is additionalProcedures below, added before the first
-  // save so investigations/decision are genuinely defined once. See
-  // startCombineProcedure/handleMarkForSurgery.
-  const [combineWithCaseId, setCombineWithCaseId] = useState(null);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
-  // Combined surgery -- other procedures being advised TOGETHER with
-  // surgeryProcedure above, in the same sitting (e.g. Cataract with
-  // Anti-VEGF Injection), added here BEFORE Pre Op Requirement/Decision
-  // below so investigations and the patient's decision are defined
-  // once, covering every procedure -- not re-entered per procedure.
-  const [additionalProcedures, setAdditionalProcedures] = useState([]);
-  const [addProcName, setAddProcName] = useState('');
-  const [addProcEye, setAddProcEye] = useState('OU');
   // Pre Op Requirement -- doctor picks the actual pre-op investigations
   // this surgery needs (e.g. Biometry, or none) from the same
   // Investigations master used in Section 1. These are indicative only
@@ -392,10 +377,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   function handleSendForProcedure() {
-    if (showSurgery) {
-      window.alert('The surgery advice form is still open below with unsaved changes. Save or Cancel it first.');
-      return;
-    }
     setConfirmAction('procedure');
   }
 
@@ -451,10 +432,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   function handleComplete() {
-    if (showSurgery) {
-      window.alert('The surgery advice form is still open below with unsaved changes. Save or Cancel it first, then complete the visit.');
-      return;
-    }
     setSameDayEvalChoice(null);
     setConfirmAction('complete');
   }
@@ -507,67 +484,21 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setEditSurgeryInvestigations((list) => list.filter((_, i) => i !== idx));
   }
 
-  function addAdditionalProcedure() {
-    if (!addProcName.trim()) return;
-    setAdditionalProcedures((list) => [...list, { name: addProcName.trim(), eye: addProcEye }]);
-    setAddProcName('');
-  }
-  function removeAdditionalProcedure(idx) {
-    setAdditionalProcedures((list) => list.filter((_, i) => i !== idx));
-  }
-
   async function handleMarkForSurgery() {
     setError('');
     if (!surgeryProcedure) { setError('Select a surgery.'); return; }
+    if (!surgeryDecision) { setError("Select the patient's decision -- right now."); return; }
     setSurgeryLoading(true);
-
-    let result;
-    if (combineWithCaseId) {
-      // Adding a combined procedure to an already-saved case -- decision
-      // and investigations are inherited from that case server-side, not
-      // re-entered here (see markForSurgery's linkedCaseId handling).
-      result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, [], surgeryNotes, null, combineWithCaseId);
-    } else {
-      if (!surgeryDecision) { setError("Select the patient's decision -- right now."); setSurgeryLoading(false); return; }
-      // Every procedure named here (the primary one plus anything added
-      // via "Add Combined Procedure" below) is created together, sharing
-      // ONE investigation set and ONE decision -- defined once, covering
-      // the whole combined surgery, not re-entered per procedure.
-      const procedures = [{ name: surgeryProcedure, eye: surgeryEye }, ...additionalProcedures];
-      result = await markForSurgeryBatch(data.entry.visits.patients.id, data.encounter.id, procedures, surgeryInvestigations, surgeryNotes, surgeryDecision);
-    }
-
+    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
-    setCombineWithCaseId(null);
     setSurgeryProcedure('');
-    setAdditionalProcedures([]);
-    setAddProcName('');
     setSurgeryInvestigations([]);
     setSurgeryInvName('');
     setSurgeryNotes('');
     setSurgeryDecision('');
     refresh();
-  }
-
-  // Opens the same surgery form, but tagged to link the new procedure
-  // to an existing already-saved case -- the fallback for when a
-  // combined procedure wasn't added during the original advice (the
-  // primary path for that is additionalProcedures above, added before
-  // the first save). Investigations and decision aren't asked here --
-  // they're inherited from the linked case so both stay identical.
-  function startCombineProcedure(caseId) {
-    setError('');
-    setCombineWithCaseId(caseId);
-    setSurgeryProcedure('');
-    setSurgeryEye('OU');
-    setAdditionalProcedures([]);
-    setSurgeryInvestigations([]);
-    setSurgeryInvName('');
-    setSurgeryNotes('');
-    setSurgeryDecision('');
-    setShowSurgery(true);
   }
 
   function startEditSurgicalCase(sc) {
@@ -592,10 +523,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   function handleSendOut(kind) {
-    if (showSurgery) {
-      window.alert('The surgery advice form is still open below with unsaved changes. Save or Cancel it first.');
-      return;
-    }
     setConfirmAction(kind === 'dilate' ? 'dilate' : 'investigate');
   }
 
@@ -1124,141 +1051,110 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
               <div className="card" style={{ marginBottom: 20 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery</div>
 
-                {data.surgicalCases.length > 0 && (
+                {data.surgicalCases.length > 0 ? (
                   <div>
-                    {data.surgicalCases.map((sc) => {
-                      // Sibling procedures sharing this case's combo_group_id
-                      // (e.g. this card is Cataract, sibling is Anti-VEGF
-                      // Injection) -- computed client-side since every
-                      // surgical case for this visit is already loaded.
-                      const comboSiblings = sc.combo_group_id
-                        ? data.surgicalCases.filter((other) => other.id !== sc.id && other.combo_group_id === sc.combo_group_id)
-                        : [];
-                      return (
-                        <div key={sc.id}>
-                          {editingSurgicalCaseId === sc.id ? (
-                            <div style={{ padding: '8px 0' }}>
-                              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                                <select className="fi" value={editSurgeryProcedure} onChange={(e) => setEditSurgeryProcedure(e.target.value)} style={{ flex: 2 }}>
-                                  <option value="">-- Select surgery --</option>
-                                  {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                </select>
-                                <select className="fi" value={editSurgeryEye} onChange={(e) => setEditSurgeryEye(e.target.value)} style={{ width: 110 }}>
-                                  <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
-                                </select>
-                              </div>
-                              <div style={{ marginBottom: 8 }}>
-                                <label className="flbl">Pre Op Requirement</label>
-                                <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
-                                  Indicative pre-op investigations for this surgery -- shown as one-click suggestions in Surgical Journey&apos;s own Investigations step; the actual order is placed from there, not here.
-                                </div>
-                                {editSurgeryInvestigations.length > 0 && (
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
-                                    {editSurgeryInvestigations.map((inv, idx) => (
-                                      <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
-                                        {inv.name} ({inv.eye})
-                                        <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeEditSurgeryInvestigation(idx)}></i>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                  <select className="fi fi-sm" value={editSurgeryInvName} onChange={(e) => setEditSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
-                                    <option value="">-- Pick an investigation --</option>
-                                    {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                  </select>
-                                  <select className="fi fi-sm" value={editSurgeryInvEye} onChange={(e) => setEditSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
-                                    <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
-                                  </select>
-                                  <button type="button" className="btn btn-sm" onClick={addEditSurgeryInvestigation}><i className="ti ti-plus"></i></button>
-                                </div>
-                              </div>
-                              <div style={{ marginBottom: 8 }}>
-                                <label className="flbl">Notes</label>
-                                <input className="fi" placeholder="Any notes for this surgery recommendation..." value={editSurgeryNotes} onChange={(e) => setEditSurgeryNotes(e.target.value)} />
-                              </div>
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                <button className="btn btn-primary btn-sm" onClick={handleUpdateSurgicalCase} disabled={surgeryLoading}>
-                                  {surgeryLoading ? 'Saving...' : 'Save'}
-                                </button>
-                                <button className="btn btn-sm" onClick={() => setEditingSurgicalCaseId(null)}>Cancel</button>
-                              </div>
+                    {data.surgicalCases.map((sc) => (
+                      <div key={sc.id}>
+                        {editingSurgicalCaseId === sc.id ? (
+                          <div style={{ padding: '8px 0' }}>
+                            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                              <select className="fi" value={editSurgeryProcedure} onChange={(e) => setEditSurgeryProcedure(e.target.value)} style={{ flex: 2 }}>
+                                <option value="">-- Select surgery --</option>
+                                {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                              </select>
+                              <select className="fi" value={editSurgeryEye} onChange={(e) => setEditSurgeryEye(e.target.value)} style={{ width: 110 }}>
+                                <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
+                              </select>
                             </div>
-                          ) : (
-                            <div style={{ padding: '6px 0' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                                <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
-                                <span style={{ flex: 1 }}>
-                                  <strong>{sc.procedure_name}</strong> -- {sc.eye === 'OD' ? 'Right (OD)' : sc.eye === 'OS' ? 'Left (OS)' : sc.eye === 'OU' ? 'Both (OU)' : sc.eye}
-                                </span>
-                                <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
-                                {sc.status === 'Pending Workup' && (
-                                  <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => startEditSurgicalCase(sc)}>
-                                    <i className="ti ti-edit"></i> Edit
-                                  </button>
-                                )}
+                            <div style={{ marginBottom: 8 }}>
+                              <label className="flbl">Pre Op Requirement</label>
+                              <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
+                                Indicative pre-op investigations for this surgery -- shown as one-click suggestions in Surgical Journey&apos;s own Investigations step; the actual order is placed from there, not here.
                               </div>
-                              {comboSiblings.length > 0 && (
-                                <div style={{ fontSize: 11.5, color: 'var(--indigo)', marginTop: 3, marginLeft: 22 }}>
-                                  <i className="ti ti-stack-2"></i> Combined surgery -- performed together with {comboSiblings.map((s) => `${s.procedure_name} (${s.eye})`).join(', ')}
-                                </div>
-                              )}
-                              {sc.notes && (
-                                <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3, marginLeft: 22 }}><i className="ti ti-notes"></i> {sc.notes}</div>
-                              )}
-                              <div style={{ marginTop: 6, marginLeft: 22 }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Patient's Decision</div>
-                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                  {[
-                                    { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
-                                    { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
-                                    { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
-                                  ].map((d) => (
-                                    <button
-                                      key={d.v} type="button" className="btn" style={{ padding: '3px 9px', fontSize: 11, background: sc.decision === d.v ? d.color : '', color: sc.decision === d.v ? '#fff' : '', border: sc.decision === d.v ? 'none' : undefined }}
-                                      onClick={async () => {
-                                        const reason = sc.decision_locked && sc.decision !== d.v ? window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it:`) : null;
-                                        if (sc.decision_locked && sc.decision !== d.v && !reason) return;
-                                        const result = await setDecision(sc.id, d.v, reason);
-                                        if (result.error) { setError(result.error); return; }
-                                        refresh();
-                                      }}
-                                    >
-                                      {d.label}
-                                    </button>
+                              {editSurgeryInvestigations.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                                  {editSurgeryInvestigations.map((inv, idx) => (
+                                    <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
+                                      {inv.name} ({inv.eye})
+                                      <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeEditSurgeryInvestigation(idx)}></i>
+                                    </span>
                                   ))}
                                 </div>
+                              )}
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <select className="fi fi-sm" value={editSurgeryInvName} onChange={(e) => setEditSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
+                                  <option value="">-- Pick an investigation --</option>
+                                  {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                </select>
+                                <select className="fi fi-sm" value={editSurgeryInvEye} onChange={(e) => setEditSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
+                                  <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                                </select>
+                                <button type="button" className="btn btn-sm" onClick={addEditSurgeryInvestigation}><i className="ti ti-plus"></i></button>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            <div style={{ marginBottom: 8 }}>
+                              <label className="flbl">Notes</label>
+                              <input className="fi" placeholder="Any notes for this surgery recommendation..." value={editSurgeryNotes} onChange={(e) => setEditSurgeryNotes(e.target.value)} />
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button className="btn btn-primary btn-sm" onClick={handleUpdateSurgicalCase} disabled={surgeryLoading}>
+                                {surgeryLoading ? 'Saving...' : 'Save'}
+                              </button>
+                              <button className="btn btn-sm" onClick={() => setEditingSurgicalCaseId(null)}>Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ padding: '6px 0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                              <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i>
+                              <span style={{ flex: 1 }}>
+                                <strong>{sc.procedure_name}</strong> -- {sc.eye === 'OD' ? 'Right (OD)' : sc.eye === 'OS' ? 'Left (OS)' : sc.eye === 'OU' ? 'Both (OU)' : sc.eye}
+                              </span>
+                              <span className="badge b-blue" style={{ fontSize: 10 }}>{sc.status}</span>
+                              {sc.status === 'Pending Workup' && (
+                                <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => startEditSurgicalCase(sc)}>
+                                  <i className="ti ti-edit"></i> Edit
+                                </button>
+                              )}
+                            </div>
+                            {sc.notes && (
+                              <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 3, marginLeft: 22 }}><i className="ti ti-notes"></i> {sc.notes}</div>
+                            )}
+                            <div style={{ marginTop: 6, marginLeft: 22 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Patient's Decision</div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                {[
+                                  { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
+                                  { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
+                                  { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
+                                ].map((d) => (
+                                  <button
+                                    key={d.v} type="button" className="btn" style={{ padding: '3px 9px', fontSize: 11, background: sc.decision === d.v ? d.color : '', color: sc.decision === d.v ? '#fff' : '', border: sc.decision === d.v ? 'none' : undefined }}
+                                    onClick={async () => {
+                                      const reason = sc.decision_locked && sc.decision !== d.v ? window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it:`) : null;
+                                      if (sc.decision_locked && sc.decision !== d.v && !reason) return;
+                                      const result = await setDecision(sc.id, d.v, reason);
+                                      if (result.error) { setError(result.error); return; }
+                                      refresh();
+                                    }}
+                                  >
+                                    {d.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>One surgical case per visit -- already marked for this visit.</div>
                   </div>
-                )}
-
-                {!showSurgery ? (
-                  <div style={{ marginTop: data.surgicalCases.length > 0 ? 10 : 0 }}>
-                    {data.surgicalCases.length === 0 ? (
-                      <button className="btn" onClick={() => setShowSurgery(true)}>
-                        <i className="ti ti-scalpel"></i> Mark for IPD Procedure
-                      </button>
-                    ) : data.surgicalCases.some((sc) => sc.status === 'Pending Workup') ? (
-                      <button className="btn" onClick={() => startCombineProcedure(data.surgicalCases.find((sc) => sc.status === 'Pending Workup').id)}>
-                        <i className="ti ti-stack-2"></i> Add Combined Procedure
-                      </button>
-                    ) : (
-                      <div style={{ fontSize: 11, color: 'var(--g400)' }}>Already marked for this visit.</div>
-                    )}
-                  </div>
+                ) : !showSurgery ? (
+                  <button className="btn" onClick={() => setShowSurgery(true)}>
+                    <i className="ti ti-scalpel"></i> Mark for IPD Procedure
+                  </button>
                 ) : (
                   <div>
-                    {combineWithCaseId && (
-                      <div style={{ fontSize: 11.5, color: 'var(--indigo)', marginBottom: 10, padding: '7px 10px', background: 'var(--g50)', borderRadius: 6, border: '1px solid var(--indigo)' }}>
-                        <i className="ti ti-stack-2"></i> Adding a combined procedure -- performed together with{' '}
-                        <strong>{data.surgicalCases.find((sc) => sc.id === combineWithCaseId)?.procedure_name}</strong> in the same OT sitting, billed as a separate package.
-                      </div>
-                    )}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                       <select className="fi" value={surgeryProcedure} onChange={(e) => setSurgeryProcedure(e.target.value)} style={{ flex: 2 }}>
                         <option value="">-- Select surgery --</option>
@@ -1268,102 +1164,62 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
                       </select>
                     </div>
-
-                    {!combineWithCaseId && (
-                      <div style={{ marginBottom: 8 }}>
-                        <label className="flbl">Combined Procedures (optional)</label>
-                        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
-                          If another procedure is being performed together with this one in the same sitting (e.g. Cataract with Anti-VEGF Injection), add it here -- investigations and the patient's decision below cover every procedure listed, defined once.
-                        </div>
-                        {additionalProcedures.length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
-                            {additionalProcedures.map((p, idx) => (
-                              <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--indigo)', border: '1px solid var(--indigo)' }}>
-                                <i className="ti ti-stack-2"></i> {p.name} ({p.eye})
-                                <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeAdditionalProcedure(idx)}></i>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <select className="fi fi-sm" value={addProcName} onChange={(e) => setAddProcName(e.target.value)} style={{ flex: 2 }}>
-                            <option value="">-- Add combined procedure --</option>
-                            {surgeryOptions.filter((s) => s.name !== surgeryProcedure).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                          </select>
-                          <select className="fi fi-sm" value={addProcEye} onChange={(e) => setAddProcEye(e.target.value)} style={{ width: 110 }}>
-                            <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
-                          </select>
-                          <button type="button" className="btn btn-sm" onClick={addAdditionalProcedure}><i className="ti ti-plus"></i></button>
-                        </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label className="flbl">Pre Op Requirement</label>
+                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
+                        Only IOL/lens surgeries (e.g. cataract) genuinely need Biometry -- most surgeries (pterygium, DCR, chalazion, oculoplasty, etc.) need no pre-op investigation at all. Pick whatever this specific case needs from the Investigations master, same list as Section 1 -- these are indicative only, shown as one-click suggestions in Surgical Journey&apos;s own Investigations step; the actual order is placed from there, not here. Medical Fitness clearance is required for every case, so there's nothing to pick for that.
                       </div>
-                    )}
-
-                    {combineWithCaseId ? (
-                      <div style={{ fontSize: 11.5, color: 'var(--indigo)', marginBottom: 8, padding: '7px 10px', background: 'var(--g50)', borderRadius: 6, border: '1px solid var(--indigo)' }}>
-                        <i className="ti ti-info-circle"></i> Pre Op Requirement and Patient's Decision are inherited from{' '}
-                        <strong>{data.surgicalCases.find((sc) => sc.id === combineWithCaseId)?.procedure_name}</strong> automatically -- both procedures share the same investigations and decision since they're performed in one sitting.
-                      </div>
-                    ) : (
-                      <div style={{ marginBottom: 8 }}>
-                        <label className="flbl">Pre Op Requirement</label>
-                        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
-                          Only IOL/lens surgeries (e.g. cataract) genuinely need Biometry -- most surgeries (pterygium, DCR, chalazion, oculoplasty, etc.) need no pre-op investigation at all. Pick whatever this case (and any combined procedures above) needs from the Investigations master, same list as Section 1 -- these are indicative only, shown as one-click suggestions in Surgical Journey&apos;s own Investigations step; the actual order is placed from there, not here. Medical Fitness clearance is required for every case, so there's nothing to pick for that.
+                      {surgeryInvestigations.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                          {surgeryInvestigations.map((inv, idx) => (
+                            <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
+                              {inv.name} ({inv.eye})
+                              <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeSurgeryInvestigation(idx)}></i>
+                            </span>
+                          ))}
                         </div>
-                        {surgeryInvestigations.length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
-                            {surgeryInvestigations.map((inv, idx) => (
-                              <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
-                                {inv.name} ({inv.eye})
-                                <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeSurgeryInvestigation(idx)}></i>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <select className="fi fi-sm" value={surgeryInvName} onChange={(e) => setSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
-                            <option value="">-- Pick an investigation --</option>
-                            {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                          </select>
-                          <select className="fi fi-sm" value={surgeryInvEye} onChange={(e) => setSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
-                            <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
-                          </select>
-                          <button type="button" className="btn btn-sm" onClick={addSurgeryInvestigation}><i className="ti ti-plus"></i></button>
-                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <select className="fi fi-sm" value={surgeryInvName} onChange={(e) => setSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
+                          <option value="">-- Pick an investigation --</option>
+                          {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        </select>
+                        <select className="fi fi-sm" value={surgeryInvEye} onChange={(e) => setSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
+                          <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                        </select>
+                        <button type="button" className="btn btn-sm" onClick={addSurgeryInvestigation}><i className="ti ti-plus"></i></button>
                       </div>
-                    )}
+                    </div>
                     <div style={{ marginBottom: 8 }}>
                       <label className="flbl">Notes</label>
                       <input className="fi" placeholder="Any notes for this surgery recommendation..." value={surgeryNotes} onChange={(e) => setSurgeryNotes(e.target.value)} />
                     </div>
-                    {!combineWithCaseId && (
-                      <div style={{ marginBottom: 8 }}>
-                        <label className="flbl">Patient's Decision -- Right Now</label>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {[
-                            { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
-                            { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
-                            { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
-                          ].map((d) => (
-                            <button
-                              key={d.v} type="button" className="btn btn-sm"
-                              style={{ background: surgeryDecision === d.v ? d.color : '', color: surgeryDecision === d.v ? '#fff' : '', border: surgeryDecision === d.v ? 'none' : undefined }}
-                              onClick={() => setSurgeryDecision(d.v)}
-                            >
-                              {d.label}
-                            </button>
-                          ))}
-                        </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
-                          "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way. This single decision covers every procedure listed above.
-                        </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label className="flbl">Patient's Decision -- Right Now</label>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {[
+                          { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
+                          { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
+                          { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
+                        ].map((d) => (
+                          <button
+                            key={d.v} type="button" className="btn btn-sm"
+                            style={{ background: surgeryDecision === d.v ? d.color : '', color: surgeryDecision === d.v ? '#fff' : '', border: surgeryDecision === d.v ? 'none' : undefined }}
+                            onClick={() => setSurgeryDecision(d.v)}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
                       </div>
-                    )}
-                    {error && <div className="msg-err" style={{ marginBottom: 8 }}>{error}</div>}
+                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
+                        "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way.
+                      </div>
+                    </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
                         {surgeryLoading ? 'Saving...' : 'Save'}
                       </button>
-                      <button className="btn btn-sm" onClick={() => { setShowSurgery(false); setCombineWithCaseId(null); setAdditionalProcedures([]); setError(''); }}>Cancel</button>
+                      <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
                     </div>
                   </div>
                 )}

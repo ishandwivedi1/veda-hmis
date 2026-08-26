@@ -192,7 +192,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
-  const { booking, biometryPlans, intraop, consumables, events, complications, consentForms, hasActiveVisitToday, comboSiblings } = data;
+  const { booking, biometryPlans, intraop, consumables, events, complications, consentForms, hasActiveVisitToday } = data;
   const sc = booking.surgical_cases;
   const patient = sc.patients;
   const isCompleted = booking.status === 'Completed';
@@ -496,14 +496,6 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
           </button>
         </div>
       </div>
-
-      {comboSiblings && comboSiblings.length > 0 && (
-        <div style={{ background: 'var(--g50)', border: '1px solid var(--indigo)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: 'var(--indigo)' }}>
-          <i className="ti ti-stack-2"></i> This is a combined surgery, always booked into the same OT sitting as{' '}
-          <strong>{comboSiblings.map((s) => `${s.procedure_name} (${s.eye})`).join(', ')}</strong>.
-          Each procedure still has its own check-in record -- make sure the linked case is checked in for this patient too.
-        </div>
-      )}
 
       {isCompleted && (
         <div

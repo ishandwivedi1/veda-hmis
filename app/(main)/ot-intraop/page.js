@@ -8,20 +8,6 @@ import Workspace from './workspace';
 
 const STATUS_BADGE = { Scheduled: 'b-amber', 'In Progress': 'b-blue' };
 
-// Combined surgeries (e.g. Cataract with Anti-VEGF Injection) share a
-// combo_group_id and are always booked into the identical OT sitting
-// -- computed against the same already-fetched case list rather than a
-// separate query, so this shared dashboard (Surgeon Dashboard, Patient
-// Check-In, Intraop) shows the linkage inline instead of two
-// unrelated-looking cards.
-function comboLabel(c, list) {
-  const groupId = c.surgical_cases?.combo_group_id;
-  if (!groupId) return null;
-  const siblings = list.filter((other) => other.id !== c.id && other.surgical_cases?.combo_group_id === groupId);
-  if (siblings.length === 0) return null;
-  return siblings.map((other) => `${other.surgical_cases?.procedure_name} (${other.surgical_cases?.eye})`).join(', ');
-}
-
 export function TabButton({ active, onClick, icon, label, disabled }) {
   return (
     <button
@@ -128,11 +114,6 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                   {sc.surgery_code ? `${sc.surgery_code} -- ` : ''}{patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
                 </div>
-                {comboLabel(c, cases) && (
-                  <div style={{ fontSize: 10.5, color: 'var(--indigo)', marginTop: 2 }}>
-                    <i className="ti ti-stack-2"></i> Combined with: {comboLabel(c, cases)}
-                  </div>
-                )}
               </div>
               {canOpen ? (
                 <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Open</button>
@@ -186,11 +167,6 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                   {sc.surgery_code ? `${sc.surgery_code} -- ` : ''}{patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
                 </div>
-                {comboLabel(c, cases) && (
-                  <div style={{ fontSize: 10.5, color: 'var(--indigo)', marginTop: 2 }}>
-                    <i className="ti ti-stack-2"></i> Combined with: {comboLabel(c, cases)}
-                  </div>
-                )}
               </div>
               <button className="btn btn-sm"><i className="ti ti-edit"></i> View / Edit</button>
             </div>

@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase-server';
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { ensureRecoveryEpisode } from '../ot-recovery/actions';
 import { getSurgicalConsumablesMaster } from '../master-data/actions';
-import { getComboSiblings } from '@/app/(main)/counselling/actions';
 
 // Same Surgical Consumables Clinical Master used to seed both the
 // Patient Check-In dropdown and the Intraoperative Management
@@ -86,7 +85,7 @@ export async function getOTCaseList() {
   const supabase = await createClient();
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-  const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, package_discount, patient_id, combo_group_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
+  const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, package_discount, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
 
   // Scheduled (not yet checked in) is now strictly locked to scheduled_date
   // === today -- not "on or before today" as it used to be. A case
@@ -326,14 +325,6 @@ export async function getOTCaseDetail(otScheduleId) {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const activeVisitToday = await hasActiveVisitToday(supabase, sc?.patient_id, todayIst);
 
-  // Combined surgery -- the other procedure(s) advised and always
-  // scheduled together with this one (e.g. Cataract with Anti-VEGF
-  // Injection). Informational only here -- check-in/consent for each
-  // procedure is still completed on its own, one otScheduleId at a
-  // time; this just makes sure staff aren't surprised by a second
-  // linked case needing the same steps.
-  const comboSiblings = sc?.id ? await getComboSiblings(sc.id) : [];
-
   return {
     booking, biometryPlans: approval ? [approval] : [],
     intraop: intraop || null,
@@ -342,7 +333,6 @@ export async function getOTCaseDetail(otScheduleId) {
     complications: (events || []).filter((e) => e.kind === 'Complication'),
     consentForms,
     hasActiveVisitToday: activeVisitToday,
-    comboSiblings,
   };
 }
 
