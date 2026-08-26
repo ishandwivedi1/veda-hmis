@@ -392,6 +392,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   function handleSendForProcedure() {
+    if (showSurgery) {
+      window.alert('The surgery advice form is still open below with unsaved changes. Save or Cancel it first.');
+      return;
+    }
     setConfirmAction('procedure');
   }
 
@@ -447,6 +451,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   function handleComplete() {
+    if (showSurgery) {
+      window.alert('The surgery advice form is still open below with unsaved changes. Save or Cancel it first, then complete the visit.');
+      return;
+    }
     setSameDayEvalChoice(null);
     setConfirmAction('complete');
   }
@@ -584,6 +592,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   function handleSendOut(kind) {
+    if (showSurgery) {
+      window.alert('The surgery advice form is still open below with unsaved changes. Save or Cancel it first.');
+      return;
+    }
     setConfirmAction(kind === 'dilate' ? 'dilate' : 'investigate');
   }
 
@@ -1346,11 +1358,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         </div>
                       </div>
                     )}
+                    {error && <div className="msg-err" style={{ marginBottom: 8 }}>{error}</div>}
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
                         {surgeryLoading ? 'Saving...' : 'Save'}
                       </button>
-                      <button className="btn btn-sm" onClick={() => { setShowSurgery(false); setCombineWithCaseId(null); setAdditionalProcedures([]); }}>Cancel</button>
+                      <button className="btn btn-sm" onClick={() => { setShowSurgery(false); setCombineWithCaseId(null); setAdditionalProcedures([]); setError(''); }}>Cancel</button>
                     </div>
                   </div>
                 )}
