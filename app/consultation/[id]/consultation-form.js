@@ -151,7 +151,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   // fitness_required in markForSurgery), so there's no per-case choice
   // for it here.
   const [surgeryInvestigations, setSurgeryInvestigations] = useState([]);
-  const [surgeryInvName, setSurgeryInvName] = useState('');
   const [surgeryInvEye, setSurgeryInvEye] = useState('OU');
   const [surgeryNotes, setSurgeryNotes] = useState('');
   const [surgeryDecision, setSurgeryDecision] = useState('');
@@ -169,7 +168,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [editSurgeryProcedure, setEditSurgeryProcedure] = useState('');
   const [editSurgeryEye, setEditSurgeryEye] = useState('OU');
   const [editSurgeryInvestigations, setEditSurgeryInvestigations] = useState([]);
-  const [editSurgeryInvName, setEditSurgeryInvName] = useState('');
   const [editSurgeryInvEye, setEditSurgeryInvEye] = useState('OU');
   const [editSurgeryNotes, setEditSurgeryNotes] = useState('');
   const [surgeryLoading, setSurgeryLoading] = useState(false);
@@ -477,18 +475,16 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     finishAndClose();
   }
 
-  function addSurgeryInvestigation() {
-    if (!surgeryInvName.trim()) return;
-    setSurgeryInvestigations((list) => [...list, { name: surgeryInvName.trim(), eye: surgeryInvEye }]);
-    setSurgeryInvName('');
+  function addSurgeryInvestigation(name) {
+    if (!name?.trim()) return;
+    setSurgeryInvestigations((list) => [...list, { name: name.trim(), eye: surgeryInvEye }]);
   }
   function removeSurgeryInvestigation(idx) {
     setSurgeryInvestigations((list) => list.filter((_, i) => i !== idx));
   }
-  function addEditSurgeryInvestigation() {
-    if (!editSurgeryInvName.trim()) return;
-    setEditSurgeryInvestigations((list) => [...list, { name: editSurgeryInvName.trim(), eye: editSurgeryInvEye }]);
-    setEditSurgeryInvName('');
+  function addEditSurgeryInvestigation(name) {
+    if (!name?.trim()) return;
+    setEditSurgeryInvestigations((list) => [...list, { name: name.trim(), eye: editSurgeryInvEye }]);
   }
   function removeEditSurgeryInvestigation(idx) {
     setEditSurgeryInvestigations((list) => list.filter((_, i) => i !== idx));
@@ -505,7 +501,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setShowSurgery(false);
     setSurgeryProcedure('');
     setSurgeryInvestigations([]);
-    setSurgeryInvName('');
     setSurgeryNotes('');
     setSurgeryDecision('');
     refresh();
@@ -538,7 +533,6 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setEditSurgeryProcedure(sc.procedure_name);
     setEditSurgeryEye(sc.eye);
     setEditSurgeryInvestigations(sc.indicative_investigations || []);
-    setEditSurgeryInvName('');
     setEditSurgeryNotes(sc.notes || '');
   }
 
@@ -1113,14 +1107,13 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                                 </div>
                               )}
                               <div style={{ display: 'flex', gap: 6 }}>
-                                <select className="fi fi-sm" value={editSurgeryInvName} onChange={(e) => setEditSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
-                                  <option value="">-- Pick an investigation --</option>
+                                <select className="fi fi-sm" value="" onChange={(e) => addEditSurgeryInvestigation(e.target.value)} style={{ flex: 1 }}>
+                                  <option value="">-- Pick an investigation to add --</option>
                                   {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
                                 </select>
                                 <select className="fi fi-sm" value={editSurgeryInvEye} onChange={(e) => setEditSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
                                   <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
                                 </select>
-                                <button type="button" className="btn btn-sm" onClick={addEditSurgeryInvestigation}><i className="ti ti-plus"></i></button>
                               </div>
                             </div>
                             <div style={{ marginBottom: 8 }}>
@@ -1269,14 +1262,13 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         </div>
                       )}
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <select className="fi fi-sm" value={surgeryInvName} onChange={(e) => setSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
-                          <option value="">-- Pick an investigation --</option>
+                        <select className="fi fi-sm" value="" onChange={(e) => addSurgeryInvestigation(e.target.value)} style={{ flex: 1 }}>
+                          <option value="">-- Pick an investigation to add --</option>
                           {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
                         </select>
                         <select className="fi fi-sm" value={surgeryInvEye} onChange={(e) => setSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
                           <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
                         </select>
-                        <button type="button" className="btn btn-sm" onClick={addSurgeryInvestigation}><i className="ti ti-plus"></i></button>
                       </div>
                     </div>
                     <div style={{ marginBottom: 8 }}>
