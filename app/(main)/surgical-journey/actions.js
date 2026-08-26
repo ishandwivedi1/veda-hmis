@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { adviseBiometry } from '@/app/(main)/consultation/actions';
-import { markForSurgery, setDecision } from '@/app/(main)/counselling/actions';
+import { markForSurgery, setDecision, getCaseProcedures } from '@/app/(main)/counselling/actions';
 import { getAdvanceBalance } from '@/app/(main)/payments/actions';
 import { addInvestigationToSurgicalCase } from '@/lib/surgicalCaseInvestigations';
 import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
@@ -389,6 +389,7 @@ export async function getSurgicalCaseDetail(caseId) {
     { data: iolApproval },
     externalTests,
     advanceBalance,
+    caseProcedures,
   ] = await Promise.all([
     // Biometry is patient-level now, not case-scoped -- reused across
     // every future surgical case for that patient (readings don't
@@ -446,6 +447,11 @@ export async function getSurgicalCaseDetail(caseId) {
     // the net package amount (price - discount) rather than the old
     // never-actually-set advance_payment_id flag. See workspace.js.
     sc.patient_id ? getAdvanceBalance(sc.patient_id) : Promise.resolve(0),
+
+    // Additional procedures performed within this same surgery (e.g.
+    // Anti-VEGF Injection alongside a Cataract case) -- each keeps its
+    // own package/price, picked in the Package section below.
+    getCaseProcedures(caseId),
   ]);
 
   // recoveryEpisode and checkinCompletedAt both depend on otSchedule.id,
@@ -473,6 +479,7 @@ export async function getSurgicalCaseDetail(caseId) {
     checkinCompletedAt,
     recoveryEpisode,
     advanceBalance: Number(advanceBalance) || 0,
+    caseProcedures: caseProcedures || [],
   };
 }
 

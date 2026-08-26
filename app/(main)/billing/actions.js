@@ -502,14 +502,32 @@ export async function markPrescriptionsBilled(ids) {
 // collected (see package-billing-tab.js).
 export async function getPendingPackageBilling() {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data: cases, error } = await supabase
     .from('surgical_cases')
     .select('id, procedure_name, eye, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(id, code, name, price)')
     .eq('package_locked', true)
     .eq('package_billed', false)
     .not('package_id', 'is', null);
   if (error) return [];
-  return (data || []).filter((sc) => sc.master_packages);
+  const eligibleCases = (cases || []).filter((sc) => sc.master_packages);
+  if (eligibleCases.length === 0) return [];
+
+  // Additional procedures within the same surgery (see
+  // surgical_case_procedures) must ALSO have a locked, unbilled
+  // package before the case shows up here -- every procedure bills
+  // together on one invoice, not piecemeal.
+  const { data: procs } = await supabase
+    .from('surgical_case_procedures')
+    .select('surgical_case_id, package_locked, package_billed, package_id')
+    .in('surgical_case_id', eligibleCases.map((c) => c.id));
+
+  const procsByCase = {};
+  (procs || []).forEach((p) => { (procsByCase[p.surgical_case_id] ||= []).push(p); });
+
+  return eligibleCases.filter((sc) => {
+    const caseProcs = procsByCase[sc.id] || [];
+    return caseProcs.every((p) => p.package_locked && !p.package_billed && p.package_id);
+  });
 }
 
 // ── Surgery Billing panel (New Invoice) -- Surgery/Eye/Doctor fields
@@ -554,6 +572,23 @@ export async function getDischargedUnbilledSurgeries() {
   if (error) return [];
   return (data || []).filter((r) => r.surgical_cases);
 }
+// Shapes one billable row (the primary case, or one of its additional
+// procedures) into a billing line item.
+function shapePackageBillingItem({ caseId, name, code, price, discount, surgeryName, surgeryEye, surgeonId, surgeonName, breakup, patient, visitId }) {
+  return {
+    caseId, name, matched: true,
+    serviceCode: code, rate: price, gstPct: 0,
+    breakup: breakup || [],
+    surgeryName, surgeryEye, surgeonId, surgeonName,
+    discount: Number(discount || 0),
+    patient: patient || null,
+    visitId: visitId || null,
+  };
+}
+
+// A surgery can include more than one procedure (see
+// surgical_case_procedures) -- each keeps its own package/price, all
+// billed together on the ONE invoice for this case.
 export async function getPackageForBilling(caseId) {
   const supabase = await createClient();
   const { data: sc } = await supabase
@@ -561,7 +596,7 @@ export async function getPackageForBilling(caseId) {
     .select('package_id, package_discount, visit_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price), patients:patient_id(id, first_name, last_name, uhid, mobile)')
     .eq('id', caseId)
     .maybeSingle();
-  if (!sc?.master_packages) return { item: null };
+  if (!sc?.master_packages) return { items: [] };
 
   const { data: breakupItems } = await supabase
     .from('package_line_items')
@@ -569,24 +604,51 @@ export async function getPackageForBilling(caseId) {
     .eq('package_id', sc.package_id)
     .order('sort_order');
 
-  return {
-    item: {
-      caseId, name: sc.master_packages.name, matched: true,
-      serviceCode: sc.master_packages.code, rate: sc.master_packages.price, gstPct: 0,
-      breakup: breakupItems || [],
-      surgeryName: sc.procedure_name, surgeryEye: sc.eye, surgeonId: sc.surgeon_id, surgeonName: sc.profiles?.full_name || null,
-      discount: Number(sc.package_discount || 0),
-      patient: sc.patients || null,
-      visitId: sc.visit_id || null,
-    },
-  };
+  const items = [shapePackageBillingItem({
+    caseId, name: sc.master_packages.name, code: sc.master_packages.code, price: sc.master_packages.price,
+    discount: sc.package_discount, surgeryName: sc.procedure_name, surgeryEye: sc.eye,
+    surgeonId: sc.surgeon_id, surgeonName: sc.profiles?.full_name || null,
+    breakup: breakupItems, patient: sc.patients, visitId: sc.visit_id,
+  })];
+
+  const { data: procedures } = await supabase
+    .from('surgical_case_procedures')
+    .select('id, procedure_name, eye, package_id, package_discount, master_packages:package_id(code, name, price)')
+    .eq('surgical_case_id', caseId)
+    .eq('package_billed', false)
+    .not('package_id', 'is', null);
+
+  for (const proc of procedures || []) {
+    if (!proc.master_packages) continue;
+    const { data: procBreakup } = await supabase
+      .from('package_line_items')
+      .select('description, amount')
+      .eq('package_id', proc.package_id)
+      .order('sort_order');
+    items.push(shapePackageBillingItem({
+      caseId: `proc:${proc.id}`, name: proc.master_packages.name, code: proc.master_packages.code, price: proc.master_packages.price,
+      discount: proc.package_discount, surgeryName: proc.procedure_name, surgeryEye: proc.eye,
+      surgeonId: sc.surgeon_id, surgeonName: sc.profiles?.full_name || null,
+      breakup: procBreakup, patient: sc.patients, visitId: sc.visit_id,
+    }));
+  }
+
+  return { items };
 }
 
 // Called once the invoice carrying this package is actually saved --
-// flips it out of the Front Office queue.
+// flips it out of the Front Office queue. caseId can be either a plain
+// surgical_cases id (primary procedure) or "proc:<id>" (an additional
+// procedure in surgical_case_procedures) -- see getPackageForBilling.
 export async function markPackageBilled(caseId, invoiceId) {
   const supabase = await createClient();
   if (!caseId) return { success: true };
+  if (typeof caseId === 'string' && caseId.startsWith('proc:')) {
+    const procedureId = caseId.slice('proc:'.length);
+    const { error } = await supabase.from('surgical_case_procedures').update({ package_billed: true }).eq('id', procedureId);
+    if (error) return { error: error.message };
+    return { success: true };
+  }
   const { error } = await supabase.from('surgical_cases').update({ package_billed: true }).eq('id', caseId);
   if (error) return { error: error.message };
   return { success: true };

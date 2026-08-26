@@ -14,6 +14,7 @@ import { getSurgeries } from '@/app/(main)/master-data/actions';
 import {
   selectPackage, changePackage, updatePackageDiscount, getPackagesForCase,
   setDecision, markReadyForScheduling, bookOTSlot, getSurgeons,
+  getCaseProcedures, selectProcedurePackage, changeProcedurePackage, updateProcedurePackageDiscount,
 } from '@/app/(main)/counselling/actions';
 import { rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
 import { openPopup, openTab } from '@/lib/popup';
@@ -21,7 +22,7 @@ import { openPopup, openTab } from '@/lib/popup';
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
 // ── HEADER (editable) ──────────────────────────────────────────────
-function CaseHeader({ sc, patient, onAction }) {
+function CaseHeader({ sc, patient, onAction, caseProcedures = [] }) {
   const [editing, setEditing] = useState(false);
   const [surgeries, setSurgeries] = useState([]);
   const [procedureName, setProcedureName] = useState(sc.procedure_name);
@@ -63,6 +64,11 @@ function CaseHeader({ sc, patient, onAction }) {
               </button>
             </div>
             <div style={{ fontSize: 12, opacity: 0.85 }}>{EYE_LABEL[sc.eye] || sc.eye}</div>
+            {caseProcedures.length > 0 && (
+              <div style={{ fontSize: 11, opacity: 0.85, marginTop: 3 }}>
+                <i className="ti ti-plus"></i> {caseProcedures.map((p) => `${p.procedure_name} (${p.eye})`).join(', ')}
+              </div>
+            )}
             <div style={{ fontSize: 10.5, opacity: 0.7, marginTop: 2 }}>
               Advised: {new Date(sc.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
             </div>
@@ -275,7 +281,7 @@ export default function Workspace({ caseId }) {
         <i className="ti ti-arrow-left"></i> All Cases
       </button>
 
-      <CaseHeader sc={sc} patient={patient} onAction={flash} />
+      <CaseHeader sc={sc} patient={patient} onAction={flash} caseProcedures={data.caseProcedures} />
 
       {error && <div className="msg-err" style={{ marginBottom: 12 }}>{error}</div>}
       {ok && <div className="msg-ok" style={{ marginBottom: 12 }}>{ok}</div>}
@@ -290,7 +296,7 @@ export default function Workspace({ caseId }) {
       <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} inHouseInvestigations={data.inHouseInvestigations} externalTests={data.externalTests} onAction={flash} active={currentStep === 'investigations'} />
 
       {/* 3. PACKAGE & IOL DECISION */}
-      <PackageDecisionSection sc={sc} onAction={flash} active={currentStep === 'package'} />
+      <PackageDecisionSection sc={sc} caseProcedures={data.caseProcedures} onAction={flash} active={currentStep === 'package'} />
 
       {/* IOL APPROVAL -- cataract cases only (biometry_required =
           false means this case never needed an IOL power calc, so
@@ -724,9 +730,11 @@ function DecisionSection({ sc, onAction, onDecline, active }) {
 }
 
 // ── PACKAGE & IOL DECISION ──────────────────────────────────────────
-function PackageDecisionSection({ sc, onAction, active }) {
-  const [packages, setPackages] = useState([]);
-  const [loadingPackages, setLoadingPackages] = useState(true);
+// ── One package picker, reused for the primary procedure AND every
+// additional procedure in this surgery -- each keeps its own
+// package/price (per-procedure billing), same select/change/discount
+// flow either way, just pointed at a different target's actions. ──
+function PackagePickerBlock({ title, target, packages, onSelect, onChangePackage, onUpdateDiscount }) {
   const [selectedPackageId, setSelectedPackageId] = useState('');
   const [discountInput, setDiscountInput] = useState('');
   const [selecting, setSelecting] = useState(false);
@@ -740,22 +748,18 @@ function PackageDecisionSection({ sc, onAction, active }) {
   const [discountError, setDiscountError] = useState('');
   const [savingDiscount, setSavingDiscount] = useState(false);
 
-  useEffect(() => {
-    getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoadingPackages(false); });
-  }, [sc.iol_category]);
-
   const selectedPreview = packages.find((p) => p.id === selectedPackageId);
   const discountNum = Number(discountInput) || 0;
   const netPreview = selectedPreview ? Math.max(0, Number(selectedPreview.price) - discountNum) : null;
-  const currentDiscount = Number(sc.package_discount || 0);
-  const currentNet = sc.master_packages ? Math.max(0, Number(sc.master_packages.price) - currentDiscount) : 0;
+  const currentDiscount = Number(target.package_discount || 0);
+  const currentNet = target.master_packages ? Math.max(0, Number(target.master_packages.price) - currentDiscount) : 0;
 
   async function handleSelect() {
     setSelectError('');
     if (!selectedPackageId) { setSelectError('Choose a package first.'); return; }
     if (discountNum < 0) { setSelectError('Discount cannot be negative.'); return; }
     setSelecting(true);
-    const result = await onAction(selectPackage)(sc.id, selectedPackageId, discountNum);
+    const result = await onSelect(selectedPackageId, discountNum);
     setSelecting(false);
     if (result?.error) { setSelectError(result.error); return; }
     setDiscountInput('');
@@ -765,132 +769,179 @@ function PackageDecisionSection({ sc, onAction, active }) {
     setDiscountError('');
     if (!discountEditReason.trim()) { setDiscountError('Reason is required.'); return; }
     setSavingDiscount(true);
-    const result = await onAction(updatePackageDiscount)(sc.id, Number(discountEditValue) || 0, discountEditReason);
+    const result = await onUpdateDiscount(Number(discountEditValue) || 0, discountEditReason);
     setSavingDiscount(false);
     if (result?.error) { setDiscountError(result.error); return; }
     setEditingDiscount(false); setDiscountEditReason('');
   }
 
   return (
-    <Section num={3} color="var(--indigo)" title="Package" done={!!sc.package_id} defaultOpen={!sc.package_id} active={active}>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Package</div>
-        {sc.master_packages ? (
-          <div>
-            <div style={{ background: 'var(--green-lt)', border: '1px solid var(--green)', borderRadius: 8, padding: 10, marginBottom: (changing || editingDiscount) ? 8 : 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, fontSize: 12.5 }}>{sc.master_packages.name}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 700, color: 'var(--green)' }}>Rs.{Number(sc.master_packages.price).toLocaleString('en-IN')}</span>
-                  {!changing && !editingDiscount && <button className="btn btn-sm" onClick={() => setChanging(true)}>Change</button>}
-                </div>
+    <div>
+      <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>{title}</div>
+      {target.master_packages ? (
+        <div>
+          <div style={{ background: 'var(--green-lt)', border: '1px solid var(--green)', borderRadius: 8, padding: 10, marginBottom: (changing || editingDiscount) ? 8 : 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 600, fontSize: 12.5 }}>{target.master_packages.name}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 700, color: 'var(--green)' }}>Rs.{Number(target.master_packages.price).toLocaleString('en-IN')}</span>
+                {!changing && !editingDiscount && <button className="btn btn-sm" onClick={() => setChanging(true)}>Change</button>}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginTop: 6, color: 'var(--g600)' }}>
-                <span>Discount: {currentDiscount > 0 ? `Rs.${currentDiscount.toLocaleString('en-IN')}` : 'None'}</span>
-                <span style={{ fontWeight: 700 }}>Net: Rs.{currentNet.toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginTop: 6, color: 'var(--g600)' }}>
+              <span>Discount: {currentDiscount > 0 ? `Rs.${currentDiscount.toLocaleString('en-IN')}` : 'None'}</span>
+              <span style={{ fontWeight: 700 }}>Net: Rs.{currentNet.toLocaleString('en-IN')}</span>
+            </div>
+            {!changing && !editingDiscount && (
+              <button className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => { setEditingDiscount(true); setDiscountEditValue(currentDiscount || ''); }}>
+                <i className="ti ti-percentage"></i> Edit discount
+              </button>
+            )}
+          </div>
+
+          {editingDiscount && (
+            <div>
+              {discountError && <div className="msg-err" style={{ marginBottom: 8 }}>{discountError}</div>}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                <input type="number" className="fi fi-sm" style={{ flex: 1 }} placeholder="Discount amount (Rs.)" value={discountEditValue} onChange={(e) => setDiscountEditValue(e.target.value)} />
               </div>
-              {!changing && !editingDiscount && (
-                <button className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => { setEditingDiscount(true); setDiscountEditValue(currentDiscount || ''); }}>
-                  <i className="ti ti-percentage"></i> Edit discount
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Reason for discount change..." value={discountEditReason} onChange={(e) => setDiscountEditReason(e.target.value)} />
+                <button className="btn btn-sm btn-primary" disabled={savingDiscount} onClick={handleSaveDiscount}>
+                  {savingDiscount ? 'Saving...' : 'Save'}
                 </button>
-              )}
+                <button className="btn btn-sm" onClick={() => { setEditingDiscount(false); setDiscountError(''); }}>Cancel</button>
+              </div>
             </div>
+          )}
 
-            {editingDiscount && (
-              <div>
-                {discountError && <div className="msg-err" style={{ marginBottom: 8 }}>{discountError}</div>}
-                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                  <input type="number" className="fi fi-sm" style={{ flex: 1 }} placeholder="Discount amount (Rs.)" value={discountEditValue} onChange={(e) => setDiscountEditValue(e.target.value)} />
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Reason for discount change..." value={discountEditReason} onChange={(e) => setDiscountEditReason(e.target.value)} />
-                  <button className="btn btn-sm btn-primary" disabled={savingDiscount} onClick={handleSaveDiscount}>
-                    {savingDiscount ? 'Saving...' : 'Save'}
-                  </button>
-                  <button className="btn btn-sm" onClick={() => { setEditingDiscount(false); setDiscountError(''); }}>Cancel</button>
-                </div>
+          {changing && (
+            <div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                <select className="fi fi-sm" style={{ flex: 2 }} value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}>
+                  <option value="">Select a new package...</option>
+                  {packages.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}{p.origin ? ` (${p.origin})` : ''} -- Rs.{Number(p.price).toLocaleString('en-IN')}</option>
+                  ))}
+                </select>
+                <input type="number" className="fi fi-sm" style={{ flex: 1 }} placeholder="Discount (Rs.)" value={changeDiscountInput} onChange={(e) => setChangeDiscountInput(e.target.value)} />
               </div>
-            )}
-
-            {changing && (
-              <div>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                  <select className="fi fi-sm" style={{ flex: 2 }} value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}>
-                    <option value="">Select a new package...</option>
-                    {packages.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}{p.origin ? ` (${p.origin})` : ''} -- Rs.{Number(p.price).toLocaleString('en-IN')}</option>
-                    ))}
-                  </select>
-                  <input type="number" className="fi fi-sm" style={{ flex: 1 }} placeholder="Discount (Rs.)" value={changeDiscountInput} onChange={(e) => setChangeDiscountInput(e.target.value)} />
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Reason for changing..." value={changeReason} onChange={(e) => setChangeReason(e.target.value)} />
-                  <button
-                    className="btn btn-sm btn-primary"
-                    disabled={!selectedPackageId || !changeReason.trim()}
-                    onClick={async () => {
-                      const r = await onAction(changePackage)(sc.id, changeReason);
-                      if (r?.error) return;
-                      await onAction(selectPackage)(sc.id, selectedPackageId, Number(changeDiscountInput) || 0);
-                      setChanging(false); setChangeReason(''); setSelectedPackageId(''); setChangeDiscountInput('');
-                    }}
-                  >
-                    Confirm Change
-                  </button>
-                  <button className="btn btn-sm" onClick={() => { setChanging(false); setChangeReason(''); setChangeDiscountInput(''); }}>Cancel</button>
-                </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="fi fi-sm" style={{ flex: 1 }} placeholder="Reason for changing..." value={changeReason} onChange={(e) => setChangeReason(e.target.value)} />
+                <button
+                  className="btn btn-sm btn-primary"
+                  disabled={!selectedPackageId || !changeReason.trim()}
+                  onClick={async () => {
+                    const r = await onChangePackage(changeReason);
+                    if (r?.error) return;
+                    await onSelect(selectedPackageId, Number(changeDiscountInput) || 0);
+                    setChanging(false); setChangeReason(''); setSelectedPackageId(''); setChangeDiscountInput('');
+                  }}
+                >
+                  Confirm Change
+                </button>
+                <button className="btn btn-sm" onClick={() => { setChanging(false); setChangeReason(''); setChangeDiscountInput(''); }}>Cancel</button>
               </div>
-            )}
-          </div>
-        ) : loadingPackages ? (
-          <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading packages...</div>
-        ) : (
-          <div>
-            {selectError && <div className="msg-err" style={{ marginBottom: 8 }}>{selectError}</div>}
-            <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-              Packages from Financial Masters &gt; Surgery.
             </div>
-            {packages.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 14, fontSize: 12, color: 'var(--g400)', background: 'var(--g50)', borderRadius: 8 }}>
-                No active packages found. Add one under Financial Masters &gt; Surgery.
+          )}
+        </div>
+      ) : (
+        <div>
+          {selectError && <div className="msg-err" style={{ marginBottom: 8 }}>{selectError}</div>}
+          {packages.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 14, fontSize: 12, color: 'var(--g400)', background: 'var(--g50)', borderRadius: 8 }}>
+              No active packages found. Add one under Financial Masters &gt; Surgery.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <select className="fi fi-sm" style={{ flex: 2 }} value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}>
+                  <option value="">Select a package...</option>
+                  {packages.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}{p.origin ? ` (${p.origin})` : ''} -- Rs.{Number(p.price).toLocaleString('en-IN')}</option>
+                  ))}
+                </select>
+                <input type="number" className="fi fi-sm" style={{ flex: 1 }} placeholder="Discount (Rs.)" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} />
+                <button className="btn btn-sm btn-primary" disabled={!selectedPackageId || selecting} onClick={handleSelect}>
+                  <i className="ti ti-check"></i> {selecting ? 'Selecting...' : 'Select'}
+                </button>
               </div>
-            ) : (
-              <>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                  <select className="fi fi-sm" style={{ flex: 2 }} value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}>
-                    <option value="">Select a package...</option>
-                    {packages.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}{p.origin ? ` (${p.origin})` : ''} -- Rs.{Number(p.price).toLocaleString('en-IN')}</option>
-                    ))}
-                  </select>
-                  <input type="number" className="fi fi-sm" style={{ flex: 1 }} placeholder="Discount (Rs.)" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} />
-                  <button className="btn btn-sm btn-primary" disabled={!selectedPackageId || selecting} onClick={handleSelect}>
-                    <i className="ti ti-check"></i> {selecting ? 'Selecting...' : 'Select'}
-                  </button>
-                </div>
-                {selectedPreview && (
-                  <div style={{ border: '1.5px solid var(--g200)', borderRadius: 8, padding: 10 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {selectedPreview.name}
-                        {selectedPreview.origin && <span className={`badge ${selectedPreview.origin === 'Imported' ? 'b-blue' : 'b-green'}`}>{selectedPreview.origin}</span>}
-                      </div>
-                      <div style={{ fontWeight: 700, color: 'var(--green)', fontSize: 13 }}>Rs.{Number(selectedPreview.price).toLocaleString('en-IN')}</div>
+              {selectedPreview && (
+                <div style={{ border: '1.5px solid var(--g200)', borderRadius: 8, padding: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {selectedPreview.name}
+                      {selectedPreview.origin && <span className={`badge ${selectedPreview.origin === 'Imported' ? 'b-blue' : 'b-green'}`}>{selectedPreview.origin}</span>}
                     </div>
-                    {selectedPreview.includes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 4 }}>{selectedPreview.includes}</div>}
-                    {discountNum > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--g200)' }}>
-                        <span style={{ color: 'var(--red)' }}>Discount: Rs.{discountNum.toLocaleString('en-IN')}</span>
-                        <span style={{ fontWeight: 700 }}>Net: Rs.{netPreview.toLocaleString('en-IN')}</span>
-                      </div>
-                    )}
+                    <div style={{ fontWeight: 700, color: 'var(--green)', fontSize: 13 }}>Rs.{Number(selectedPreview.price).toLocaleString('en-IN')}</div>
                   </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
+                  {selectedPreview.includes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 4 }}>{selectedPreview.includes}</div>}
+                  {discountNum > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--g200)' }}>
+                      <span style={{ color: 'var(--red)' }}>Discount: Rs.{discountNum.toLocaleString('en-IN')}</span>
+                      <span style={{ fontWeight: 700 }}>Net: Rs.{netPreview.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PackageDecisionSection({ sc, caseProcedures, onAction, active }) {
+  const [packages, setPackages] = useState([]);
+  const [loadingPackages, setLoadingPackages] = useState(true);
+
+  useEffect(() => {
+    getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoadingPackages(false); });
+  }, [sc.iol_category]);
+
+  const allSelected = !!sc.package_id && caseProcedures.every((p) => !!p.package_id);
+  // Only meaningful once every procedure in the surgery has a package
+  // -- a partial total would understate what's actually owed.
+  const totalNet = allSelected
+    ? Math.max(0, Number(sc.master_packages.price) - Number(sc.package_discount || 0))
+      + caseProcedures.reduce((sum, p) => sum + Math.max(0, Number(p.master_packages.price) - Number(p.package_discount || 0)), 0)
+    : null;
+
+  return (
+    <Section num={3} color="var(--indigo)" title="Package" done={allSelected} defaultOpen={!allSelected} active={active}>
+      {loadingPackages ? (
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading packages...</div>
+      ) : (
+        <div>
+          <PackagePickerBlock
+            title={sc.procedure_name}
+            target={sc}
+            packages={packages}
+            onSelect={(packageId, discount) => onAction(selectPackage)(sc.id, packageId, discount)}
+            onChangePackage={(reason) => onAction(changePackage)(sc.id, reason)}
+            onUpdateDiscount={(discount, reason) => onAction(updatePackageDiscount)(sc.id, discount, reason)}
+          />
+          {caseProcedures.map((p) => (
+            <div key={p.id} style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--g200)' }}>
+              <PackagePickerBlock
+                title={`${p.procedure_name} -- ${EYE_LABEL[p.eye] || p.eye}`}
+                target={p}
+                packages={packages}
+                onSelect={(packageId, discount) => onAction(selectProcedurePackage)(p.id, packageId, discount)}
+                onChangePackage={(reason) => onAction(changeProcedurePackage)(p.id, reason)}
+                onUpdateDiscount={(discount, reason) => onAction(updateProcedurePackageDiscount)(p.id, discount, reason)}
+              />
+            </div>
+          ))}
+          {caseProcedures.length > 0 && totalNet !== null && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1.5px solid var(--g200)', display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700 }}>
+              <span>Total for this surgery</span>
+              <span>Rs.{totalNet.toLocaleString('en-IN')}</span>
+            </div>
+          )}
+        </div>
+      )}
     </Section>
   );
 }

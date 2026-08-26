@@ -34,7 +34,7 @@ import {
   carryForwardDiagnosis,
 } from '@/app/(main)/consultation/actions';
 import { openPopup } from '@/lib/popup';
-import { markForSurgery, markSameDaySurgicalEval, updateSurgicalCase, setDecision } from '@/app/(main)/counselling/actions';
+import { markForSurgery, markSameDaySurgicalEval, updateSurgicalCase, setDecision, addCaseProcedure, removeCaseProcedure } from '@/app/(main)/counselling/actions';
 import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
 import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
@@ -155,6 +155,16 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [surgeryInvEye, setSurgeryInvEye] = useState('OU');
   const [surgeryNotes, setSurgeryNotes] = useState('');
   const [surgeryDecision, setSurgeryDecision] = useState('');
+  // Additional procedures performed within the same surgery (e.g. this
+  // case is Cataract, adding Anti-VEGF Injection alongside it) --
+  // staging fields for the small add-procedure form under the saved
+  // case. Package/price for each is picked later in Surgical Journey,
+  // same as the primary case's own package.
+  const [showAddProcedure, setShowAddProcedure] = useState(false);
+  const [addProcName, setAddProcName] = useState('');
+  const [addProcEye, setAddProcEye] = useState('OU');
+  const [addProcNotes, setAddProcNotes] = useState('');
+  const [addProcLoading, setAddProcLoading] = useState(false);
   const [editingSurgicalCaseId, setEditingSurgicalCaseId] = useState(null);
   const [editSurgeryProcedure, setEditSurgeryProcedure] = useState('');
   const [editSurgeryEye, setEditSurgeryEye] = useState('OU');
@@ -498,6 +508,27 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setSurgeryInvName('');
     setSurgeryNotes('');
     setSurgeryDecision('');
+    refresh();
+  }
+
+  async function handleAddCaseProcedure(caseId) {
+    setError('');
+    if (!addProcName) { setError('Select a procedure.'); return; }
+    setAddProcLoading(true);
+    const result = await addCaseProcedure(caseId, addProcName, addProcEye, addProcNotes);
+    setAddProcLoading(false);
+    if (result.error) { setError(result.error); return; }
+    setShowAddProcedure(false);
+    setAddProcName('');
+    setAddProcNotes('');
+    refresh();
+  }
+
+  async function handleRemoveCaseProcedure(procedureId) {
+    setError('');
+    if (!window.confirm('Remove this procedure from the surgery?')) return;
+    const result = await removeCaseProcedure(procedureId);
+    if (result.error) { setError(result.error); return; }
     refresh();
   }
 
@@ -1142,6 +1173,56 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                                   </button>
                                 ))}
                               </div>
+                            </div>
+
+                            {/* ADDITIONAL PROCEDURES -- this surgical_cases
+                                row is still the whole surgery: one OT
+                                booking, one check-in, one consent. This
+                                just lists other procedures performed in
+                                the same sitting (e.g. Anti-VEGF Injection
+                                alongside Cataract) -- each gets its own
+                                package/price, picked later in Surgical
+                                Journey. */}
+                            <div style={{ marginTop: 10, marginLeft: 22 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g400)', textTransform: 'uppercase', marginBottom: 4 }}>Procedures in This Surgery</div>
+                              {data.caseProcedures.map((p) => (
+                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>
+                                  <i className="ti ti-point" style={{ color: 'var(--g400)' }}></i>
+                                  <span style={{ flex: 1 }}>
+                                    {p.procedure_name} -- {p.eye === 'OD' ? 'Right (OD)' : p.eye === 'OS' ? 'Left (OS)' : 'Both (OU)'}
+                                    {p.notes && <span style={{ color: 'var(--g400)' }}> ({p.notes})</span>}
+                                  </span>
+                                  {sc.status === 'Pending Workup' && (
+                                    <i className="ti ti-trash" style={{ cursor: 'pointer', color: 'var(--red)' }} onClick={() => handleRemoveCaseProcedure(p.id)}></i>
+                                  )}
+                                </div>
+                              ))}
+                              {sc.status === 'Pending Workup' && (
+                                !showAddProcedure ? (
+                                  <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginTop: 4 }} onClick={() => setShowAddProcedure(true)}>
+                                    <i className="ti ti-plus"></i> Add Procedure
+                                  </button>
+                                ) : (
+                                  <div style={{ marginTop: 6, padding: 8, background: 'var(--g50)', borderRadius: 6 }}>
+                                    <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                                      <select className="fi fi-sm" value={addProcName} onChange={(e) => setAddProcName(e.target.value)} style={{ flex: 2 }}>
+                                        <option value="">-- Select procedure --</option>
+                                        {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                      </select>
+                                      <select className="fi fi-sm" value={addProcEye} onChange={(e) => setAddProcEye(e.target.value)} style={{ width: 100 }}>
+                                        <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                                      </select>
+                                    </div>
+                                    <input className="fi fi-sm" placeholder="Notes (optional)" value={addProcNotes} onChange={(e) => setAddProcNotes(e.target.value)} style={{ marginBottom: 6 }} />
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                      <button className="btn btn-primary btn-sm" onClick={() => handleAddCaseProcedure(sc.id)} disabled={addProcLoading}>
+                                        {addProcLoading ? 'Adding...' : 'Add'}
+                                      </button>
+                                      <button className="btn btn-sm" onClick={() => { setShowAddProcedure(false); setAddProcName(''); setAddProcNotes(''); }}>Cancel</button>
+                                    </div>
+                                  </div>
+                                )
+                              )}
                             </div>
                           </div>
                         )}

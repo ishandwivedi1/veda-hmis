@@ -143,6 +143,20 @@ export async function getConsultationData(queueEntryId) {
     .flatMap((e) => (e.diagnoses || []).map((d) => ({ ...d, encounterDate: e.started_at })))
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+  // Additional procedures performed within the same surgery (e.g. this
+  // case is Cataract, with an Anti-VEGF Injection added alongside it)
+  // -- one surgical_cases row is still the whole surgery, this just
+  // lists what else is being done in the same sitting.
+  let caseProcedures = [];
+  if (surgicalCases && surgicalCases.length > 0) {
+    const { data: procs } = await supabase
+      .from('surgical_case_procedures')
+      .select('id, procedure_name, eye, notes')
+      .eq('surgical_case_id', surgicalCases[0].id)
+      .order('created_at');
+    caseProcedures = procs || [];
+  }
+
   // Follow-up Template: same consultation engine, just extra context --
   // a patient is a "follow-up" the moment they have any prior encounter
   // at all, on a different visit, regardless of whether that encounter
@@ -167,6 +181,7 @@ export async function getConsultationData(queueEntryId) {
     opticalAdvice: opticalAdvice || [], procedures: procedures || [], referrals: referrals || [],
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
     surgicalCases: surgicalCases || [],
+    caseProcedures,
     isLocked: encounter.status === 'Completed',
     isFollowUp, priorEncounterId: priorCompletedEncounters[0]?.id || null,
     isAdmin,

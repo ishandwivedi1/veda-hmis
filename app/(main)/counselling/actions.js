@@ -49,6 +49,16 @@ import { createClient } from '@/lib/supabase-server';
 //        surgical case on this encounter as wanting same-day surgical
 //        evaluation, so they show on the Surgeon Dashboard today even
 //        though the OPD visit itself isn't a surgical-track visit type.
+//   getCaseProcedures(caseId) -- additional procedures performed within
+//        this SAME surgery (e.g. Cataract case with an Anti-VEGF
+//        Injection added), stored in surgical_case_procedures. One
+//        surgical_cases row is still the whole surgery -- there is no
+//        second case, no separate scheduling/check-in/consent. Each
+//        procedure keeps its own package/price, summed together when
+//        billed.
+//   addCaseProcedure(caseId, procedureName, eye, notes) / removeCaseProcedure(procedureId)
+//   selectProcedurePackage(procedureId, packageId, discount) / updateProcedurePackageDiscount(procedureId, discount, reason) / changeProcedurePackage(procedureId, reason)
+//        -- same shape as selectPackage/updatePackageDiscount/changePackage below, for one additional procedure row.
 //   updateSurgicalCase(caseId, procedureName, eye, investigations, notes)
 //     -- imported by app/(main)/consultation/[id]/consultation-form.js
 //     -- investigations is [{name, eye}], the doctor's indicative pre-op
@@ -270,6 +280,121 @@ export async function markSameDaySurgicalEval(encounterId, wantsEval) {
     .eq('encounter_id', encounterId)
     .neq('status', 'Cancelled');
   if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ── Additional procedures performed within one surgery (e.g. a
+// Cataract case with an Anti-VEGF Injection added) -- surgical_cases
+// itself still IS the whole surgery: one OT booking, one check-in, one
+// consent, one decision. Each row here just carries its own name/eye
+// and its own package/price, summed together when the surgery is
+// billed. ──
+export async function getCaseProcedures(caseId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('surgical_case_procedures')
+    .select('id, procedure_name, eye, notes, package_id, package_locked, package_discount, package_billed, master_packages:package_id(id, code, name, price)')
+    .eq('surgical_case_id', caseId)
+    .order('created_at');
+  if (error) return [];
+  return data || [];
+}
+
+// Can only add while the surgery itself is still Pending Workup --
+// once it's Ready for Scheduling or further along, the procedure list
+// is locked, same rule as editing the primary procedure.
+export async function addCaseProcedure(caseId, procedureName, eye, notes) {
+  const supabase = await createClient();
+  if (!procedureName?.trim()) return { error: 'Select a procedure.' };
+
+  const { data: sc } = await supabase.from('surgical_cases').select('status').eq('id', caseId).maybeSingle();
+  if (!sc) return { error: 'Surgical case not found.' };
+  if (sc.status !== 'Pending Workup') {
+    return { error: `This surgery has already moved to "${sc.status}" -- procedures can only be added while it's still Pending Workup.` };
+  }
+
+  const { error } = await supabase.from('surgical_case_procedures').insert({
+    surgical_case_id: caseId,
+    procedure_name: procedureName.trim(),
+    eye,
+    notes: notes?.trim() || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function removeCaseProcedure(procedureId) {
+  const supabase = await createClient();
+  const { data: proc } = await supabase.from('surgical_case_procedures').select('surgical_case_id, package_billed').eq('id', procedureId).maybeSingle();
+  if (!proc) return { error: 'Procedure not found.' };
+  if (proc.package_billed) return { error: 'This procedure has already been billed and cannot be removed.' };
+
+  const { error } = await supabase.from('surgical_case_procedures').delete().eq('id', procedureId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// Same shape as selectPackage/updatePackageDiscount/changePackage below
+// (see those for the fuller comments) -- these operate on one
+// additional-procedure row instead of the surgical_cases row itself.
+export async function selectProcedurePackage(procedureId, packageId, discount = 0) {
+  const supabase = await createClient();
+  const disc = Number(discount) || 0;
+  if (disc < 0) return { error: 'Discount cannot be negative.' };
+
+  const { data: pkg } = await supabase.from('master_packages').select('price').eq('id', packageId).single();
+  if (pkg && disc > Number(pkg.price)) return { error: 'Discount cannot exceed the package price.' };
+
+  const { error } = await supabase.from('surgical_case_procedures').update({ package_id: packageId, package_locked: true, package_discount: disc }).eq('id', procedureId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function updateProcedurePackageDiscount(procedureId, discount, reason) {
+  const supabase = await createClient();
+  const disc = Number(discount);
+  if (Number.isNaN(disc) || disc < 0) return { error: 'Enter a valid discount amount.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required to change the discount.' };
+
+  const { data: proc } = await supabase
+    .from('surgical_case_procedures')
+    .select('surgical_case_id, package_id, package_discount, procedure_name, master_packages:package_id(name, price)')
+    .eq('id', procedureId)
+    .single();
+  if (!proc?.package_id) return { error: 'No package selected for this procedure.' };
+  if (disc > Number(proc.master_packages.price)) return { error: 'Discount cannot exceed the package price.' };
+
+  const { error } = await supabase.from('surgical_case_procedures').update({ package_discount: disc }).eq('id', procedureId);
+  if (error) return { error: error.message };
+
+  const { data: userData } = await supabase.auth.getUser();
+  await supabase.from('surgical_case_notes').insert({
+    surgical_case_id: proc.surgical_case_id,
+    note: `Package discount for ${proc.procedure_name} changed from Rs.${Number(proc.package_discount || 0).toLocaleString('en-IN')} to Rs.${disc.toLocaleString('en-IN')} (${proc.master_packages?.name || 'package'}) -- Reason: ${reason.trim()}`,
+    created_by: userData?.user?.id || null,
+  });
+  return { success: true };
+}
+
+export async function changeProcedurePackage(procedureId, reason) {
+  const supabase = await createClient();
+
+  const { data: proc } = await supabase.from('surgical_case_procedures').select('surgical_case_id, package_locked, procedure_name, master_packages:package_id(name)').eq('id', procedureId).single();
+  if (proc?.package_locked && (!reason || !reason.trim())) {
+    return { error: 'A reason is required to change a locked package.' };
+  }
+
+  const { error } = await supabase.from('surgical_case_procedures').update({ package_id: null, package_locked: false, package_discount: 0 }).eq('id', procedureId);
+  if (error) return { error: error.message };
+
+  if (proc?.package_locked && reason) {
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from('surgical_case_notes').insert({
+      surgical_case_id: proc.surgical_case_id,
+      note: `Package unlocked and changed for ${proc.procedure_name}${proc.master_packages?.name ? ` (was: ${proc.master_packages.name})` : ''} -- Reason: ${reason.trim()}`,
+      created_by: userData?.user?.id || null,
+    });
+  }
   return { success: true };
 }
 
