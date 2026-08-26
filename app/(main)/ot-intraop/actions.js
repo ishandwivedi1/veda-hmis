@@ -119,6 +119,24 @@ export async function getOTCaseList() {
 
   const cases = [...(scheduledToday || []), ...(inProgress || []), ...(completedToday || [])].filter((b) => b.surgical_cases);
 
+  // Additional procedures within the same surgery (see
+  // surgical_case_procedures) each keep their own package/price too --
+  // summed in here so a discounted-but-otherwise-billed additional
+  // procedure doesn't let the case look "advance cleared" while part of
+  // the surgery is still unpaid.
+  const caseIds = [...new Set(cases.map((b) => b.surgical_cases.id))];
+  const extraByCase = {};
+  if (caseIds.length > 0) {
+    const { data: extraProcs } = await supabase
+      .from('surgical_case_procedures')
+      .select('surgical_case_id, package_discount, master_packages:package_id(price)')
+      .in('surgical_case_id', caseIds);
+    (extraProcs || []).forEach((p) => {
+      const net = Math.max(0, Number(p.master_packages?.price || 0) - Number(p.package_discount || 0));
+      extraByCase[p.surgical_case_id] = (extraByCase[p.surgical_case_id] || 0) + net;
+    });
+  }
+
   const balanceByPatient = {};
   const patientIds = [...new Set(cases.map((b) => b.surgical_cases.patient_id).filter(Boolean))];
   await Promise.all(patientIds.map(async (pid) => {
@@ -144,7 +162,7 @@ export async function getOTCaseList() {
     // "amount to collect" here at check-in.
     const packagePrice = Number(b.surgical_cases.master_packages?.price || 0);
     const packageDiscount = Number(b.surgical_cases.package_discount || 0);
-    const netPackageAmount = Math.max(0, packagePrice - packageDiscount);
+    const netPackageAmount = Math.max(0, packagePrice - packageDiscount) + (extraByCase[b.surgical_cases.id] || 0);
     const advanceBalance = balanceByPatient[b.surgical_cases.patient_id] || 0;
     const isScheduled = b.status === 'Scheduled';
     return {

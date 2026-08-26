@@ -231,11 +231,14 @@ export default function Workspace({ caseId }) {
   const isCataract = sc.biometry_required !== false;
 
   // Net payable for the Payment step = package list price minus
-  // whatever discount was recorded at Package Selection. Advance
+  // whatever discount was recorded at Package Selection, summed across
+  // every procedure in the surgery (primary + additional -- each keeps
+  // its own package/price, see PackageDecisionSection). Advance
   // balance is the patient's live held-advance total (M11), not the
   // old advance_payment_id flag, which nothing in the app ever
   // actually set.
-  const netPackageAmount = sc.master_packages ? Math.max(0, Number(sc.master_packages.price) - Number(sc.package_discount || 0)) : 0;
+  const netPackageAmount = (sc.master_packages ? Math.max(0, Number(sc.master_packages.price) - Number(sc.package_discount || 0)) : 0)
+    + (data.caseProcedures || []).reduce((sum, p) => sum + (p.master_packages ? Math.max(0, Number(p.master_packages.price) - Number(p.package_discount || 0)) : 0), 0);
   const advanceBalance = Number(data.advanceBalance || 0);
 
   // Drives the "Next Step" highlight -- the first not-yet-done stage in
