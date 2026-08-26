@@ -54,6 +54,13 @@ import { createClient } from '@/lib/supabase-server';
 //        single-procedure case -- nothing changes for existing callers.
 //   getComboSiblings(caseId) -- returns the other procedure(s) sharing
 //        this case's combo_group_id, [] for a standalone case.
+//   markForSurgeryBatch(patientId, encounterId, procedures, investigations, notes, decision)
+//        -- procedures is [{name, eye}, ...]. Primary entry point for
+//        advising a COMBINED surgery in one shot -- every procedure is
+//        created together sharing one combo_group_id, with IDENTICAL
+//        investigations/notes/decision from the start (added 2026-08,
+//        replaces calling markForSurgery twice, which let the two
+//        procedures' investigations drift out of sync).
 //   updateSurgicalCase(caseId, procedureName, eye, investigations, notes)
 //     -- imported by app/(main)/consultation/[id]/consultation-form.js
 //     -- investigations is [{name, eye}], the doctor's indicative pre-op
@@ -204,10 +211,21 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     .single();
 
   let comboGroupId = null;
+  // When combining, investigations and decision are ALWAYS inherited
+  // from the linked case, not whatever was passed in for this call --
+  // both procedures in a combined surgery are done in a single
+  // sitting, so they share ONE pre-op investigation set and ONE
+  // patient decision, not two independently-entered ones that could
+  // silently drift apart (this is exactly what broke investigations
+  // not carrying forward to Surgical Journey for the second
+  // procedure). The caller's own investigations/decision arguments are
+  // ignored on this path.
+  let inheritedInvestigations = null;
+  let inheritedDecision = null;
   if (linkedCaseId) {
     const { data: linked } = await supabase
       .from('surgical_cases')
-      .select('id, visit_id, combo_group_id, status')
+      .select('id, visit_id, combo_group_id, status, indicative_investigations, decision')
       .eq('id', linkedCaseId)
       .neq('status', 'Cancelled')
       .maybeSingle();
@@ -222,6 +240,8 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
       comboGroupId = crypto.randomUUID();
       await supabase.from('surgical_cases').update({ combo_group_id: comboGroupId }).eq('id', linked.id);
     }
+    inheritedInvestigations = linked.indicative_investigations || [];
+    inheritedDecision = linked.decision || null;
   } else if (encounter?.visit_id) {
     // BR: one visit, one surgical case -- checked against visit_id (not
     // just this encounter), since a visit can span more than one
@@ -258,8 +278,9 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
   // acts on that suggestion there (see addInHouseInvestigationForCase).
   // Medical Fitness clearance is required for every surgical case, no
   // per-case choice.
-  const cleanInvestigations = (investigations || []).filter((i) => i?.name?.trim());
+  const cleanInvestigations = linkedCaseId ? inheritedInvestigations : (investigations || []).filter((i) => i?.name?.trim());
   const biometryRequired = cleanInvestigations.some((i) => i.name.trim().toLowerCase() === 'biometry');
+  const effectiveDecision = linkedCaseId ? inheritedDecision : (decision || null);
 
   const { error } = await supabase.from('surgical_cases').insert({
     patient_id: patientId,
@@ -280,9 +301,80 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     // own locking rule); anything else stays open for front desk to
     // update once the patient calls back, no reason required for that
     // first change.
+    decision: effectiveDecision,
+    decision_locked: effectiveDecision === 'Accepted',
+  });
+  if (error) return { error: error.message };
+
+  return { success: true };
+}
+
+// ── Primary "advise surgery" entry point for a COMBINED surgery, e.g.
+// Cataract with Anti-VEGF Injection performed in a single sitting.
+// Unlike calling markForSurgery once per procedure, this creates every
+// procedure in ONE action so investigations, notes, and the patient's
+// decision are genuinely defined ONCE and identical across every
+// linked case from the moment they're created -- no risk of the
+// second procedure silently ending up with different (or missing)
+// investigations than the first. procedures is [{name, eye}, ...];
+// pass a single-item array for a normal, non-combined surgery (same
+// result as calling markForSurgery once with no linkedCaseId). ──
+export async function markForSurgeryBatch(patientId, encounterId, procedures, investigations, notes, decision) {
+  const supabase = await createClient();
+
+  const cleanProcedures = (procedures || []).filter((p) => p?.name?.trim());
+  if (cleanProcedures.length === 0) return { error: 'At least one procedure is required.' };
+  if (decision && !DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
+
+  const { data: encounter } = await supabase
+    .from('encounters')
+    .select('id, visit_id, doctor_id')
+    .eq('id', encounterId)
+    .single();
+
+  // BR: one visit, one surgical CASE GROUP -- a combined surgery still
+  // counts as one advice event for this rule, same as a single
+  // procedure would.
+  if (encounter?.visit_id) {
+    const { data: existing } = await supabase
+      .from('surgical_cases')
+      .select('id, procedure_name, eye')
+      .eq('visit_id', encounter.visit_id)
+      .neq('status', 'Cancelled')
+      .limit(1);
+    if (existing && existing.length > 0) {
+      return { error: `This visit already has a surgical case marked (${existing[0].procedure_name} -- ${existing[0].eye}). Only one surgical advice is allowed per visit.` };
+    }
+  }
+
+  let priority = 'Routine';
+  if (encounter?.visit_id) {
+    const { data: visit } = await supabase.from('visits').select('priority').eq('id', encounter.visit_id).single();
+    if (visit?.priority) priority = visit.priority;
+  }
+
+  const cleanInvestigations = (investigations || []).filter((i) => i?.name?.trim());
+  const biometryRequired = cleanInvestigations.some((i) => i.name.trim().toLowerCase() === 'biometry');
+  const comboGroupId = cleanProcedures.length > 1 ? crypto.randomUUID() : null;
+
+  const rows = cleanProcedures.map((p) => ({
+    patient_id: patientId,
+    encounter_id: encounterId,
+    visit_id: encounter?.visit_id || null,
+    surgeon_id: encounter?.doctor_id || null,
+    procedure_name: p.name,
+    eye: p.eye,
+    priority,
+    biometry_required: biometryRequired,
+    fitness_required: true,
+    indicative_investigations: cleanInvestigations,
+    notes: notes || null,
+    combo_group_id: comboGroupId,
     decision: decision || null,
     decision_locked: decision === 'Accepted',
-  });
+  }));
+
+  const { error } = await supabase.from('surgical_cases').insert(rows);
   if (error) return { error: error.message };
 
   return { success: true };

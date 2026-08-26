@@ -34,7 +34,7 @@ import {
   carryForwardDiagnosis,
 } from '@/app/(main)/consultation/actions';
 import { openPopup } from '@/lib/popup';
-import { markForSurgery, updateSurgicalCase, setDecision } from '@/app/(main)/counselling/actions';
+import { markForSurgery, markForSurgeryBatch, updateSurgicalCase, setDecision } from '@/app/(main)/counselling/actions';
 import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import OptometryWorkspace from '@/app/(main)/optometry/[id]/optometry-workspace';
@@ -132,13 +132,23 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [forceCloseReason, setForceCloseReason] = useState('');
   const [forceClosing, setForceClosing] = useState(false);
   const [showSurgery, setShowSurgery] = useState(false);
-  // When set, the surgery form below is adding a COMBINED procedure
-  // (e.g. Anti-VEGF Injection alongside an already-marked Cataract
-  // surgery on this same visit) rather than the visit's first surgical
-  // case -- see startCombineProcedure/handleMarkForSurgery.
+  // When set, the surgery form below is adding a COMBINED procedure to
+  // an ALREADY-SAVED case (e.g. doctor forgot Anti-VEGF Injection when
+  // first advising Cataract surgery and comes back to add it) -- the
+  // normal path is additionalProcedures below, added before the first
+  // save so investigations/decision are genuinely defined once. See
+  // startCombineProcedure/handleMarkForSurgery.
   const [combineWithCaseId, setCombineWithCaseId] = useState(null);
   const [surgeryProcedure, setSurgeryProcedure] = useState('');
   const [surgeryEye, setSurgeryEye] = useState('OU');
+  // Combined surgery -- other procedures being advised TOGETHER with
+  // surgeryProcedure above, in the same sitting (e.g. Cataract with
+  // Anti-VEGF Injection), added here BEFORE Pre Op Requirement/Decision
+  // below so investigations and the patient's decision are defined
+  // once, covering every procedure -- not re-entered per procedure.
+  const [additionalProcedures, setAdditionalProcedures] = useState([]);
+  const [addProcName, setAddProcName] = useState('');
+  const [addProcEye, setAddProcEye] = useState('OU');
   // Pre Op Requirement -- doctor picks the actual pre-op investigations
   // this surgery needs (e.g. Biometry, or none) from the same
   // Investigations master used in Section 1. These are indicative only
@@ -473,17 +483,43 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setEditSurgeryInvestigations((list) => list.filter((_, i) => i !== idx));
   }
 
+  function addAdditionalProcedure() {
+    if (!addProcName.trim()) return;
+    setAdditionalProcedures((list) => [...list, { name: addProcName.trim(), eye: addProcEye }]);
+    setAddProcName('');
+  }
+  function removeAdditionalProcedure(idx) {
+    setAdditionalProcedures((list) => list.filter((_, i) => i !== idx));
+  }
+
   async function handleMarkForSurgery() {
     setError('');
     if (!surgeryProcedure) { setError('Select a surgery.'); return; }
-    if (!surgeryDecision) { setError("Select the patient's decision -- right now."); return; }
     setSurgeryLoading(true);
-    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision, combineWithCaseId);
+
+    let result;
+    if (combineWithCaseId) {
+      // Adding a combined procedure to an already-saved case -- decision
+      // and investigations are inherited from that case server-side, not
+      // re-entered here (see markForSurgery's linkedCaseId handling).
+      result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, [], surgeryNotes, null, combineWithCaseId);
+    } else {
+      if (!surgeryDecision) { setError("Select the patient's decision -- right now."); setSurgeryLoading(false); return; }
+      // Every procedure named here (the primary one plus anything added
+      // via "Add Combined Procedure" below) is created together, sharing
+      // ONE investigation set and ONE decision -- defined once, covering
+      // the whole combined surgery, not re-entered per procedure.
+      const procedures = [{ name: surgeryProcedure, eye: surgeryEye }, ...additionalProcedures];
+      result = await markForSurgeryBatch(data.entry.visits.patients.id, data.encounter.id, procedures, surgeryInvestigations, surgeryNotes, surgeryDecision);
+    }
+
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
     setCombineWithCaseId(null);
     setSurgeryProcedure('');
+    setAdditionalProcedures([]);
+    setAddProcName('');
     setSurgeryInvestigations([]);
     setSurgeryInvName('');
     setSurgeryNotes('');
@@ -491,15 +527,18 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     refresh();
   }
 
-  // Opens the same surgery form used for the visit's first case, but
-  // tagged to link the new procedure to an existing one on this visit
-  // -- e.g. advising Anti-VEGF Injection alongside a Cataract surgery
-  // already marked, performed together in the same OT sitting.
+  // Opens the same surgery form, but tagged to link the new procedure
+  // to an existing already-saved case -- the fallback for when a
+  // combined procedure wasn't added during the original advice (the
+  // primary path for that is additionalProcedures above, added before
+  // the first save). Investigations and decision aren't asked here --
+  // they're inherited from the linked case so both stay identical.
   function startCombineProcedure(caseId) {
     setError('');
     setCombineWithCaseId(caseId);
     setSurgeryProcedure('');
     setSurgeryEye('OU');
+    setAdditionalProcedures([]);
     setSurgeryInvestigations([]);
     setSurgeryInvName('');
     setSurgeryNotes('');
@@ -1195,62 +1234,101 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
                       </select>
                     </div>
-                    <div style={{ marginBottom: 8 }}>
-                      <label className="flbl">Pre Op Requirement</label>
-                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
-                        Only IOL/lens surgeries (e.g. cataract) genuinely need Biometry -- most surgeries (pterygium, DCR, chalazion, oculoplasty, etc.) need no pre-op investigation at all. Pick whatever this specific case needs from the Investigations master, same list as Section 1 -- these are indicative only, shown as one-click suggestions in Surgical Journey&apos;s own Investigations step; the actual order is placed from there, not here. Medical Fitness clearance is required for every case, so there's nothing to pick for that.
-                      </div>
-                      {surgeryInvestigations.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
-                          {surgeryInvestigations.map((inv, idx) => (
-                            <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
-                              {inv.name} ({inv.eye})
-                              <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeSurgeryInvestigation(idx)}></i>
-                            </span>
-                          ))}
+
+                    {!combineWithCaseId && (
+                      <div style={{ marginBottom: 8 }}>
+                        <label className="flbl">Combined Procedures (optional)</label>
+                        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
+                          If another procedure is being performed together with this one in the same sitting (e.g. Cataract with Anti-VEGF Injection), add it here -- investigations and the patient's decision below cover every procedure listed, defined once.
                         </div>
-                      )}
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <select className="fi fi-sm" value={surgeryInvName} onChange={(e) => setSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
-                          <option value="">-- Pick an investigation --</option>
-                          {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                        </select>
-                        <select className="fi fi-sm" value={surgeryInvEye} onChange={(e) => setSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
-                          <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
-                        </select>
-                        <button type="button" className="btn btn-sm" onClick={addSurgeryInvestigation}><i className="ti ti-plus"></i></button>
+                        {additionalProcedures.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                            {additionalProcedures.map((p, idx) => (
+                              <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--indigo)', border: '1px solid var(--indigo)' }}>
+                                <i className="ti ti-stack-2"></i> {p.name} ({p.eye})
+                                <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeAdditionalProcedure(idx)}></i>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <select className="fi fi-sm" value={addProcName} onChange={(e) => setAddProcName(e.target.value)} style={{ flex: 2 }}>
+                            <option value="">-- Add combined procedure --</option>
+                            {surgeryOptions.filter((s) => s.name !== surgeryProcedure).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                          <select className="fi fi-sm" value={addProcEye} onChange={(e) => setAddProcEye(e.target.value)} style={{ width: 110 }}>
+                            <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
+                          </select>
+                          <button type="button" className="btn btn-sm" onClick={addAdditionalProcedure}><i className="ti ti-plus"></i></button>
+                        </div>
                       </div>
-                    </div>
+                    )}
+
+                    {combineWithCaseId ? (
+                      <div style={{ fontSize: 11.5, color: 'var(--indigo)', marginBottom: 8, padding: '7px 10px', background: 'var(--g50)', borderRadius: 6, border: '1px solid var(--indigo)' }}>
+                        <i className="ti ti-info-circle"></i> Pre Op Requirement and Patient's Decision are inherited from{' '}
+                        <strong>{data.surgicalCases.find((sc) => sc.id === combineWithCaseId)?.procedure_name}</strong> automatically -- both procedures share the same investigations and decision since they're performed in one sitting.
+                      </div>
+                    ) : (
+                      <div style={{ marginBottom: 8 }}>
+                        <label className="flbl">Pre Op Requirement</label>
+                        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
+                          Only IOL/lens surgeries (e.g. cataract) genuinely need Biometry -- most surgeries (pterygium, DCR, chalazion, oculoplasty, etc.) need no pre-op investigation at all. Pick whatever this case (and any combined procedures above) needs from the Investigations master, same list as Section 1 -- these are indicative only, shown as one-click suggestions in Surgical Journey&apos;s own Investigations step; the actual order is placed from there, not here. Medical Fitness clearance is required for every case, so there's nothing to pick for that.
+                        </div>
+                        {surgeryInvestigations.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                            {surgeryInvestigations.map((inv, idx) => (
+                              <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'var(--g50)', color: 'var(--red)', border: '1px solid var(--red)' }}>
+                                {inv.name} ({inv.eye})
+                                <i className="ti ti-x" style={{ cursor: 'pointer' }} onClick={() => removeSurgeryInvestigation(idx)}></i>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <select className="fi fi-sm" value={surgeryInvName} onChange={(e) => setSurgeryInvName(e.target.value)} style={{ flex: 1 }}>
+                            <option value="">-- Pick an investigation --</option>
+                            {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                          <select className="fi fi-sm" value={surgeryInvEye} onChange={(e) => setSurgeryInvEye(e.target.value)} style={{ width: 90 }}>
+                            <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                          </select>
+                          <button type="button" className="btn btn-sm" onClick={addSurgeryInvestigation}><i className="ti ti-plus"></i></button>
+                        </div>
+                      </div>
+                    )}
                     <div style={{ marginBottom: 8 }}>
                       <label className="flbl">Notes</label>
                       <input className="fi" placeholder="Any notes for this surgery recommendation..." value={surgeryNotes} onChange={(e) => setSurgeryNotes(e.target.value)} />
                     </div>
-                    <div style={{ marginBottom: 8 }}>
-                      <label className="flbl">Patient's Decision -- Right Now</label>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {[
-                          { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
-                          { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
-                          { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
-                        ].map((d) => (
-                          <button
-                            key={d.v} type="button" className="btn btn-sm"
-                            style={{ background: surgeryDecision === d.v ? d.color : '', color: surgeryDecision === d.v ? '#fff' : '', border: surgeryDecision === d.v ? 'none' : undefined }}
-                            onClick={() => setSurgeryDecision(d.v)}
-                          >
-                            {d.label}
-                          </button>
-                        ))}
+                    {!combineWithCaseId && (
+                      <div style={{ marginBottom: 8 }}>
+                        <label className="flbl">Patient's Decision -- Right Now</label>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {[
+                            { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
+                            { v: 'Wants Time to Decide', label: 'Needs Time to Decide', color: 'var(--amber)' },
+                            { v: 'Declined', label: 'Not Willing', color: 'var(--red)' },
+                          ].map((d) => (
+                            <button
+                              key={d.v} type="button" className="btn btn-sm"
+                              style={{ background: surgeryDecision === d.v ? d.color : '', color: surgeryDecision === d.v ? '#fff' : '', border: surgeryDecision === d.v ? 'none' : undefined }}
+                              onClick={() => setSurgeryDecision(d.v)}
+                            >
+                              {d.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
+                          "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way. This single decision covers every procedure listed above.
+                        </div>
                       </div>
-                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
-                        "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way.
-                      </div>
-                    </div>
+                    )}
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
                         {surgeryLoading ? 'Saving...' : 'Save'}
                       </button>
-                      <button className="btn btn-sm" onClick={() => { setShowSurgery(false); setCombineWithCaseId(null); }}>Cancel</button>
+                      <button className="btn btn-sm" onClick={() => { setShowSurgery(false); setCombineWithCaseId(null); setAdditionalProcedures([]); }}>Cancel</button>
                     </div>
                   </div>
                 )}
