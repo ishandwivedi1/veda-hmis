@@ -16,7 +16,7 @@ const PLACEHOLDER_REFERENCE = {
     'payments (loop: date, ref_number, amount)', 'total_paid',
   ],
 };
-PLACEHOLDER_REFERENCE.invoice_surgery = [...PLACEHOLDER_REFERENCE.invoice_opd, 'package_name', 'discharge_date'];
+PLACEHOLDER_REFERENCE.invoice_surgery = [...PLACEHOLDER_REFERENCE.invoice_opd, 'package_name'];
 
 PLACEHOLDER_REFERENCE.receipt = [
   'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
