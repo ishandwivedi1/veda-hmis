@@ -210,6 +210,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [procName, setProcName] = useState('');
   const [procEye, setProcEye] = useState('OD');
   const [procNotes, setProcNotes] = useState('');
+  // Defaults to today -- most OPD procedures are still done in the same
+  // sitting. Change it to a future date when the patient needs to come
+  // back separately; see the Doctor Dashboard's "OPD Procedures Due
+  // Today" widget for how that surfaces later.
+  const [procDate, setProcDate] = useState(todayIst());
   const [refDest, setRefDest] = useState('');
   const [refReason, setRefReason] = useState('');
   const [fuAfter, setFuAfter] = useState('1 month');
@@ -377,10 +382,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleAddProcedure() {
     setError('');
     if (!procName) { setError('Select a procedure.'); return; }
-    const result = await addProcedure(data.encounter.id, procName, procEye, procNotes);
+    const result = await addProcedure(data.encounter.id, procName, procEye, procNotes, procDate);
     if (result.error) { setError(result.error); return; }
     setProcName('');
     setProcNotes('');
+    setProcDate(todayIst());
     refresh();
   }
 
@@ -1053,7 +1059,14 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   {data.procedures.map((p) => (
                     <div key={p.id} style={{ padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>{p.name} -- {p.eye}</span>
+                        <span>
+                          {p.name} -- {p.eye}
+                          {p.scheduled_date && p.scheduled_date !== todayIst() && (
+                            <span className="badge b-amber" style={{ marginLeft: 6, fontSize: 10 }}>
+                              <i className="ti ti-calendar-event"></i> {new Date(p.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}
+                            </span>
+                          )}
+                        </span>
                         <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeProcedure(p.id, data.encounter.id); refresh(); }}>Remove</button>
                       </div>
                       {p.notes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{p.notes}</div>}
@@ -1067,6 +1080,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                     <select className="fi fi-sm" value={procEye} onChange={(e) => setProcEye(e.target.value)} style={{ width: 110 }}>
                       <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
                     </select>
+                    <input
+                      type="date" className="fi fi-sm" value={procDate} min={todayIst()} onChange={(e) => setProcDate(e.target.value)}
+                      style={{ width: 140 }} title="Date this procedure is to be performed -- defaults to today"
+                    />
                     <button className="btn btn-sm btn-primary" onClick={handleAddProcedure}>Add</button>
                   </div>
                   <input className="fi fi-sm" placeholder="Notes (optional)" value={procNotes} onChange={(e) => setProcNotes(e.target.value)} />

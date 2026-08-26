@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getDoctorDashboardData, getDoctorHistory } from './actions';
+import { getDoctorDashboardData, getDoctorHistory, getProceduresDueToday } from './actions';
 import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
 import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
 import { getOpenPostOpEpisodeForPatient } from '@/app/(main)/ot-postop/actions';
@@ -59,7 +59,7 @@ function TabButton({ active, onClick, icon, label, disabled }) {
   );
 }
 
-function DashboardTab({ active, intermediate, completed, optometryWaiting, visitTypeCounts, totalVisitsToday, error, onRunAction, onOpen }) {
+function DashboardTab({ active, intermediate, completed, optometryWaiting, proceduresDueToday, visitTypeCounts, totalVisitsToday, error, onRunAction, onOpen }) {
   const inConsultation = active.find((e) => e.status === 'In Consultation');
   const waitingCount = active.filter((e) => e.status === 'Waiting' || e.status === 'Ready for Review').length;
 
@@ -210,6 +210,33 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, visit
         </div>
       </div>
 
+      {/* OPD PROCEDURES DUE TODAY -- patients whose doctor scheduled an
+          OPD Procedure for today specifically, rather than same-sitting.
+          Only shown when there's actually someone expected, so it
+          doesn't clutter the dashboard on an ordinary day. */}
+      {proceduresDueToday.length > 0 && (
+        <div className="card" style={{ marginBottom: 20, border: '1px solid var(--amber)' }}>
+          <div className="card-head">
+            <div className="card-title"><i className="ti ti-calendar-event" style={{ color: 'var(--amber)' }}></i> OPD Procedures Due Today<span className="badge b-amber">{proceduresDueToday.length}</span></div>
+          </div>
+          {proceduresDueToday.map((p) => {
+            const patient = p.encounters?.visits?.patients;
+            return (
+              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
+                <div>
+                  <strong>{patient?.first_name} {patient?.last_name}</strong>
+                  <span style={{ color: 'var(--g400)', marginLeft: 6 }}>{patient?.uhid}</span>
+                  <div style={{ fontSize: 11.5, color: 'var(--g500)' }}>
+                    {p.name} -- {p.eye}{p.notes && ` (${p.notes})`}
+                  </div>
+                </div>
+                {patient?.mobile && <span style={{ fontSize: 11, color: 'var(--g500)' }}>{patient.mobile}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Everything else -- side by side in pairs rather than one long
           vertical stack. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
@@ -316,18 +343,20 @@ export default function DoctorDashboardPage() {
   const [optometryWaiting, setOptometryWaiting] = useState([]);
   const [visitTypeCounts, setVisitTypeCounts] = useState({});
   const [totalVisitsToday, setTotalVisitsToday] = useState(0);
+  const [proceduresDueToday, setProceduresDueToday] = useState([]);
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
-    const result = await getDoctorDashboardData();
+    const [result, dueToday] = await Promise.all([getDoctorDashboardData(), getProceduresDueToday()]);
     setActive(result.active);
     setIntermediate(result.intermediate);
     setCompleted(result.completed);
     setOptometryWaiting(result.optometryWaiting);
     setVisitTypeCounts(result.visitTypeCounts);
     setTotalVisitsToday(result.totalVisitsToday);
+    setProceduresDueToday(dueToday);
   }, []);
 
   const refreshHistory = useCallback(async () => {
@@ -399,6 +428,7 @@ export default function DoctorDashboardPage() {
       {activeTab === 'dashboard' && (
         <DashboardTab
           active={active} intermediate={intermediate} completed={completed} optometryWaiting={optometryWaiting}
+          proceduresDueToday={proceduresDueToday}
           visitTypeCounts={visitTypeCounts} totalVisitsToday={totalVisitsToday}
           error={error} onRunAction={runAction} onOpen={openConsultation}
         />

@@ -54,7 +54,27 @@ export async function getDoctorDashboardData() {
   };
 }
 
-// ── HISTORY: every completed consultation, not just today's ──
+// ── OPD PROCEDURES DUE TODAY ──
+// Patients whose OPD Procedure was scheduled (by the doctor, in a past
+// consultation) for TODAY specifically, rather than performed same-
+// sitting -- otherwise there was no way to know who's expected back in
+// for one until they walked in and someone remembered. Purely
+// informational: front desk still registers a fresh visit for the
+// patient as normal; this just tells staff who to expect.
+export async function getProceduresDueToday() {
+  const supabase = await createClient();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const { data, error } = await supabase
+    .from('plan_procedures')
+    .select('id, name, eye, notes, scheduled_date, encounters(visit_id, visits(patients(id, first_name, last_name, uhid, mobile)))')
+    .eq('status', 'Planned')
+    .eq('scheduled_date', todayIst)
+    .order('created_at');
+  if (error) return [];
+  return (data || []).filter((p) => p.encounters?.visits?.patients);
+}
+
+
 export async function getDoctorHistory() {
   const supabase = await createClient();
   const { data, error } = await supabase

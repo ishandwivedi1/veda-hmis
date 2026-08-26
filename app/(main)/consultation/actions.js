@@ -694,12 +694,20 @@ export async function removeOpticalAdvice(id, encounterId) {
   return { success: true };
 }
 
-export async function addProcedure(encounterId, name, eye, notes) {
+// scheduledDate is optional -- when omitted (or set to today), the
+// procedure is performed in this same sitting, same as always. A
+// future date means the patient needs to come back separately for it;
+// this is what the Doctor Dashboard's "OPD Procedures Due Today" list
+// reads from (see getProceduresDueToday in doctor-dashboard/actions.js).
+export async function addProcedure(encounterId, name, eye, notes, scheduledDate) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
-  const { error } = await supabase.from('plan_procedures').insert({ encounter_id: encounterId, name, eye, notes: notes || null, created_by: userData?.user?.id || null });
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const effectiveDate = scheduledDate || todayIst;
+  const { error } = await supabase.from('plan_procedures').insert({ encounter_id: encounterId, name, eye, notes: notes || null, scheduled_date: effectiveDate, created_by: userData?.user?.id || null });
   if (error) return { error: error.message };
-  await addAudit(supabase, encounterId, `OPD Procedure planned: ${name} (${eye})`, userData?.user?.id);
+  const dateNote = effectiveDate !== todayIst ? ` -- scheduled for ${effectiveDate}` : '';
+  await addAudit(supabase, encounterId, `OPD Procedure planned: ${name} (${eye})${dateNote}`, userData?.user?.id);
   return { success: true };
 }
 
