@@ -82,7 +82,7 @@ function ScopeToggle({ todayOnly, onChange }) {
   );
 }
 
-export default function BillingDashboardClient({ dischargedUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal }) {
+export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal }) {
   const router = useRouter();
   // Needs Action starts collapsed -- it's the "here's what's still
   // outstanding" detail view, not the first thing a person should have
@@ -96,11 +96,12 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
 
   const todaysInvoicesValue = todaysInvoices.reduce((s, i) => s + Number(i.net || 0), 0);
 
-  const dischargedUnbilledShown = todayOnly
-    ? dischargedUnbilled.filter((r) => isToday(r.discharge_date))
-    : dischargedUnbilled;
-
-  const needsActionCount = dischargedUnbilledShown.length + pendingBillingTotal;
+  // Surgery Billing surfaces the moment full payment is received (see
+  // getPendingPackageBilling), not gated on discharge -- there's no
+  // natural "today" anchor for that anymore (payment could've completed
+  // any day before this), so it always shows the full list regardless
+  // of the Today/Historical toggle above.
+  const needsActionCount = fullyPaidUnbilled.length + pendingBillingTotal;
 
   return (
     <div>
@@ -111,7 +112,7 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
         <StatCard label="Today's Invoices" value={todaysInvoices.length} sub={RUPEE(todaysInvoicesValue)} color="--blue" />
         <StatCard label="Outstanding" value={outstandingInvoices.length} sub={RUPEE(outstandingTotal)} color="--red" />
         <StatCard label="Pending Billing" value={pendingBillingTotal} sub={todayOnly ? 'Not yet invoiced -- today' : 'Not yet invoiced -- all time'} color="--amber" />
-        <StatCard label="Surgery Billing Due" value={dischargedUnbilledShown.length} sub={todayOnly ? 'Discharged today, unbilled' : 'Discharged, unbilled -- all time'} color="--purple" />
+        <StatCard label="Surgery Billing Due" value={fullyPaidUnbilled.length} sub="Fully paid, not yet invoiced" color="--purple" />
       </div>
 
       {/* RECENT INVOICES -- full width, first thing after the KPI strip */}
@@ -184,42 +185,39 @@ export default function BillingDashboardClient({ dischargedUnbilled, todaysVisit
           open={needsActionOpen} onToggle={() => setNeedsActionOpen((v) => !v)}
         />
         <div style={{ marginTop: needsActionOpen ? 10 : 0, display: needsActionOpen ? 'block' : 'none' }}>
-            {dischargedUnbilledShown.length > 0 && (
+            {fullyPaidUnbilled.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
                   <i className="ti ti-scalpel"></i> Surgery Billing
-                  <span className="badge b-red" style={{ marginLeft: 8 }}>{dischargedUnbilledShown.length}</span>
+                  <span className="badge b-red" style={{ marginLeft: 8 }}>{fullyPaidUnbilled.length}</span>
                 </div>
                 <table className="tbl">
-                  <thead><tr><th>Discharged</th><th>Patient</th><th>Surgery</th><th>Package</th><th>Amount</th><th></th></tr></thead>
+                  <thead><tr><th>Patient</th><th>Surgery</th><th>Amount</th><th></th></tr></thead>
                   <tbody>
-                    {dischargedUnbilledShown.map((r) => {
-                      const sc = r.surgical_cases;
-                      return (
-                        <tr key={sc.id} onClick={() => router.push(`/billing/new?pkgCaseId=${sc.id}`)} style={{ cursor: 'pointer' }}>
-                          <td style={{ fontSize: 12 }}>{new Date(r.discharge_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                          <td>
-                            <strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong>
-                            <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span>
-                          </td>
-                          <td style={{ fontSize: 12 }}>{sc.procedure_name} ({sc.eye})</td>
-                          <td style={{ fontSize: 12 }}>{sc.master_packages?.name || '--'}</td>
-                          <td style={{ fontWeight: 600 }}>{RUPEE(sc.master_packages?.price)}</td>
-                          <td>
-                            <button type="button" className="btn btn-primary btn-sm" onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'none' }}>
-                              <i className="ti ti-receipt"></i> Bill Now
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {fullyPaidUnbilled.map((sc) => (
+                      <tr key={sc.id} onClick={() => router.push(`/billing/new?pkgCaseId=${sc.id}`)} style={{ cursor: 'pointer' }}>
+                        <td>
+                          <strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong>
+                          <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span>
+                        </td>
+                        <td style={{ fontSize: 12 }}>
+                          {sc.procedure_name} ({sc.eye})
+                          {sc.additionalProcedures?.length > 0 && (
+                            <div style={{ color: 'var(--g400)' }}>
+                              + {sc.additionalProcedures.map((p) => `${p.procedure_name} (${p.eye})`).join(', ')}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{RUPEE(sc.netTotal)}</td>
+                        <td>
+                          <button type="button" className="btn btn-primary btn-sm" onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'none' }}>
+                            <i className="ti ti-receipt"></i> Bill Now
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
-              </div>
-            )}
-            {todayOnly && dischargedUnbilledShown.length === 0 && dischargedUnbilled.length > 0 && (
-              <div style={{ fontSize: 11.5, color: 'var(--g400)', marginBottom: 16 }}>
-                No surgery billing due from today -- {dischargedUnbilled.length} older case{dischargedUnbilled.length === 1 ? '' : 's'} in Historical.
               </div>
             )}
 

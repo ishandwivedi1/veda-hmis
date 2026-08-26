@@ -500,35 +500,6 @@ export async function markPrescriptionsBilled(ids) {
 // everything else, unlike the old generate_package_invoice RPC which
 // used to mark the invoice paid directly with no actual payment
 // collected (see package-billing-tab.js).
-export async function getPendingPackageBilling() {
-  const supabase = await createClient();
-  const { data: cases, error } = await supabase
-    .from('surgical_cases')
-    .select('id, procedure_name, eye, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(id, code, name, price)')
-    .eq('package_locked', true)
-    .eq('package_billed', false)
-    .not('package_id', 'is', null);
-  if (error) return [];
-  const eligibleCases = (cases || []).filter((sc) => sc.master_packages);
-  if (eligibleCases.length === 0) return [];
-
-  // Additional procedures within the same surgery (see
-  // surgical_case_procedures) must ALSO have a locked, unbilled
-  // package before the case shows up here -- every procedure bills
-  // together on one invoice, not piecemeal.
-  const { data: procs } = await supabase
-    .from('surgical_case_procedures')
-    .select('surgical_case_id, package_locked, package_billed, package_id')
-    .in('surgical_case_id', eligibleCases.map((c) => c.id));
-
-  const procsByCase = {};
-  (procs || []).forEach((p) => { (procsByCase[p.surgical_case_id] ||= []).push(p); });
-
-  return eligibleCases.filter((sc) => {
-    const caseProcs = procsByCase[sc.id] || [];
-    return caseProcs.every((p) => p.package_locked && !p.package_billed && p.package_id);
-  });
-}
 
 // ── Surgery Billing panel (New Invoice) -- Surgery/Eye/Doctor fields
 // shown alongside the Package selection, whether prefilled from an
@@ -561,16 +532,61 @@ export async function setManualSurgeryDetails(invoiceId, surgeryName, surgeryEye
 // is now the actual moment the full surgery invoice gets generated --
 // advance was already collected pre-op (OT Dashboard), so this is
 // "settle the rest." ──
-export async function getDischargedUnbilledSurgeries() {
+// Surgery Billing -- surfaces a surgery for billing the moment FULL
+// PAYMENT has been received against every procedure's package
+// (primary + additional, see surgical_case_procedures), instead of
+// waiting for discharge. A surgery can get fully paid well before the
+// operation (advance collected upfront) or right at discharge --
+// either way, front desk should see it here as soon as the money is
+// actually in, not have to wait on Recovery to record a discharge
+// date. Net-amount and advance-balance calculation matches Surgical
+// Journey's Payment step and Patient Check-In's advance-cleared gate
+// (see surgical-journey/[id]/workspace.js and
+// ot-intraop/actions.js's getOTCaseList) -- keep these in sync.
+export async function getPendingPackageBilling() {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('recovery_episodes')
-    .select('discharge_date, surgical_cases!inner(id, procedure_name, eye, package_billed, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(name, price))')
-    .not('discharge_date', 'is', null)
-    .eq('surgical_cases.package_billed', false)
-    .order('discharge_date', { ascending: true });
+  const { data: cases, error } = await supabase
+    .from('surgical_cases')
+    .select('id, patient_id, procedure_name, eye, package_discount, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(id, code, name, price)')
+    .eq('package_locked', true)
+    .eq('package_billed', false)
+    .not('package_id', 'is', null);
   if (error) return [];
-  return (data || []).filter((r) => r.surgical_cases);
+  const eligibleCases = (cases || []).filter((sc) => sc.master_packages);
+  if (eligibleCases.length === 0) return [];
+
+  // Every procedure in the surgery must ALSO have a locked, unbilled
+  // package before the case is even a billing candidate -- matches how
+  // billing actually happens (every procedure together, one invoice).
+  const { data: procs } = await supabase
+    .from('surgical_case_procedures')
+    .select('surgical_case_id, procedure_name, eye, package_discount, package_locked, package_billed, package_id, master_packages:package_id(name, price)')
+    .in('surgical_case_id', eligibleCases.map((c) => c.id));
+
+  const procsByCase = {};
+  (procs || []).forEach((p) => { (procsByCase[p.surgical_case_id] ||= []).push(p); });
+
+  const readyCases = eligibleCases.filter((sc) => {
+    const caseProcs = procsByCase[sc.id] || [];
+    return caseProcs.every((p) => p.package_locked && !p.package_billed && p.package_id);
+  });
+  if (readyCases.length === 0) return [];
+
+  const patientIds = [...new Set(readyCases.map((sc) => sc.patient_id).filter(Boolean))];
+  const balanceByPatient = {};
+  await Promise.all(patientIds.map(async (pid) => {
+    const { data: bal } = await supabase.rpc('get_advance_balance', { p_patient_id: pid });
+    balanceByPatient[pid] = Number(bal) || 0;
+  }));
+
+  return readyCases
+    .map((sc) => {
+      const caseProcs = procsByCase[sc.id] || [];
+      const netTotal = Math.max(0, Number(sc.master_packages.price) - Number(sc.package_discount || 0))
+        + caseProcs.reduce((sum, p) => sum + Math.max(0, Number(p.master_packages?.price || 0) - Number(p.package_discount || 0)), 0);
+      return { ...sc, additionalProcedures: caseProcs, netTotal, advanceBalance: balanceByPatient[sc.patient_id] || 0 };
+    })
+    .filter((sc) => sc.advanceBalance >= sc.netTotal - 0.01); // fully paid, small epsilon for rounding
 }
 // Shapes one billable row (the primary case, or one of its additional
 // procedures) into a billing line item.
