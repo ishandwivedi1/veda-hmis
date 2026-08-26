@@ -241,6 +241,11 @@ export default function Workspace({ caseId }) {
     + (data.caseProcedures || []).reduce((sum, p) => sum + (p.master_packages ? Math.max(0, Number(p.master_packages.price) - Number(p.package_discount || 0)) : 0), 0);
   const advanceBalance = Number(data.advanceBalance || 0);
 
+  // Create Invoice deactivates once every procedure's package has been
+  // billed -- a surgery with no additional procedures just checks the
+  // primary case's own package_billed flag.
+  const allPackagesBilled = !!sc.package_billed && (data.caseProcedures || []).every((p) => !p.master_packages || p.package_billed);
+
   // Drives the "Next Step" highlight -- the first not-yet-done stage in
   // the natural order gets the full-color treatment, everything else
   // stays normal. Reports and Notes aren't part of this sequence (they
@@ -325,14 +330,20 @@ export default function Workspace({ caseId }) {
         ) : (
           <div>
             <div style={{ background: 'var(--g50)', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 12.5 }}>
+              {/* Every procedure in the surgery gets its own line --
+                  primary plus each additional procedure (see
+                  surgical_case_procedures) -- since each keeps its own
+                  package/price, summed into Net payable below. */}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Package price</span><span>Rs.{Number(sc.master_packages.price).toLocaleString('en-IN')}</span>
+                <span>{sc.procedure_name} ({EYE_LABEL[sc.eye] || sc.eye})</span>
+                <span>Rs.{Number(sc.master_packages.price).toLocaleString('en-IN')}{Number(sc.package_discount || 0) > 0 ? ` (\u2212Rs.${Number(sc.package_discount).toLocaleString('en-IN')})` : ''}</span>
               </div>
-              {Number(sc.package_discount || 0) > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--red)' }}>
-                  <span>Discount</span><span>&minus; Rs.{Number(sc.package_discount).toLocaleString('en-IN')}</span>
+              {(data.caseProcedures || []).filter((p) => p.master_packages).map((p) => (
+                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                  <span>{p.procedure_name} ({EYE_LABEL[p.eye] || p.eye})</span>
+                  <span>Rs.{Number(p.master_packages.price).toLocaleString('en-IN')}{Number(p.package_discount || 0) > 0 ? ` (\u2212Rs.${Number(p.package_discount).toLocaleString('en-IN')})` : ''}</span>
                 </div>
-              )}
+              ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid var(--g200)', marginTop: 6, paddingTop: 6 }}>
                 <span>Net payable</span><span>Rs.{netPackageAmount.toLocaleString('en-IN')}</span>
               </div>
@@ -355,6 +366,21 @@ export default function Workspace({ caseId }) {
                 </button>
               </div>
             )}
+            {/* Bills every procedure's package together on ONE invoice
+                (see billing/new/new-invoice-tab.js's pkgCaseId effect) --
+                deactivates once package_billed is true for the whole
+                surgery, since it can't be billed twice. */}
+            <div style={{ marginTop: 10 }}>
+              {allPackagesBilled ? (
+                <button className="btn btn-sm" disabled>
+                  <i className="ti ti-circle-check"></i> Invoice Created
+                </button>
+              ) : (
+                <button className="btn btn-sm" onClick={() => openTab(`/billing/new?pkgCaseId=${sc.id}`, `invoice-${sc.id}`)}>
+                  <i className="ti ti-receipt"></i> Create Invoice
+                </button>
+              )}
+            </div>
           </div>
         )}
       </Section>
