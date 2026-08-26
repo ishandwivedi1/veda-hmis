@@ -1989,7 +1989,7 @@ export async function renderDischargeSummaryHtml(episodeId) {
 
   const { data: episode, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(procedure_name, eye, visit_id, patients:patient_id(uhid, first_name, last_name, mobile, age, gender), profiles:surgeon_id(full_name, registration_no))')
+    .select('*, surgical_cases(id, procedure_name, eye, visit_id, patients:patient_id(uhid, first_name, last_name, mobile, age, gender), profiles:surgeon_id(full_name, registration_no))')
     .eq('id', episodeId)
     .single();
   if (error || !episode) return { error: 'Episode not found.' };
