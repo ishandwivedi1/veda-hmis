@@ -383,9 +383,9 @@ export async function getPendingProcedureBilling() {
   return Object.values(groups);
 }
 
-// ── PREFILL FROM FRONT OFFICE'S "PRESCRIBED MINOR PROCEDURES" WIDGET ──
+// ── PREFILL FROM FRONT OFFICE'S "PRESCRIBED OPD PROCEDURES" WIDGET ──
 // Same pattern as getInvestigationOrdersForBilling -- matches each
-// plan_procedures row against the Minor Procedure department of the
+// plan_procedures row against the OPD Procedure department of the
 // service catalog by name.
 export async function getProceduresForBilling(ids) {
   const supabase = await createClient();
@@ -397,7 +397,7 @@ export async function getProceduresForBilling(ids) {
     .in('id', ids);
   if (error) return { error: error.message };
 
-  const { data: catalog } = await supabase.from('master_services').select('*').eq('dept', 'Minor Procedure').eq('status', 'Active');
+  const { data: catalog } = await supabase.from('master_services').select('*').eq('dept', 'OPD Procedure').eq('status', 'Active');
 
   const items = (orders || []).map((p) => {
     const match = (catalog || []).find((s) => s.name.toLowerCase() === p.name.toLowerCase());

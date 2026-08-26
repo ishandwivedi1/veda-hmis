@@ -59,7 +59,7 @@ function normalizeName(s) {
 
 // Derives a short prefix from a category (or a fixed fallback for
 // tables with no category concept) -- multi-word categories become an
-// initialism ("Minor Procedure" -> MP, "chief_complaint" -> CC), single
+// initialism ("OPD Procedure" -> OP, "chief_complaint" -> CC), single
 // words are used whole if short enough or trimmed to 3 letters
 // otherwise ("Cataract" -> CAT, "EDOF" -> EDOF).
 function codePrefix(categoryOrFallback) {
@@ -71,7 +71,7 @@ function codePrefix(categoryOrFallback) {
 
 // Short alphanumeric codes, auto-generated and linked to category where
 // one exists (e.g. Surgery category "Cataract" -> CAT01, CAT02...;
-// Procedure category "Minor Procedure" -> MP01, MP02...; History
+// Procedure category "OPD Procedure" -> OP01, OP02...; History
 // Option category "chief_complaint" -> CC01, CC02...). For Clinical
 // Master tables with no category concept (IOP Methods, Clinical
 // Observations), pass a fixed short fallback prefix instead, so every

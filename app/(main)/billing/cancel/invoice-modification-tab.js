@@ -8,7 +8,7 @@ import {
 } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
-const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure', 'Surgery', 'Pharmacy'];
+const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'OPD Procedure', 'Surgery', 'Pharmacy'];
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
 
 export default function InvoiceModificationTab() {

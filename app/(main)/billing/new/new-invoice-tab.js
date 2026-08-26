@@ -26,7 +26,7 @@ import {
   setManualSurgeryDetails,
 } from '../actions';
 
-const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'Minor Procedure', 'Surgery', 'Pharmacy'];
+const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'OPD Procedure', 'Surgery', 'Pharmacy'];
 const DEFAULT_PURPOSE = 'Consultation';
 
 // Mirrors add_invoice_line_item's math exactly, so the running totals
@@ -157,8 +157,8 @@ export default function NewInvoiceTab() {
     })();
   }, [urlInvOrderIds, contextPatient]);
 
-  // Prefill from Front Office's "Prescribed Minor Procedures" widget --
-  // same pattern as investigations above, matched against the Minor
+  // Prefill from Front Office's "Prescribed OPD Procedures" widget --
+  // same pattern as investigations above, matched against the OPD
   // Procedure department of the service catalog.
   useEffect(() => {
     if (!urlProcIds || !contextPatient) return;
@@ -180,7 +180,7 @@ export default function NewInvoiceTab() {
           return {
             tempId: nextTempId.current++,
             sourceProcId: i.procedureId,
-            serviceCode: i.serviceCode, serviceName: `${i.name} (${i.eye})`, dept: 'Minor Procedure',
+            serviceCode: i.serviceCode, serviceName: `${i.name} (${i.eye})`, dept: 'OPD Procedure',
             qty: 1, rate: i.rate, gstPct: i.gstPct,
             discType: 'none', discValue: 0, discReason: '',
             ...computed,

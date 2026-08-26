@@ -15,7 +15,7 @@ const BILLING_BADGE = { Pending: 'b-amber', Deferred: 'b-indigo' };
 // to front-office staff (a doctor's in-consultation procedure).
 const CATEGORY_META = {
   Investigation: { title: 'Investigation Billing', icon: 'ti-flask', color: 'var(--teal)', param: 'invOrderIds' },
-  Procedure: { title: 'Consultation Billing', icon: 'ti-tool', color: 'var(--blue)', param: 'procIds' },
+  Procedure: { title: 'OPD Procedure Billing', icon: 'ti-tool', color: 'var(--blue)', param: 'procIds' },
   Pharmacy: { title: 'Pharmacy Billing', icon: 'ti-pill', color: 'var(--purple)', param: 'rxIds' },
   Biometry: { title: 'Biometry Billing', icon: 'ti-ruler-measure', color: 'var(--indigo)', param: 'bioIds' },
 };

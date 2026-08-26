@@ -699,7 +699,7 @@ export async function addProcedure(encounterId, name, eye, notes) {
   const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('plan_procedures').insert({ encounter_id: encounterId, name, eye, notes: notes || null, created_by: userData?.user?.id || null });
   if (error) return { error: error.message };
-  await addAudit(supabase, encounterId, `Minor Procedure planned: ${name} (${eye})`, userData?.user?.id);
+  await addAudit(supabase, encounterId, `OPD Procedure planned: ${name} (${eye})`, userData?.user?.id);
   return { success: true };
 }
 
@@ -809,7 +809,7 @@ export async function sendForInvestigationFromConsultation(queueEntryId, encount
   return result;
 }
 
-// Minor Procedures are performed by the doctor directly, in the same
+// OPD Procedures are performed by the doctor directly, in the same
 // sitting -- unlike Dilation/Investigation/Biometry there's no separate
 // department to route the patient to, so this just confirms the
 // procedure(s) for the audit trail. Billing already picks them up the

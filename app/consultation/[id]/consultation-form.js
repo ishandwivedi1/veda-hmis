@@ -242,7 +242,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
       // Substring match, not exact -- the catalog entry is named
       // "Biometry (Procedure Charge)", not literally "Biometry".
       setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation'));
-      setProcedureOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Minor Procedure'));
+      setProcedureOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'OPD Procedure'));
       setSurgeryOptions(sg.filter((s) => s.status === 'Active'));
     })();
   }, []);
@@ -1049,7 +1049,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                 </div>
 
                 <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> Minor Procedures</div>
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> OPD Procedures</div>
                   {data.procedures.map((p) => (
                     <div key={p.id} style={{ padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1061,7 +1061,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   ))}
                   <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                     <select className="fi fi-sm" value={procName} onChange={(e) => setProcName(e.target.value)} style={{ flex: 1 }}>
-                      <option value="">-- Select minor procedure --</option>
+                      <option value="">-- Select OPD procedure --</option>
                       {procedureOptions.map((p) => <option key={p.id} value={p.name}>{p.name} -- Rs.{p.rate}</option>)}
                     </select>
                     <select className="fi fi-sm" value={procEye} onChange={(e) => setProcEye(e.target.value)} style={{ width: 110 }}>
