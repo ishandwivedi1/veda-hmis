@@ -1340,22 +1340,14 @@ export async function renderOpdCaseSheetHtml(encounterId) {
   // as one Surgery Advised entry.
   const { data: surgicalCase } = await supabase
     .from('surgical_cases')
-    .select('id, procedure_name, eye, decision')
+    .select('id, procedure_name, eye, decision, surgical_case_procedures(procedure_name, eye)')
     .eq('encounter_id', encounterId)
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  let caseProcedures = [];
-  if (surgicalCase) {
-    const { data: procs } = await supabase
-      .from('surgical_case_procedures')
-      .select('procedure_name, eye')
-      .eq('surgical_case_id', surgicalCase.id)
-      .order('created_at');
-    caseProcedures = procs || [];
-  }
+  const caseProcedures = surgicalCase?.surgical_case_procedures || [];
 
   const settings = await getHospitalSettings();
   const context = buildOpdCaseSheetContext(settings, {

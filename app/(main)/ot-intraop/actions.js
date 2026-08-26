@@ -309,6 +309,7 @@ export async function getOTCaseDetail(otScheduleId) {
   if (error) return { error: error.message };
 
   const sc = booking.surgical_cases;
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
   // Planned IOL comes from the surgeon's IOL Approval (a separate
   // module/step now) -- NOT from biometry_records, which only holds
@@ -317,37 +318,48 @@ export async function getOTCaseDetail(otScheduleId) {
   // FK), not visit_id -- eye comes from sc.eye directly, set by the
   // doctor, not from biometry at all (biometry doesn't track eye
   // anymore since it's always done for both).
-  const [{ data: approval }, { data: intraop }, { data: consumables }, { data: events }] = await Promise.all([
+  //
+  // Everything here only depends on booking/sc, already available from
+  // the fetch above -- all fetched together in one wave (including
+  // consent forms, the day-lock check, and additional procedures)
+  // instead of several sequential round-trips one after another.
+  const [
+    { data: approval }, { data: intraop }, { data: consumables }, { data: events },
+    consentForms, activeVisitToday, caseProcedures,
+  ] = await Promise.all([
     supabase.from('iol_approvals').select('*, master_iol_catalog(brand, model, category)').eq('surgical_case_id', sc.id).eq('status', 'Approved').maybeSingle(),
     supabase.from('ot_intraop_records').select('*').eq('ot_schedule_id', otScheduleId).maybeSingle(),
     supabase.from('ot_intraop_consumables').select('*').eq('ot_schedule_id', otScheduleId).order('added_at'),
     supabase.from('ot_intraop_events').select('*').eq('ot_schedule_id', otScheduleId).order('occurred_at'),
+
+    // Consent form uploads -- one attachment lookup per type.
+    (async () => {
+      const forms = {};
+      await Promise.all(CONSENT_FORM_TYPES.map(async (f) => {
+        const { data: files } = await supabase
+          .from('clinical_attachments')
+          .select('*')
+          .eq('entity_type', `ot_consent_${f.key}`)
+          .eq('entity_id', otScheduleId)
+          .order('uploaded_at', { ascending: false })
+          .limit(1);
+        forms[f.key] = files && files.length > 0 ? files[0] : null;
+      }));
+      return forms;
+    })(),
+
+    // Same fact assertCheckinDayLock enforces server-side on every save
+    // -- fetched here too so the workspace can show the lock as the
+    // very first thing on load, before the person starts filling
+    // anything in, instead of only discovering it from an error after
+    // clicking Save.
+    hasActiveVisitToday(supabase, sc?.patient_id, todayIst),
+
+    // Additional procedures within the same surgery (e.g. Anti-VEGF
+    // Injection alongside a Cataract case) -- shown alongside the
+    // primary procedure at Check-In and in Intraoperative Management.
+    sc?.id ? getCaseProcedures(sc.id) : Promise.resolve([]),
   ]);
-
-  // Consent form uploads -- one attachment lookup per type.
-  const consentForms = {};
-  await Promise.all(CONSENT_FORM_TYPES.map(async (f) => {
-    const { data: files } = await supabase
-      .from('clinical_attachments')
-      .select('*')
-      .eq('entity_type', `ot_consent_${f.key}`)
-      .eq('entity_id', otScheduleId)
-      .order('uploaded_at', { ascending: false })
-      .limit(1);
-    consentForms[f.key] = files && files.length > 0 ? files[0] : null;
-  }));
-
-  // Same fact assertCheckinDayLock enforces server-side on every save --
-  // fetched here too so the workspace can show the lock as the very
-  // first thing on load, before the person starts filling anything in,
-  // instead of only discovering it from an error after clicking Save.
-  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  const activeVisitToday = await hasActiveVisitToday(supabase, sc?.patient_id, todayIst);
-
-  // Additional procedures within the same surgery (e.g. Anti-VEGF
-  // Injection alongside a Cataract case) -- shown alongside the
-  // primary procedure at Check-In and in Intraoperative Management.
-  const caseProcedures = sc?.id ? await getCaseProcedures(sc.id) : [];
 
   return {
     booking, biometryPlans: approval ? [approval] : [],

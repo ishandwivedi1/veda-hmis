@@ -134,7 +134,12 @@ export async function getConsultationData(queueEntryId) {
     // instead of silently reverting to a blank button after saving.
     // Scoped by visit_id (one visit, one surgical case), not just this
     // encounter, since a visit can span more than one encounter.
-    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority, biometry_required, fitness_required, indicative_investigations, notes, decision, decision_locked').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
+    // Additional procedures within the same surgery (e.g. this case is
+    // Cataract, with an Anti-VEGF Injection added alongside it) are
+    // embedded directly here rather than fetched as a separate
+    // follow-up query -- avoids an extra round-trip since it depends
+    // on this query's own result anyway (surgicalCases[0].id).
+    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority, biometry_required, fitness_required, indicative_investigations, notes, decision, decision_locked, surgical_case_procedures(id, procedure_name, eye, notes)').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -143,19 +148,7 @@ export async function getConsultationData(queueEntryId) {
     .flatMap((e) => (e.diagnoses || []).map((d) => ({ ...d, encounterDate: e.started_at })))
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-  // Additional procedures performed within the same surgery (e.g. this
-  // case is Cataract, with an Anti-VEGF Injection added alongside it)
-  // -- one surgical_cases row is still the whole surgery, this just
-  // lists what else is being done in the same sitting.
-  let caseProcedures = [];
-  if (surgicalCases && surgicalCases.length > 0) {
-    const { data: procs } = await supabase
-      .from('surgical_case_procedures')
-      .select('id, procedure_name, eye, notes')
-      .eq('surgical_case_id', surgicalCases[0].id)
-      .order('created_at');
-    caseProcedures = procs || [];
-  }
+  const caseProcedures = surgicalCases?.[0]?.surgical_case_procedures || [];
 
   // Follow-up Template: same consultation engine, just extra context --
   // a patient is a "follow-up" the moment they have any prior encounter
