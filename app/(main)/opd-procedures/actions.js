@@ -54,25 +54,25 @@ async function getWorkflowCasesWithContext() {
   }));
 }
 
+// Same classification Surgical Journey uses: whether an advance has
+// actually been paid, not what stage the decision/scheduling is at --
+// a patient can say yes and even take a date, then never show up with
+// the money, so advance payment is the real confirmation signal.
+// Completed cases move to their own section once done (today) rather
+// than staying in Active Cases indefinitely.
 export async function getOpdProcedureLists() {
   const cases = await getWorkflowCasesWithContext();
   const today = todayIst();
 
-  const awaitingDecision = cases
-    .filter((c) => !c.decision && c.status === 'Planned')
-    .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date));
-
-  const scheduled = cases
-    .filter((c) => c.decision === 'Accepted' && ['Planned', 'Scheduled'].includes(c.status))
-    .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date));
-
-  const checkedIn = cases.filter((c) => c.status === 'Checked In');
+  const eligible = cases.filter((c) => c.decision !== 'Declined' && c.status !== 'Completed');
+  const active = eligible.filter((c) => c.advanceBalance > 0);
+  const awaitingConfirmation = eligible
+    .filter((c) => c.advanceBalance <= 0)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   const completedToday = cases.filter((c) => c.status === 'Completed' && c.completed_at && c.completed_at.slice(0, 10) === today);
 
-  const followUp = cases.filter((c) => c.decision && c.decision !== 'Accepted' && c.decision !== 'Declined' && c.status === 'Planned');
-
-  return { awaitingDecision, scheduled, checkedIn, completedToday, followUp };
+  return { active, awaitingConfirmation, completedToday };
 }
 
 // ── PATIENT-CENTRIC LOOKUPS ──
@@ -190,7 +190,6 @@ export async function scheduleOpdProcedure(id, date, time) {
 
   const { data: row } = await supabase.from('plan_procedures').select('status, decision, encounter_id, name').eq('id', id).single();
   if (!row) return { error: 'Procedure not found.' };
-  if (row.decision !== 'Accepted') return { error: 'Patient decision must be Accepted before scheduling.' };
   if (!['Planned', 'Scheduled'].includes(row.status)) return { error: `Cannot schedule a case in "${row.status}" status.` };
 
   const { error } = await supabase.from('plan_procedures').update({ scheduled_date: date, scheduled_time: time || null, status: 'Scheduled' }).eq('id', id);

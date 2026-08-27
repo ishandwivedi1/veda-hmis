@@ -6,7 +6,6 @@ import { getPatientById } from '@/app/(main)/visits/actions';
 import { openTab } from '@/lib/popup';
 import {
   getPatientOpdProcedureJourney,
-  getTodayOpdProcedurePatients,
   getOpdProcedureMonthSummary,
   setOpdProcedureDecision,
   scheduleOpdProcedure,
@@ -286,14 +285,16 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
   const checkinDone = ['Checked In', 'Completed'].includes(p.status);
   const completeDone = p.status === 'Completed';
 
-  const stepOrder = [
-    ['decision', decisionDone && p.decision === 'Accepted'],
-    ['schedule', scheduleDone],
-    ['payment', paymentDone],
-    ['checkin', checkinDone],
-    ['complete', completeDone],
-  ];
-  const currentStep = decisionDone && p.decision !== 'Accepted' ? null : (stepOrder.find(([, done]) => !done)?.[0] || null);
+  // Decision and Procedure Date are independent of each other now (a
+  // date can be given before the patient has formally decided), so
+  // each gets its own "next step" activation instead of one shared
+  // sequential pointer. Payment -> Check-in -> Complete stay strictly
+  // sequential, gated on the step before them.
+  const decisionActive = p.decision !== 'Accepted';
+  const scheduleActive = !scheduleDone;
+  const paymentActive = scheduleDone && !paymentDone;
+  const checkinActive = paymentDone && !checkinDone;
+  const completeActive = checkinDone && !completeDone;
 
   return (
     <div className="card" style={{ marginBottom: 14, padding: 0, overflow: 'hidden' }}>
@@ -329,14 +330,12 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
             )
           ) : (
             <>
-              <Section num={1} color="var(--indigo)" title="Patient Decision" done={decisionDone && p.decision === 'Accepted'} active={currentStep === 'decision'}>
+              <Section num={1} color="var(--indigo)" title="Patient Decision" done={p.decision === 'Accepted'} active={decisionActive}>
                 <DecisionPanel c={p} busy={busy} onSave={(decision, reason) => onAction('decision', p, decision, reason)} />
               </Section>
 
-              <Section num={2} color="var(--blue)" title="Procedure Date" done={scheduleDone} active={currentStep === 'schedule'}>
-                {p.decision !== 'Accepted' ? (
-                  <LockedNote text="Patient Decision must be Accepted first." />
-                ) : p._rescheduling || !scheduleDone ? (
+              <Section num={2} color="var(--blue)" title="Procedure Date" done={scheduleDone} active={scheduleActive}>
+                {p._rescheduling || !scheduleDone ? (
                   <SchedulePanel c={p} busy={busy} onSave={(date, time) => onAction('schedule', p, date, time)} onCancel={() => onAction('cancel', p)} />
                 ) : (
                   <div>
@@ -346,11 +345,11 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
                 )}
               </Section>
 
-              <Section num={3} color="var(--teal, #0d9488)" title="Advance Payment" done={paymentDone} active={currentStep === 'payment'}>
+              <Section num={3} color="var(--teal, #0d9488)" title="Advance Payment" done={paymentDone} active={paymentActive}>
                 {!scheduleDone ? <LockedNote text="Confirm the procedure date first." /> : <PaymentPanel c={p} patient={patient} />}
               </Section>
 
-              <Section num={4} color="var(--purple)" title="Patient Check-In" done={checkinDone} active={currentStep === 'checkin'}>
+              <Section num={4} color="var(--purple)" title="Patient Check-In" done={checkinDone} active={checkinActive}>
                 {!paymentDone ? <LockedNote text="Advance payment must be collected first." /> : checkinDone ? (
                   <div style={{ fontSize: 12.5, color: 'var(--green)' }}><i className="ti ti-check"></i> Checked in {p.checked_in_at ? new Date(p.checked_in_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}.</div>
                 ) : (
@@ -358,7 +357,7 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
                 )}
               </Section>
 
-              <Section num={5} color="var(--green)" title="Post-Procedure Notes" done={completeDone} active={currentStep === 'complete'}>
+              <Section num={5} color="var(--green)" title="Post-Procedure Notes" done={completeDone} active={completeActive}>
                 {!checkinDone ? <LockedNote text="Patient must be checked in first." /> : <CompletePanel c={p} busy={busy} onSave={(fields) => onAction('complete', p, fields)} />}
               </Section>
             </>
@@ -432,7 +431,6 @@ export default function Workspace({ patientId }) {
     setBusyId(null);
     if (result?.error) { setRowError((e) => ({ ...e, [p.id]: result.error })); return; }
     refresh();
-    getTodayOpdProcedurePatients();
   }
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--g400)' }}>Loading patient journey...</div>;

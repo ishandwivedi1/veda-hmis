@@ -1,29 +1,38 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { searchPatients } from '../patient-timeline/actions';
-import { getTodayOpdProcedurePatients, getCombinedSchedule } from './actions';
+import { getOpdProcedureLists, getCombinedSchedule } from './actions';
 
 function fmtDate(d) {
   if (!d) return '--';
   return new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function TodayShortcuts({ groups, loading, onSelect }) {
-  if (loading || groups.length === 0) return null;
+function daysAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days <= 0) return 'today';
+  if (days === 1) return '1 day ago';
+  return `${days} days ago`;
+}
+
+function CaseRow({ c, color, onOpen }) {
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 10 }}>Today&apos;s OPD Procedure Patients</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {groups.map((g) => (
-          <button key={g.patient.id} type="button" className="btn" style={{ fontSize: 12, textAlign: 'left' }} onClick={() => onSelect(g.patient.id)}>
-            <strong>{g.patient.first_name} {g.patient.last_name}</strong>
-            <span style={{ color: 'var(--g400)', marginLeft: 6 }}>{g.patient.uhid}</span>
-            <span style={{ marginLeft: 8, color: 'var(--g500)' }}>{g.items.map((i) => i.status).join(', ')}</span>
-          </button>
-        ))}
+    <div onClick={() => onOpen(c.patient.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
+      <div style={{ width: 34, height: 34, borderRadius: '50%', background: color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+        {c.patient.first_name?.charAt(0)}
       </div>
+      <div style={{ flex: 1 }}>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patient.first_name} {c.patient.last_name}</span>
+        {color === 'var(--amber)' && <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>}
+        {c.status === 'Scheduled' && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>Date booked, unpaid</span>}
+        <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+          {c.patient.uhid} -- {c.name} {c.eye ? `(${c.eye})` : ''}{c.scheduled_date ? ` -- ${fmtDate(c.scheduled_date)}` : ''}
+        </div>
+      </div>
+      <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
     </div>
   );
 }
@@ -58,20 +67,31 @@ function CalendarView({ rows, loading, onClose }) {
   );
 }
 
-// ── OPD Procedures "All Cases" landing -- patient-first entry point.
-// Selecting a patient (search result or a today's shortcut) navigates
-// to their own dedicated workspace route (/opd-procedures/[patientId]),
-// the same pattern Surgical Journey uses for its per-case workspace --
-// a real page, openable in a new tab, with its own "All Cases" back link.
+// ── OPD Procedures "All Cases" landing -- patient-first search up
+// top, plus the same Active Cases / Awaiting Confirmation / Completed
+// Today classification Surgical Journey uses: Awaiting Confirmation is
+// no-advance-paid-yet regardless of decision or booking status (the
+// list worth chasing), Active Cases is everyone with money down,
+// Completed Today is self-explanatory. Selecting any patient (search
+// result or a case row) navigates to their own dedicated workspace
+// route (/opd-procedures/[patientId]), same pattern as Surgical
+// Journey's per-case workspace.
 export default function OpdProceduresPage() {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
-  const [todayGroups, setTodayGroups] = useState([]);
-  const [todayLoading, setTodayLoading] = useState(true);
+  const [lists, setLists] = useState({ active: [], awaitingConfirmation: [], completedToday: [] });
+  const [loading, setLoading] = useState(true);
   const [showCalendar, setShowCalendar] = useState(false);
   const [calendarRows, setCalendarRows] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLists(await getOpdProcedureLists());
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
 
   useEffect(() => {
     const q = query.trim();
@@ -79,10 +99,6 @@ export default function OpdProceduresPage() {
     const t = setTimeout(async () => setResults(await searchPatients(q)), 300);
     return () => clearTimeout(t);
   }, [query]);
-
-  useEffect(() => {
-    (async () => { setTodayGroups(await getTodayOpdProcedurePatients()); setTodayLoading(false); })();
-  }, []);
 
   function openCalendar() {
     setShowCalendar(true);
@@ -123,11 +139,40 @@ export default function OpdProceduresPage() {
         </div>
       </div>
 
-      <TodayShortcuts groups={todayGroups} loading={todayLoading} onSelect={openPatient} />
+      {lists.awaitingConfirmation.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, borderColor: 'var(--amber)' }}>
+          <div className="card-title" style={{ marginBottom: 4 }}>
+            <i className="ti ti-clock-pause" style={{ color: 'var(--amber)' }}></i> Awaiting Confirmation
+            <span className="badge b-amber" style={{ marginLeft: 8 }}>{lists.awaitingConfirmation.length}</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+            No advance paid yet -- not confirmed even if a date's already been booked. Worth a call if it's been a while.
+          </div>
+          {lists.awaitingConfirmation.map((c) => <CaseRow key={c.id} c={c} color="var(--amber)" onOpen={openPatient} />)}
+        </div>
+      )}
 
-      <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--g400)' }}>
-        <i className="ti ti-search" style={{ fontSize: 32, display: 'block', marginBottom: 10 }}></i>
-        Search for a patient above to open their OPD Procedure journey, or pick one of today&apos;s shortcuts.
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10 }}>
+          <i className="ti ti-list-numbers" style={{ color: 'var(--indigo)' }}></i> Active Cases
+          <span className="badge b-gray" style={{ marginLeft: 8 }}>{lists.active.length}</span>
+        </div>
+        {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>}
+        {!loading && lists.active.map((c) => <CaseRow key={c.id} c={c} color="var(--indigo)" onOpen={openPatient} />)}
+        {!loading && lists.active.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No active OPD Procedure cases right now.</div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 4 }}>
+          <i className="ti ti-circle-check" style={{ color: 'var(--green)' }}></i> Completed Today
+          <span className="badge b-green" style={{ marginLeft: 8 }}>{lists.completedToday.length}</span>
+        </div>
+        {!loading && lists.completedToday.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nobody completed yet today.</div>
+        )}
+        {!loading && lists.completedToday.map((c) => <CaseRow key={c.id} c={c} color="var(--green)" onOpen={openPatient} />)}
       </div>
     </div>
   );
