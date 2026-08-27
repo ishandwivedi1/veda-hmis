@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
 import {
@@ -647,7 +648,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-display-stack)', display: 'flex', alignItems: 'center', gap: 10 }}>
-              {patient.first_name} {patient.last_name}
+              {formatPatientName(patient)}
               {data.isFollowUp && <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff', fontSize: 10.5 }}>Follow-up Visit</span>}
             </div>
             <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { searchPatientsForBooking, getDoctors, createAppointment } from '@/app/(main)/appointments/actions';
 
@@ -114,7 +115,7 @@ export default function NewAppointmentPage() {
                   }}
                 >
                   <span>
-                    <strong>{selectedPatient.first_name} {selectedPatient.last_name}</strong>
+                    <strong>{formatPatientName(selectedPatient)}</strong>
                     {' -- '}
                     {selectedPatient.uhid}
                   </span>
@@ -153,7 +154,7 @@ export default function NewAppointmentPage() {
                             fontSize: 13,
                           }}
                         >
-                          <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid} -- {p.mobile}
+                          <strong>{formatPatientName(p)}</strong> -- {p.uhid} -- {p.mobile}
                         </div>
                       ))}
                     </div>

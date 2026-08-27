@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import {
   getPostOpEpisodeDetail, rescheduleFollowup, saveFollowupNotes, markFollowupStatus,
   addRecoveryComplication, closeEpisode, openFollowupReview, addFollowup, removeFollowup,
@@ -198,7 +199,7 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
           {patient?.first_name?.charAt(0)}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{formatPatientName(patient)}</div>
           <div style={{ fontSize: 11, opacity: .85 }}>{patient?.uhid} -- {sc?.procedure_name} {sc?.eye} -- {sc?.profiles?.full_name}</div>
         </div>
         <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{isClosed ? 'Closed' : 'Post-op'}</span>

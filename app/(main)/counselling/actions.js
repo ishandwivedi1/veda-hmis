@@ -409,7 +409,7 @@ export async function getCounsellingCases() {
       biometry_done, biometry_required, biometry_skip_reason,
       fitness_cleared, fitness_required, investigations_complete,
       package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
-      patients:patient_id ( id, first_name, last_name, uhid, age, gender, mobile ),
+      patients:patient_id ( id, first_name, salutation, last_name, uhid, age, gender, mobile ),
       profiles:surgeon_id ( id, full_name ),
       master_packages:package_id ( id, name, price )
     `)
@@ -479,7 +479,7 @@ export async function getCounsellingHistory() {
       biometry_done, biometry_required, biometry_skip_reason,
       fitness_cleared, fitness_required, investigations_complete,
       package_id, package_locked, decision_locked, surgeon_id, advance_payment_id, created_at,
-      patients:patient_id ( id, first_name, last_name, uhid, age, gender ),
+      patients:patient_id ( id, first_name, salutation, last_name, uhid, age, gender ),
       profiles:surgeon_id ( id, full_name ),
       master_packages:package_id ( id, name, price )
     `)

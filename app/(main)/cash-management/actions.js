@@ -118,7 +118,7 @@ export async function getTodayCollectionSummary(date) {
 
   const { data: payments } = await supabase
     .from('payments')
-    .select('*, payment_modes(mode, amount), patients(first_name, last_name)')
+    .select('*, payment_modes(mode, amount), patients(first_name, salutation, last_name)')
     .gte('collected_at', startUTC)
     .lte('collected_at', endUTC)
     .order('collected_at', { ascending: false });

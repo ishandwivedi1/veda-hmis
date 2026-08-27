@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { getPendingIolApprovals, getApprovedToday, getIolApprovalHistory, getIolApprovalDetail, approveIol } from './actions';
 import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
@@ -36,7 +37,7 @@ function DashboardTab({ pending, approvedToday, loading, onOpen }) {
               {item.patient?.first_name?.charAt(0)}
             </div>
             <div style={{ flex: 1 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{item.patient?.first_name} {item.patient?.last_name}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(item.patient)}</span>
               <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>{EYE_LABEL[item.eye] || item.eye}</span>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                 {item.patient?.uhid} -- {item.procedureName}{item.packageName ? ` -- ${item.packageName}` : ''}
@@ -60,7 +61,7 @@ function DashboardTab({ pending, approvedToday, loading, onOpen }) {
               {a.surgical_cases?.patients?.first_name?.charAt(0)}
             </div>
             <div style={{ flex: 1 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{a.surgical_cases?.patients?.first_name} {a.surgical_cases?.patients?.last_name}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(a.surgical_cases?.patients)}</span>
               <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>{EYE_LABEL[a.eye] || a.eye}</span>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                 {a.master_iol_catalog?.brand} {a.master_iol_catalog?.model} -- {a.power}D
@@ -120,7 +121,7 @@ function HistoryTab({ onOpen }) {
             {a.surgical_cases?.patients?.first_name?.charAt(0)}
           </div>
           <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 700, fontSize: 12.5 }}>{a.surgical_cases?.patients?.first_name} {a.surgical_cases?.patients?.last_name}</span>
+            <span style={{ fontWeight: 700, fontSize: 12.5 }}>{formatPatientName(a.surgical_cases?.patients)}</span>
             <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>{EYE_LABEL[a.eye] || a.eye}</span>
             <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
               {a.surgical_cases?.patients?.uhid} -- {a.master_iol_catalog?.brand} {a.master_iol_catalog?.model} -- {a.power}D
@@ -226,7 +227,7 @@ function WorkspaceView({ caseId, onBack, onDone, initialLocked }) {
       <div style={{ background: approved ? 'linear-gradient(135deg,#312e81,#4338ca)' : 'linear-gradient(135deg,#78350f,#b45309)', borderRadius: 12, padding: '11px 18px', color: '#fff', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         {sc.surgery_code && <div style={{ background: 'rgba(255,255,255,.15)', padding: '5px 12px', borderRadius: 8, fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{sc.surgery_code}</div>}
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{formatPatientName(patient)}</div>
           <div style={{ fontSize: 11, opacity: .85 }}>
             {patient?.uhid} -- {patient?.age}y {patient?.gender} -- {patient?.mobile || 'No mobile on file'} -- {sc.procedure_name} {sc.eye ? `(${EYE_LABEL[sc.eye] || sc.eye})` : ''} -- {sc.profiles?.full_name || 'No surgeon assigned'}
           </div>

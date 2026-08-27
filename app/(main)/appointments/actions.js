@@ -7,7 +7,7 @@ export async function searchPatientsForBooking(q) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name, mobile')
+    .select('id, uhid, first_name, salutation, last_name, mobile')
     .or(`uhid.ilike.%${q}%,mobile.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
     .limit(10);
 

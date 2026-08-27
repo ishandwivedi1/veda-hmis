@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { formatPatientName } from '@/lib/patientName';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { generateInvoicePdfBuffer } from '@/lib/pdf-generator';
 import { sendInvoiceBillWhatsApp } from '@/lib/whatsapp';
@@ -26,7 +27,7 @@ export async function sendInvoiceBill(invoiceId, { force = false, triggeredBy = 
 
   const { data: invoice, error } = await supabase
     .from('invoices')
-    .select('id, invoice_number, net, patient_id, patients(id, first_name, last_name, mobile)')
+    .select('id, invoice_number, net, patient_id, patients(id, first_name, salutation, last_name, mobile)')
     .eq('id', invoiceId)
     .single();
   if (error || !invoice) return { error: error?.message || 'Invoice not found.' };
@@ -36,7 +37,7 @@ export async function sendInvoiceBill(invoiceId, { force = false, triggeredBy = 
   if (pdfResult.error) return { success: false, error: pdfResult.error };
 
   return sendInvoiceBillWhatsApp({
-    name: `${invoice.patients.first_name} ${invoice.patients.last_name}`.trim(),
+    name: `${formatPatientName(invoice.patients)}`.trim(),
     invoiceNumber: invoice.invoice_number,
     amount: invoice.net,
     mobile: invoice.patients.mobile,
@@ -83,14 +84,14 @@ export async function getBillingDashboardData() {
   const [{ data: todaysInvoices }, { data: allOutstanding }] = await Promise.all([
     supabase
       .from('invoices')
-      .select('*, patients(first_name, last_name, uhid), visits(visit_number)')
+      .select('*, patients(first_name, salutation, last_name, uhid), visits(visit_number)')
       .gte('created_at', startUTC)
       .lte('created_at', endUTC)
       .neq('status', 'Cancelled')
       .order('created_at', { ascending: false }),
     supabase
       .from('invoices')
-      .select('*, patients(first_name, last_name, uhid), visits(visit_number)')
+      .select('*, patients(first_name, salutation, last_name, uhid), visits(visit_number)')
       .in('status', ['Pending', 'Partial'])
       .order('created_at', { ascending: true }),
   ]);
@@ -115,7 +116,7 @@ export async function getTodaysVisitsWithBillingStatus() {
 
   const { data: visits } = await supabase
     .from('visits')
-    .select('*, patients(id, first_name, last_name, uhid), profiles!doctor_id(full_name)')
+    .select('*, patients(id, first_name, salutation, last_name, uhid), profiles!doctor_id(full_name)')
     .gte('created_at', startUTC)
     .lte('created_at', endUTC)
     .order('created_at', { ascending: false });
@@ -150,7 +151,7 @@ export async function getTodaysVisitsForBilling() {
   const today = new Date().toISOString().slice(0, 10);
   const { data } = await supabase
     .from('visits')
-    .select('id, visit_number, visit_type, created_at, patients(id, first_name, last_name, uhid)')
+    .select('id, visit_number, visit_type, created_at, patients(id, first_name, salutation, last_name, uhid)')
     .gte('created_at', today)
     .order('created_at', { ascending: false });
   return data || [];
@@ -164,7 +165,7 @@ export async function getInvoicesForVisit(visitId) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('invoices')
-    .select('*, patients(id, first_name, last_name, uhid, mobile)')
+    .select('*, patients(id, first_name, salutation, last_name, uhid, mobile)')
     .eq('visit_id', visitId)
     .order('created_at', { ascending: false });
   if (error) return { error: error.message };
@@ -257,7 +258,7 @@ export async function searchPatientsForInvoice(q) {
   const supabase = await createClient();
   const { data } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name, mobile')
+    .select('id, uhid, first_name, salutation, last_name, mobile')
     .or(`uhid.ilike.%${q}%,mobile.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
     .limit(10);
   return data || [];
@@ -292,7 +293,7 @@ export async function getVisitWithPatient(visitId) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('visits')
-    .select('*, patients(id, first_name, last_name, uhid, mobile)')
+    .select('*, patients(id, first_name, salutation, last_name, uhid, mobile)')
     .eq('id', visitId)
     .single();
   if (error) return { error: error.message };
@@ -363,7 +364,7 @@ export async function getPendingProcedureBilling() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('plan_procedures')
-    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, last_name, uhid, mobile)))')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
     .eq('billing_status', 'Pending')
     .order('created_at', { ascending: true });
 
@@ -547,7 +548,7 @@ export async function getPendingPackageBilling() {
   const supabase = await createClient();
   const { data: cases, error } = await supabase
     .from('surgical_cases')
-    .select('id, patient_id, procedure_name, eye, package_discount, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(id, code, name, price)')
+    .select('id, patient_id, procedure_name, eye, package_discount, patients:patient_id(first_name, salutation, last_name, uhid), master_packages:package_id(id, code, name, price)')
     .eq('package_locked', true)
     .eq('package_billed', false)
     .not('package_id', 'is', null);
@@ -609,7 +610,7 @@ export async function getPackageForBilling(caseId) {
   const supabase = await createClient();
   const { data: sc } = await supabase
     .from('surgical_cases')
-    .select('package_id, package_discount, visit_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price), patients:patient_id(id, first_name, last_name, uhid, mobile)')
+    .select('package_id, package_discount, visit_id, procedure_name, eye, surgeon_id, profiles:surgeon_id(full_name), master_packages:package_id(code, name, price), patients:patient_id(id, first_name, salutation, last_name, uhid, mobile)')
     .eq('id', caseId)
     .maybeSingle();
   if (!sc?.master_packages) return { items: [] };
@@ -715,7 +716,7 @@ export async function markBiometryBilled(ids, invoiceId) {
 
 export async function getInvoiceById(invoiceId) {
   const supabase = await createClient();
-  const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, last_name, uhid, mobile), visits(id, visit_number, visit_type, created_at)').eq('id', invoiceId).single();
+  const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, salutation, last_name, uhid, mobile), visits(id, visit_number, visit_type, created_at)').eq('id', invoiceId).single();
   if (error) return { error: error.message };
   const { data: lineItems } = await supabase.from('invoice_line_items').select('*').eq('invoice_id', invoiceId).order('id');
   return { invoice, lineItems: lineItems || [] };
@@ -740,7 +741,7 @@ export async function getPostSurgicalPendingPackages() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('surgical_cases')
-    .select('*, patients(id, first_name, last_name, uhid), master_packages(id, name, price)')
+    .select('*, patients(id, first_name, salutation, last_name, uhid), master_packages(id, name, price)')
     .eq('status', 'Completed')
     .eq('package_billed', false);
   return data || [];
@@ -757,7 +758,7 @@ export async function searchPatientsForPackage(q) {
   const supabase = await createClient();
   const { data } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name, mobile')
+    .select('id, uhid, first_name, salutation, last_name, mobile')
     .or(`uhid.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
     .limit(10);
   return data || [];
@@ -812,7 +813,7 @@ export async function getTodaysInvoicesForModification() {
   const today = new Date().toISOString().slice(0, 10);
   const { data } = await supabase
     .from('invoices')
-    .select('*, patients(first_name, last_name, uhid)')
+    .select('*, patients(first_name, salutation, last_name, uhid)')
     .gte('created_at', today)
     .order('created_at', { ascending: false });
   return data || [];
@@ -823,7 +824,7 @@ export async function searchInvoices(query, deptFilter) {
 
   let q = supabase
     .from('invoices')
-    .select('*, patients(first_name, last_name, uhid), visits(visit_number)')
+    .select('*, patients(first_name, salutation, last_name, uhid), visits(visit_number)')
     .order('created_at', { ascending: false })
     .limit(50);
 

@@ -32,7 +32,7 @@ import { createClient } from '@/lib/supabase-server';
 // done) -- two genuinely different moments that were being
 // conflated, showing patients as "Checked In" when they'd only
 // walked in the door.
-const CASE_SELECT = '*, master_ot_sessions(name), ot_intraop_records(checkin_completed_at), surgical_cases(id, surgery_code, procedure_name, eye, patient_id, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
+const CASE_SELECT = '*, master_ot_sessions(name), ot_intraop_records(checkin_completed_at), surgical_cases(id, surgery_code, procedure_name, eye, patient_id, patients:patient_id(first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
 
 // Every function below returns { rows, error } instead of a bare array
 // or throwing -- a thrown/rejected promise from a Server Action leaves
@@ -105,7 +105,7 @@ export async function getSurgeryDashboardDischargedToday() {
     const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     const { data, error } = await supabase
       .from('recovery_episodes')
-      .select('id, discharge_date, ot_schedule_id, surgical_cases(id, surgery_code, procedure_name, eye, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+      .select('id, discharge_date, ot_schedule_id, surgical_cases(id, surgery_code, procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
       .eq('discharge_date', todayIst);
     if (error) return { rows: [], error: error.message };
     return { rows: (data || []).filter((e) => e.surgical_cases), error: null };
@@ -119,7 +119,7 @@ export async function getSurgeryDashboardHistory() {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from('recovery_episodes')
-      .select('id, discharge_date, ot_schedule_id, surgical_cases(id, surgery_code, procedure_name, eye, patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+      .select('id, discharge_date, ot_schedule_id, surgical_cases(id, surgery_code, procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
       .not('discharge_date', 'is', null)
       .order('discharge_date', { ascending: false })
       .limit(200);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import {
@@ -48,7 +49,7 @@ function CaseHeader({ sc, patient, onAction, caseProcedures = [] }) {
     <div className="card" style={{ marginBottom: 16, background: 'var(--indigo)', color: '#fff' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>{formatPatientName(patient)}</div>
           <div style={{ fontSize: 12, opacity: 0.85 }}>{patient?.uhid} -- {patient?.age}y {patient?.gender} -- {patient?.mobile}</div>
           {sc.surgery_code && <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}><i className="ti ti-hash"></i> {sc.surgery_code}</div>}
         </div>
@@ -1008,7 +1009,7 @@ function IolAndBookingSection({ sc, otSchedule, iolApproval, onAction, active, n
   }, [sc.id]);
 
   function openCalendarPicker() {
-    const label = encodeURIComponent(`${sc.patients?.first_name || ''} ${sc.patients?.last_name || ''} -- ${sc.procedure_name || ''} (${sc.eye || ''})`.trim());
+    const label = encodeURIComponent(`${formatPatientName(sc.patients)} -- ${sc.procedure_name || ''} (${sc.eye || ''})`.trim());
     openPopup(`/ot-calendar-picker?pickFor=${sc.id}&pickLabel=${label}`, `ot-calendar-${sc.id}`, { width: 460, height: 680 });
   }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, refundPayment, refundAdvance, getRefundRegister, getTodaysVisits } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
 
@@ -140,7 +141,7 @@ export default function RefundTab() {
                 <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
                   {searchResults.map((p) => (
                     <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                      <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid}
+                      <strong>{formatPatientName(p)}</strong> -- {p.uhid}
                     </div>
                   ))}
                 </div>
@@ -153,7 +154,7 @@ export default function RefundTab() {
             <div>
               <div style={{ background: 'var(--amber-lt)', border: '1px solid var(--amber)', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{patient.first_name} {patient.last_name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatPatientName(patient)}</div>
                   <button className="btn btn-sm" onClick={changePatient}>Change</button>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--g600)', marginTop: 2 }}>{patient.uhid}</div>
@@ -260,7 +261,7 @@ export default function RefundTab() {
             <tbody>
               {register.map((r) => (
                 <tr key={r.id}>
-                  <td style={{ fontSize: 12 }}>{r.patients?.first_name} {r.patients?.last_name}</td>
+                  <td style={{ fontSize: 12 }}>{formatPatientName(r.patients)}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{r.invoices?.invoice_number || 'Advance'}</td>
                   <td style={{ fontSize: 12, fontWeight: 600 }}>Rs.{Number(r.amount).toFixed(2)}</td>
                   <td style={{ fontSize: 11 }}>{r.refund_mode || '--'}</td>

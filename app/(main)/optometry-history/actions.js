@@ -10,7 +10,7 @@ export async function getOptometryHistory(filterStatus) {
     .from('optometry_assessments')
     .select(`
       *,
-      visits(visit_number, patients(first_name, last_name, uhid)),
+      visits(visit_number, patients(first_name, salutation, last_name, uhid)),
       recorded_by_profile:profiles!optometry_assessments_recorded_by_fkey(full_name),
       completed_by_profile:profiles!optometry_assessments_completed_by_fkey(full_name)
     `)
@@ -81,7 +81,7 @@ export async function getAssessmentDetail(assessmentId) {
     .from('optometry_assessments')
     .select(`
       *,
-      visits(visit_number, patients(first_name, last_name, uhid, age, gender)),
+      visits(visit_number, patients(first_name, salutation, last_name, uhid, age, gender)),
       recorded_by_profile:profiles!optometry_assessments_recorded_by_fkey(full_name),
       completed_by_profile:profiles!optometry_assessments_completed_by_fkey(full_name)
     `)

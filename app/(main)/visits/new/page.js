@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { searchPatientsForBooking, getDoctors } from '@/app/(main)/appointments/actions';
 import { createWalkInVisit, getSurgeryTypeOptions, getPatientById, getLastVisitInfo } from '@/app/(main)/visits/actions';
@@ -268,7 +269,7 @@ function NewVisitForm() {
                 }}
               >
                 <span>
-                  <strong>{selectedPatient.first_name} {selectedPatient.last_name}</strong>
+                  <strong>{formatPatientName(selectedPatient)}</strong>
                   {' -- '}
                   {selectedPatient.uhid}
                 </span>
@@ -309,7 +310,7 @@ function NewVisitForm() {
                           fontSize: 13,
                         }}
                       >
-                        <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid} -- {p.mobile}
+                        <strong>{formatPatientName(p)}</strong> -- {p.uhid} -- {p.mobile}
                       </div>
                     ))}
                   </div>
@@ -399,7 +400,7 @@ function NewVisitForm() {
       {createdVisitInfo && (
         <VisitCreatedModal
           title="Visit Created"
-          subtitle={`${createdVisitInfo.patient.first_name} ${createdVisitInfo.patient.last_name} -- UHID: ${createdVisitInfo.patient.uhid}`}
+          subtitle={`${formatPatientName(createdVisitInfo.patient)} -- UHID: ${createdVisitInfo.patient.uhid}`}
           visit={createdVisitInfo.visit}
           onClose={() => router.push('/front-office-dashboard?visitCreated=1')}
         />

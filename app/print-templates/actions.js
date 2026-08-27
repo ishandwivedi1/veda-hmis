@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase-server';
 import Handlebars from 'handlebars';
 import { matchInvestigationType, getFullFieldValues } from '@/app/(main)/investigation/investigation-types';
 import { plainFrequency, groupPrescriptionsForPrint } from '@/lib/prescriptionFormatting';
+import { formatPatientName } from '@/lib/patientName';
 
 // ── Editable print templates ──────────────────────────────────────────
 // Each template's HTML lives here as a code-level DEFAULT (versioned,
@@ -858,7 +859,7 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
 
   const { data: invoice, error } = await supabase
     .from('invoices')
-    .select('*, patients(uhid, first_name, last_name, mobile, age, gender), visits(id, visit_number, created_at, doctor_id, profiles:doctor_id(full_name, registration_no))')
+    .select('*, patients(uhid, first_name, salutation, last_name, mobile, age, gender), visits(id, visit_number, created_at, doctor_id, profiles:doctor_id(full_name, registration_no))')
     .eq('id', invoiceId)
     .single();
   if (error || !invoice) return { error: 'Invoice not found.' };
@@ -991,7 +992,7 @@ export async function renderInvoiceHtml(invoiceId, includeBreakup = false) {
   const settings = await getHospitalSettings();
   const context = buildInvoiceContext(settings, {
     patient: {
-      patient_code: invoice.patients?.uhid, first_name: invoice.patients?.first_name, last_name: invoice.patients?.last_name,
+      patient_code: invoice.patients?.uhid, first_name: invoice.patients?.first_name, salutation: invoice.patients?.salutation, last_name: invoice.patients?.last_name,
       mobile: invoice.patients?.mobile, age: invoice.patients?.age, gender: invoice.patients?.gender,
     },
     invoice,
@@ -1045,7 +1046,7 @@ function buildInvoiceContext(settings, { patient, invoice, visit, doctor, lineIt
     logo_html: logoHtml(settings),
 
     patient_id: patient.patient_code || '--',
-    patient_name: `${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
+    patient_name: formatPatientName(patient),
     patient_mobile: patient.mobile || '--',
     patient_age: patient.age ?? '--',
     patient_gender: patient.gender || '--',
@@ -1099,7 +1100,7 @@ export async function renderReceiptHtml(paymentId) {
 
   const { data: payment, error } = await supabase
     .from('payments')
-    .select('*, patients(uhid, first_name, last_name, mobile), profiles:collected_by(full_name)')
+    .select('*, patients(uhid, first_name, salutation, last_name, mobile), profiles:collected_by(full_name)')
     .eq('id', paymentId)
     .single();
   if (error || !payment) return { error: 'Receipt not found.' };
@@ -1113,7 +1114,7 @@ export async function renderReceiptHtml(paymentId) {
   const settings = await getHospitalSettings();
   const context = buildReceiptContext(settings, {
     patient: {
-      patient_code: payment.patients?.uhid, first_name: payment.patients?.first_name, last_name: payment.patients?.last_name,
+      patient_code: payment.patients?.uhid, first_name: payment.patients?.first_name, salutation: payment.patients?.salutation, last_name: payment.patients?.last_name,
       mobile: payment.patients?.mobile,
     },
     payment,
@@ -1140,7 +1141,7 @@ function buildReceiptContext(settings, { patient, payment, collector, modes, all
     hospital_email: settings.email || '',
     logo_html: logoHtml(settings),
 
-    patient_name: `${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
+    patient_name: formatPatientName(patient),
     patient_id: patient.patient_code || '--',
     patient_mobile: patient.mobile || '--',
 
@@ -1202,7 +1203,7 @@ export async function renderExternalInvestigationReferralHtml(caseId) {
 
   const { data: sc, error } = await supabase
     .from('surgical_cases')
-    .select('id, procedure_name, eye, created_at, patients:patient_id(uhid, first_name, last_name, age, gender, mobile), profiles:surgeon_id(full_name, registration_no)')
+    .select('id, procedure_name, eye, created_at, patients:patient_id(uhid, first_name, salutation, last_name, age, gender, mobile), profiles:surgeon_id(full_name, registration_no)')
     .eq('id', caseId)
     .single();
   if (error || !sc) return { error: 'Case not found.' };
@@ -1253,7 +1254,7 @@ export async function renderExternalInvestigationReferralHtml(caseId) {
       <td style="width: 60%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;">
         <table style="width: 100%; font-size: 12px;">
           <tr><td style="width: 110px; color: #444;">PATIENT ID</td><td>: <strong>${patient?.uhid || '--'}</strong></td></tr>
-          <tr><td style="color: #444;">NAME</td><td>: <strong>${patient?.first_name || ''} ${patient?.last_name || ''}</strong></td></tr>
+          <tr><td style="color: #444;">NAME</td><td>: <strong>${formatPatientName(patient)}</strong></td></tr>
           <tr><td style="color: #444;">AGE/GENDER</td><td>: <strong>${patient?.age ?? '--'} / ${patient?.gender || '--'}</strong></td></tr>
           <tr><td style="color: #444;">MOBILE</td><td>: <strong>${patient?.mobile || '--'}</strong></td></tr>
         </table>
@@ -1305,7 +1306,7 @@ export async function renderOpdCaseSheetHtml(encounterId) {
 
   const { data: encounter, error } = await supabase
     .from('encounters')
-    .select('*, visits(id, created_at, visit_type, doctor_id, patients(uhid, first_name, last_name, mobile, age, gender), profiles:doctor_id(full_name, registration_no))')
+    .select('*, visits(id, created_at, visit_type, doctor_id, patients(uhid, first_name, salutation, last_name, mobile, age, gender), profiles:doctor_id(full_name, registration_no))')
     .eq('id', encounterId)
     .single();
   if (error || !encounter) return { error: 'Consultation not found.' };
@@ -1354,7 +1355,7 @@ export async function renderOpdCaseSheetHtml(encounterId) {
   const settings = await getHospitalSettings();
   const context = buildOpdCaseSheetContext(settings, {
     patient: {
-      patient_code: visit?.patients?.uhid, first_name: visit?.patients?.first_name, last_name: visit?.patients?.last_name,
+      patient_code: visit?.patients?.uhid, first_name: visit?.patients?.first_name, salutation: visit?.patients?.salutation, last_name: visit?.patients?.last_name,
       mobile: visit?.patients?.mobile, age: visit?.patients?.age, gender: visit?.patients?.gender,
     },
     encounter,
@@ -1459,7 +1460,7 @@ function buildGlassesPrescriptionContext(settings, { patient, assessment, optome
     header_space_cm: settings.print_letterhead_space_cm ?? 5,
 
     patient_id: patient.patient_code || '--',
-    patient_name: `${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
+    patient_name: formatPatientName(patient),
     patient_age: patient.age ?? '--',
     patient_gender: patient.gender || '--',
 
@@ -1496,7 +1497,7 @@ export async function renderGlassesPrescriptionHtml(assessmentId) {
 
   const { data: assessment, error } = await supabase
     .from('optometry_assessments')
-    .select('*, visits(id, doctor_id, patients(uhid, first_name, last_name, age, gender), profiles:doctor_id(full_name, registration_no)), profiles:recorded_by(full_name)')
+    .select('*, visits(id, doctor_id, patients(uhid, first_name, salutation, last_name, age, gender), profiles:doctor_id(full_name, registration_no)), profiles:recorded_by(full_name)')
     .eq('id', assessmentId)
     .single();
   if (error || !assessment) return { error: 'Optometry assessment not found.' };
@@ -1505,7 +1506,7 @@ export async function renderGlassesPrescriptionHtml(assessmentId) {
   const settings = await getHospitalSettings();
   const context = buildGlassesPrescriptionContext(settings, {
     patient: {
-      patient_code: visit?.patients?.uhid, first_name: visit?.patients?.first_name, last_name: visit?.patients?.last_name,
+      patient_code: visit?.patients?.uhid, first_name: visit?.patients?.first_name, salutation: visit?.patients?.salutation, last_name: visit?.patients?.last_name,
       age: visit?.patients?.age, gender: visit?.patients?.gender,
     },
     assessment,
@@ -1554,7 +1555,7 @@ function buildBiometryReportContext(settings, { patient, visit, record, verified
     logo_html: logoHtml(settings),
 
     patient_id: patient.uhid || '--',
-    patient_name: `${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
+    patient_name: formatPatientName(patient),
     patient_age: patient.age ?? '--',
     patient_gender: patient.gender || '--',
     visit_number: visit?.visit_number || '--',
@@ -1583,7 +1584,7 @@ export async function renderBiometryReportHtml(recordId) {
 
   const { data: record, error } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, visit_number, patients(uhid, first_name, last_name, age, gender))')
+    .select('*, visits(id, visit_number, patients(uhid, first_name, salutation, last_name, age, gender))')
     .eq('id', recordId)
     .single();
   if (error || !record) return { error: 'Biometry record not found.' };
@@ -1821,7 +1822,7 @@ function buildOpdCaseSheetContext(settings, { patient, encounter, visit, doctor,
     header_space_cm: settings.print_letterhead_space_cm ?? 5,
 
     patient_id: patient.patient_code || '--',
-    patient_name: `${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
+    patient_name: formatPatientName(patient),
     patient_mobile: patient.mobile || '--',
     patient_age: patient.age ?? '--',
     patient_gender: patient.gender || '--',
@@ -1983,7 +1984,7 @@ export async function renderDischargeSummaryHtml(episodeId) {
 
   const { data: episode, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(id, procedure_name, eye, visit_id, patients:patient_id(uhid, first_name, last_name, mobile, age, gender), profiles:surgeon_id(full_name, registration_no))')
+    .select('*, surgical_cases(id, procedure_name, eye, visit_id, patients:patient_id(uhid, first_name, salutation, last_name, mobile, age, gender), profiles:surgeon_id(full_name, registration_no))')
     .eq('id', episodeId)
     .single();
   if (error || !episode) return { error: 'Episode not found.' };
@@ -2044,7 +2045,7 @@ function buildDischargeSummaryContext(settings, { patient, surgeon, procedureNam
     hospital_city_state_pin: settings.city_state_pin, hospital_phone: settings.phone, hospital_email: settings.email,
     logo_html: logoHtml(settings),
 
-    patient_id: patient?.uhid, patient_name: `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim(),
+    patient_id: patient?.uhid, patient_name: formatPatientName(patient),
     patient_age: patient?.age, patient_gender: patient?.gender, patient_mobile: patient?.mobile,
 
     surgeon_name: surgeon?.full_name || '--',
@@ -2081,7 +2082,7 @@ export async function renderOpdProcedureSummaryHtml(procedureId) {
 
   const { data: proc, error } = await supabase
     .from('plan_procedures')
-    .select('*, encounters(id, visit_id, visits(doctor_id, patients:patient_id(uhid, first_name, last_name, mobile, age, gender), profiles:doctor_id(full_name, registration_no)))')
+    .select('*, encounters(id, visit_id, visits(doctor_id, patients:patient_id(uhid, first_name, salutation, last_name, mobile, age, gender), profiles:doctor_id(full_name, registration_no)))')
     .eq('id', procedureId)
     .single();
   if (error || !proc) return { error: 'Procedure not found.' };
@@ -2108,7 +2109,7 @@ export async function renderOpdProcedureSummaryHtml(procedureId) {
     hospital_city_state_pin: settings.city_state_pin, hospital_phone: settings.phone,
     logo_html: logoHtml(settings),
 
-    patient_id: patient?.uhid, patient_name: `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim(),
+    patient_id: patient?.uhid, patient_name: formatPatientName(patient),
     patient_age: patient?.age, patient_gender: patient?.gender, patient_mobile: patient?.mobile,
 
     doctor_name: doctor?.full_name || '--', doctor_regn_no: doctor?.registration_no || '--',
@@ -2139,7 +2140,7 @@ export async function renderInvestigationHtml(orderId) {
 
   const { data: order, error } = await supabase
     .from('investigation_orders')
-    .select('*, encounters(visit_id, doctor_id, visits(patients(uhid, first_name, last_name, mobile, age, gender)), profiles:doctor_id(full_name))')
+    .select('*, encounters(visit_id, doctor_id, visits(patients(uhid, first_name, salutation, last_name, mobile, age, gender)), profiles:doctor_id(full_name))')
     .eq('id', orderId)
     .single();
   if (error || !order) return { error: 'Investigation not found.' };
@@ -2160,7 +2161,7 @@ export async function renderInvestigationHtml(orderId) {
     hospital_city_state_pin: settings.city_state_pin, hospital_phone: settings.phone, hospital_email: settings.email,
     logo_html: logoHtml(settings),
 
-    patient_id: patient?.uhid, patient_name: `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim(),
+    patient_id: patient?.uhid, patient_name: formatPatientName(patient),
     patient_age: patient?.age, patient_gender: patient?.gender, patient_mobile: patient?.mobile,
 
     investigation_name: order.name, investigation_type: type, eye: order.eye,
@@ -2198,7 +2199,7 @@ export async function renderMedicinePrescriptionHtml(visitId) {
 
   const { data: visit, error } = await supabase
     .from('visits')
-    .select('id, visit_number, doctor_id, patients(uhid, first_name, last_name, age, gender, mobile), profiles:doctor_id(full_name, registration_no)')
+    .select('id, visit_number, doctor_id, patients(uhid, first_name, salutation, last_name, age, gender, mobile), profiles:doctor_id(full_name, registration_no)')
     .eq('id', visitId)
     .single();
   if (error || !visit) return { error: 'Visit not found.' };
@@ -2222,7 +2223,7 @@ export async function renderMedicinePrescriptionHtml(visitId) {
     hospital_city_state_pin: settings.city_state_pin, hospital_phone: settings.phone, hospital_email: settings.email,
     logo_html: logoHtml(settings),
 
-    patient_id: patient?.uhid || '--', patient_name: `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim(),
+    patient_id: patient?.uhid || '--', patient_name: formatPatientName(patient),
     patient_age: patient?.age ?? '--', patient_gender: patient?.gender || '--', patient_mobile: patient?.mobile || '--',
     visit_number: visit.visit_number || '--',
     print_date: fmtDate(new Date().toISOString()),
@@ -2251,7 +2252,7 @@ export async function renderMedicalFitnessFormHtml(referralId) {
 
   const { data: referral, error } = await supabase
     .from('medical_fitness_referrals')
-    .select('*, visits(patients(first_name, last_name, uhid, age, gender)), surgical_cases(procedure_name)')
+    .select('*, visits(patients(first_name, salutation, salutation, last_name, uhid, age, gender)), surgical_cases(procedure_name)')
     .eq('id', referralId)
     .single();
   if (error || !referral) return { error: 'Referral not found.' };
@@ -2273,7 +2274,7 @@ export async function renderMedicalFitnessFormHtml(referralId) {
     hospital_city_state_pin: settings.city_state_pin, hospital_phone: settings.phone,
     logo_html: logoHtml(settings),
 
-    patient_name: `${patient?.first_name || ''} ${patient?.last_name || ''}`.trim() || '--',
+    patient_name: formatPatientName(patient) || '--',
     patient_age: patient?.age ?? '--', patient_gender: patient?.gender || '--', patient_uhid: patient?.uhid || '--',
     surgery_type: referral.surgical_cases?.procedure_name || '--',
 

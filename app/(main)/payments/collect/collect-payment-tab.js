@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { searchPatientsForPayment, getOutstandingInvoices, collectPayment, getAdvanceBalance, getPatientById, getAllUnpaidInvoices, applyAdjustment } from '../actions';
 
@@ -234,7 +235,7 @@ export default function CollectPaymentTab() {
           </div>
         )}
         <div style={{ fontSize: 13, lineHeight: 1.9 }}>
-          <div><strong>Patient:</strong> {selectedPatient.first_name} {selectedPatient.last_name} -- {selectedPatient.uhid}</div>
+          <div><strong>Patient:</strong> {formatPatientName(selectedPatient)} -- {selectedPatient.uhid}</div>
           <div><strong>Amount:</strong> Rs.{receipt.total_amount}</div>
           {receipt.reference && <div><strong>Reference:</strong> {receipt.reference}</div>}
         </div>
@@ -274,7 +275,7 @@ export default function CollectPaymentTab() {
               <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
                 {searchResults.map((p) => (
                   <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid}
+                    <strong>{formatPatientName(p)}</strong> -- {p.uhid}
                   </div>
                 ))}
               </div>
@@ -285,7 +286,7 @@ export default function CollectPaymentTab() {
             <div style={{ background: 'var(--green-lt)', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontWeight: 700 }}>{selectedPatient.first_name} {selectedPatient.last_name}</div>
+                  <div style={{ fontWeight: 700 }}>{formatPatientName(selectedPatient)}</div>
                   <div style={{ fontSize: 11, color: 'var(--g600)' }}>{selectedPatient.uhid}</div>
                 </div>
                 <button className="btn btn-sm" onClick={reset}>Change</button>
@@ -391,7 +392,7 @@ export default function CollectPaymentTab() {
                 style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>{inv.patients?.first_name} {inv.patients?.last_name}</strong>
+                  <strong>{formatPatientName(inv.patients)}</strong>
                   <span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span>
                 </div>
                 <div style={{ color: 'var(--g500)', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between' }}>

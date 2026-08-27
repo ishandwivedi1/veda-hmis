@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { formatPatientName } from '@/lib/patientName';
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getOptometryDashboardData } from './actions';
@@ -49,7 +50,7 @@ function waitBadgeClass(mins) {
 
 function patientName(entry) {
   const p = entry.visits?.patients;
-  return p ? `${p.first_name} ${p.last_name}` : 'Unknown';
+  return p ? `${formatPatientName(p)}` : 'Unknown';
 }
 
 function TokenBadge({ token }) {

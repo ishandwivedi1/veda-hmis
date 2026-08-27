@@ -1,6 +1,7 @@
 'use server';
 
 import { after } from 'next/server';
+import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import { requireDayOpen, getTodayCollectionSummary, getRevenueByDepartmentToday, getDayOpening, isTodayOpen } from '@/app/(main)/cash-management/actions';
 import { sendInvoiceBill } from '@/app/(main)/billing/actions';
@@ -48,7 +49,7 @@ export async function getTodaysVisits() {
   const today = new Date().toISOString().slice(0, 10);
   const { data } = await supabase
     .from('visits')
-    .select('id, visit_number, visit_type, created_at, patients(id, first_name, last_name, uhid)')
+    .select('id, visit_number, visit_type, created_at, patients(id, first_name, salutation, last_name, uhid)')
     .gte('created_at', today)
     .order('created_at', { ascending: false });
   return data || [];
@@ -58,7 +59,7 @@ export async function getPatientById(patientId) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name, mobile')
+    .select('id, uhid, first_name, salutation, last_name, mobile')
     .eq('id', patientId)
     .single();
   if (error) return { error: error.message };
@@ -69,7 +70,7 @@ export async function getAllUnpaidInvoices() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('invoices')
-    .select('id, invoice_number, net, paid, status, created_at, patients(id, first_name, last_name, uhid)')
+    .select('id, invoice_number, net, paid, status, created_at, patients(id, first_name, salutation, last_name, uhid)')
     .in('status', ['Pending', 'Partial'])
     .order('created_at', { ascending: false })
     .limit(50);
@@ -101,7 +102,7 @@ export async function getCreditNoteRegister() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('credit_notes')
-    .select('*, patients(first_name, last_name, uhid), invoices(invoice_number), profiles!credit_notes_approved_by_fkey(full_name)')
+    .select('*, patients(first_name, salutation, last_name, uhid), invoices(invoice_number), profiles!credit_notes_approved_by_fkey(full_name)')
     .order('created_at', { ascending: false })
     .limit(50);
   return data || [];
@@ -256,7 +257,7 @@ export async function getRefundRegister() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('payment_refunds')
-    .select('*, patients(first_name, last_name, uhid), invoices(invoice_number), profiles!payment_refunds_approved_by_fkey(full_name)')
+    .select('*, patients(first_name, salutation, last_name, uhid), invoices(invoice_number), profiles!payment_refunds_approved_by_fkey(full_name)')
     .order('refunded_at', { ascending: false })
     .limit(50);
   return data || [];
@@ -267,7 +268,7 @@ export async function searchPatientsForPayment(q) {
   const supabase = await createClient();
   const { data } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name, mobile')
+    .select('id, uhid, first_name, salutation, last_name, mobile')
     .or(`uhid.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
     .limit(10);
   return data || [];
@@ -314,7 +315,7 @@ export async function collectAdvance(patientId, advanceType, amount, modes, refe
     const { data: { user } } = await supabase.auth.getUser();
     const { data: patient } = await supabase
       .from('patients')
-      .select('id, first_name, last_name, mobile')
+      .select('id, first_name, salutation, last_name, mobile')
       .eq('id', patientId)
       .single();
     const triggeredBy = user?.id || null;
@@ -328,7 +329,7 @@ export async function collectAdvance(patientId, advanceType, amount, modes, refe
             return;
           }
           await sendAdvanceReceiptWhatsApp({
-            name: `${patient.first_name} ${patient.last_name}`.trim(),
+            name: `${formatPatientName(patient)}`.trim(),
             amount: data.total_amount,
             receiptNumber: data.receipt_number,
             date: formatDateOnlyIST(data.collected_at),
@@ -354,7 +355,7 @@ export async function getCurrentBalancesByPatient() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('patient_ledger')
-    .select('patient_id, amount, patients(id, first_name, last_name, uhid)');
+    .select('patient_id, amount, patients(id, first_name, salutation, last_name, uhid)');
   if (!data) return [];
 
   const byPatient = {};
@@ -371,7 +372,7 @@ export async function getLedgerHistory() {
   const supabase = await createClient();
   const { data } = await supabase
     .from('patient_ledger')
-    .select('*, patients(id, first_name, last_name, uhid), payments(mode:payment_modes(mode, amount), reference)')
+    .select('*, patients(id, first_name, salutation, last_name, uhid), payments(mode:payment_modes(mode, amount), reference)')
     .order('recorded_at', { ascending: false })
     .limit(30);
   return data || [];
@@ -404,7 +405,7 @@ export async function searchReceipts(query, modeFilter) {
 
   let q = supabase
     .from('payments')
-    .select('*, patients(id, first_name, last_name, uhid, mobile), payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number))')
+    .select('*, patients(id, first_name, salutation, last_name, uhid, mobile), payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number))')
     .order('collected_at', { ascending: false })
     .limit(50);
 
@@ -428,7 +429,7 @@ export async function getReceiptById(paymentId) {
   const supabase = await createClient();
   const { data: payment, error } = await supabase
     .from('payments')
-    .select('*, patients(first_name, last_name, uhid, mobile), profiles(full_name)')
+    .select('*, patients(first_name, salutation, last_name, uhid, mobile), profiles(full_name)')
     .eq('id', paymentId)
     .single();
   if (error) return { error: error.message };
@@ -453,7 +454,7 @@ export async function resendPaymentReceiptWhatsApp(paymentId) {
   const supabase = await createClient();
   const { data: payment, error } = await supabase
     .from('payments')
-    .select('id, receipt_number, total_amount, collected_at, patient_id, payment_type, patients(id, first_name, last_name, mobile)')
+    .select('id, receipt_number, total_amount, collected_at, patient_id, payment_type, patients(id, first_name, salutation, last_name, mobile)')
     .eq('id', paymentId)
     .single();
   if (error || !payment) return { error: error?.message || 'Receipt not found.' };
@@ -463,7 +464,7 @@ export async function resendPaymentReceiptWhatsApp(paymentId) {
   if (pdfResult.error) return { error: pdfResult.error };
 
   const { data: { user } } = await supabase.auth.getUser();
-  const name = `${payment.patients.first_name} ${payment.patients.last_name}`.trim();
+  const name = `${formatPatientName(payment.patients)}`.trim();
   const filename = `${payment.receipt_number || 'Receipt'}.pdf`;
   const meta = { module: payment.payment_type === 'advance' ? 'advance_payment' : 'payment_receipt', triggeredBy: user?.id || null };
 
@@ -568,7 +569,7 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
     const [{ data }, { data: refundsData }] = await Promise.all([
       supabase
         .from('payments')
-        .select('receipt_number, total_amount, collected_at, patients(first_name, last_name)')
+        .select('receipt_number, total_amount, collected_at, patients(first_name, salutation, last_name)')
         .in('payment_type', ['invoice_payment', 'advance'])
         .gte('collected_at', from)
         .lte('collected_at', toEnd)
@@ -580,7 +581,7 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
         .lte('refunded_at', toEnd),
     ]);
     const rows = (data || []).map((p) => ({
-      cols: [p.receipt_number, `${p.patients?.first_name} ${p.patients?.last_name}`, new Date(p.collected_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), `Rs.${p.total_amount}`],
+      cols: [p.receipt_number, `${formatPatientName(p.patients)}`, new Date(p.collected_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), `Rs.${p.total_amount}`],
     }));
     const grossTotal = (data || []).reduce((s, p) => s + Number(p.total_amount), 0);
     const refundTotal = (refundsData || []).reduce((s, r) => s + Number(r.amount), 0);
@@ -599,7 +600,7 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
     const modeFilter = reportId === 'cash' ? 'Cash' : reportId === 'upi' ? 'UPI' : null;
     let q = supabase
       .from('payment_modes')
-      .select('mode, amount, payments!inner(receipt_number, collected_at, patients(first_name, last_name), payment_type)')
+      .select('mode, amount, payments!inner(receipt_number, collected_at, patients(first_name, salutation, last_name), payment_type)')
       .gte('payments.collected_at', from)
       .lte('payments.collected_at', toEnd);
     if (modeFilter) q = q.eq('mode', modeFilter);
@@ -621,7 +622,7 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
       const isRefund = m.payments?.payment_type === 'refund';
       return {
         cols: [
-          m.payments?.receipt_number, `${m.payments?.patients?.first_name} ${m.payments?.patients?.last_name}`,
+          m.payments?.receipt_number, `${formatPatientName(m.payments?.patients)}`,
           new Date(m.payments?.collected_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
           isRefund ? 'Refund' : 'Collection',
           `${isRefund ? '-' : ''}Rs.${m.amount}`,
@@ -634,12 +635,12 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
   if (reportId === 'advance') {
     const { data } = await supabase
       .from('patient_ledger')
-      .select('*, patients(id, first_name, last_name, uhid)')
+      .select('*, patients(id, first_name, salutation, last_name, uhid)')
       .gte('recorded_at', from)
       .lte('recorded_at', toEnd)
       .order('recorded_at', { ascending: false });
     const rows = (data || []).map((l) => ({
-      cols: [`${l.patients?.first_name} ${l.patients?.last_name}`, l.patients?.uhid, l.entry_type, `Rs.${Math.abs(l.amount).toFixed(2)}`],
+      cols: [`${formatPatientName(l.patients)}`, l.patients?.uhid, l.entry_type, `Rs.${Math.abs(l.amount).toFixed(2)}`],
     }));
     return { title: `Advance Report -- ${rangeLabel}`, headers: ['Patient', 'UHID', 'Entry', 'Amount'], rows, total: null };
   }
@@ -650,13 +651,13 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
     // still see "what's still outstanding from invoices raised in period X".
     const { data } = await supabase
       .from('invoices')
-      .select('invoice_number, net, paid, created_at, patients(id, first_name, last_name, uhid)')
+      .select('invoice_number, net, paid, created_at, patients(id, first_name, salutation, last_name, uhid)')
       .in('status', ['Pending', 'Partial'])
       .gte('created_at', from)
       .lte('created_at', toEnd)
       .order('created_at', { ascending: true });
     const rows = (data || []).map((i) => ({
-      cols: [i.invoice_number, `${i.patients?.first_name} ${i.patients?.last_name}`, i.patients?.uhid, `Rs.${(i.net - i.paid).toFixed(2)}`],
+      cols: [i.invoice_number, `${formatPatientName(i.patients)}`, i.patients?.uhid, `Rs.${(i.net - i.paid).toFixed(2)}`],
     }));
     return { title: `Outstanding Balances -- invoices raised ${rangeLabel}`, headers: ['Invoice #', 'Patient', 'UHID', 'Outstanding'], rows, total: (data || []).reduce((s, i) => s + (Number(i.net) - Number(i.paid)), 0) };
   }
@@ -664,13 +665,13 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
   if (reportId === 'register') {
     const { data } = await supabase
       .from('payments')
-      .select('receipt_number, total_amount, collected_at, payment_type, patients(first_name, last_name)')
+      .select('receipt_number, total_amount, collected_at, payment_type, patients(first_name, salutation, last_name)')
       .gte('collected_at', from)
       .lte('collected_at', toEnd)
       .order('collected_at', { ascending: false })
       .limit(200);
     const rows = (data || []).map((p) => ({
-      cols: [p.receipt_number, `${p.patients?.first_name} ${p.patients?.last_name}`, p.payment_type, new Date(p.collected_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }), `Rs.${p.total_amount}`],
+      cols: [p.receipt_number, `${formatPatientName(p.patients)}`, p.payment_type, new Date(p.collected_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }), `Rs.${p.total_amount}`],
     }));
     return { title: `Receipt Register -- ${rangeLabel}`, headers: ['Receipt #', 'Patient', 'Type', 'Date', 'Amount'], rows, total: null };
   }
@@ -678,12 +679,12 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
   if (reportId === 'cancel') {
     const { data } = await supabase
       .from('payment_refunds')
-      .select('*, patients(first_name, last_name), invoices(invoice_number)')
+      .select('*, patients(first_name, salutation, last_name), invoices(invoice_number)')
       .gte('refunded_at', from)
       .lte('refunded_at', toEnd)
       .order('refunded_at', { ascending: false });
     const rows = (data || []).map((r) => ({
-      cols: [`${r.patients?.first_name} ${r.patients?.last_name}`, r.invoices?.invoice_number || 'Advance', `Rs.${r.amount}`, r.reason],
+      cols: [`${formatPatientName(r.patients)}`, r.invoices?.invoice_number || 'Advance', `Rs.${r.amount}`, r.reason],
     }));
     return { title: `Refund Report -- ${rangeLabel}`, headers: ['Patient', 'Invoice', 'Amount', 'Reason'], rows, total: (data || []).reduce((s, r) => s + Number(r.amount), 0) };
   }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getSurgicalCaseLists, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, recordManualReminder, getSurgicalTrackArrivalsToday } from './actions';
 
@@ -53,7 +54,7 @@ function ReminderModal({ caseRow, onClose, onDone }) {
           <i className="ti ti-phone-call" style={{ color: 'var(--blue)' }}></i> Log Follow-up Call
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--g600)', marginBottom: 10 }}>
-          {caseRow.patients?.first_name} {caseRow.patients?.last_name} -- {caseRow.patients?.mobile}
+          {formatPatientName(caseRow.patients)} -- {caseRow.patients?.mobile}
         </div>
         <textarea
           className="fi" rows={3} placeholder="What did they say? e.g. 'Will come next week', 'No answer', 'Decided against it'..."
@@ -75,7 +76,7 @@ function HistoryTab({ rows, loading, onOpen }) {
   const filtered = search.trim()
     ? rows.filter((c) => {
         const q = search.trim().toLowerCase();
-        return `${c.patients?.first_name} ${c.patients?.last_name}`.toLowerCase().includes(q) || (c.patients?.uhid || '').toLowerCase().includes(q);
+        return `${formatPatientName(c.patients)}`.toLowerCase().includes(q) || (c.patients?.uhid || '').toLowerCase().includes(q);
       })
     : rows;
 
@@ -97,7 +98,7 @@ function HistoryTab({ rows, loading, onOpen }) {
             {c.patients?.first_name?.charAt(0)}
           </div>
           <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patients)}</span>
             <span className={`badge ${c.status === 'Cancelled' ? 'b-gray' : 'b-green'}`} style={{ marginLeft: 8, fontSize: 10 }}>{c.status}</span>
             <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
               {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye}{c.master_packages ? ` -- ${c.master_packages.name}` : ''}
@@ -179,7 +180,7 @@ export default function SurgicalJourneyPage() {
                     {c.patients?.first_name?.charAt(0)}
                   </div>
                   <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => router.push(`/surgical-journey/${c.id}`)}>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patients)}</span>
                     <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>
                     {c.status === 'Scheduled' && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>Date booked, unpaid</span>}
                     {c.reminder_count > 0 && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>{c.reminder_count} call{c.reminder_count > 1 ? 's' : ''} logged</span>}
@@ -213,7 +214,7 @@ export default function SurgicalJourneyPage() {
                   {c.patients?.first_name?.charAt(0)}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patients)}</span>
                   <span className={`badge ${STAGE_BADGE[c.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{STAGE_LABEL[c.status] || c.status}</span>
                   {arrivedToday.has(c.patient_id) && (
                     <span className="badge b-green" style={{ marginLeft: 6, fontSize: 10 }}><i className="ti ti-door-enter"></i> Arrived Today</span>
@@ -243,7 +244,7 @@ export default function SurgicalJourneyPage() {
                   {c.patients?.first_name?.charAt(0)}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patients?.first_name} {c.patients?.last_name}</span>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patients)}</span>
                   <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>Discharged</span>
                   <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                     {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye}{c.master_packages ? ` -- ${c.master_packages.name}` : ''}

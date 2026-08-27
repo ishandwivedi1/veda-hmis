@@ -1,6 +1,7 @@
 'use server';
 
 import { after } from 'next/server';
+import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import { sendVisitConfirmationWhatsApp, formatVisitDateIST } from '@/lib/whatsapp';
 
@@ -12,7 +13,7 @@ export async function getPatientById(patientId) {
   const supabase = await createClient();
   const { data } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name, mobile')
+    .select('id, uhid, first_name, salutation, last_name, mobile')
     .eq('id', patientId)
     .single();
   return data || null;
@@ -91,14 +92,14 @@ async function sendVisitWhatsAppCore(visit, triggeredBy) {
   const supabase = await createClient();
   const { data: patient } = await supabase
     .from('patients')
-    .select('id, first_name, last_name, mobile')
+    .select('id, first_name, salutation, last_name, mobile')
     .eq('id', visit.patient_id)
     .single();
 
   if (!patient || !patient.mobile) return { success: false, error: 'Patient has no mobile number on file.' };
 
   return sendVisitConfirmationWhatsApp({
-    name: `${patient.first_name} ${patient.last_name}`.trim(),
+    name: `${formatPatientName(patient)}`.trim(),
     visitNumber: visit.visit_number,
     visitDate: formatVisitDateIST(visit.created_at),
     mobile: patient.mobile,

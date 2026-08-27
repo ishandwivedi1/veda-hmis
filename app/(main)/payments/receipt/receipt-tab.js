@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { searchReceipts, editPaymentClerical, getPaymentEditHistory, resendPaymentReceiptWhatsApp, getReceiptById } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
@@ -20,7 +21,7 @@ function sortReceipts(receipts, sort) {
   const list = [...receipts];
   switch (sort) {
     case 'oldest': return list.sort((a, b) => new Date(a.collected_at) - new Date(b.collected_at));
-    case 'patient_az': return list.sort((a, b) => `${a.patients?.first_name} ${a.patients?.last_name}`.localeCompare(`${b.patients?.first_name} ${b.patients?.last_name}`));
+    case 'patient_az': return list.sort((a, b) => `${formatPatientName(a.patients)}`.localeCompare(`${formatPatientName(b.patients)}`));
     case 'amount_high': return list.sort((a, b) => Number(b.total_amount) - Number(a.total_amount));
     case 'amount_low': return list.sort((a, b) => Number(a.total_amount) - Number(b.total_amount));
     default: return list.sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at)); // newest
@@ -180,7 +181,7 @@ export default function ReceiptTab() {
                 <tr>
                   <td style={{ fontFamily: 'monospace', color: 'var(--blue)' }}>{r.receipt_number}</td>
                   <td>{new Date(r.collected_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-                  <td style={{ fontWeight: 600 }}>{r.patients?.first_name} {r.patients?.last_name}</td>
+                  <td style={{ fontWeight: 600 }}>{formatPatientName(r.patients)}</td>
                   <td style={{ fontSize: 11 }}>{(r.payment_allocations || []).map((a) => a.invoices?.invoice_number).filter(Boolean).join(', ') || '--'}</td>
                   <td style={{ fontSize: 11 }}>{(r.payment_modes || []).map((m) => `${m.mode} Rs.${m.amount}`).join(', ')}</td>
                   <td style={{ fontWeight: 600 }}>Rs.{r.total_amount}</td>

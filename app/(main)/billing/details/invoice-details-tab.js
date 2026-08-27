@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { searchInvoices, getInvoiceById, resendInvoiceBillWhatsApp } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
@@ -19,7 +20,7 @@ function sortInvoices(invoices, sort) {
   const list = [...invoices];
   switch (sort) {
     case 'oldest': return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    case 'patient_az': return list.sort((a, b) => `${a.patients?.first_name} ${a.patients?.last_name}`.localeCompare(`${b.patients?.first_name} ${b.patients?.last_name}`));
+    case 'patient_az': return list.sort((a, b) => `${formatPatientName(a.patients)}`.localeCompare(`${formatPatientName(b.patients)}`));
     case 'net_high': return list.sort((a, b) => Number(b.net) - Number(a.net));
     case 'net_low': return list.sort((a, b) => Number(a.net) - Number(b.net));
     default: return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // newest
@@ -110,7 +111,7 @@ export default function InvoiceDetailsTab() {
               <tr key={inv.id} onClick={() => openInvoice(inv)} style={{ cursor: 'pointer', background: selected?.id === inv.id ? 'var(--blue-lt)' : 'transparent' }}>
                 <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{inv.invoice_number || '--'}</td>
                 <td>{new Date(inv.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}</td>
-                <td style={{ fontWeight: 600 }}>{inv.patients?.first_name} {inv.patients?.last_name}</td>
+                <td style={{ fontWeight: 600 }}>{formatPatientName(inv.patients)}</td>
                 <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{inv.visits?.visit_number || '--'}</td>
                 <td>Rs.{inv.gross}</td>
                 <td>{inv.gross - inv.net > 0 ? `Rs.${(inv.gross - inv.net).toFixed(2)}` : '--'}</td>
@@ -169,7 +170,7 @@ export default function InvoiceDetailsTab() {
               </div>
             )}
             <div style={{ fontSize: 13, marginBottom: 12 }}>
-              <strong>{selected.patients?.first_name} {selected.patients?.last_name}</strong> -- {selected.patients?.uhid}
+              <strong>{formatPatientName(selected.patients)}</strong> -- {selected.patients?.uhid}
             </div>
             <table className="tbl">
               <thead><tr><th>Service</th><th>Qty</th><th>Net</th></tr></thead>

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
@@ -14,7 +15,7 @@ export default async function AppointmentsPage({ searchParams }) {
   const supabase = await createClient();
   const { data: appointments, error } = await supabase
     .from('appointments')
-    .select('*, patients(first_name, last_name, uhid, mobile), profiles(full_name)')
+    .select('*, patients(first_name, salutation, last_name, uhid, mobile), profiles(full_name)')
     .eq('appointment_date', dateFilter)
     .order('appointment_time', { ascending: true });
 
@@ -54,7 +55,7 @@ export default async function AppointmentsPage({ searchParams }) {
         <tbody>
           {(appointments || []).map((a) => {
             const isRegistered = !!a.patients;
-            const name = isRegistered ? `${a.patients.first_name} ${a.patients.last_name}` : a.patient_name_temp;
+            const name = isRegistered ? `${formatPatientName(a.patients)}` : a.patient_name_temp;
             const mobile = isRegistered ? a.patients.mobile : a.mobile_temp;
             return (
               <tr key={a.id}>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { getDoctorDashboardData, getDoctorHistory, getProceduresDueToday } from './actions';
 import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
 import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
@@ -21,7 +22,7 @@ function waitBadgeClass(mins) {
 
 function patientName(entry) {
   const p = entry.visits?.patients;
-  return p ? `${p.first_name} ${p.last_name}` : 'Unknown';
+  return p ? `${formatPatientName(p)}` : 'Unknown';
 }
 
 
@@ -224,7 +225,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, proce
             return (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                 <div>
-                  <strong>{patient?.first_name} {patient?.last_name}</strong>
+                  <strong>{formatPatientName(patient)}</strong>
                   <span style={{ color: 'var(--g400)', marginLeft: 6 }}>{patient?.uhid}</span>
                   <div style={{ fontSize: 11.5, color: 'var(--g500)' }}>
                     {p.name} -- {p.eye}{p.notes && ` (${p.notes})`}
@@ -296,7 +297,7 @@ function HistoryTab({ rows, loading, onOpen }) {
     ? rows.filter((e) => {
         const q = search.trim().toLowerCase();
         const p = e.visits?.patients;
-        return `${p?.first_name} ${p?.last_name}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
+        return `${formatPatientName(p)}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
       })
     : rows;
 

@@ -1,8 +1,9 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { formatPatientName } from '@/lib/patientName';
 
-const OT_SELECT = '*, surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)';
+const OT_SELECT = '*, surgical_cases(procedure_name, eye, patients(first_name, salutation, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)';
 
 // ── SCHEDULED OT -- upcoming bookings that haven't happened yet.
 // Reschedulable while still in this state; once a patient checks in
@@ -56,7 +57,7 @@ export async function getOTMonthSummary(startDate, endDate) {
 
   const { data: bookings, error } = await supabase
     .from('ot_schedule')
-    .select('id, scheduled_date, session_id, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients(first_name, last_name, uhid))')
+    .select('id, scheduled_date, session_id, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients(first_name, salutation, last_name, uhid))')
     .gte('scheduled_date', startDate)
     .lte('scheduled_date', endDate)
     .neq('status', 'Cancelled')
@@ -72,7 +73,7 @@ export async function getOTMonthSummary(startDate, endDate) {
       sessionName: b.master_ot_sessions?.name || '--',
       procedureName: b.surgical_cases?.procedure_name || '--',
       eye: b.surgical_cases?.eye || '',
-      patientName: b.surgical_cases?.patients ? `${b.surgical_cases.patients.first_name} ${b.surgical_cases.patients.last_name}` : '--',
+      patientName: b.surgical_cases?.patients ? `${formatPatientName(b.surgical_cases.patients)}` : '--',
       uhid: b.surgical_cases?.patients?.uhid || '',
     });
   });
@@ -94,7 +95,7 @@ export async function getOTUpcomingWeek() {
 
   const { data, error } = await supabase
     .from('ot_schedule')
-    .select('id, scheduled_date, master_ot_sessions(name, start_time), surgical_cases(procedure_name, eye, priority, patients(first_name, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)')
+    .select('id, scheduled_date, master_ot_sessions(name, start_time), surgical_cases(procedure_name, eye, priority, patients(first_name, salutation, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)')
     .gte('scheduled_date', todayIst)
     .lte('scheduled_date', weekEndIst)
     .eq('status', 'Scheduled')
@@ -111,7 +112,7 @@ export async function getOTUpcomingWeek() {
       procedureName: b.surgical_cases?.procedure_name || '--',
       eye: b.surgical_cases?.eye || '',
       priority: b.surgical_cases?.priority || 'Routine',
-      patientName: b.surgical_cases?.patients ? `${b.surgical_cases.patients.first_name} ${b.surgical_cases.patients.last_name}` : '--',
+      patientName: b.surgical_cases?.patients ? `${formatPatientName(b.surgical_cases.patients)}` : '--',
       uhid: b.surgical_cases?.patients?.uhid || '',
       surgeonName: b.profiles?.full_name || null,
     }));
@@ -195,7 +196,7 @@ export async function searchPatientsForDirectSurgery(q) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name, mobile')
+    .select('id, uhid, first_name, salutation, last_name, mobile')
     .or(`uhid.ilike.%${q}%,mobile.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
     .limit(10);
   if (error) return [];

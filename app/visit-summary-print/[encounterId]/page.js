@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase-server';
+import { formatPatientName } from '@/lib/patientName';
 import PrintButton from './print-button';
 
 // Same mapping and grouping logic as print-templates/actions.js's
@@ -38,7 +39,7 @@ export default async function VisitSummaryPrintPage({ params }) {
 
   const { data: encounter, error } = await supabase
     .from('encounters')
-    .select('*, visits(visit_number, patients(first_name, last_name, uhid, age, gender, mobile))')
+    .select('*, visits(visit_number, patients(first_name, salutation, last_name, uhid, age, gender, mobile))')
     .eq('id', encounterId)
     .single();
 
@@ -96,7 +97,7 @@ export default async function VisitSummaryPrintPage({ params }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase' }}>Patient</div>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>{patient?.first_name} {patient?.last_name}</div>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{formatPatientName(patient)}</div>
           <div style={{ fontSize: 12, color: '#4b5563' }}>{patient?.uhid} -- {patient?.age} {patient?.gender}</div>
           {patient?.mobile && <div style={{ fontSize: 12, color: '#4b5563' }}>{patient.mobile}</div>}
         </div>

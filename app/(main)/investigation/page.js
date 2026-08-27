@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getInvestigationQueue, getTodaysInvestigations } from './actions';
 import InvestigationTabs from './investigation-tabs';
@@ -101,7 +102,7 @@ export default function InvestigationPage() {
             {todaysPending.map((r) => (
               <tr key={r.id}>
                 <td>
-                  <strong>{r.patient?.first_name} {r.patient?.last_name}</strong>
+                  <strong>{formatPatientName(r.patient)}</strong>
                   <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{r.patient?.uhid}</span>
                 </td>
                 <td style={{ fontWeight: 600 }}>{r.name} <span style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 400 }}>({r.eye})</span></td>
@@ -145,7 +146,7 @@ export default function InvestigationPage() {
             {todaysCompleted.map((r) => (
               <tr key={r.id}>
                 <td>
-                  <strong>{r.patient?.first_name} {r.patient?.last_name}</strong>
+                  <strong>{formatPatientName(r.patient)}</strong>
                   <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{r.patient?.uhid}</span>
                 </td>
                 <td style={{ fontWeight: 600 }}>{r.name} <span style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 400 }}>({r.eye})</span></td>
@@ -193,7 +194,7 @@ export default function InvestigationPage() {
         <div key={g.visitId} className="card" style={{ marginBottom: 12 }}>
           <div className="card-title" style={{ marginBottom: 10 }}>
             <i className="ti ti-user" style={{ color: 'var(--purple)' }}></i>
-            {g.patient?.first_name} {g.patient?.last_name} -- {g.patient?.uhid}
+            {formatPatientName(g.patient)} -- {g.patient?.uhid}
           </div>
           {g.items.map((item) => {
             const type = item.kind === 'biometry' ? 'Biometry' : matchType(item.name);

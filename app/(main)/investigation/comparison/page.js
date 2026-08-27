@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { searchPatientsForInvestigation, getInvestigationComparisonData } from '../actions';
 import { matchInvestigationType, parseNumeric } from '../investigation-types';
 import InvestigationTabs from '../investigation-tabs';
@@ -80,7 +81,7 @@ export default function InvestigationComparisonPage() {
                 <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 4, position: 'absolute', background: '#fff', width: '100%', zIndex: 5 }}>
                   {searchResults.map((p) => (
                     <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                      <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid}
+                      <strong>{formatPatientName(p)}</strong> -- {p.uhid}
                     </div>
                   ))}
                 </div>
@@ -88,7 +89,7 @@ export default function InvestigationComparisonPage() {
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--blue-lt)', padding: '6px 12px', borderRadius: 8 }}>
-              <span><strong>{patient.first_name} {patient.last_name}</strong> -- {patient.uhid}</span>
+              <span><strong>{formatPatientName(patient)}</strong> -- {patient.uhid}</span>
               <button className="btn btn-sm" onClick={() => { setPatient(null); setRows([]); }}>Change</button>
             </div>
           )}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getBiometryHistory } from '../actions';
 
@@ -54,7 +55,7 @@ export default function BiometryHistoryPage() {
                 <tr key={r.id} onClick={() => router.push(`/biometry/${r.id}`)} style={{ cursor: 'pointer' }}>
                   <td style={{ fontSize: 11 }}>{new Date(r.updated_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
                   <td>
-                    <strong>{patient?.first_name} {patient?.last_name}</strong>
+                    <strong>{formatPatientName(patient)}</strong>
                     <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{patient?.uhid}</span>
                   </td>
                   <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{reReading.axl || '--'} / {reReading.k1 || '--'}/{reReading.k2 || '--'} / {reReading.acd || '--'}</td>

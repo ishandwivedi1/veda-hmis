@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { searchPatients, getPatientTimeline } from './actions';
@@ -63,7 +64,7 @@ function PatientTimelineInner() {
     setEvents(result.events || []);
     if (result.patient) {
       skipNextSearch.current = true;
-      setQuery(`${result.patient.first_name} ${result.patient.last_name} -- ${result.patient.uhid}`);
+      setQuery(`${formatPatientName(result.patient)} -- ${result.patient.uhid}`);
     }
   }, []);
 
@@ -102,7 +103,7 @@ function PatientTimelineInner() {
                   onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--g50)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
                 >
-                  <strong>{p.first_name} {p.last_name}</strong> <span style={{ color: 'var(--g400)', fontSize: 11 }}>{p.uhid} -- {p.age} {p.gender}</span>
+                  <strong>{formatPatientName(p)}</strong> <span style={{ color: 'var(--g400)', fontSize: 11 }}>{p.uhid} -- {p.age} {p.gender}</span>
                 </div>
               ))}
             </div>
@@ -209,7 +210,7 @@ function PatientTimelineInner() {
             <div className="card">
               <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-chart-bar" style={{ color: 'var(--blue)' }}></i> Timeline Summary</div>
               <div style={{ fontSize: 12, lineHeight: 1.9 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Patient</span><span style={{ fontWeight: 600 }}>{patient.first_name} {patient.last_name}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Patient</span><span style={{ fontWeight: 600 }}>{formatPatientName(patient)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total events</span><span style={{ fontWeight: 700 }}>{events.length}</span></div>
                 {Object.entries(counts).map(([type, count]) => (
                   <div key={type} style={{ display: 'flex', justifyContent: 'space-between' }}>

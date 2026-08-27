@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { getPostOpCaseList, getPostOpTurnedUpToday, getPostOpHistory } from './actions';
 import Workspace from './workspace';
@@ -32,7 +33,7 @@ function PatientRow({ c, onClick, accentColor, rightLabel, actionLabel, actionIc
         {patient?.first_name?.charAt(0)}
       </div>
       <div style={{ flex: 1 }}>
-        <span style={{ fontWeight: 700, fontSize: 13 }}>{patient?.first_name} {patient?.last_name}</span>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(patient)}</span>
         <span className="badge b-purple" style={{ marginLeft: 8, fontSize: 10 }}>Post-op</span>
         <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
           {patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'}
@@ -116,7 +117,7 @@ function HistoryTab({ rows, loading, onOpen }) {
     ? rows.filter((e) => {
         const q = search.trim().toLowerCase();
         const p = e.surgical_cases?.patients;
-        return `${p?.first_name} ${p?.last_name}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
+        return `${formatPatientName(p)}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
       })
     : rows;
 
@@ -135,7 +136,7 @@ function HistoryTab({ rows, loading, onOpen }) {
           <tbody>
             {filtered.map((e) => (
               <tr key={e.id} onClick={() => onOpen(e.id, true)} style={{ cursor: 'pointer' }}>
-                <td><strong>{e.surgical_cases?.patients?.first_name} {e.surgical_cases?.patients?.last_name}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.surgical_cases?.patients?.uhid}</span></td>
+                <td><strong>{formatPatientName(e.surgical_cases?.patients)}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.surgical_cases?.patients?.uhid}</span></td>
                 <td style={{ fontSize: 12 }}>{e.surgical_cases?.procedure_name} ({e.surgical_cases?.eye})</td>
                 <td><span className="badge b-purple" style={{ fontSize: 10 }}>{e.closure_status}</span></td>
                 <td style={{ fontSize: 12 }}>{e.closure_outcome}</td>

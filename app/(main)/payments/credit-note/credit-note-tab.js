@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { searchPatientsForPayment, getOutstandingInvoices, getApprovers, createCreditNote, getCreditNoteRegister, getTodaysVisits } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
 
@@ -111,7 +112,7 @@ export default function CreditNoteTab() {
               <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
                 {searchResults.map((p) => (
                   <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid}
+                    <strong>{formatPatientName(p)}</strong> -- {p.uhid}
                   </div>
                 ))}
               </div>
@@ -123,7 +124,7 @@ export default function CreditNoteTab() {
         ) : (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--teal-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 14 }}>
-              <span><strong>{patient.first_name} {patient.last_name}</strong> -- {patient.uhid}</span>
+              <span><strong>{formatPatientName(patient)}</strong> -- {patient.uhid}</span>
               <button className="btn btn-sm" onClick={changePatient}>Change</button>
             </div>
 
@@ -175,7 +176,7 @@ export default function CreditNoteTab() {
               {register.map((cn) => (
                 <tr key={cn.id}>
                   <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{cn.credit_note_number}</td>
-                  <td style={{ fontSize: 12 }}>{cn.patients?.first_name} {cn.patients?.last_name}</td>
+                  <td style={{ fontSize: 12 }}>{formatPatientName(cn.patients)}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{cn.invoices?.invoice_number || '--'}</td>
                   <td style={{ fontSize: 12, fontWeight: 600 }}>Rs.{Number(cn.amount).toFixed(2)}</td>
                   <td style={{ fontSize: 11 }}>{cn.reason}</td>

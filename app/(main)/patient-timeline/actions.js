@@ -8,7 +8,7 @@ export async function searchPatients(query) {
   const q = query.trim();
   const { data } = await supabase
     .from('patients')
-    .select('id, first_name, last_name, uhid, age, gender')
+    .select('id, first_name, salutation, last_name, uhid, age, gender')
     .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,uhid.ilike.%${q}%`)
     .limit(10);
   return data || [];

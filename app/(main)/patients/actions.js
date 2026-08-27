@@ -1,6 +1,7 @@
 'use server';
 
 import { after } from 'next/server';
+import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import { createWalkInVisit } from '@/app/(main)/visits/actions';
 import { sendRegistrationWhatsApp } from '@/lib/whatsapp';
@@ -62,7 +63,7 @@ export async function registerPatient(values) {
   after(async () => {
     try {
       await sendRegistrationWhatsApp({
-        name: `${data.first_name} ${data.last_name}`.trim(),
+        name: `${formatPatientName(data)}`.trim(),
         patientUhid: data.uhid,
         patientDbId: data.id,
         mobile: data.mobile,
@@ -85,7 +86,7 @@ export async function resendRegistrationWhatsApp(patientId) {
   const supabase = await createClient();
   const { data: patient, error } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name, mobile')
+    .select('id, uhid, first_name, salutation, last_name, mobile')
     .eq('id', patientId)
     .single();
 
@@ -94,7 +95,7 @@ export async function resendRegistrationWhatsApp(patientId) {
 
   const { data: { user } } = await supabase.auth.getUser();
   const whatsapp = await sendRegistrationWhatsApp({
-    name: `${patient.first_name} ${patient.last_name}`.trim(),
+    name: `${formatPatientName(patient)}`.trim(),
     patientUhid: patient.uhid,
     patientDbId: patient.id,
     mobile: patient.mobile,
@@ -158,7 +159,7 @@ export async function updatePatient(patientId, values) {
 export async function checkDuplicateMobile(mobile) {
   if (!mobile || mobile.length < 10) return [];
   const supabase = await createClient();
-  const { data } = await supabase.from('patients').select('id, uhid, first_name, last_name, mobile, age, gender').eq('mobile', mobile);
+  const { data } = await supabase.from('patients').select('id, uhid, first_name, salutation, last_name, mobile, age, gender').eq('mobile', mobile);
   return data || [];
 }
 

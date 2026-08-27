@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, Fragment, Suspense } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import {
   getScheduledOT, getOTHistory, getOTAvailability, rescheduleOTSlot, completeOT, undoCompleteOT,
   searchPatientsForDirectSurgery, getPackagesForDirectSurgery, getSurgeonsForDirectSurgery, registerSurgeryDirect,
@@ -146,7 +147,7 @@ function ScheduledOTTab() {
                   <td>{s.scheduled_time?.slice(0, 5) || '--'}</td>
                   <td>{s.room || '--'}</td>
                   <td>
-                    {s.surgical_cases?.patients?.first_name} {s.surgical_cases?.patients?.last_name}
+                    {formatPatientName(s.surgical_cases?.patients)}
                     <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{s.surgical_cases?.patients?.uhid}</span>
                   </td>
                   <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
@@ -160,7 +161,7 @@ function ScheduledOTTab() {
                       <button className="btn btn-sm" onClick={() => setReschedulingId(reschedulingId === s.id ? null : s.id)}>
                         <i className="ti ti-calendar-time"></i> Reschedule
                       </button>
-                      <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id, `${s.surgical_cases?.patients?.first_name} ${s.surgical_cases?.patients?.last_name}`)}>Complete</button>
+                      <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id, `${formatPatientName(s.surgical_cases?.patients)}`)}>Complete</button>
                     </div>
                   </td>
                 </tr>
@@ -197,7 +198,7 @@ function OTHistoryTab() {
   useEffect(() => { refresh(); }, [refresh]);
 
   async function handleUndo(s) {
-    const name = `${s.surgical_cases?.patients?.first_name} ${s.surgical_cases?.patients?.last_name}`;
+    const name = `${formatPatientName(s.surgical_cases?.patients)}`;
     if (!window.confirm(`Undo the Complete on ${name}'s surgery and move it back to Scheduled?`)) return;
     setUndoError('');
     setUndoingId(s.id);
@@ -211,7 +212,7 @@ function OTHistoryTab() {
     ? history.filter((s) => {
         const q = search.trim().toLowerCase();
         const p = s.surgical_cases?.patients;
-        return `${p?.first_name} ${p?.last_name}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
+        return `${formatPatientName(p)}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
       })
     : history;
 
@@ -239,7 +240,7 @@ function OTHistoryTab() {
                 <td>{fmtDate(s.scheduled_date)}</td>
                 <td>{s.scheduled_time?.slice(0, 5) || '--'}</td>
                 <td>
-                  {s.surgical_cases?.patients?.first_name} {s.surgical_cases?.patients?.last_name}
+                  {formatPatientName(s.surgical_cases?.patients)}
                   <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{s.surgical_cases?.patients?.uhid}</span>
                 </td>
                 <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
@@ -359,7 +360,7 @@ function RegisterSurgeryDirectForm({ onDone }) {
         {selectedPatient ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
             <span className="badge b-blue">{selectedPatient.uhid}</span>
-            <strong>{selectedPatient.first_name} {selectedPatient.last_name}</strong>
+            <strong>{formatPatientName(selectedPatient)}</strong>
             <span style={{ color: 'var(--g400)', fontSize: 11 }}>{selectedPatient.mobile}</span>
             <button type="button" className="btn btn-sm" onClick={() => { setSelectedPatient(null); setPatientQuery(''); }}>Change</button>
           </div>
@@ -376,7 +377,7 @@ function RegisterSurgeryDirectForm({ onDone }) {
                     style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderBottom: '1px solid var(--g100)' }}
                   >
                     <span className="badge b-blue" style={{ marginRight: 6 }}>{p.uhid}</span>
-                    {p.first_name} {p.last_name} <span style={{ color: 'var(--g400)' }}>-- {p.mobile}</span>
+                    {formatPatientName(p)} <span style={{ color: 'var(--g400)' }}>-- {p.mobile}</span>
                   </div>
                 ))}
               </div>

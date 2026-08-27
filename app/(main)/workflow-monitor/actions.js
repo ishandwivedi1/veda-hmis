@@ -7,7 +7,7 @@ export async function getWorkflowMonitorData() {
 
   const { data: encounters } = await supabase
     .from('encounters')
-    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), profiles!encounters_doctor_id_fkey(full_name)')
+    .select('*, visits(id, visit_number, patients(first_name, salutation, last_name, uhid)), profiles!encounters_doctor_id_fkey(full_name)')
     .eq('status', 'In Consultation')
     .order('started_at', { ascending: true });
 

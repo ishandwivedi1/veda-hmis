@@ -13,7 +13,7 @@ export async function getMedicalFitnessHistory() {
 
   const { data, error } = await supabase
     .from('medical_fitness_referrals')
-    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
+    .select('*, visits(id, visit_number, patients(first_name, salutation, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
     .in('status', ['Cleared', 'Not Fit'])
     // Cases cleared today live in the "Cleared Today" section instead
     // (see getMedicalFitnessClearedToday) -- History is everything
@@ -47,7 +47,7 @@ export async function getMedicalFitnessClearedToday() {
 
   const { data, error } = await supabase
     .from('medical_fitness_referrals')
-    .select('*, visits(id, visit_number, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
+    .select('*, visits(id, visit_number, patients(first_name, salutation, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
     .in('status', ['Cleared', 'Not Fit'])
     .gte('cleared_at', startUTC)
     .lte('cleared_at', endUTC)
@@ -75,7 +75,7 @@ export async function getMedicalFitnessQueue() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('medical_fitness_referrals')
-    .select('*, visits(id, visit_number, visit_type, patients(first_name, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
+    .select('*, visits(id, visit_number, visit_type, patients(first_name, salutation, last_name, uhid)), surgical_cases(procedure_name, eye, priority)')
     .eq('status', 'Pending Review')
     .order('referred_at', { ascending: true });
 
@@ -96,7 +96,7 @@ export async function getMedicalFitnessDetail(referralId) {
   const supabase = await createClient();
   const { data: referral, error } = await supabase
     .from('medical_fitness_referrals')
-    .select('*, visits(id, visit_number, patients(id, first_name, last_name, uhid, age, gender)), surgical_cases(procedure_name, eye, priority, decision)')
+    .select('*, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, age, gender)), surgical_cases(procedure_name, eye, priority, decision)')
     .eq('id', referralId)
     .single();
 

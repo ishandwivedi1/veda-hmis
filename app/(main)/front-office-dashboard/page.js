@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
@@ -27,11 +28,11 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     dayOpen,
   ] = await Promise.all([
     supabase.from('patients').select('*', { count: 'exact', head: true }).gte('created_at', today),
-    supabase.from('queue_entries').select('*, visits(patients(first_name, last_name))').neq('status', 'Done').neq('status', 'Cancelled').gte('issued_at', today).order('issued_at', { ascending: true }),
+    supabase.from('queue_entries').select('*, visits(patients(first_name, salutation, last_name))').neq('status', 'Done').neq('status', 'Cancelled').gte('issued_at', today).order('issued_at', { ascending: true }),
     supabase.from('visits').select('*', { count: 'exact', head: true }).gte('created_at', today).is('appointment_id', null),
     supabase.from('invoices').select('net, paid').in('status', ['Pending', 'Partial']),
-    supabase.from('visits').select('*, patients(id, first_name, last_name, uhid), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: false }),
-    supabase.from('appointments').select('*, patients(first_name, last_name, uhid, mobile), profiles(full_name)').eq('appointment_date', today).order('appointment_time', { ascending: true }),
+    supabase.from('visits').select('*, patients(id, first_name, salutation, last_name, uhid), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: false }),
+    supabase.from('appointments').select('*, patients(first_name, salutation, last_name, uhid, mobile), profiles(full_name)').eq('appointment_date', today).order('appointment_time', { ascending: true }),
     supabase.from('surgical_cases').select('*', { count: 'exact', head: true }).eq('status', 'Pending Workup'),
     isTodayOpen(),
   ]);
@@ -159,7 +160,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
           <tbody>
             {(todaysAppointments || []).map((a) => {
               const isRegistered = !!a.patients;
-              const name = isRegistered ? `${a.patients.first_name} ${a.patients.last_name}` : a.patient_name_temp;
+              const name = isRegistered ? `${formatPatientName(a.patients)}` : a.patient_name_temp;
               const mobile = isRegistered ? a.patients.mobile : a.mobile_temp;
               return (
                 <tr key={a.id}>
@@ -200,7 +201,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                     <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{v.visit_number || '--'}</td>
                     <td>{new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
                     <td>
-                      <div style={{ fontWeight: 600 }}>{v.patients?.first_name} {v.patients?.last_name}</div>
+                      <div style={{ fontWeight: 600 }}>{formatPatientName(v.patients)}</div>
                       <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{v.patients?.uhid}</div>
                     </td>
                     <td><span className="badge" style={{ background: `var(${VISIT_TYPE_COLOR[v.visit_type] || '--g100'})`, color: '#fff' }}>{v.visit_type}</span></td>
@@ -258,7 +259,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
               <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                 <div>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
-                  {e.visits?.patients?.first_name} {e.visits?.patients?.last_name}
+                  {formatPatientName(e.visits?.patients)}
                   <div style={{ fontSize: 11, color: 'var(--g500)' }}>{e.department} -- {elapsedMin(e.issued_at)} min</div>
                 </div>
                 <span className={`badge ${e.status === 'Calling' || e.status === 'In Consultation' ? 'b-blue' : 'b-amber'}`}>{e.status}</span>

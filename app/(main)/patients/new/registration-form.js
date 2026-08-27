@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { registerPatient, registerAndCreateVisit, checkDuplicateMobile } from '../actions';
 import { linkPatientToAppointment } from '@/app/(main)/appointments/actions';
@@ -273,7 +274,7 @@ export default function RegistrationForm() {
           )}
           {duplicates.map((d) => (
             <div key={d.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
-              <div style={{ fontWeight: 700 }}>{d.first_name} {d.last_name}</div>
+              <div style={{ fontWeight: 700 }}>{formatPatientName(d)}</div>
               <div style={{ color: 'var(--g500)' }}>{d.uhid} -- {d.age} {d.gender} -- {d.mobile}</div>
             </div>
           ))}
@@ -283,7 +284,7 @@ export default function RegistrationForm() {
       {registeredVisitInfo && (
         <VisitCreatedModal
           title="Patient Registered & Visit Created"
-          subtitle={`${registeredVisitInfo.patient.first_name} ${registeredVisitInfo.patient.last_name} -- UHID: ${registeredVisitInfo.patient.uhid}`}
+          subtitle={`${formatPatientName(registeredVisitInfo.patient)} -- UHID: ${registeredVisitInfo.patient.uhid}`}
           visit={registeredVisitInfo.visit}
           onClose={() => router.push('/front-office-dashboard?visitCreated=1')}
         />

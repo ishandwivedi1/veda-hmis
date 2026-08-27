@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import PendingBillingWidget from './pending-billing-widget';
@@ -136,7 +137,7 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
                   <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{v.visit_number || '--'}</td>
                   <td>{new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
                   <td>
-                    <div style={{ fontWeight: 600 }}>{v.patients?.first_name} {v.patients?.last_name}</div>
+                    <div style={{ fontWeight: 600 }}>{formatPatientName(v.patients)}</div>
                     <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{v.patients?.uhid}</div>
                   </td>
                   <td><span className="badge" style={{ background: `var(${VISIT_TYPE_COLOR[v.visit_type] || '--g100'})`, color: '#fff' }}>{v.visit_type}</span></td>
@@ -198,7 +199,7 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
                     {fullyPaidUnbilled.map((sc) => (
                       <tr key={sc.id} onClick={() => router.push(`/billing/new?pkgCaseId=${sc.id}`)} style={{ cursor: 'pointer' }}>
                         <td>
-                          <strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong>
+                          <strong>{formatPatientName(sc.patients)}</strong>
                           <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span>
                         </td>
                         <td style={{ fontSize: 12 }}>

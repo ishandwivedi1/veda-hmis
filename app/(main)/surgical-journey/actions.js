@@ -195,7 +195,7 @@ async function getOpenSurgicalCasesWithBalances() {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('surgical_cases')
-    .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
+    .select('*, patients:patient_id(first_name, salutation, last_name, uhid, mobile), master_packages:package_id(name, price)')
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: false });
   if (error) return [];
@@ -258,7 +258,7 @@ export async function getDischargedTodaySurgicalCases() {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('surgical_cases')
-    .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
+    .select('*, patients:patient_id(first_name, salutation, last_name, uhid, mobile), master_packages:package_id(name, price)')
     .eq('status', 'Completed')
     .order('created_at', { ascending: false });
   if (error) return [];
@@ -278,7 +278,7 @@ export async function getCompletedSurgicalCases() {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('surgical_cases')
-    .select('*, patients:patient_id(first_name, last_name, uhid, mobile), master_packages:package_id(name, price)')
+    .select('*, patients:patient_id(first_name, salutation, last_name, uhid, mobile), master_packages:package_id(name, price)')
     .order('created_at', { ascending: false })
     .limit(300);
   if (error) return [];
@@ -346,7 +346,7 @@ export async function getSurgicalEvaluationArrivalsToday() {
 
   const { data: cases, error: casesError } = await supabase
     .from('surgical_cases')
-    .select('id, patient_id, procedure_name, eye, patients:patient_id(first_name, last_name, uhid)')
+    .select('id, patient_id, procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid)')
     .in('patient_id', [...patientIds])
     .not('status', 'in', '("Completed","Cancelled")');
   if (casesError) return [];
@@ -368,7 +368,7 @@ export async function getSurgicalCaseDetail(caseId) {
     .from('surgical_cases')
     .select(`
       *,
-      patients:patient_id(id, first_name, last_name, uhid, mobile, age, gender),
+      patients:patient_id(id, first_name, salutation, last_name, uhid, mobile, age, gender),
       master_packages:package_id(id, name, price, iol_category),
       profiles:surgeon_id(full_name)
     `)

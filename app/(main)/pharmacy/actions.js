@@ -34,7 +34,7 @@ export async function getPharmacyDashboard() {
 
   const { data, error } = await supabase
     .from('prescriptions')
-    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, last_name, uhid, mobile)))')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
     .gte('created_at', startUTC).lte('created_at', endUTC)
     .order('created_at', { ascending: true });
 
@@ -73,7 +73,7 @@ export async function getPharmacyWorkspace(visitId) {
   const supabase = await createClient();
 
   const [{ data: visit }, { data: prescriptions }, { data: drugCatalog }] = await Promise.all([
-    supabase.from('visits').select('id, visit_number, patients(id, first_name, last_name, uhid, mobile)').eq('id', visitId).single(),
+    supabase.from('visits').select('id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)').eq('id', visitId).single(),
     supabase
       .from('prescriptions')
       .select('*, invoice_line_items(qty, rate, disc, gst_pct, net), encounters!inner(visit_id)')
@@ -319,7 +319,7 @@ export async function getPharmacyHistory(date) {
 
   const { data, error } = await supabase
     .from('prescriptions')
-    .select('*, invoice_line_items(net), encounters(visit_id, visits(visit_number, patients(first_name, last_name, uhid)))')
+    .select('*, invoice_line_items(net), encounters(visit_id, visits(visit_number, patients(first_name, salutation, last_name, uhid)))')
     .eq('status', 'Dispensed')
     .gte('dispensed_at', startUTC).lte('dispensed_at', endUTC)
     .order('dispensed_at', { ascending: false });
@@ -347,7 +347,7 @@ export async function getPendingPrescriptions() {
 
   const { data, error } = await supabase
     .from('prescriptions')
-    .select('*, encounters(id, visit_id, visits(id, patients(first_name, last_name, uhid)))')
+    .select('*, encounters(id, visit_id, visits(id, patients(first_name, salutation, last_name, uhid)))')
     .eq('status', 'Pending')
     .order('created_at', { ascending: true });
 
@@ -401,7 +401,7 @@ export async function getPendingPrescriptionsForFrontOffice() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('prescriptions')
-    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, last_name, uhid, mobile)))')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
     .in('billing_status', ['Pending', 'Deferred'])
     .order('created_at', { ascending: true });
 

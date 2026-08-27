@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import {
   getOTCaseDetail,
   saveCheckinItems, completeCheckin, recordAnaesthesia, saveIntraopDraft, saveCheckinIolVerification,
@@ -451,7 +452,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
       <div style={{ background: isCompleted ? 'linear-gradient(135deg,#14532d,#157a4f)' : 'linear-gradient(135deg,#7f1d1d,#991b1b)', borderRadius: 12, padding: '11px 18px', color: '#fff', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         <div style={{ background: 'rgba(255,255,255,.15)', padding: '5px 12px', borderRadius: 8, fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{sc.surgery_code || booking.id.slice(0, 8)}</div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{patient.first_name} {patient.last_name}</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{formatPatientName(patient)}</div>
           <div style={{ fontSize: 11, opacity: .8 }}>
             {patient.uhid} -- {sc.procedure_name} {sc.eye}{caseProcedures?.length > 0 ? ` + ${caseProcedures.map((p) => `${p.procedure_name} ${p.eye}`).join(', ')}` : ''} -- {sc.profiles?.full_name} -- {booking.master_ot_sessions?.name}
           </div>
@@ -1182,7 +1183,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
         <ConfirmActionModal
           icon="ti-clipboard-check" iconColor="var(--green)" iconBg="var(--green-lt)"
           title="Confirm Patient Check-In?"
-          description={`Confirms ${patient?.first_name} ${patient?.last_name} is checked in and ready for OT.`}
+          description={`Confirms ${formatPatientName(patient)} is checked in and ready for OT.`}
           confirmLabel="Yes, Confirm Check-In"
           loading={confirming}
           onCancel={() => setConfirmAction(null)}

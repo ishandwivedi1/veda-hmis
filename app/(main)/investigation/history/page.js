@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getInvestigationHistory } from '../actions';
 import { matchInvestigationType, summarizeResultData } from '../investigation-types';
@@ -18,7 +19,7 @@ const SORT_OPTIONS = [
 
 function patientLabel(r) {
   const p = r.encounters?.visits?.patients;
-  return p ? `${p.first_name} ${p.last_name}` : '';
+  return p ? `${formatPatientName(p)}` : '';
 }
 
 // Biometry rows here come from the investigation_orders copy that
@@ -102,7 +103,7 @@ export default function InvestigationHistoryPage() {
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignSelf: 'flex-end' }}>
             <select className="fi" style={{ width: 'auto', padding: '7px 10px', fontSize: 12 }} value={patientFilter} onChange={(e) => setPatientFilter(e.target.value)}>
               <option value="">All patients</option>
-              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name} -- {p.uhid}</option>)}
+              {patients.map((p) => <option key={p.id} value={p.id}>{formatPatientName(p)} -- {p.uhid}</option>)}
             </select>
             <select className="fi" style={{ width: 'auto', padding: '7px 10px', fontSize: 12 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
               <option value="">All types</option>
@@ -133,7 +134,7 @@ export default function InvestigationHistoryPage() {
                 <tr key={r.id} onClick={() => router.push(href)} style={{ cursor: 'pointer' }}>
                   <td style={{ fontSize: 11 }}>{new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                   <td>
-                    <strong>{p?.first_name} {p?.last_name}</strong>
+                    <strong>{formatPatientName(p)}</strong>
                     <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{p?.uhid}</span>
                   </td>
                   <td style={{ fontWeight: 600 }}>{r.name}</td>

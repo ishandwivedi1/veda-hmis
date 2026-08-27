@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   searchPatientsForInvoice,
@@ -555,7 +556,7 @@ export default function NewInvoiceTab() {
               <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
                 {searchResults.map((p) => (
                   <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid} -- {p.mobile}
+                    <strong>{formatPatientName(p)}</strong> -- {p.uhid} -- {p.mobile}
                   </div>
                 ))}
               </div>
@@ -591,7 +592,7 @@ export default function NewInvoiceTab() {
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
               <span>
-                <strong>{contextPatient.first_name} {contextPatient.last_name}</strong> -- {contextPatient.uhid}
+                <strong>{formatPatientName(contextPatient)}</strong> -- {contextPatient.uhid}
                 <span style={{ marginLeft: 8 }} className="badge b-gray">Draft -- not saved yet</span>
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -762,7 +763,7 @@ export default function NewInvoiceTab() {
                 onClick={() => pickVisit(v)}
                 style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12 }}
               >
-                <strong>{v.patients?.first_name} {v.patients?.last_name}</strong>
+                <strong>{formatPatientName(v.patients)}</strong>
                 <div style={{ color: 'var(--g500)' }}>{v.visit_number} -- {v.visit_type}</div>
               </div>
             ))}

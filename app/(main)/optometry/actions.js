@@ -65,7 +65,7 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
 
   const { data: entry, error: entryError } = await supabase
     .from('queue_entries')
-    .select('*, visits(id, doctor_id, patients(first_name, last_name, uhid, age, gender))')
+    .select('*, visits(id, doctor_id, patients(first_name, salutation, last_name, uhid, age, gender))')
     .eq('id', queueEntryId)
     .single();
 

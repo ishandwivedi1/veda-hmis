@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import PaymentsTabs from './payments-tabs';
 import { getPaymentsDashboardData } from './actions';
 
@@ -146,7 +147,7 @@ export default async function PaymentsDashboardPage() {
                 {data.recentReceipts.map((r) => (
                   <tr key={r.id}>
                     <td style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{r.receipt_number}</td>
-                    <td>{r.patients?.first_name} {r.patients?.last_name}</td>
+                    <td>{formatPatientName(r.patients)}</td>
                     <td style={{ color: 'var(--g500)', fontSize: 12 }}>{new Date(r.collected_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
                     <td style={{ fontSize: 12 }}>{(r.payment_modes || []).map((m) => m.mode).join('+')}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: r.payment_type === 'refund' ? 'var(--red)' : 'var(--g800)' }}>
@@ -172,7 +173,7 @@ export default async function PaymentsDashboardPage() {
               data.topOutstanding.map((inv) => (
                 <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{inv.patients?.first_name} {inv.patients?.last_name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{formatPatientName(inv.patients)}</div>
                     <div style={{ fontSize: 11, color: 'var(--g400)', fontFamily: 'monospace' }}>{inv.invoice_number}</div>
                   </div>
                   <div style={{ fontWeight: 700, color: 'var(--red)', fontSize: 13 }}>{fmt(inv.net - inv.paid)}</div>
@@ -195,7 +196,7 @@ export default async function PaymentsDashboardPage() {
               data.topAdvances.map((a) => (
                 <div key={a.patient.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{a.patient.first_name} {a.patient.last_name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{formatPatientName(a.patient)}</div>
                     <div style={{ fontSize: 11, color: 'var(--g400)', fontFamily: 'monospace' }}>{a.patient.uhid}</div>
                   </div>
                   <div style={{ fontWeight: 700, color: 'var(--purple)', fontSize: 13 }}>{fmt(a.balance)}</div>

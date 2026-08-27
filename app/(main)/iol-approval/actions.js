@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { formatPatientName } from '@/lib/patientName';
 
 // The surgeon's sign-off on the specific IOL brand/model/power to
 // actually use for a surgical case -- separate from Biometry (which
@@ -17,7 +18,7 @@ export async function getPendingIolApprovals() {
 
   const { data: cases, error } = await supabase
     .from('surgical_cases')
-    .select('id, patient_id, procedure_name, eye, package_id, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(name, iol_category)')
+    .select('id, patient_id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid), master_packages:package_id(name, iol_category)')
     .in('status', ['Pending Workup', 'Ready for Scheduling'])
     .neq('biometry_required', false);
   if (error) return [];
@@ -62,7 +63,7 @@ export async function getApprovedToday() {
 
   const { data, error } = await supabase
     .from('iol_approvals')
-    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(name)), master_iol_catalog(brand, model)')
+    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid), master_packages:package_id(name)), master_iol_catalog(brand, model)')
     .eq('status', 'Approved')
     .gte('approved_at', startUTC)
     .lte('approved_at', endUTC)
@@ -80,7 +81,7 @@ export async function getIolApprovalHistory(fromDate, toDate, search) {
 
   let query = supabase
     .from('iol_approvals')
-    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, last_name, uhid), master_packages:package_id(name)), master_iol_catalog(brand, model)')
+    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid), master_packages:package_id(name)), master_iol_catalog(brand, model)')
     .eq('status', 'Approved')
     .order('approved_at', { ascending: false })
     .limit(300);
@@ -97,7 +98,7 @@ export async function getIolApprovalHistory(fromDate, toDate, search) {
     rows = rows.filter((a) => {
       const p = a.surgical_cases?.patients;
       return p && (
-        `${p.first_name} ${p.last_name}`.toLowerCase().includes(q) ||
+        `${formatPatientName(p)}`.toLowerCase().includes(q) ||
         (p.uhid || '').toLowerCase().includes(q)
       );
     });
@@ -112,7 +113,7 @@ export async function getIolApprovalDetail(caseId) {
 
   const { data: sc, error } = await supabase
     .from('surgical_cases')
-    .select('id, patient_id, procedure_name, eye, package_id, surgery_code, status, patients:patient_id(first_name, last_name, uhid, age, gender, mobile), master_packages:package_id(name, iol_category), profiles:surgeon_id(full_name)')
+    .select('id, patient_id, procedure_name, eye, package_id, surgery_code, status, patients:patient_id(first_name, salutation, last_name, uhid, age, gender, mobile), master_packages:package_id(name, iol_category), profiles:surgeon_id(full_name)')
     .eq('id', caseId)
     .single();
   if (error || !sc) return { error: 'Case not found.' };

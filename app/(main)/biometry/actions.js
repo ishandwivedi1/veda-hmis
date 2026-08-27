@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { formatPatientName } from '@/lib/patientName';
 import { logJourneyEvent } from '@/lib/journey-events';
 
 // ── QUEUE ──────────────────────────────────────────────────────────
@@ -13,7 +14,7 @@ export async function getBiometryQueue() {
 
   const { data: records, error } = await supabase
     .from('biometry_records')
-    .select('*, patients(first_name, last_name, uhid)')
+    .select('*, patients(first_name, salutation, last_name, uhid)')
     .eq('status', 'Awaiting Biometry')
     .order('created_at', { ascending: true });
 
@@ -57,7 +58,7 @@ export async function getBiometryCompletedToday() {
 
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('*, patients(first_name, last_name, uhid)')
+    .select('*, patients(first_name, salutation, last_name, uhid)')
     .eq('status', 'Measured')
     .gte('updated_at', startUTC)
     .lte('updated_at', endUTC)
@@ -101,7 +102,7 @@ export async function getBiometryDetail(id) {
 
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('*, patients(first_name, last_name, uhid, age, gender)')
+    .select('*, patients(first_name, salutation, last_name, uhid, age, gender)')
     .eq('id', id)
     .single();
 
@@ -252,7 +253,7 @@ export async function getBiometryHistory(patientFilter) {
 
   let query = supabase
     .from('biometry_records')
-    .select('*, patients(id, first_name, last_name, uhid)')
+    .select('*, patients(id, first_name, salutation, last_name, uhid)')
     .eq('status', 'Measured')
     .order('updated_at', { ascending: false });
 
@@ -263,7 +264,7 @@ export async function getBiometryHistory(patientFilter) {
   const patientsMap = {};
   rows.forEach((r) => {
     const p = r.patients;
-    if (p) patientsMap[p.id] = `${p.first_name} ${p.last_name}`;
+    if (p) patientsMap[p.id] = `${formatPatientName(p)}`;
   });
 
   if (patientFilter) {
@@ -281,7 +282,7 @@ export async function getPendingBiometryBilling() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('*, patients(id, first_name, last_name, uhid)')
+    .select('*, patients(id, first_name, salutation, last_name, uhid)')
     .in('billing_status', ['Pending', 'Deferred'])
     .order('created_at', { ascending: true });
 

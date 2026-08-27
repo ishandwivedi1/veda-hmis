@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import { useState, useEffect, useCallback } from 'react';
 import { getPharmacyHistory } from '../actions';
 import PharmacyTabs from '../pharmacy-tabs';
@@ -46,7 +47,7 @@ export default function PharmacyHistoryPage() {
         <div key={g.visitId} className="card" style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{g.patient?.first_name} {g.patient?.last_name}</div>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{formatPatientName(g.patient)}</div>
               <div style={{ fontSize: 11, color: 'var(--g400)' }}>{g.patient?.uhid} &middot; Visit {g.visitNumber}</div>
             </div>
             <div style={{ textAlign: 'right' }}>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getPatientById } from '@/app/(main)/visits/actions';
 import { openTab } from '@/lib/popup';
@@ -657,7 +658,7 @@ function PatientHeader({ patient }) {
         {patient.first_name?.[0]}{patient.last_name?.[0]}
       </div>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>{patient.first_name} {patient.last_name}</div>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>{formatPatientName(patient)}</div>
         <div style={{ fontSize: 12, color: 'var(--g400)' }}>{patient.uhid} -- {patient.mobile}</div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import {
   searchInvoices, getInvoiceById, getServiceCatalog, addLineItem, removeLineItem, cancelInvoice,
@@ -221,7 +222,7 @@ export default function InvoiceModificationTab() {
             {results.map((inv) => (
               <div key={inv.id} onClick={() => openInvoice(inv)} style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>{inv.patients?.first_name} {inv.patients?.last_name}</strong>
+                  <strong>{formatPatientName(inv.patients)}</strong>
                   <span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span>
                 </div>
                 <div style={{ color: 'var(--g500)', fontFamily: 'monospace' }}>{inv.invoice_number} -- Rs.{inv.net}</div>
@@ -245,7 +246,7 @@ export default function InvoiceModificationTab() {
                 style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12, background: 'var(--blue-lt)', borderRadius: 4, marginBottom: 4 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>{inv.patients?.first_name} {inv.patients?.last_name}</strong>
+                  <strong>{formatPatientName(inv.patients)}</strong>
                   <span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span>
                 </div>
                 <div style={{ color: 'var(--g600)', fontFamily: 'monospace' }}>{inv.invoice_number} -- Rs.{inv.net}</div>
@@ -275,7 +276,7 @@ export default function InvoiceModificationTab() {
           <div style={{ background: 'var(--blue-lt)', padding: '8px 12px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
             <div>
               <i className="ti ti-lock" style={{ color: 'var(--g400)', fontSize: 12 }}></i>{' '}
-              <strong>{selected.patients?.first_name} {selected.patients?.last_name}</strong> -- {selected.patients?.uhid}
+              <strong>{formatPatientName(selected.patients)}</strong> -- {selected.patients?.uhid}
             </div>
             {selected.visits && (
               <div style={{ fontSize: 11.5, color: 'var(--g600)', marginTop: 2 }}>

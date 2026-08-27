@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getAssessmentDetail } from '@/app/(main)/optometry-history/actions';
 
@@ -133,7 +134,7 @@ export default function AssessmentViewer({ assessmentId, onBack }) {
           {patient?.first_name?.charAt(0) || '?'}
         </div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{formatPatientName(patient)}</div>
           <div style={{ fontSize: 11, opacity: .8, marginTop: 2 }}>{patient?.age} -- {patient?.gender} -- {patient?.uhid}</div>
           <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
             <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)' }}>

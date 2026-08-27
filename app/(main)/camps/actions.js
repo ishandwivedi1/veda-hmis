@@ -97,7 +97,7 @@ export async function listScreenings(campEventId) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('camp_screenings')
-    .select('*, patients:patient_id(id, uhid, first_name, last_name), eye_checkup_profile:eye_checkup_by(full_name), doctor_review_profile:doctor_review_by(full_name)')
+    .select('*, patients:patient_id(id, uhid, first_name, salutation, last_name), eye_checkup_profile:eye_checkup_by(full_name), doctor_review_profile:doctor_review_by(full_name)')
     .eq('camp_event_id', campEventId)
     .order('created_at', { ascending: true });
   if (error) return { error: error.message };
@@ -199,7 +199,7 @@ export async function deleteScreening(screeningId) {
 export async function checkExistingPatientByPhone(phone) {
   if (!phone || phone.length < 10) return [];
   const supabase = await createClient();
-  const { data } = await supabase.from('patients').select('id, uhid, first_name, last_name, mobile, age, gender').eq('mobile', phone.trim());
+  const { data } = await supabase.from('patients').select('id, uhid, first_name, salutation, last_name, mobile, age, gender').eq('mobile', phone.trim());
   return data || [];
 }
 

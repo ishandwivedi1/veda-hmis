@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { getCurrentBalancesByPatient, getAdvanceBalance, getOutstandingInvoices, getPatientLedgerAudit, applyAdjustment, getTodaysVisits } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
 
@@ -92,7 +93,7 @@ export default function AdjustmentsTab() {
                 border: selected?.id === entry.patient.id ? '1.5px solid var(--purple)' : '1px solid var(--g200)',
               }}
             >
-              <div style={{ fontWeight: 600 }}>{entry.patient.first_name} {entry.patient.last_name}</div>
+              <div style={{ fontWeight: 600 }}>{formatPatientName(entry.patient)}</div>
               <div style={{ color: 'var(--purple)', fontWeight: 700 }}>Rs.{entry.balance.toFixed(2)}</div>
             </div>
           ))}
@@ -102,7 +103,7 @@ export default function AdjustmentsTab() {
         {selected && (
           <div>
             <div style={{ background: 'var(--purple-lt)', border: '1px solid var(--purple)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{selected.first_name} {selected.last_name}</div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{formatPatientName(selected)}</div>
               <div style={{ fontSize: 13, marginTop: 4 }}>Advance available: <strong style={{ color: 'var(--purple)', fontSize: 16 }}>Rs.{balance}</strong></div>
             </div>
 

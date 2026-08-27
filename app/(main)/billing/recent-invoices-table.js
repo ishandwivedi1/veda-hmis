@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import Link from 'next/link';
 import { openPrintPopup } from '@/lib/printPopup';
 
@@ -29,7 +30,7 @@ export default function RecentInvoicesTable({ invoices }) {
               <tr key={inv.id}>
                 <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--blue)' }}>{inv.invoice_number || '--'}</td>
                 <td>
-                  <div style={{ fontWeight: 600 }}>{inv.patients?.first_name} {inv.patients?.last_name}</div>
+                  <div style={{ fontWeight: 600 }}>{formatPatientName(inv.patients)}</div>
                   <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{inv.patients?.uhid}</div>
                 </td>
                 <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{inv.visits?.visit_number || '--'}</td>

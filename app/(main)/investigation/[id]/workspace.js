@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   getInvestigationDetail, saveInvestigationDraft,
@@ -203,7 +204,7 @@ export default function InvestigationWorkspace({ orderId }) {
           {patient?.first_name?.charAt(0) || '?'}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name}</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{formatPatientName(patient)}</div>
           <div style={{ fontSize: 11, opacity: .8 }}>{patient?.uhid} -- Visit {visitNumber || '--'} -- Dr. {doctorName}</div>
         </div>
         <div style={{ textAlign: 'right' }}>

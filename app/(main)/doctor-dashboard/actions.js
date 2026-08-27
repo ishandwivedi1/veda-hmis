@@ -9,14 +9,14 @@ export async function getDoctorDashboardData() {
   const [{ data: active }, { data: intermediate }, { data: completed }, { data: optometryWaiting }, { data: todaysVisits }] = await Promise.all([
     supabase
       .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(id, first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, visit_type, patients(id, first_name, salutation, last_name, uhid, age, gender))')
       .eq('department', 'Doctor')
       .in('status', ['Waiting', 'Ready for Review', 'In Consultation'])
       .gte('issued_at', today)
       .order('issued_at', { ascending: true }),
     supabase
       .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, visit_type, patients(first_name, salutation, last_name, uhid, age, gender))')
       .eq('department', 'Doctor')
       // .in() only matches exact values -- a patient sent out for more
       // than one thing at once gets a compound status like "Awaiting
@@ -28,14 +28,14 @@ export async function getDoctorDashboardData() {
       .order('sent_out_at', { ascending: true }),
     supabase
       .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(id, first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, visit_type, patients(id, first_name, salutation, last_name, uhid, age, gender))')
       .eq('department', 'Doctor')
       .eq('status', 'Done')
       .gte('issued_at', today)
       .order('completed_at', { ascending: false }),
     supabase
       .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, visit_type, patients(first_name, salutation, last_name, uhid, age, gender))')
       .eq('department', 'Optometry')
       .in('status', ['Waiting', 'Calling'])
       .gte('issued_at', today)
@@ -66,7 +66,7 @@ export async function getProceduresDueToday() {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('plan_procedures')
-    .select('id, name, eye, notes, scheduled_date, encounters(visit_id, visits(patients(id, first_name, last_name, uhid, mobile)))')
+    .select('id, name, eye, notes, scheduled_date, encounters(visit_id, visits(patients(id, first_name, salutation, last_name, uhid, mobile)))')
     .eq('status', 'Planned')
     .eq('scheduled_date', todayIst)
     .order('created_at');
@@ -79,7 +79,7 @@ export async function getDoctorHistory() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('queue_entries')
-    .select('*, visits(id, visit_type, patients(id, first_name, last_name, uhid, age, gender))')
+    .select('*, visits(id, visit_type, patients(id, first_name, salutation, last_name, uhid, age, gender))')
     .eq('department', 'Doctor')
     .eq('status', 'Done')
     .order('completed_at', { ascending: false })

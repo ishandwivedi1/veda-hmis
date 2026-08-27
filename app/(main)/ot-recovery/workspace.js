@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import {
   getRecoveryEpisodeDetail,
   saveRecoveryFields, addRecoveryMedication, addTaperedRecoveryMedication, removeRecoveryMedication, removeRecoveryTaperGroup,
@@ -299,7 +300,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
           {patient?.first_name?.charAt(0)}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name} -- {patient?.age} {patient?.gender}</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{formatPatientName(patient)} -- {patient?.age} {patient?.gender}</div>
           <div style={{ fontSize: 11, opacity: .8 }}>
             {patient?.uhid} -- {sc.procedure_name} {sc.eye}{caseProcedures?.length > 0 ? ` + ${caseProcedures.map((p) => `${p.procedure_name} ${p.eye}`).join(', ')}` : ''} -- {sc.profiles?.full_name}
           </div>
@@ -666,7 +667,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
         <ConfirmActionModal
           icon="ti-door-exit" iconColor="var(--green)" iconBg="var(--green-lt)"
           title="Discharge Patient?"
-          description={`This finalizes recovery for ${patient?.first_name} ${patient?.last_name}, generates the follow-up schedule, and locks this record. Make sure all vitals, medicines, and the discharge checklist are complete first.`}
+          description={`This finalizes recovery for ${formatPatientName(patient)}, generates the follow-up schedule, and locks this record. Make sure all vitals, medicines, and the discharge checklist are complete first.`}
           confirmLabel="Yes, Discharge Patient"
           loading={confirming}
           onCancel={() => setShowDischargeConfirm(false)}
@@ -678,7 +679,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
         <ConfirmActionModal
           icon="ti-circle-check" iconColor="var(--green)" iconBg="var(--green-lt)"
           title="Patient Discharged"
-          description={`${patient?.first_name} ${patient?.last_name} has been discharged and the follow-up schedule has been generated.`}
+          description={`${formatPatientName(patient)} has been discharged and the follow-up schedule has been generated.`}
           confirmLabel="Close"
           cancelLabel="Print Later"
           onCancel={finishAfterDischarge}

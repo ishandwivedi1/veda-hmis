@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { searchPatientsForPayment, getPatientUnifiedLedger, getAdvanceBalance, getOutstandingInvoices, getTodaysVisits } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
 
@@ -99,7 +100,7 @@ export default function LedgerTab() {
                 <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
                   {searchResults.map((p) => (
                     <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                      <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid}
+                      <strong>{formatPatientName(p)}</strong> -- {p.uhid}
                     </div>
                   ))}
                 </div>
@@ -112,7 +113,7 @@ export default function LedgerTab() {
             <div style={{ background: 'linear-gradient(135deg,#4c1d95,#6d28a8)', borderRadius: 12, padding: '14px 18px', color: '#fff', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>{patient.first_name} {patient.last_name}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{formatPatientName(patient)}</div>
                   <div style={{ fontSize: 12, opacity: .8, marginTop: 2 }}>{patient.uhid}</div>
                 </div>
                 <button className="btn btn-sm" onClick={changePatient} style={{ background: 'rgba(255,255,255,.15)', color: '#fff', border: '1px solid rgba(255,255,255,.3)' }}>

@@ -1,6 +1,7 @@
 'use client';
 
 import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
+import { formatPatientName } from '@/lib/patientName';
 
 export default function TodaysVisitsWidget({ visits, onSelect, title = "Today's Visits" }) {
   return (
@@ -15,7 +16,7 @@ export default function TodaysVisitsWidget({ visits, onSelect, title = "Today's 
           onClick={() => onSelect(v.patients)}
           style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12 }}
         >
-          <strong>{v.patients?.first_name} {v.patients?.last_name}</strong>
+          <strong>{formatPatientName(v.patients)}</strong>
           <div style={{ color: 'var(--g500)' }}>
             {v.visit_number} --{' '}
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: `var(${VISIT_TYPE_COLOR[v.visit_type] || '--g400'})`, display: 'inline-block', marginRight: 4 }}></span>

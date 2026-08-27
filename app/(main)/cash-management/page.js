@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import {
   getTodayCollectionSummary,
   getReconciliationData,
@@ -433,7 +434,7 @@ export default function CashManagementPage() {
                   <tr key={p.id}>
                     <td style={{ fontFamily: 'monospace' }}>{p.receipt_number}</td>
                     <td>{new Date(p.collected_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
-                    <td>{p.patients?.first_name} {p.patients?.last_name}</td>
+                    <td>{formatPatientName(p.patients)}</td>
                     <td>{(p.payment_modes || []).map((m) => m.mode).join('+')}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: p.payment_type === 'refund' ? 'var(--red)' : 'var(--g800)' }}>
                       {p.payment_type === 'refund' ? '-' : ''}{fmt(p.total_amount)}
@@ -736,7 +737,7 @@ export default function CashManagementPage() {
                 <tbody>
                   {openQueueEntries.map((e) => (
                     <tr key={e.id}>
-                      <td>{e.visits?.patients?.first_name} {e.visits?.patients?.last_name} <span style={{ color: 'var(--g400)', fontSize: 11 }}>({e.visits?.patients?.uhid})</span></td>
+                      <td>{formatPatientName(e.visits?.patients)} <span style={{ color: 'var(--g400)', fontSize: 11 }}>({e.visits?.patients?.uhid})</span></td>
                       <td>{e.department}</td>
                       <td>{e.token}</td>
                       <td>{e.status}</td>

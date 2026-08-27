@@ -9,14 +9,14 @@ export async function getOptometryDashboardData() {
   const [{ data: activeEntries }, { data: doneEntries }] = await Promise.all([
     supabase
       .from('queue_entries')
-      .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, patients(first_name, salutation, last_name, uhid, age, gender))')
       .eq('department', 'Optometry')
       .in('status', ['Waiting', 'Calling'])
       .gte('issued_at', today)
       .order('issued_at', { ascending: true }),
     supabase
       .from('queue_entries')
-      .select('*, visits(id, patients(first_name, last_name, uhid, age, gender))')
+      .select('*, visits(id, patients(first_name, salutation, last_name, uhid, age, gender))')
       .eq('department', 'Optometry')
       .eq('status', 'Done')
       .gte('issued_at', today)

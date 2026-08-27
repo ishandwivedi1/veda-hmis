@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getOTCaseList, getCheckinHistory, getSurgeryLandingForPatient } from '../ot-intraop/actions';
 import { getPatientById } from '../visits/actions';
@@ -17,7 +18,7 @@ function CheckinHistoryTab({ rows, loading, onOpen }) {
     ? rows.filter((r) => {
         const q = search.trim().toLowerCase();
         const patient = r.surgical_cases?.patients;
-        return `${patient?.first_name} ${patient?.last_name}`.toLowerCase().includes(q) || (patient?.uhid || '').toLowerCase().includes(q);
+        return `${formatPatientName(patient)}`.toLowerCase().includes(q) || (patient?.uhid || '').toLowerCase().includes(q);
       })
     : rows;
 
@@ -40,7 +41,7 @@ function CheckinHistoryTab({ rows, loading, onOpen }) {
               return (
                 <tr key={r.id} onClick={() => onOpen(r.id)} style={{ cursor: 'pointer' }}>
                   <td style={{ fontSize: 11 }}>{new Date(r.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                  <td><strong>{patient?.first_name} {patient?.last_name}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{patient?.uhid}</span></td>
+                  <td><strong>{formatPatientName(patient)}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{patient?.uhid}</span></td>
                   <td style={{ fontSize: 12 }}>{sc?.procedure_name} ({sc?.eye})</td>
                   <td style={{ fontSize: 12 }}>{r.master_ot_sessions?.name || '--'}</td>
                   <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
@@ -72,7 +73,7 @@ function LandingResolver({ patientId, landing, patient, onGoDashboard }) {
       </div>
       {patient && (
         <div style={{ fontSize: 13, color: 'var(--g600)', marginBottom: 12 }}>
-          <strong>{patient.first_name} {patient.last_name}</strong> -- {patient.uhid} -- {patient.mobile}
+          <strong>{formatPatientName(patient)}</strong> -- {patient.uhid} -- {patient.mobile}
         </div>
       )}
 

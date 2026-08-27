@@ -24,7 +24,7 @@ export async function getOTIntraopHistory() {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('ot_schedule')
-    .select('*, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .select('*, master_ot_sessions(name), surgical_cases(procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid), profiles:surgeon_id(full_name))')
     .eq('status', 'Completed')
     .lt('scheduled_date', todayIst)
     .order('scheduled_date', { ascending: false });
@@ -56,7 +56,7 @@ export async function getCheckinHistory() {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('ot_schedule')
-    .select('*, master_ot_sessions(name), surgical_cases(surgery_code, procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .select('*, master_ot_sessions(name), surgical_cases(surgery_code, procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid), profiles:surgeon_id(full_name))')
     .lt('scheduled_date', todayIst)
     .order('scheduled_date', { ascending: false });
   if (error) return [];
@@ -86,7 +86,7 @@ export async function getOTCaseList() {
   const supabase = await createClient();
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-  const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, package_discount, patient_id, master_packages:package_id(price), patients:patient_id(first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
+  const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, package_discount, patient_id, master_packages:package_id(price), patients:patient_id(first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
 
   // Scheduled (not yet checked in) is now strictly locked to scheduled_date
   // === today -- not "on or before today" as it used to be. A case
@@ -303,7 +303,7 @@ export async function getOTCaseDetail(otScheduleId) {
   const supabase = await createClient();
   const { data: booking, error } = await supabase
     .from('ot_schedule')
-    .select('*, master_ot_sessions(name), surgical_cases(*, patients:patient_id(id, first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name), master_packages:package_id(name))')
+    .select('*, master_ot_sessions(name), surgical_cases(*, patients:patient_id(id, first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name), master_packages:package_id(name))')
     .eq('id', otScheduleId)
     .single();
   if (error) return { error: error.message };

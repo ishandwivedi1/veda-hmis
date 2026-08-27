@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import {
   getBiometryDetail, saveBiometryDraft, markBiometryMeasured,
@@ -209,7 +210,7 @@ export default function BiometryWorkspace({ recordId }) {
           {patient?.first_name?.charAt(0) || '?'}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>{patient?.first_name} {patient?.last_name} -- {patient?.age} {patient?.gender}</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{formatPatientName(patient)} -- {patient?.age} {patient?.gender}</div>
           <div style={{ fontSize: 11, opacity: .8 }}>{patient?.uhid} -- Biometry</div>
         </div>
         <span className="badge" style={{ background: isMeasured ? 'rgba(34,197,94,.35)' : 'rgba(255,255,255,.15)', color: '#fff', fontSize: 11 }}>{record.status}</span>

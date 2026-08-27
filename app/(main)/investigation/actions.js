@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { formatPatientName } from '@/lib/patientName';
 import { logJourneyEvent } from '@/lib/journey-events';
 
 // ── QUEUE (Ordered + In Progress, grouped by visit) plus today's KPI
@@ -10,7 +11,7 @@ export async function getInvestigationQueue() {
 
   const { data: pending, error } = await supabase
     .from('investigation_orders')
-    .select('*, encounters(id, visit_id, visits(id, patients(first_name, last_name, uhid)))')
+    .select('*, encounters(id, visit_id, visits(id, patients(first_name, salutation, last_name, uhid)))')
     .in('status', ['Ordered', 'In Progress'])
     // Biometry is ordered here too (so it shows in the doctor's OPD
     // list), but it's fulfilled through its own biometry_records row,
@@ -61,7 +62,7 @@ export async function getInvestigationQueue() {
   // separate IOL Approval module).
   const { data: bio } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, patients(first_name, last_name, uhid))')
+    .select('*, visits(id, patients(first_name, salutation, last_name, uhid))')
     .eq('status', 'Awaiting Biometry')
     .order('created_at', { ascending: true });
 
@@ -126,7 +127,7 @@ export async function getTodaysInvestigations() {
 
   const { data, error } = await supabase
     .from('investigation_orders')
-    .select('*, encounters(visit_id, visits(patients(first_name, last_name, uhid)))')
+    .select('*, encounters(visit_id, visits(patients(first_name, salutation, last_name, uhid)))')
     .gte('created_at', startUTC)
     .lte('created_at', endUTC)
     .order('created_at', { ascending: false });
@@ -165,7 +166,7 @@ export async function getInvestigationDetail(id, viewOnly) {
 
   const { data, error } = await supabase
     .from('investigation_orders')
-    .select('*, encounters(id, visit_id, doctor_id, visits(id, visit_number, patients(first_name, last_name, uhid, age, gender)))')
+    .select('*, encounters(id, visit_id, doctor_id, visits(id, visit_number, patients(first_name, salutation, last_name, uhid, age, gender)))')
     .eq('id', id)
     .single();
 
@@ -315,7 +316,7 @@ export async function getPendingInvestigationBilling() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('investigation_orders')
-    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, last_name, uhid, mobile)))')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
     .in('billing_status', ['Pending', 'Deferred'])
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: true });
@@ -374,7 +375,7 @@ export async function getInvestigationHistory(fromDate, toDate) {
   const supabase = await createClient();
   let query = supabase
     .from('investigation_orders')
-    .select('*, encounters(id, visit_id, doctor_id, visits(id, visit_number, patients(id, first_name, last_name, uhid)))')
+    .select('*, encounters(id, visit_id, doctor_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid)))')
     .order('created_at', { ascending: false })
     .limit(500);
 
@@ -411,7 +412,7 @@ export async function searchPatientsForInvestigation(q) {
   const supabase = await createClient();
   const { data } = await supabase
     .from('patients')
-    .select('id, uhid, first_name, last_name')
+    .select('id, uhid, first_name, salutation, last_name')
     .or(`uhid.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
     .limit(10);
   return data || [];
@@ -437,7 +438,7 @@ export async function getInvestigationReport(reportId, fromDate, toDate) {
 
   const { data, error } = await supabase
     .from('investigation_orders')
-    .select('*, encounters(id, doctor_id, visits(id, patients(first_name, last_name, uhid)))')
+    .select('*, encounters(id, doctor_id, visits(id, patients(first_name, salutation, last_name, uhid)))')
     .gte('created_at', fromIso)
     .lte('created_at', toIso)
     .order('created_at', { ascending: false });
@@ -452,7 +453,7 @@ export async function getInvestigationReport(reportId, fromDate, toDate) {
   const doctorName = (o) => profileMap[o.encounters?.doctor_id] || '--';
   const patientName = (o) => {
     const p = o.encounters?.visits?.patients;
-    return p ? `${p.first_name} ${p.last_name} (${p.uhid})` : '--';
+    return p ? `${formatPatientName(p)} (${p.uhid})` : '--';
   };
 
   if (reportId === 'register') {

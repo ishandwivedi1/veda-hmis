@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { searchPatients } from '../patient-timeline/actions';
 import { getOpdProcedureLists, getCombinedSchedule, getOpdProcedureHistory } from './actions';
@@ -25,7 +26,7 @@ function CaseRow({ c, color, onOpen }) {
         {c.patient.first_name?.charAt(0)}
       </div>
       <div style={{ flex: 1 }}>
-        <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patient.first_name} {c.patient.last_name}</span>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patient)}</span>
         {color === 'var(--amber)' && <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>}
         {c.status === 'Scheduled' && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>Date booked, unpaid</span>}
         <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
@@ -57,7 +58,7 @@ function CalendarView({ rows, loading, onClose }) {
             <div key={`${e.kind}-${e.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderTop: '1px solid var(--g100)' }}>
               <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, color: '#fff', background: e.kind === 'Surgery' ? 'var(--blue)' : 'var(--teal, #0d9488)' }}>{e.kind}</span>
               <span style={{ fontSize: 12, width: 60, color: 'var(--g500)' }}>{e.time ? e.time.slice(0, 5) : '--'}</span>
-              <span style={{ fontSize: 13, flex: 1 }}><strong>{e.patient?.first_name} {e.patient?.last_name}</strong> -- {e.name} {e.eye ? `(${e.eye})` : ''}</span>
+              <span style={{ fontSize: 13, flex: 1 }}><strong>{formatPatientName(e.patient)}</strong> -- {e.name} {e.eye ? `(${e.eye})` : ''}</span>
               <span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.status}</span>
             </div>
           ))}
@@ -72,7 +73,7 @@ function HistoryView({ rows, loading, onOpen, onClose }) {
   const filtered = search.trim()
     ? rows.filter((c) => {
         const q = search.trim().toLowerCase();
-        return `${c.patient?.first_name} ${c.patient?.last_name}`.toLowerCase().includes(q) || (c.patient?.uhid || '').toLowerCase().includes(q);
+        return `${formatPatientName(c.patient)}`.toLowerCase().includes(q) || (c.patient?.uhid || '').toLowerCase().includes(q);
       })
     : rows;
 
@@ -95,7 +96,7 @@ function HistoryView({ rows, loading, onOpen, onClose }) {
               {c.patient?.first_name?.charAt(0)}
             </div>
             <div style={{ flex: 1 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patient?.first_name} {c.patient?.last_name}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patient)}</span>
               <span className={`badge ${c.status === 'Cancelled' ? 'b-gray' : 'b-green'}`} style={{ marginLeft: 8, fontSize: 10 }}>{c.status === 'Done' ? 'Completed (same day)' : c.status}</span>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                 {c.patient?.uhid} -- {c.name} {c.eye ? `(${c.eye})` : ''}{c.completed_at ? ` -- ${fmtDate(c.completed_at.slice(0, 10))}` : ''}
@@ -186,7 +187,7 @@ export default function OpdProceduresPage() {
                   onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--g50)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
                 >
-                  <strong>{p.first_name} {p.last_name}</strong> <span style={{ color: 'var(--g400)', fontSize: 11 }}>{p.uhid} -- {p.age} {p.gender}</span>
+                  <strong>{formatPatientName(p)}</strong> <span style={{ color: 'var(--g400)', fontSize: 11 }}>{p.uhid} -- {p.age} {p.gender}</span>
                 </div>
               ))}
             </div>

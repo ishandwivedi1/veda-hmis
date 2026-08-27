@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase-server';
 import { getDoctorOptionsForVisit } from './actions';
@@ -20,7 +21,7 @@ function sortVisits(visits, sort) {
   const list = [...visits];
   switch (sort) {
     case 'oldest': return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    case 'patient_az': return list.sort((a, b) => `${a.patients?.first_name} ${a.patients?.last_name}`.localeCompare(`${b.patients?.first_name} ${b.patients?.last_name}`));
+    case 'patient_az': return list.sort((a, b) => `${formatPatientName(a.patients)}`.localeCompare(`${formatPatientName(b.patients)}`));
     case 'visit_number': return list.sort((a, b) => (a.visit_number || '').localeCompare(b.visit_number || ''));
     case 'status': return list.sort((a, b) => (a.status || '').localeCompare(b.status || ''));
     default: return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // newest
@@ -38,7 +39,7 @@ export default async function VisitsPage({ searchParams }) {
 
   let query = supabase
     .from('visits')
-    .select('*, patients(first_name, last_name, uhid, mobile), profiles!doctor_id(full_name)')
+    .select('*, patients(first_name, salutation, last_name, uhid, mobile), profiles!doctor_id(full_name)')
     .order('created_at', { ascending: false });
 
   if (tab === 'today') {
@@ -112,7 +113,7 @@ export default async function VisitsPage({ searchParams }) {
                     : new Date(v.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
                 </td>
                 <td>
-                  <div style={{ fontWeight: 600 }}>{v.patients?.first_name} {v.patients?.last_name}</div>
+                  <div style={{ fontWeight: 600 }}>{formatPatientName(v.patients)}</div>
                   <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{v.patients?.uhid}</div>
                 </td>
                 <td>

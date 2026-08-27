@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getOTCaseList, getOTIntraopHistory, markPatientReported, unmarkPatientReported } from './actions';
@@ -97,7 +98,7 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
                 {patient?.first_name?.charAt(0)}
               </div>
               <div style={{ flex: 1 }}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{patient?.first_name} {patient?.last_name}</span>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(patient)}</span>
                 <span className={`badge ${STATUS_BADGE[c.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{c.status}</span>
                 <button
                   type="button"
@@ -162,7 +163,7 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
                 {patient?.first_name?.charAt(0)}
               </div>
               <div style={{ flex: 1 }}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{patient?.first_name} {patient?.last_name}</span>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(patient)}</span>
                 <span className={`badge ${isCheckin ? (STATUS_BADGE[c.status] || 'b-gray') : 'b-green'}`} style={{ marginLeft: 8, fontSize: 10 }}>{isCheckin ? c.status : 'Completed'}</span>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                   {sc.surgery_code ? `${sc.surgery_code} -- ` : ''}{patient?.uhid} -- {sc.procedure_name} -- {sc.eye} -- {sc.profiles?.full_name || 'No surgeon'} -- {c.master_ot_sessions?.name} Session
@@ -186,7 +187,7 @@ function HistoryTab({ rows, loading, onOpen }) {
     ? rows.filter((r) => {
         const q = search.trim().toLowerCase();
         const patient = r.surgical_cases?.patients;
-        return `${patient?.first_name} ${patient?.last_name}`.toLowerCase().includes(q) || (patient?.uhid || '').toLowerCase().includes(q);
+        return `${formatPatientName(patient)}`.toLowerCase().includes(q) || (patient?.uhid || '').toLowerCase().includes(q);
       })
     : rows;
 
@@ -209,7 +210,7 @@ function HistoryTab({ rows, loading, onOpen }) {
               return (
                 <tr key={r.id} onClick={() => onOpen(r.id)} style={{ cursor: 'pointer' }}>
                   <td style={{ fontSize: 11 }}>{new Date(r.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                  <td><strong>{patient?.first_name} {patient?.last_name}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{patient?.uhid}</span></td>
+                  <td><strong>{formatPatientName(patient)}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{patient?.uhid}</span></td>
                   <td style={{ fontSize: 12 }}>{sc?.procedure_name} ({sc?.eye})</td>
                   <td><span className="badge b-green" style={{ fontSize: 10 }}>{r.intraopSummary?.surgical_outcome || '--'}</span></td>
                   <td style={{ fontSize: 12 }}>{r.intraopSummary?.completedByName || '--'}</td>

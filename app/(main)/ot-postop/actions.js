@@ -28,7 +28,7 @@ export async function getPostOpCaseList() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid), profiles:surgeon_id(full_name))')
     .not('discharge_date', 'is', null)
     .is('closure_status', null)
     .order('discharge_date', { ascending: true });
@@ -49,7 +49,7 @@ export async function getPostOpTurnedUpToday() {
 
   const { data, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid), profiles:surgeon_id(full_name))')
     .in('id', ids.map((r) => r.episode_id))
     .order('discharge_date', { ascending: true });
   if (error) return [];
@@ -61,7 +61,7 @@ export async function getPostOpHistory() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid), profiles:surgeon_id(full_name))')
     .not('closure_status', 'is', null)
     .order('closed_at', { ascending: false });
   if (error) return [];
@@ -73,7 +73,7 @@ export async function getPostOpEpisodeDetail(episodeId) {
   const supabase = await createClient();
   const { data: episode, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(id, first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(id, first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
     .eq('id', episodeId)
     .single();
   if (error) return { error: error.message };

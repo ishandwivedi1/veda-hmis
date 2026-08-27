@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import {
   getMedicalFitnessQueue, getMedicalFitnessHistory, getMedicalFitnessClearedToday, getMedicalFitnessDetail,
@@ -43,7 +44,7 @@ function QueueTab({ rows, loading, onOpen }) {
   if (search.trim()) {
     const q = search.trim().toLowerCase();
     filtered = filtered.filter((r) =>
-      `${r.visits?.patients?.first_name} ${r.visits?.patients?.last_name}`.toLowerCase().includes(q) ||
+      `${formatPatientName(r.visits?.patients)}`.toLowerCase().includes(q) ||
       (r.visits?.patients?.uhid || '').toLowerCase().includes(q)
     );
   }
@@ -81,7 +82,7 @@ function QueueTab({ rows, loading, onOpen }) {
               {r.visits?.patients?.first_name?.charAt(0) || '?'}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{r.visits?.patients?.first_name} {r.visits?.patients?.last_name}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(r.visits?.patients)}</span>
               <span className="badge b-amber" style={{ marginLeft: 8, fontSize: 10 }}>Pending Review</span>
               {r.surgical_cases?.priority && r.surgical_cases.priority !== 'Routine' && <span className="badge b-red" style={{ marginLeft: 4, fontSize: 10 }}>{r.surgical_cases.priority}</span>}
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
@@ -120,7 +121,7 @@ function ClearedTodayCard({ rows, loading, onOpen }) {
             {r.visits?.patients?.first_name?.charAt(0) || '?'}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>{r.visits?.patients?.first_name} {r.visits?.patients?.last_name}</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(r.visits?.patients)}</span>
             <span className={`badge ${HISTORY_STATUS_BADGE[r.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{r.status}</span>
             <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
               {r.visits?.patients?.uhid} -- {r.surgical_cases?.procedure_name} ({r.surgical_cases?.eye}) -- by {r.clearedByName}
@@ -150,7 +151,7 @@ function HistoryTab({ rows, loading, onOpen }) {
   if (search.trim()) {
     const q = search.trim().toLowerCase();
     filtered = filtered.filter((r) =>
-      `${r.visits?.patients?.first_name} ${r.visits?.patients?.last_name}`.toLowerCase().includes(q) ||
+      `${formatPatientName(r.visits?.patients)}`.toLowerCase().includes(q) ||
       (r.visits?.patients?.uhid || '').toLowerCase().includes(q)
     );
   }
@@ -177,7 +178,7 @@ function HistoryTab({ rows, loading, onOpen }) {
             {filtered.map((r) => (
               <tr key={r.id} onClick={() => onOpen(r.id)} style={{ cursor: 'pointer' }}>
                 <td>
-                  <strong>{r.visits?.patients?.first_name} {r.visits?.patients?.last_name}</strong>
+                  <strong>{formatPatientName(r.visits?.patients)}</strong>
                   <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{r.visits?.patients?.uhid}</span>
                 </td>
                 <td style={{ fontSize: 12 }}>{r.surgical_cases?.procedure_name} ({r.surgical_cases?.eye})</td>
@@ -359,7 +360,7 @@ export function WorkspaceTab({ referralId, onDone }) {
           {patient.first_name?.charAt(0)}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>{patient.first_name} {patient.last_name}</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{formatPatientName(patient)}</div>
           <div style={{ fontSize: 11, opacity: .85 }}>{patient.uhid} -- {patient.age} {patient.gender} -- {referral.visits.visit_number}</div>
         </div>
         <div style={{ textAlign: 'right' }}>

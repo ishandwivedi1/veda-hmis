@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import { useState, useEffect, useCallback } from 'react';
 import { getWorkflowMonitorData } from './actions';
 
@@ -85,7 +86,7 @@ export default function WorkflowMonitorPage() {
           <tbody>
             {rows.map((e) => (
               <tr key={e.id}>
-                <td style={{ fontWeight: 600 }}>{e.visits?.patients?.first_name} {e.visits?.patients?.last_name}</td>
+                <td style={{ fontWeight: 600 }}>{formatPatientName(e.visits?.patients)}</td>
                 <td style={{ fontSize: 11, fontFamily: 'monospace' }}>{e.visits?.patients?.uhid}</td>
                 <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{e.visits?.visit_number || '--'}</td>
                 <td style={{ fontSize: 12 }}>{e.profiles?.full_name || '--'}</td>

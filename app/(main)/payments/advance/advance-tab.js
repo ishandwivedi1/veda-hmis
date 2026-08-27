@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { searchPatientsForPayment, getAdvanceBalance, collectAdvance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits, getPatientById } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
@@ -203,7 +204,7 @@ export default function AdvanceTab() {
               <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
                 {searchResults.map((p) => (
                   <div key={p.id} onClick={() => pickPatient(p)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <strong>{p.first_name} {p.last_name}</strong> -- {p.uhid}
+                    <strong>{formatPatientName(p)}</strong> -- {p.uhid}
                   </div>
                 ))}
               </div>
@@ -214,7 +215,7 @@ export default function AdvanceTab() {
             <div style={{ background: 'var(--purple-lt)', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontWeight: 700 }}>{selectedPatient.first_name} {selectedPatient.last_name}</div>
+                  <div style={{ fontWeight: 700 }}>{formatPatientName(selectedPatient)}</div>
                   <div style={{ fontSize: 11, color: 'var(--g600)' }}>{selectedPatient.uhid}</div>
                 </div>
                 <button className="btn btn-sm" onClick={reset}>Change</button>
@@ -285,7 +286,7 @@ export default function AdvanceTab() {
             <thead><tr><th>Patient</th><th>Balance</th></tr></thead>
             <tbody>
               {balances.map((b, i) => (
-                <tr key={i}><td>{b.patient?.first_name} {b.patient?.last_name}</td><td style={{ fontWeight: 700, color: 'var(--purple)' }}>Rs.{b.balance.toFixed(2)}</td></tr>
+                <tr key={i}><td>{formatPatientName(b.patient)}</td><td style={{ fontWeight: 700, color: 'var(--purple)' }}>Rs.{b.balance.toFixed(2)}</td></tr>
               ))}
               {balances.length === 0 && <tr><td colSpan={2} style={{ padding: 12, textAlign: 'center', color: 'var(--g400)' }}>No advances held.</td></tr>}
             </tbody>
@@ -304,7 +305,7 @@ export default function AdvanceTab() {
             <tbody>
               {history.map((h) => (
                 <tr key={h.id}>
-                  <td>{h.patients?.first_name} {h.patients?.last_name}</td>
+                  <td>{formatPatientName(h.patients)}</td>
                   <td><span className={`badge ${h.entry_type === 'Advance Collected' ? 'b-green' : 'b-amber'}`}>{h.entry_type}</span></td>
                   <td style={{ fontWeight: 600 }}>Rs.{Math.abs(h.amount).toFixed(2)}</td>
                 </tr>

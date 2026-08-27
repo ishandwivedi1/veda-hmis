@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import {
   getCounsellingCases, getCounsellingHistory, getPackagesForCase, selectPackage, changePackage,
   setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
@@ -412,7 +413,7 @@ function CaseWorkspace({ sc, onUpdate }) {
           {sc.patients?.first_name?.charAt(0) || '?'}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{sc.patients?.first_name} {sc.patients?.last_name}</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{formatPatientName(sc.patients)}</div>
           <div style={{ fontSize: 11, opacity: .8, marginTop: 2 }}>{sc.patients?.age} -- {sc.patients?.gender} -- {sc.patients?.uhid}</div>
           <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
             <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)' }}>
@@ -679,7 +680,7 @@ function AwaitingAcceptanceWidget({ cases }) {
         return (
           <div key={sc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{sc.patients?.first_name} {sc.patients?.last_name}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(sc.patients)}</span>
               {sc.priority !== 'Routine' && <span className="badge b-red" style={{ marginLeft: 6, fontSize: 10 }}>{sc.priority}</span>}
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                 {sc.patients?.uhid} -- {sc.procedure_name} {sc.eye}
@@ -712,7 +713,7 @@ function CounsellingDashboard({ cases, onOpen }) {
   if (search.trim()) {
     const q = search.trim().toLowerCase();
     rows = rows.filter(({ sc }) =>
-      `${sc.patients?.first_name} ${sc.patients?.last_name}`.toLowerCase().includes(q) ||
+      `${formatPatientName(sc.patients)}`.toLowerCase().includes(q) ||
       (sc.patients?.uhid || '').toLowerCase().includes(q)
     );
   }
@@ -767,7 +768,7 @@ function CounsellingDashboard({ cases, onOpen }) {
                 {sc.patients?.first_name?.charAt(0) || '?'}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{sc.patients?.first_name} {sc.patients?.last_name}</span>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(sc.patients)}</span>
                 <span className={`badge ${STAGE_MAP[stage].badge}`} style={{ marginLeft: 8, fontSize: 10 }}>{STAGE_MAP[stage].label}</span>
                 {sc.priority !== 'Routine' && <span className="badge b-red" style={{ marginLeft: 4, fontSize: 10 }}>{sc.priority}</span>}
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
@@ -807,7 +808,7 @@ function HistoryTab({ cases, loading, onOpen }) {
     ? cases.filter((sc) => {
         const q = search.trim().toLowerCase();
         const p = sc.patients;
-        return `${p?.first_name} ${p?.last_name}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
+        return `${formatPatientName(p)}`.toLowerCase().includes(q) || (p?.uhid || '').toLowerCase().includes(q);
       })
     : cases;
 
@@ -828,7 +829,7 @@ function HistoryTab({ cases, loading, onOpen }) {
           <tbody>
             {filtered.map((sc) => (
               <tr key={sc.id} onClick={() => onOpen(sc.id)} style={{ cursor: 'pointer' }}>
-                <td><strong>{sc.patients?.first_name} {sc.patients?.last_name}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span></td>
+                <td><strong>{formatPatientName(sc.patients)}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span></td>
                 <td style={{ fontSize: 12 }}>{sc.procedure_name} ({sc.eye})</td>
                 <td style={{ fontSize: 12 }}>{sc.profiles?.full_name || '--'}</td>
                 <td style={{ fontSize: 12 }}>{sc.decision || '--'}</td>

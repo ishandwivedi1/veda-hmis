@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getPendingInvestigationBilling, markInvestigationDenied, markInvestigationDeferred, resetInvestigationBilling } from '@/app/(main)/investigation/actions';
 import { getPendingProcedureBilling } from '@/app/(main)/billing/actions';
@@ -77,7 +78,7 @@ function CategoryTable({ type, groups, busyId, onDefer, onDeny, onReset, onBillN
           {groups.map((g) => (
             <tr key={g.visitId || g.patientId || g.patient?.id}>
               <td>
-                <strong>{g.patient?.first_name} {g.patient?.last_name}</strong>
+                <strong>{formatPatientName(g.patient)}</strong>
                 <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{g.patient?.uhid}</span>
               </td>
               <td style={{ fontSize: 12 }}>

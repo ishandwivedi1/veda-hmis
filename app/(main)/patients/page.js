@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatPatientName } from '@/lib/patientName';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase-server';
 import SortSelect from '@/app/components/SortSelect';
@@ -18,8 +19,8 @@ function sortPatients(patients, sort) {
   const list = [...patients];
   switch (sort) {
     case 'oldest': return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    case 'name_az': return list.sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
-    case 'name_za': return list.sort((a, b) => `${b.first_name} ${b.last_name}`.localeCompare(`${a.first_name} ${a.last_name}`));
+    case 'name_az': return list.sort((a, b) => `${formatPatientName(a)}`.localeCompare(`${formatPatientName(b)}`));
+    case 'name_za': return list.sort((a, b) => `${formatPatientName(b)}`.localeCompare(`${formatPatientName(a)}`));
     case 'uhid': return list.sort((a, b) => (a.uhid || '').localeCompare(b.uhid || ''));
     default: return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // newest
   }
@@ -127,7 +128,7 @@ export default async function PatientsPage({ searchParams }) {
             return (
               <tr key={p.id}>
                 <td style={{ fontFamily: 'monospace', color: 'var(--blue)' }}>{p.uhid}</td>
-                <td style={{ fontWeight: 600 }}>{p.first_name} {p.last_name}</td>
+                <td style={{ fontWeight: 600 }}>{formatPatientName(p)}</td>
                 <td>{p.age || '--'}</td>
                 <td><span className={`badge ${GENDER_BADGE[p.gender] || 'b-gray'}`}>{GENDER_LABEL[p.gender] || p.gender}</span></td>
                 <td>{p.mobile}</td>

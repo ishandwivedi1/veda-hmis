@@ -58,7 +58,7 @@ export async function getRecoveryCaseList() {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid), profiles:surgeon_id(full_name))')
     .or(`discharge_date.is.null,discharge_date.gte.${todayIst}`)
     .order('created_at', { ascending: true });
   if (error) return [];
@@ -73,7 +73,7 @@ export async function getRecoveryHistory() {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const { data, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, last_name, uhid), profiles:surgeon_id(full_name))')
+    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid), profiles:surgeon_id(full_name))')
     .not('discharge_date', 'is', null)
     .lt('discharge_date', todayIst)
     .order('discharge_date', { ascending: false });
@@ -86,7 +86,7 @@ export async function getRecoveryEpisodeDetail(episodeId) {
   const supabase = await createClient();
   const { data: episode, error } = await supabase
     .from('recovery_episodes')
-    .select('*, ot_schedule_id, surgical_cases(*, patients:patient_id(id, first_name, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
+    .select('*, ot_schedule_id, surgical_cases(*, patients:patient_id(id, first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name))')
     .eq('id', episodeId)
     .single();
   if (error) return { error: error.message };

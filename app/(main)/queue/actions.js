@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { formatPatientName } from '@/lib/patientName';
 import { logJourneyEvent } from '@/lib/journey-events';
 
 function tokenNum(token) {
@@ -34,7 +35,7 @@ export async function getQueues() {
   // today's list.
   const { data: entries, error } = await supabase
     .from('queue_entries')
-    .select('*, visits(patients(first_name, last_name, uhid))')
+    .select('*, visits(patients(first_name, salutation, last_name, uhid))')
     .not('status', 'in', '(Done,Cancelled,Incomplete)')
     .gte('issued_at', startUTC)
     .lte('issued_at', endUTC)
@@ -81,7 +82,7 @@ export async function getOpenQueueEntriesToday() {
 
   const { data } = await supabase
     .from('queue_entries')
-    .select('id, department, token, status, issued_at, visits(patients(first_name, last_name, uhid))')
+    .select('id, department, token, status, issued_at, visits(patients(first_name, salutation, last_name, uhid))')
     .not('status', 'in', '(Done,Cancelled,Incomplete)')
     .gte('issued_at', startUTC)
     .lte('issued_at', endUTC)
@@ -204,7 +205,7 @@ export async function getPatientFlow() {
     { data: biometry },
   ] = await Promise.all([
     supabase.from('visits')
-      .select('id, visit_type, priority, status, created_at, closed_at, patients(first_name, last_name, uhid), profiles:doctor_id(full_name)')
+      .select('id, visit_type, priority, status, created_at, closed_at, patients(first_name, salutation, last_name, uhid), profiles:doctor_id(full_name)')
       .neq('status', 'Cancelled')
       .gte('created_at', startUTC).lte('created_at', endUTC)
       .order('created_at', { ascending: true }),
@@ -243,7 +244,7 @@ export async function getPatientFlow() {
     const p = v.patients;
     byColumn[stage.column].push({
       visitId: v.id,
-      patientName: p ? `${p.first_name} ${p.last_name}` : 'Unknown',
+      patientName: p ? `${formatPatientName(p)}` : 'Unknown',
       uhid: p?.uhid,
       doctorName: v.profiles?.full_name,
       priority: v.priority,
@@ -406,7 +407,7 @@ export async function getPatientTimeline(visitId) {
     { data: invoices },
     { data: prescriptions },
   ] = await Promise.all([
-    supabase.from('visits').select('created_at, closed_at, patients(first_name, last_name, uhid)').eq('id', visitId).single(),
+    supabase.from('visits').select('created_at, closed_at, patients(first_name, salutation, last_name, uhid)').eq('id', visitId).single(),
     supabase.from('queue_entries').select('department, status, token, issued_at').eq('visit_id', visitId),
     supabase.from('visit_journey_events').select('event_type, event_time, meta').eq('visit_id', visitId).order('event_time', { ascending: true }),
     supabase.from('invoices').select('net, purpose, status, created_at').eq('visit_id', visitId).neq('status', 'Cancelled'),
@@ -453,7 +454,7 @@ export async function getPatientTimeline(visitId) {
 
   const p = visit.patients;
   return {
-    patientName: p ? `${p.first_name} ${p.last_name}` : 'Unknown',
+    patientName: p ? `${formatPatientName(p)}` : 'Unknown',
     uhid: p?.uhid,
     events: displayEvents,
     breakdown,
