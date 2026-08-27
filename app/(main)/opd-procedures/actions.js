@@ -446,3 +446,28 @@ export async function removePostProcedureMedicine(id) {
   if (error) return { error: error.message };
   return { success: true };
 }
+
+// ── EDIT (same-day only) ──
+// Lets staff fix a typo or add something missed in the post-procedure
+// notes without reopening the whole workflow -- restricted to the same
+// day it was completed, matching the app's general caution around
+// editing settled records (e.g. payments' same-day edit window).
+export async function updateCompletedProcedureNotes(id, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const today = todayIst();
+
+  const { data: row } = await supabase.from('plan_procedures').select('status, completed_at, encounter_id, name').eq('id', id).single();
+  if (!row) return { error: 'Procedure not found.' };
+  if (row.status !== 'Completed') return { error: 'Only a completed procedure\'s notes can be edited here.' };
+  if (!row.completed_at || row.completed_at.slice(0, 10) !== today) return { error: 'Only today\'s completed record can be edited here -- for older records, use the Audit Log instead.' };
+
+  const { error } = await supabase.from('plan_procedures').update({
+    procedure_performed: fields.procedurePerformed || null,
+    findings: fields.findings || null,
+    post_procedure_instructions: fields.instructions || null,
+  }).eq('id', id);
+  if (error) return { error: error.message };
+  await addAudit(supabase, row.encounter_id, `OPD Procedure (${row.name}) post-procedure notes edited`, userData?.user?.id);
+  return { success: true };
+}

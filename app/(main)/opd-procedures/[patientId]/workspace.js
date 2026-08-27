@@ -16,6 +16,7 @@ import {
   checkInOpdProcedure,
   completeOpdProcedure,
   cancelOpdProcedure,
+  updateCompletedProcedureNotes,
 } from '../actions';
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
@@ -254,7 +255,7 @@ function CheckinPanel({ c, onCheckIn, onCancel, onReschedule, busy }) {
   );
 }
 
-function CompletePanel({ c, onSave, busy }) {
+function CompletePanel({ c, onSave, busy, editMode, onCancelEdit }) {
   const [procedurePerformed, setProcedurePerformed] = useState(c.procedure_performed || c.name || '');
   const [findings, setFindings] = useState(c.findings || '');
   const [instructions, setInstructions] = useState(c.post_procedure_instructions || '');
@@ -266,7 +267,10 @@ function CompletePanel({ c, onSave, busy }) {
       <textarea className="fi fi-sm" value={findings} onChange={(e) => setFindings(e.target.value)} style={{ width: '100%', marginBottom: 8, minHeight: 60 }} />
       <label style={{ fontSize: 11, color: 'var(--g500)' }}>Post-Procedure Instructions</label>
       <textarea className="fi fi-sm" value={instructions} onChange={(e) => setInstructions(e.target.value)} style={{ width: '100%', marginBottom: 10, minHeight: 60 }} />
-      <button className="btn btn-primary" disabled={busy} onClick={() => onSave({ procedurePerformed, findings, instructions })}>Mark Completed</button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-primary" disabled={busy} onClick={() => onSave({ procedurePerformed, findings, instructions })}>{editMode ? 'Save Changes' : 'Mark Completed'}</button>
+        {editMode && <button className="btn" disabled={busy} onClick={onCancelEdit}>Cancel</button>}
+      </div>
     </div>
   );
 }
@@ -402,20 +406,29 @@ function MedicineSection({ procedureId }) {
   );
 }
 
-function CompletedSummary({ c }) {
+function CompletedSummary({ c, onEdit }) {
   if (c.status !== 'Completed') return null;
+  const isToday = c.completed_at && c.completed_at.slice(0, 10) === todayISO();
   return (
     <div style={{ fontSize: 13, lineHeight: 1.7, background: 'var(--g50)', borderRadius: 8, padding: 12 }}>
       <div><strong>Procedure Performed:</strong> {c.procedure_performed || '--'}</div>
       <div><strong>Findings:</strong> {c.findings || '--'}</div>
       <div><strong>Instructions:</strong> {c.post_procedure_instructions || '--'}</div>
       <div style={{ color: 'var(--g400)', fontSize: 11, marginTop: 6 }}>Completed {c.completed_at ? new Date(c.completed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
-      <button
-        className="btn btn-sm" style={{ marginTop: 10, background: 'var(--teal, #0d9488)', color: '#fff', border: 'none' }}
-        onClick={() => openTab(`/opd-procedure-summary-print/${c.id}`, `procedure-summary-${c.id}`)}
-      >
-        <i className="ti ti-printer"></i> Print Procedure Summary
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <button
+          className="btn btn-sm" style={{ background: 'var(--teal, #0d9488)', color: '#fff', border: 'none' }}
+          onClick={() => openTab(`/opd-procedure-summary-print/${c.id}`, `procedure-summary-${c.id}`)}
+        >
+          <i className="ti ti-printer"></i> Print Procedure Summary
+        </button>
+        {isToday && (
+          <button className="btn btn-sm" onClick={onEdit}>
+            <i className="ti ti-edit"></i> Edit
+          </button>
+        )}
+      </div>
+      {!isToday && <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 6 }}>Editing is only available on the day a procedure is completed.</div>}
     </div>
   );
 }
@@ -472,7 +485,11 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
           {isTerminal ? (
             p.status === 'Completed' ? (
               <>
-                <CompletedSummary c={p} />
+                {p._editing ? (
+                  <CompletePanel c={p} busy={busy} editMode onSave={(fields) => onAction('editComplete', p, fields)} onCancelEdit={() => onAction('toggleEdit', p)} />
+                ) : (
+                  <CompletedSummary c={p} onEdit={() => onAction('toggleEdit', p)} />
+                )}
                 <MedicineSection procedureId={p.id} />
               </>
             ) : (
@@ -514,8 +531,8 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
               <Section num={5} color="var(--green)" title="Post-Procedure Notes" done={completeDone} active={completeActive}>
                 {!checkinDone ? <LockedNote text="Patient must be checked in first." /> : (
                   <>
-                    <CompletePanel c={p} busy={busy} onSave={(fields) => onAction('complete', p, fields)} />
                     <MedicineSection procedureId={p.id} />
+                    <CompletePanel c={p} busy={busy} onSave={(fields) => onAction('complete', p, fields)} />
                   </>
                 )}
               </Section>
@@ -556,6 +573,7 @@ export default function Workspace({ patientId }) {
   const [busyId, setBusyId] = useState(null);
   const [rowError, setRowError] = useState({});
   const [reschedulingId, setReschedulingId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
 
   const refresh = useCallback(async () => {
     const [patientData, journeyData] = await Promise.all([getPatientById(patientId), getPatientOpdProcedureJourney(patientId)]);
@@ -580,12 +598,17 @@ export default function Workspace({ patientId }) {
       setReschedulingId((cur) => (cur === p.id ? null : p.id));
       return;
     }
+    if (type === 'toggleEdit') {
+      setEditingId((cur) => (cur === p.id ? null : p.id));
+      return;
+    }
     setBusyId(p.id);
     let result;
     if (type === 'decision') result = await setOpdProcedureDecision(p.id, args[0], args[1]);
     if (type === 'schedule') { result = await scheduleOpdProcedure(p.id, args[0], args[1]); setReschedulingId(null); }
     if (type === 'checkin') result = await checkInOpdProcedure(p.id);
     if (type === 'complete') result = await completeOpdProcedure(p.id, args[0]);
+    if (type === 'editComplete') { result = await updateCompletedProcedureNotes(p.id, args[0]); if (!result?.error) setEditingId(null); }
     if (type === 'cancel') result = await cancelOpdProcedure(p.id, 'Cancelled from patient journey view');
     setBusyId(null);
     if (result?.error) { setRowError((e) => ({ ...e, [p.id]: result.error })); return; }
@@ -609,7 +632,7 @@ export default function Workspace({ patientId }) {
       {journey.map((p) => (
         <JourneyCard
           key={p.id}
-          p={{ ...p, _rescheduling: reschedulingId === p.id }}
+          p={{ ...p, _rescheduling: reschedulingId === p.id, _editing: editingId === p.id }}
           patient={patient}
           expanded={expandedId === p.id}
           onToggle={() => setExpandedId((cur) => (cur === p.id ? null : p.id))}
