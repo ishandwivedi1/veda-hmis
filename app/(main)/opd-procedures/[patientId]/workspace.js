@@ -275,6 +275,12 @@ function CompletedSummary({ c }) {
       <div><strong>Findings:</strong> {c.findings || '--'}</div>
       <div><strong>Instructions:</strong> {c.post_procedure_instructions || '--'}</div>
       <div style={{ color: 'var(--g400)', fontSize: 11, marginTop: 6 }}>Completed {c.completed_at ? new Date(c.completed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
+      <button
+        className="btn btn-sm" style={{ marginTop: 10, background: 'var(--teal, #0d9488)', color: '#fff', border: 'none' }}
+        onClick={() => openTab(`/opd-procedure-summary-print/${c.id}`, `procedure-summary-${c.id}`)}
+      >
+        <i className="ti ti-printer"></i> Print Procedure Summary
+      </button>
     </div>
   );
 }
@@ -321,7 +327,11 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
 
       {expanded && (
         <div style={{ padding: 16 }}>
-          {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 10 }}>{error}</div>}
+          {error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--red-lt, #fee2e2)', color: 'var(--red)', fontWeight: 700, fontSize: 13.5, padding: '10px 14px', borderRadius: 8, marginBottom: 12, border: '1px solid var(--red)' }}>
+              <i className="ti ti-alert-triangle" style={{ fontSize: 16, flexShrink: 0 }}></i> {error}
+            </div>
+          )}
           {p.notes && <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}><strong>Doctor&apos;s note:</strong> {p.notes}</div>}
 
           {isTerminal ? (
