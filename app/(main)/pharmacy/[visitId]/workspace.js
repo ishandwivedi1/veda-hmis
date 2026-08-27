@@ -43,7 +43,7 @@ export default function Workspace({ visitId }) {
         // for bottle/tube forms, or dosage x frequency x duration
         // (summed across every step for a tapering schedule) for
         // tablets/capsules. Always editable, never locked.
-        if (!next[rx.id]) next[rx.id] = { drugId: rx.suggestedDrugId || '', qty: rx.suggestedQty ?? rx.qty ?? 1, discType: 'fixed', discValue: 0 };
+        if (!next[rx.id]) next[rx.id] = { drugId: rx.suggestedDrugId || '', qty: rx.suggestedQty ?? rx.qty ?? 1, discType: 'fixed', discValue: 0, manualRate: '', manualGstPct: '' };
       });
       return next;
     });
@@ -75,6 +75,9 @@ export default function Workspace({ visitId }) {
   // Same math as billing/new/new-invoice-tab.js's computeLine() -- GST
   // computed on the post-discount amount, and a fixed-Rs discount is
   // capped at the line's gross so it can never make a line negative.
+  // A prescribed drug not in the catalog (no drugId picked) can still
+  // be billed off a manually entered rate/GST%, rather than forcing
+  // the pharmacist to pick some other catalog drug as a stand-in.
   function lineTotal(rx) {
     if (rx.billing_status === 'Billed') {
       const li = rx.invoice_line_items;
@@ -83,15 +86,25 @@ export default function Workspace({ visitId }) {
       return { qty: li.qty, rate: li.rate, discPct: gross > 0 ? Math.round((li.disc / gross) * 10000) / 100 : 0, net: Number(li.net) };
     }
     const sel = selections[rx.id];
-    const drug = drugCatalog.find((d) => d.id === sel?.drugId);
-    if (!drug || !sel?.qty) return null;
-    const gross = drug.rate * sel.qty;
+    if (!sel?.qty) return null;
+
+    const drug = sel.drugId ? drugCatalog.find((d) => d.id === sel.drugId) : null;
+    let rate, gstPct;
+    if (drug) {
+      rate = drug.rate; gstPct = drug.gst_pct;
+    } else if (sel.manualRate !== '' && sel.manualRate != null) {
+      rate = Number(sel.manualRate) || 0; gstPct = Number(sel.manualGstPct) || 0;
+    } else {
+      return null;
+    }
+
+    const gross = rate * sel.qty;
     let disc = 0;
     if (sel.discType === 'pct') disc = Math.round((gross * Math.min(100, Math.max(0, sel.discValue || 0)) / 100) * 100) / 100;
     else if (sel.discType === 'fixed') disc = Math.min(Math.max(0, sel.discValue || 0), gross);
     const taxable = gross - disc;
-    const gst = Math.round((taxable * drug.gst_pct / 100) * 100) / 100;
-    return { qty: sel.qty, rate: drug.rate, disc, net: Math.round((taxable + gst) * 100) / 100, drug };
+    const gst = Math.round((taxable * gstPct / 100) * 100) / 100;
+    return { qty: sel.qty, rate, gstPct, disc, net: Math.round((taxable + gst) * 100) / 100, drug };
   }
 
   const grandTotal = items.reduce((sum, rx) => {
@@ -108,13 +121,13 @@ export default function Workspace({ visitId }) {
     const payload = [];
     for (const rx of selected) {
       const t = lineTotal(rx);
-      if (!t) { setError(`Pick a catalog match and quantity for ${rx.drug_name} before billing.`); return; }
+      if (!t) { setError(`Pick a catalog match, or enter a manual price, and a quantity for ${rx.drug_name} before billing.`); return; }
       payload.push({
         prescriptionIds: rx.stepIds,
         drugName: rx.drug_name,
-        serviceCode: t.drug.code,
-        rate: t.drug.rate,
-        gstPct: t.drug.gst_pct,
+        serviceCode: t.drug?.code || null,
+        rate: t.rate,
+        gstPct: t.gstPct,
         qty: selections[rx.id].qty,
         discType: selections[rx.id].discType || 'pct',
         discValue: selections[rx.id].discValue || 0,
@@ -287,6 +300,27 @@ export default function Workspace({ visitId }) {
                               <option key={d.id} value={d.id}>{d.brand ? `${d.brand} (${d.generic})` : d.generic} -- {fmt(d.rate)}</option>
                             ))}
                           </select>
+                        )}
+                        {isPending && !selections[rx.id]?.drugId && (
+                          <div style={{ marginTop: 4 }}>
+                            <div style={{ fontSize: 10.5, color: 'var(--amber)', marginBottom: 2 }}>
+                              <i className="ti ti-alert-triangle"></i> Not in the drug catalog -- enter a price manually.
+                            </div>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <input
+                                type="number" min="0" step="0.01" className="fi fi-sm" style={{ width: 80 }}
+                                placeholder="Rate Rs."
+                                value={selections[rx.id]?.manualRate ?? ''}
+                                onChange={(e) => updateSelection(rx.id, 'manualRate', e.target.value)}
+                              />
+                              <input
+                                type="number" min="0" max="100" step="0.01" className="fi fi-sm" style={{ width: 60 }}
+                                placeholder="GST %"
+                                value={selections[rx.id]?.manualGstPct ?? ''}
+                                onChange={(e) => updateSelection(rx.id, 'manualGstPct', e.target.value)}
+                              />
+                            </div>
+                          </div>
                         )}
                       </td>
                       <td>

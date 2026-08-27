@@ -84,13 +84,29 @@ export async function getPharmacyWorkspace(visitId) {
 
   // Suggest the closest catalog match per prescription so the
   // pharmacist isn't hunting through the whole drug list for every
-  // line -- same ilike logic the auto-bill RPC already uses, just
-  // surfaced here before billing instead of silently applied after.
+  // line. Exact match first -- the overwhelmingly common case, since a
+  // doctor picking a drug from Consultation's own catalog autocomplete
+  // means drug_name is character-for-character the catalog's brand or
+  // generic name. Only falls back to a substring guess when it's
+  // unambiguous (exactly one candidate); if two catalog entries both
+  // plausibly match (e.g. a plain drug and a combination product that
+  // contains it), guessing between them is exactly the kind of
+  // mismatch this exists to prevent, so it's left unmatched instead --
+  // blank price, pharmacist picks manually.
   function matchCatalog(drugName) {
-    return (drugCatalog || []).find(
-      (d) => drugName?.toLowerCase().includes(d.generic?.toLowerCase()) ||
-             (d.brand && drugName?.toLowerCase().includes(d.brand.toLowerCase()))
+    if (!drugName) return null;
+    const name = drugName.trim().toLowerCase();
+
+    const exact = (drugCatalog || []).find(
+      (d) => d.brand?.trim().toLowerCase() === name || d.generic?.trim().toLowerCase() === name
     );
+    if (exact) return exact;
+
+    const candidates = (drugCatalog || []).filter(
+      (d) => (d.generic && name.includes(d.generic.trim().toLowerCase())) ||
+             (d.brand && name.includes(d.brand.trim().toLowerCase()))
+    );
+    return candidates.length === 1 ? candidates[0] : null;
   }
 
   // A tapering schedule is N rows in `prescriptions` (one per step) so
