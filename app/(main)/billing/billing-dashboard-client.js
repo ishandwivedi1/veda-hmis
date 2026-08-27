@@ -15,6 +15,7 @@ const VISIT_TYPE_COLOR = {
   'Post-operative Review': '--amber',
   'Emergency': '--red',
   'Procedure': '--teal',
+  'OPD Procedure Only': '--teal',
 };
 
 function StatCard({ label, value, sub, color }) {

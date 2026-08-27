@@ -366,6 +366,8 @@ declare
   appt appointments;
   new_visit visits;
   existing_visit_count int;
+  open_surgical_case_count int;
+  open_procedure_count int;
 begin
   if is_day_closed(ist_date(now())) then
     raise exception 'Today has been closed for financial reconciliation. An administrator must reopen it before new visits can be created.';
@@ -389,6 +391,26 @@ begin
     raise exception 'This patient already has a visit today.';
   end if;
 
+  if appt.visit_type in ('Investigation Only', 'Surgery Evaluation') then
+    select count(*) into open_surgical_case_count
+    from surgical_cases
+    where patient_id = appt.patient_id and status not in ('Completed', 'Cancelled');
+    if open_surgical_case_count = 0 then
+      raise exception 'This patient has not been marked for surgery yet. Check in as New Consultation instead so a doctor can evaluate them first.';
+    end if;
+  end if;
+
+  if appt.visit_type = 'OPD Procedure Only' then
+    select count(*) into open_procedure_count
+    from plan_procedures pp
+    join encounters e on e.id = pp.encounter_id
+    join visits v on v.id = e.visit_id
+    where v.patient_id = appt.patient_id and pp.status in ('Planned', 'Scheduled', 'Checked In');
+    if open_procedure_count = 0 then
+      raise exception 'This patient does not have an OPD Procedure on file yet. Check in as New Consultation instead so a doctor can advise one first.';
+    end if;
+  end if;
+
   insert into visits (patient_id, appointment_id, doctor_id, visit_type, referral_source, status, visit_number)
   values (appt.patient_id, appt.id, appt.doctor_id, appt.visit_type, 'Appointment', 'Open', next_visit_number())
   returning * into new_visit;
@@ -403,6 +425,8 @@ begin
       and sc.patient_id = new_visit.patient_id
       and os.scheduled_date = ist_date(now())
       and os.status in ('Scheduled', 'In Progress');
+  elsif new_visit.visit_type in ('Investigation Only', 'Surgery Evaluation', 'OPD Procedure Only') then
+    null;
   elsif new_visit.visit_type = 'Post-operative Review' then
     perform issue_queue_token(new_visit.id, 'Doctor');
   else
@@ -735,6 +759,8 @@ CREATE OR REPLACE FUNCTION "public"."create_walk_in_visit"("p_patient_id" "uuid"
 declare
   new_visit visits;
   existing_visit_count int;
+  open_surgical_case_count int;
+  open_procedure_count int;
 begin
   if is_day_closed(ist_date(now())) then
     raise exception 'Today has been closed for financial reconciliation. An administrator must reopen it before new visits can be created.';
@@ -746,6 +772,26 @@ begin
 
   if existing_visit_count > 0 then
     raise exception 'This patient already has a visit today.';
+  end if;
+
+  if p_visit_type in ('Investigation Only', 'Surgery Evaluation') then
+    select count(*) into open_surgical_case_count
+    from surgical_cases
+    where patient_id = p_patient_id and status not in ('Completed', 'Cancelled');
+    if open_surgical_case_count = 0 then
+      raise exception 'This patient has not been marked for surgery yet. Register as New Consultation instead so a doctor can evaluate them first.';
+    end if;
+  end if;
+
+  if p_visit_type = 'OPD Procedure Only' then
+    select count(*) into open_procedure_count
+    from plan_procedures pp
+    join encounters e on e.id = pp.encounter_id
+    join visits v on v.id = e.visit_id
+    where v.patient_id = p_patient_id and pp.status in ('Planned', 'Scheduled', 'Checked In');
+    if open_procedure_count = 0 then
+      raise exception 'This patient does not have an OPD Procedure on file yet. Register as New Consultation instead so a doctor can advise one first.';
+    end if;
   end if;
 
   insert into visits (patient_id, doctor_id, visit_type, referral_source, priority, surgery_type, status, visit_number)
@@ -760,12 +806,9 @@ begin
       and sc.patient_id = new_visit.patient_id
       and os.scheduled_date = ist_date(now())
       and os.status in ('Scheduled', 'In Progress');
+  elsif new_visit.visit_type in ('Investigation Only', 'Surgery Evaluation', 'OPD Procedure Only') then
+    null;
   else
-    -- Post-operative Review patients now route through Optometry too --
-    -- refraction and other clinical recording may be needed post-surgery
-    -- just like a normal visit. The doctor still keeps the existing
-    -- "Call Directly" override (Doctor Dashboard / Post-op module) to
-    -- pull them straight in without waiting on Optometry.
     perform issue_queue_token(new_visit.id, 'Optometry');
   end if;
 
@@ -1775,7 +1818,7 @@ CREATE TABLE IF NOT EXISTS "public"."appointments" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "appointments_business_hours" CHECK ((("appointment_time" >= '10:00:00'::time without time zone) AND ("appointment_time" <= '18:00:00'::time without time zone))),
     CONSTRAINT "appointments_status_check" CHECK (("status" = ANY (ARRAY['Booked'::"text", 'Checked-in'::"text", 'Cancelled'::"text", 'No-show'::"text"]))),
-    CONSTRAINT "appointments_visit_type_check" CHECK (("visit_type" = ANY (ARRAY['New Consultation'::"text", 'Follow-up'::"text", 'Investigation Only'::"text", 'Post-operative Review'::"text", 'Emergency'::"text", 'Procedure'::"text"])))
+    CONSTRAINT "appointments_visit_type_check" CHECK (("visit_type" = ANY (ARRAY['New Consultation'::"text", 'Follow-up'::"text", 'Investigation Only'::"text", 'Post-operative Review'::"text", 'Emergency'::"text", 'Procedure'::"text", 'OPD Procedure Only'::"text"])))
 );
 
 

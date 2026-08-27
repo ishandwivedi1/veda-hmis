@@ -216,6 +216,15 @@ function NewVisitForm() {
       return;
     }
 
+    // OPD Procedure Only skips the doctor queue entirely (see
+    // create_walk_in_visit) and lands straight on the patient's OPD
+    // Procedures workspace, where Check-In is now unlocked since an
+    // active visit exists.
+    if (visitType === 'OPD Procedure Only') {
+      router.push(`/opd-procedures/${selectedPatient.id}`);
+      return;
+    }
+
     // Post-operative Review never needs an invoice created at front
     // desk -- skip the Create Invoice prompt entirely and go straight
     // back to the dashboard.
@@ -328,6 +337,7 @@ function NewVisitForm() {
                 <option>New Consultation</option>
                 <option>Follow-up</option>
                 <option>Surgery Evaluation</option>
+                <option>OPD Procedure Only</option>
                 <option>Surgery</option>
                 <option>Post-operative Review</option>
                 <option>Emergency</option>

@@ -210,6 +210,7 @@ export default function NewAppointmentPage() {
                 <option>Follow-up</option>
                 <option>Investigation Only</option>
                 <option>Surgery Evaluation</option>
+                <option>OPD Procedure Only</option>
                 <option>Post-operative Review</option>
                 <option>Emergency</option>
                 <option>Procedure</option>

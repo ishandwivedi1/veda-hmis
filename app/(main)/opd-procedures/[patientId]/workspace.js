@@ -237,8 +237,12 @@ function CheckinPanel({ c, onCheckIn, onCancel, onReschedule, busy }) {
       <div style={{ fontSize: 13, marginBottom: 10 }}>
         Scheduled for <strong>{fmtDate(c.scheduled_date)}</strong>{c.scheduled_time ? ` at ${c.scheduled_time.slice(0, 5)}` : ''}.
       </div>
+      <div style={{ fontSize: 12.5, marginBottom: 10, color: c.hasActiveVisitToday ? 'var(--green)' : 'var(--red)' }}>
+        <i className={`ti ${c.hasActiveVisitToday ? 'ti-check' : 'ti-alert-circle'}`}></i>{' '}
+        {c.hasActiveVisitToday ? 'Active visit on file for today.' : "No active visit today -- register at the front desk (OPD Procedure Only) first."}
+      </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" disabled={busy} onClick={onCheckIn}>Check In</button>
+        <button className="btn btn-primary" disabled={busy || !c.hasActiveVisitToday} onClick={onCheckIn}>Check In</button>
         <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={onReschedule}><i className="ti ti-calendar-time"></i> Reschedule</button>
         <button className="btn" style={{ color: 'var(--red)' }} disabled={busy} onClick={onCancel}>Cancel Procedure</button>
       </div>

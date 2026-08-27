@@ -28,6 +28,13 @@ export default function CheckInButton({ appointmentId }) {
       return;
     }
 
+    // OPD Procedure Only skips the doctor queue entirely and lands on
+    // the patient's OPD Procedures workspace instead.
+    if (result.visit?.visit_type === 'OPD Procedure Only' && result.visit?.patient_id) {
+      router.push(`/opd-procedures/${result.visit.patient_id}`);
+      return;
+    }
+
     router.push('/front-office-dashboard?visitCreated=1');
   }
 

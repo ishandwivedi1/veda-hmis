@@ -83,6 +83,7 @@ export async function getOpdProcedureLists() {
 // procedure is currently at the Scheduled stage.
 export async function getPatientOpdProcedureJourney(patientId) {
   const supabase = await createClient();
+  const today = todayIst();
   const { data, error } = await supabase
     .from('plan_procedures')
     .select('*, encounters!inner(id, visit_id, visits!inner(patient_id))')
@@ -90,15 +91,17 @@ export async function getPatientOpdProcedureJourney(patientId) {
     .order('created_at', { ascending: false });
   if (error) return [];
 
-  const [{ data: ledgerRows }, { data: catalog }] = await Promise.all([
+  const [{ data: ledgerRows }, { data: catalog }, { data: activeVisitRow }] = await Promise.all([
     supabase.from('patient_ledger').select('amount').eq('patient_id', patientId),
     supabase.from('master_services').select('name, rate, gst_pct').eq('dept', 'OPD Procedure').eq('status', 'Active'),
+    supabase.from('visits').select('id').eq('patient_id', patientId).eq('status', 'Open').gte('created_at', `${today}T00:00:00`).limit(1).maybeSingle(),
   ]);
   const advanceBalance = (ledgerRows || []).reduce((sum, r) => sum + Number(r.amount), 0);
+  const hasActiveVisitToday = !!activeVisitRow;
 
   return (data || []).map((p) => {
     const match = (catalog || []).find((s) => s.name.toLowerCase() === p.name.toLowerCase());
-    return { ...p, advanceBalance, rate: match?.rate ?? null };
+    return { ...p, advanceBalance, hasActiveVisitToday, rate: match?.rate ?? null };
   });
 }
 
@@ -219,6 +222,23 @@ export async function checkInOpdProcedure(id) {
   }
 
   const patientId = row.encounters?.visits?.patient_id;
+
+  // Same-day arrival needs to be real, not just "the date matches" --
+  // the patient must actually be registered at the front desk today
+  // (an Open visit), the same way OT check-in implicitly requires a
+  // Surgery-type visit to exist. Front desk registers this via the
+  // "OPD Procedure Only" visit type, which skips the doctor queue and
+  // sends them straight here.
+  const { data: activeVisit } = await supabase
+    .from('visits')
+    .select('id')
+    .eq('patient_id', patientId)
+    .eq('status', 'Open')
+    .gte('created_at', `${today}T00:00:00`)
+    .limit(1)
+    .maybeSingle();
+  if (!activeVisit) return { error: "This patient doesn't have an active visit today. Register them at the front desk (OPD Procedure Only) before checking in." };
+
   const { data: ledgerRows } = await supabase.from('patient_ledger').select('amount').eq('patient_id', patientId);
   const balance = (ledgerRows || []).reduce((sum, r) => sum + Number(r.amount), 0);
   if (balance <= 0) return { error: 'No advance payment on file for this patient yet. Collect the advance before check-in.' };
