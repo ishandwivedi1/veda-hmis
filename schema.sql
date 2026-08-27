@@ -1575,6 +1575,7 @@ CREATE TABLE IF NOT EXISTS "public"."patients" (
     "referral_source" "text",
     "preferred_language" "text",
     "remarks" "text",
+    "salutation" "text",
     CONSTRAINT "mobile_ten_digits" CHECK (("mobile" ~ '^[0-9]{10}$'::"text")),
     CONSTRAINT "patients_gender_check" CHECK (("gender" = ANY (ARRAY['M'::"text", 'F'::"text", 'O'::"text"])))
 );
@@ -1604,7 +1605,7 @@ $$;
 ALTER FUNCTION "public"."register_patient"("p_first_name" "text", "p_last_name" "text", "p_age" integer, "p_gender" "text", "p_mobile" "text", "p_address" "text", "p_blood_group" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."register_patient"("p_first_name" "text", "p_last_name" "text", "p_age" integer, "p_gender" "text", "p_mobile" "text", "p_address" "text", "p_blood_group" "text", "p_date_of_birth" "date" DEFAULT NULL::"date", "p_alternate_mobile" "text" DEFAULT NULL::"text", "p_city" "text" DEFAULT NULL::"text", "p_state" "text" DEFAULT NULL::"text", "p_pin_code" "text" DEFAULT NULL::"text", "p_id_type" "text" DEFAULT NULL::"text", "p_id_number" "text" DEFAULT NULL::"text", "p_insurance_scheme" "text" DEFAULT NULL::"text", "p_insurance_number" "text" DEFAULT NULL::"text", "p_referral_source" "text" DEFAULT NULL::"text", "p_preferred_language" "text" DEFAULT NULL::"text", "p_remarks" "text" DEFAULT NULL::"text") RETURNS "public"."patients"
+CREATE OR REPLACE FUNCTION "public"."register_patient"("p_first_name" "text", "p_last_name" "text", "p_age" integer, "p_gender" "text", "p_mobile" "text", "p_address" "text", "p_blood_group" "text", "p_date_of_birth" "date" DEFAULT NULL::"date", "p_alternate_mobile" "text" DEFAULT NULL::"text", "p_city" "text" DEFAULT NULL::"text", "p_state" "text" DEFAULT NULL::"text", "p_pin_code" "text" DEFAULT NULL::"text", "p_id_type" "text" DEFAULT NULL::"text", "p_id_number" "text" DEFAULT NULL::"text", "p_insurance_scheme" "text" DEFAULT NULL::"text", "p_insurance_number" "text" DEFAULT NULL::"text", "p_referral_source" "text" DEFAULT NULL::"text", "p_preferred_language" "text" DEFAULT NULL::"text", "p_remarks" "text" DEFAULT NULL::"text", "p_salutation" "text" DEFAULT NULL::"text") RETURNS "public"."patients"
     LANGUAGE "plpgsql"
     AS $$
 declare
@@ -1617,13 +1618,13 @@ begin
     uhid, first_name, last_name, age, gender, mobile, address, blood_group,
     date_of_birth, alternate_mobile, city, state, pin_code,
     id_type, id_number, insurance_scheme, insurance_number,
-    referral_source, preferred_language, remarks
+    referral_source, preferred_language, remarks, salutation
   )
   values (
     new_uhid, initcap(trim(p_first_name)), initcap(trim(p_last_name)), p_age, p_gender, p_mobile, p_address, p_blood_group,
     p_date_of_birth, p_alternate_mobile, initcap(trim(p_city)), p_state, p_pin_code,
     p_id_type, p_id_number, p_insurance_scheme, p_insurance_number,
-    p_referral_source, p_preferred_language, p_remarks
+    p_referral_source, p_preferred_language, p_remarks, p_salutation
   )
   returning * into new_patient;
 

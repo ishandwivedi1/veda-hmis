@@ -28,6 +28,7 @@ export async function registerPatient(values) {
     p_referral_source: values.referralSource || null,
     p_preferred_language: values.preferredLanguage || null,
     p_remarks: values.remarks || null,
+    p_salutation: values.salutation || null,
   });
 
   if (error) {
@@ -139,6 +140,7 @@ export async function updatePatient(patientId, values) {
       referral_source: values.referralSource || null,
       preferred_language: values.preferredLanguage || null,
       remarks: values.remarks || null,
+      salutation: values.salutation || null,
     })
     .eq('id', patientId)
     .select()

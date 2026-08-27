@@ -25,6 +25,7 @@ export default function EditForm({ patient }) {
   const router = useRouter();
 
   const [values, setValues] = useState({
+    salutation: patient.salutation || '',
     firstName: patient.first_name || '',
     lastName: patient.last_name || '',
     gender: patient.gender || '',
@@ -83,8 +84,8 @@ export default function EditForm({ patient }) {
   }
 
   function validate() {
-    if (!values.firstName || !values.lastName || !values.gender || !values.mobile) {
-      setError('First name, last name, gender, and mobile are required.');
+    if (!values.firstName || !values.gender || !values.mobile) {
+      setError('First name, gender, and mobile are required.');
       return false;
     }
     if (values.mobile.length !== 10) {
@@ -117,9 +118,16 @@ export default function EditForm({ patient }) {
         {error && <div className="msg-err">{error}</div>}
 
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', margin: '14px 0 8px' }}>Personal Information</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '0.7fr 1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <div><label className="flbl">Salutation</label>
+            <select className="fi" value={values.salutation} onChange={update('salutation')}>
+              <option value="">--</option>
+              <option>Mr.</option><option>Mrs.</option><option>Ms.</option><option>Miss</option>
+              <option>Master</option><option>Dr.</option><option>Prof.</option><option>Smt.</option><option>Kumari</option>
+            </select>
+          </div>
           <div><label className="flbl">First name *</label><input className="fi" value={values.firstName} onChange={update('firstName')} onBlur={formatOnBlur('firstName')} /></div>
-          <div><label className="flbl">Last name *</label><input className="fi" value={values.lastName} onChange={update('lastName')} onBlur={formatOnBlur('lastName')} /></div>
+          <div><label className="flbl">Last name</label><input className="fi" value={values.lastName} onChange={update('lastName')} onBlur={formatOnBlur('lastName')} /></div>
           <div><label className="flbl">Gender *</label>
             <select className="fi" value={values.gender} onChange={update('gender')}>
               <option value="">-- Select --</option>
