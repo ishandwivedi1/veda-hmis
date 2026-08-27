@@ -2,6 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { searchPatients } from '../patient-timeline/actions';
+import { openTab } from '@/lib/popup';
 import {
   getPatientOpdProcedureJourney,
   getTodayOpdProcedurePatients,
@@ -42,9 +43,38 @@ function fmtDate(d) {
   return new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function StageBadge({ p }) {
-  const s = stageFor(p);
-  return <span className="badge" style={{ background: `${s.color}20`, color: s.color, fontWeight: 600 }}>{s.label}</span>;
+// ── STEP ACCORDION -- identical pattern to Surgical Journey's Section
+// component: numbered circle (green check once done), colored active
+// border + "Next Step" badge, click to expand/collapse.
+function Section({ num, color, title, done, active, children }) {
+  const [open, setOpen] = useState(!!active);
+  return (
+    <div
+      style={{
+        marginBottom: 10,
+        borderRadius: 8,
+        border: active ? `2px solid ${color}` : '1px solid var(--g200)',
+        background: active ? `color-mix(in srgb, ${color} 8%, white)` : '#fff',
+        padding: 12,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setOpen((v) => !v)}>
+        <div style={{ width: 24, height: 24, borderRadius: '50%', background: done ? 'var(--green)' : color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+          {done ? <i className="ti ti-check"></i> : num}
+        </div>
+        <div style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>
+          {title}
+          {active && <span className="badge" style={{ marginLeft: 8, background: color, color: '#fff', fontSize: 10 }}><i className="ti ti-arrow-right"></i> Next Step</span>}
+        </div>
+        <i className={`ti ${open ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ color: 'var(--g400)' }}></i>
+      </div>
+      {open && <div style={{ marginTop: 12, paddingLeft: 34 }}>{children}</div>}
+    </div>
+  );
+}
+
+function LockedNote({ text }) {
+  return <div style={{ fontSize: 12, color: 'var(--g400)' }}><i className="ti ti-lock"></i> {text}</div>;
 }
 
 function DecisionPanel({ c, onSave, busy }) {
@@ -53,7 +83,6 @@ function DecisionPanel({ c, onSave, busy }) {
   const needsReason = c.decision_locked && decision && decision !== c.decision;
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Patient Decision</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
         {DECISIONS.map((d) => (
           <button key={d} type="button" className="btn" style={{ fontSize: 12, background: decision === d ? 'var(--red)' : undefined, color: decision === d ? '#fff' : undefined }} onClick={() => setDecision(d)}>{d}</button>
@@ -70,7 +99,6 @@ function SchedulePanel({ c, onSave, onCancel, busy }) {
   const [time, setTime] = useState(c.scheduled_time ? c.scheduled_time.slice(0, 5) : '');
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Procedure Date</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input type="date" className="fi fi-sm" value={date} onChange={(e) => setDate(e.target.value)} />
         <input type="time" className="fi fi-sm" value={time} onChange={(e) => setTime(e.target.value)} />
@@ -83,14 +111,44 @@ function SchedulePanel({ c, onSave, onCancel, busy }) {
   );
 }
 
+function PaymentPanel({ c, patient }) {
+  const balanceDue = c.rate != null ? Math.max(0, Number(c.rate) - c.advanceBalance) : null;
+  return (
+    <div>
+      <div style={{ background: 'var(--g50)', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 12.5 }}>
+        {c.rate != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>{c.name} {c.eye ? `(${c.eye})` : ''}</span>
+            <span>Rs. {Number(c.rate).toLocaleString('en-IN')}</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: c.rate != null ? 6 : 0 }}>
+          <span>Advance received</span>
+          <span style={{ fontWeight: 600, color: 'var(--purple)' }}>Rs. {c.advanceBalance.toLocaleString('en-IN')}</span>
+        </div>
+      </div>
+      {c.advanceBalance > 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--green)' }}><i className="ti ti-check"></i> Advance received.</div>
+      ) : (
+        <div>
+          {balanceDue != null && <div style={{ fontSize: 12.5, color: 'var(--g500)', marginBottom: 8 }}>Balance due: <strong style={{ color: 'var(--amber)' }}>Rs. {balanceDue.toLocaleString('en-IN')}</strong></div>}
+          <button
+            className="btn btn-sm" style={{ background: 'var(--amber)', color: '#fff', border: 'none' }}
+            onClick={() => openTab(`/payments/advance?patientId=${patient.id}${balanceDue != null ? `&amount=${balanceDue}` : ''}&returnTo=opd-procedures`, `advance-${patient.id}`)}
+          >
+            <i className="ti ti-cash"></i> Collect Advance
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CheckinPanel({ c, onCheckIn, onCancel, onReschedule, busy }) {
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Check-In</div>
       <div style={{ fontSize: 13, marginBottom: 10 }}>
-        Scheduled for <strong>{fmtDate(c.scheduled_date)}</strong>{c.scheduled_time ? ` at ${c.scheduled_time.slice(0, 5)}` : ''}.<br />
-        Advance balance: <strong style={{ color: c.advanceBalance > 0 ? 'var(--green)' : 'var(--red)' }}>Rs. {c.advanceBalance.toLocaleString('en-IN')}</strong>
-        {c.advanceBalance <= 0 && <div style={{ color: 'var(--red)', marginTop: 4, fontSize: 12 }}>Collect the advance in Payments before check-in.</div>}
+        Scheduled for <strong>{fmtDate(c.scheduled_date)}</strong>{c.scheduled_time ? ` at ${c.scheduled_time.slice(0, 5)}` : ''}.
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn btn-primary" disabled={busy} onClick={onCheckIn}>Check In</button>
@@ -107,7 +165,6 @@ function CompletePanel({ c, onSave, busy }) {
   const [instructions, setInstructions] = useState(c.post_procedure_instructions || '');
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Post-Procedure Notes</div>
       <label style={{ fontSize: 11, color: 'var(--g500)' }}>Procedure Performed</label>
       <input className="fi fi-sm" value={procedurePerformed} onChange={(e) => setProcedurePerformed(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
       <label style={{ fontSize: 11, color: 'var(--g500)' }}>Findings</label>
@@ -131,30 +188,48 @@ function CompletedSummary({ c }) {
   );
 }
 
-function JourneyCard({ p, expanded, onToggle, onAction, busy, error }) {
+function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) {
   const s = stageFor(p);
   const isTerminal = p.status === 'Completed' || p.status === 'Done' || p.status === 'Cancelled' || p.decision === 'Declined';
 
+  const decisionDone = !!p.decision;
+  const scheduleDone = ['Scheduled', 'Checked In', 'Completed'].includes(p.status);
+  const paymentDone = p.advanceBalance > 0;
+  const checkinDone = ['Checked In', 'Completed'].includes(p.status);
+  const completeDone = p.status === 'Completed';
+
+  const stepOrder = [
+    ['decision', decisionDone && p.decision === 'Accepted'],
+    ['schedule', scheduleDone],
+    ['payment', paymentDone],
+    ['checkin', checkinDone],
+    ['complete', completeDone],
+  ];
+  const currentStep = decisionDone && p.decision !== 'Accepted' ? null : (stepOrder.find(([, done]) => !done)?.[0] || null);
+
   return (
-    <div className="card" style={{ marginBottom: 12, borderLeft: `3px solid ${s.color}` }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={onToggle}>
+    <div className="card" style={{ marginBottom: 14, padding: 0, overflow: 'hidden' }}>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '14px 16px', background: 'var(--indigo)', color: '#fff' }}
+        onClick={onToggle}
+      >
         <div>
           <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name} {p.eye ? `(${p.eye})` : ''}</div>
-          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>
+          <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>
             Advised {fmtDate(p.created_at?.slice(0, 10))}
             {p.scheduled_date ? ` -- procedure date ${fmtDate(p.scheduled_date)}` : ''}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <StageBadge p={p} />
-          <i className={`ti ${expanded ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ color: 'var(--g400)' }}></i>
+          <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff', fontWeight: 600 }}>{s.label}</span>
+          <i className={`ti ${expanded ? 'ti-chevron-up' : 'ti-chevron-down'}`}></i>
         </div>
       </div>
 
       {expanded && (
-        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--g100)' }}>
+        <div style={{ padding: 16 }}>
           {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 10 }}>{error}</div>}
-          {p.notes && <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 10 }}><strong>Doctor&apos;s note:</strong> {p.notes}</div>}
+          {p.notes && <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}><strong>Doctor&apos;s note:</strong> {p.notes}</div>}
 
           {isTerminal ? (
             p.status === 'Completed' ? <CompletedSummary c={p} /> : (
@@ -166,20 +241,38 @@ function JourneyCard({ p, expanded, onToggle, onAction, busy, error }) {
             )
           ) : (
             <>
-              {(!p.decision || (p.decision !== 'Accepted' && p.decision !== 'Declined' && p.status === 'Planned')) && (
+              <Section num={1} color="var(--indigo)" title="Patient Decision" done={decisionDone && p.decision === 'Accepted'} active={currentStep === 'decision'}>
                 <DecisionPanel c={p} busy={busy} onSave={(decision, reason) => onAction('decision', p, decision, reason)} />
-              )}
-              {p.decision === 'Accepted' && p.status === 'Planned' && (
-                <SchedulePanel c={p} busy={busy} onSave={(date, time) => onAction('schedule', p, date, time)} onCancel={() => onAction('cancel', p)} />
-              )}
-              {p.status === 'Scheduled' && (
-                p._rescheduling
-                  ? <SchedulePanel c={p} busy={busy} onSave={(date, time) => onAction('schedule', p, date, time)} onCancel={() => onAction('cancel', p)} />
-                  : <CheckinPanel c={p} busy={busy} onCheckIn={() => onAction('checkin', p)} onCancel={() => onAction('cancel', p)} onReschedule={() => onAction('toggleReschedule', p)} />
-              )}
-              {p.status === 'Checked In' && (
-                <CompletePanel c={p} busy={busy} onSave={(fields) => onAction('complete', p, fields)} />
-              )}
+              </Section>
+
+              <Section num={2} color="var(--blue)" title="Procedure Date" done={scheduleDone} active={currentStep === 'schedule'}>
+                {p.decision !== 'Accepted' ? (
+                  <LockedNote text="Patient Decision must be Accepted first." />
+                ) : p._rescheduling || !scheduleDone ? (
+                  <SchedulePanel c={p} busy={busy} onSave={(date, time) => onAction('schedule', p, date, time)} onCancel={() => onAction('cancel', p)} />
+                ) : (
+                  <div>
+                    <div style={{ fontSize: 13, marginBottom: 8 }}>Scheduled for <strong>{fmtDate(p.scheduled_date)}</strong>{p.scheduled_time ? ` at ${p.scheduled_time.slice(0, 5)}` : ''}.</div>
+                    {!checkinDone && <button className="btn" style={{ fontSize: 12 }} onClick={() => onAction('toggleReschedule', p)}><i className="ti ti-calendar-time"></i> Change Date</button>}
+                  </div>
+                )}
+              </Section>
+
+              <Section num={3} color="var(--teal, #0d9488)" title="Advance Payment" done={paymentDone} active={currentStep === 'payment'}>
+                {!scheduleDone ? <LockedNote text="Confirm the procedure date first." /> : <PaymentPanel c={p} patient={patient} />}
+              </Section>
+
+              <Section num={4} color="var(--purple)" title="Patient Check-In" done={checkinDone} active={currentStep === 'checkin'}>
+                {!paymentDone ? <LockedNote text="Advance payment must be collected first." /> : checkinDone ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--green)' }}><i className="ti ti-check"></i> Checked in {p.checked_in_at ? new Date(p.checked_in_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}.</div>
+                ) : (
+                  <CheckinPanel c={p} busy={busy} onCheckIn={() => onAction('checkin', p)} onCancel={() => onAction('cancel', p)} onReschedule={() => onAction('toggleReschedule', p)} />
+                )}
+              </Section>
+
+              <Section num={5} color="var(--green)" title="Post-Procedure Notes" done={completeDone} active={currentStep === 'complete'}>
+                {!checkinDone ? <LockedNote text="Patient must be checked in first." /> : <CompletePanel c={p} busy={busy} onSave={(fields) => onAction('complete', p, fields)} />}
+              </Section>
             </>
           )}
         </div>
@@ -367,6 +460,7 @@ function OpdProceduresInner() {
             <JourneyCard
               key={p.id}
               p={{ ...p, _rescheduling: reschedulingId === p.id }}
+              patient={patient}
               expanded={expandedId === p.id}
               onToggle={() => setExpandedId((cur) => (cur === p.id ? null : p.id))}
               onAction={handleAction}

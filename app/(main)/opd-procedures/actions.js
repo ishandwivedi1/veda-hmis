@@ -90,10 +90,16 @@ export async function getPatientOpdProcedureJourney(patientId) {
     .order('created_at', { ascending: false });
   if (error) return [];
 
-  const { data: ledgerRows } = await supabase.from('patient_ledger').select('amount').eq('patient_id', patientId);
+  const [{ data: ledgerRows }, { data: catalog }] = await Promise.all([
+    supabase.from('patient_ledger').select('amount').eq('patient_id', patientId),
+    supabase.from('master_services').select('name, rate, gst_pct').eq('dept', 'OPD Procedure').eq('status', 'Active'),
+  ]);
   const advanceBalance = (ledgerRows || []).reduce((sum, r) => sum + Number(r.amount), 0);
 
-  return (data || []).map((p) => ({ ...p, advanceBalance }));
+  return (data || []).map((p) => {
+    const match = (catalog || []).find((s) => s.name.toLowerCase() === p.name.toLowerCase());
+    return { ...p, advanceBalance, rate: match?.rate ?? null };
+  });
 }
 
 // Quick "who's relevant today" shortcuts for the landing page, so staff
