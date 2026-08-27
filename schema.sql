@@ -2034,7 +2034,7 @@ CREATE TABLE IF NOT EXISTS "public"."encounters" (
     "patient_instructions" "text",
     "encounter_type" "text" DEFAULT 'New Consultation'::"text" NOT NULL,
     "visit_outcome" "text",
-    CONSTRAINT "encounters_encounter_type_check" CHECK (("encounter_type" = ANY (ARRAY['New Consultation'::"text", 'Follow-up'::"text"]))),
+    CONSTRAINT "encounters_encounter_type_check" CHECK (("encounter_type" = ANY (ARRAY['New Consultation'::"text", 'Follow-up'::"text", 'OPD Procedure'::"text"]))),
     CONSTRAINT "encounters_status_check" CHECK (("status" = ANY (ARRAY['In Consultation'::"text", 'Completed'::"text"])))
 );
 
@@ -2767,6 +2767,7 @@ CREATE TABLE IF NOT EXISTS "public"."plan_procedures" (
     "findings" "text",
     "post_procedure_instructions" "text",
     "completed_at" timestamp with time zone,
+    "post_procedure_encounter_id" "uuid",
     CONSTRAINT "plan_procedures_status_check" CHECK (("status" = ANY (ARRAY['Planned'::"text", 'Done'::"text", 'Scheduled'::"text", 'Checked In'::"text", 'Completed'::"text", 'Cancelled'::"text"]))),
     CONSTRAINT "plan_procedures_decision_check" CHECK (("decision" = ANY (ARRAY['Accepted'::"text", 'Wants Time to Decide'::"text", 'Discuss with Family'::"text", 'Financial Constraint'::"text", 'Declined'::"text", 'Second Opinion'::"text", 'Other'::"text"]))),
     CONSTRAINT "plan_procedures_proceed_status_check" CHECK (("proceed_status" = ANY (ARRAY['Deciding'::"text", 'Awaiting Return'::"text", 'Proceeding'::"text"])))

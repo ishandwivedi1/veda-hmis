@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { searchPatients } from '../patient-timeline/actions';
-import { getOpdProcedureLists, getCombinedSchedule } from './actions';
+import { getOpdProcedureLists, getCombinedSchedule, getOpdProcedureHistory } from './actions';
 
 function fmtDate(d) {
   if (!d) return '--';
@@ -67,6 +67,48 @@ function CalendarView({ rows, loading, onClose }) {
   );
 }
 
+function HistoryView({ rows, loading, onOpen, onClose }) {
+  const [search, setSearch] = useState('');
+  const filtered = search.trim()
+    ? rows.filter((c) => {
+        const q = search.trim().toLowerCase();
+        return `${c.patient?.first_name} ${c.patient?.last_name}`.toLowerCase().includes(q) || (c.patient?.uhid || '').toLowerCase().includes(q);
+      })
+    : rows;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+        <div className="card-title" style={{ margin: 0 }}><i className="ti ti-history" style={{ color: 'var(--green)' }}></i> OPD Procedures History <span className="badge b-gray" style={{ marginLeft: 8 }}>{rows.length}</span></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="fi fi-sm" placeholder="Search patient / UHID" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} />
+          <button className="btn" onClick={onClose}><i className="ti ti-x"></i> Close</button>
+        </div>
+      </div>
+
+      <div className="card">
+        {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>}
+        {!loading && filtered.length === 0 && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No completed, done, or cancelled procedures yet.</div>}
+        {!loading && filtered.map((c) => (
+          <div key={c.id} onClick={() => onOpen(c.patient.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
+            <div style={{ width: 34, height: 34, borderRadius: '50%', background: c.status === 'Cancelled' ? 'var(--g400)' : 'var(--green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+              {c.patient?.first_name?.charAt(0)}
+            </div>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{c.patient?.first_name} {c.patient?.last_name}</span>
+              <span className={`badge ${c.status === 'Cancelled' ? 'b-gray' : 'b-green'}`} style={{ marginLeft: 8, fontSize: 10 }}>{c.status === 'Done' ? 'Completed (same day)' : c.status}</span>
+              <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+                {c.patient?.uhid} -- {c.name} {c.eye ? `(${c.eye})` : ''}{c.completed_at ? ` -- ${fmtDate(c.completed_at.slice(0, 10))}` : ''}
+              </div>
+            </div>
+            <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── OPD Procedures "All Cases" landing -- patient-first search up
 // top, plus the same Active Cases / Awaiting Confirmation / Completed
 // Today classification Surgical Journey uses: Awaiting Confirmation is
@@ -85,6 +127,9 @@ export default function OpdProceduresPage() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [calendarRows, setCalendarRows] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(true);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyRows, setHistoryRows] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLists(await getOpdProcedureLists());
@@ -106,18 +151,28 @@ export default function OpdProceduresPage() {
     getCombinedSchedule().then((rows) => { setCalendarRows(rows); setCalendarLoading(false); });
   }
 
+  function openHistory() {
+    setShowHistory(true);
+    setHistoryLoading(true);
+    getOpdProcedureHistory().then((rows) => { setHistoryRows(rows); setHistoryLoading(false); });
+  }
+
   function openPatient(patientId) {
     router.push(`/opd-procedures/${patientId}`);
   }
 
   if (showCalendar) return <CalendarView rows={calendarRows} loading={calendarLoading} onClose={() => setShowCalendar(false)} />;
+  if (showHistory) return <HistoryView rows={historyRows} loading={historyLoading} onOpen={openPatient} onClose={() => setShowHistory(false)} />;
 
   return (
     <div>
       <div className="card" style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div className="card-title" style={{ margin: 0 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> OPD Procedures</div>
-          <button className="btn" style={{ fontSize: 12 }} onClick={openCalendar}><i className="ti ti-calendar"></i> Procedure &amp; OT Calendar</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" style={{ fontSize: 12 }} onClick={openHistory}><i className="ti ti-history"></i> History</button>
+            <button className="btn" style={{ fontSize: 12 }} onClick={openCalendar}><i className="ti ti-calendar"></i> Procedure &amp; OT Calendar</button>
+          </div>
         </div>
         <div style={{ position: 'relative' }}>
           <input className="fi" placeholder="Search patient by name or UHID to view their OPD Procedure journey..." value={query} onChange={(e) => setQuery(e.target.value)} />

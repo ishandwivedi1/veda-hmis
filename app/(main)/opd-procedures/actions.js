@@ -332,3 +332,117 @@ export async function getCombinedSchedule() {
     .filter((e) => e.patient)
     .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
 }
+
+// ── HISTORY ──
+// Every completed/cancelled/declined OPD Procedure, newest first, for
+// the landing page's History view -- same idea as Surgical Journey's
+// "Completed / History" tab. Capped at 300 so this stays fast; older
+// records are still reachable by searching the patient directly.
+export async function getOpdProcedureHistory() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('plan_procedures')
+    .select('*, encounters!inner(visit_id, visits!inner(patient_id, patients(id, first_name, last_name, uhid)))')
+    .in('status', ['Completed', 'Done', 'Cancelled'])
+    .order('created_at', { ascending: false })
+    .limit(300);
+  if (error) return [];
+  return (data || []).filter((p) => p.encounters?.visits?.patients).map((p) => ({ ...p, patient: p.encounters.visits.patients }));
+}
+
+// ── POST-PROCEDURE MEDICINES ──
+// Mirrors Consultation's simple (non-tapering) prescription writer --
+// same drug catalog, dosage/frequency/duration/eye fields, same
+// prescriptions table -- so it prints through the exact same Medicine
+// Prescription template. The one wrinkle: prescriptions.encounter_id
+// is required, but an "OPD Procedure Only" visit deliberately never
+// creates an encounter (it skips the doctor queue). So the first
+// medicine added lazily creates a light 'OPD Procedure' encounter
+// against whichever visit is active today, cached on the procedure row
+// so every later medicine (and the print button) reuses the same one.
+async function ensurePostProcedureEncounter(supabase, procedureId) {
+  const { data: proc } = await supabase
+    .from('plan_procedures')
+    .select('post_procedure_encounter_id, encounter_id, encounters(visit_id, visits(patient_id))')
+    .eq('id', procedureId)
+    .single();
+  if (!proc) return null;
+  if (proc.post_procedure_encounter_id) return proc.post_procedure_encounter_id;
+
+  const patientId = proc.encounters?.visits?.patient_id;
+  const today = todayIst();
+  const { data: todaysVisit } = await supabase
+    .from('visits')
+    .select('id')
+    .eq('patient_id', patientId)
+    .eq('status', 'Open')
+    .gte('created_at', `${today}T00:00:00`)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  // Falls back to the original consultation's visit if there's no
+  // active visit today (shouldn't normally happen once check-in has
+  // already required one, but keeps this from hard-failing).
+  const visitId = todaysVisit?.id || proc.encounters?.visit_id;
+  if (!visitId) return null;
+
+  const { data: newEncounter, error } = await supabase
+    .from('encounters')
+    .insert({ visit_id: visitId, encounter_type: 'OPD Procedure', status: 'Completed' })
+    .select('id')
+    .single();
+  if (error || !newEncounter) return null;
+
+  await supabase.from('plan_procedures').update({ post_procedure_encounter_id: newEncounter.id }).eq('id', procedureId);
+  return newEncounter.id;
+}
+
+export async function getPostProcedurePrescriptions(procedureId) {
+  const supabase = await createClient();
+  const { data: proc } = await supabase.from('plan_procedures').select('post_procedure_encounter_id').eq('id', procedureId).single();
+  if (!proc?.post_procedure_encounter_id) return { visitId: null, prescriptions: [] };
+
+  const [{ data: encounter }, { data: prescriptions }] = await Promise.all([
+    supabase.from('encounters').select('visit_id').eq('id', proc.post_procedure_encounter_id).single(),
+    supabase.from('prescriptions').select('*').eq('encounter_id', proc.post_procedure_encounter_id).order('created_at'),
+  ]);
+  return { visitId: encounter?.visit_id || null, prescriptions: prescriptions || [] };
+}
+
+export async function getDrugCatalogForOpdProcedures() {
+  const supabase = await createClient();
+  const [{ data: drugs }, { data: dosages }] = await Promise.all([
+    supabase.from('master_drugs').select('*, master_drug_types(id, name, is_ocular)').eq('status', 'Active').order('generic'),
+    supabase.from('master_dosage_options').select('*').eq('status', 'Active').order('display_order'),
+  ]);
+  return { drugs: drugs || [], dosages: dosages || [] };
+}
+
+export async function addPostProcedureMedicine(procedureId, values) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const encounterId = await ensurePostProcedureEncounter(supabase, procedureId);
+  if (!encounterId) return { error: 'Could not find an active visit to attach this prescription to.' };
+
+  const { error } = await supabase.from('prescriptions').insert({
+    encounter_id: encounterId,
+    drug_name: values.drugName,
+    dosage: values.dosage,
+    frequency: values.frequency,
+    duration: values.duration,
+    eye: values.eye,
+  });
+  if (error) return { error: error.message };
+
+  const { data: proc } = await supabase.from('plan_procedures').select('encounter_id').eq('id', procedureId).single();
+  if (proc?.encounter_id) await addAudit(supabase, proc.encounter_id, `Post-procedure medicine added: ${values.drugName} (${values.eye})`, userData?.user?.id);
+  return { success: true };
+}
+
+export async function removePostProcedureMedicine(id) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('prescriptions').delete().eq('id', id);
+  if (error) return { error: error.message };
+  return { success: true };
+}
