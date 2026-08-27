@@ -94,19 +94,19 @@ export async function getPharmacyWorkspace(visitId) {
   // mismatch this exists to prevent, so it's left unmatched instead --
   // blank price, pharmacist picks manually.
   function matchCatalog(drugName) {
-    if (!drugName) return null;
+    if (!drugName) return { drug: null, exact: false };
     const name = drugName.trim().toLowerCase();
 
     const exact = (drugCatalog || []).find(
       (d) => d.brand?.trim().toLowerCase() === name || d.generic?.trim().toLowerCase() === name
     );
-    if (exact) return exact;
+    if (exact) return { drug: exact, exact: true };
 
     const candidates = (drugCatalog || []).filter(
       (d) => (d.generic && name.includes(d.generic.trim().toLowerCase())) ||
              (d.brand && name.includes(d.brand.trim().toLowerCase()))
     );
-    return candidates.length === 1 ? candidates[0] : null;
+    return { drug: candidates.length === 1 ? candidates[0] : null, exact: false };
   }
 
   // A tapering schedule is N rows in `prescriptions` (one per step) so
@@ -131,7 +131,7 @@ export async function getPharmacyWorkspace(visitId) {
   });
 
   function buildStandaloneItem(rx) {
-    const match = matchCatalog(rx.drug_name);
+    const { drug: match, exact } = matchCatalog(rx.drug_name);
     const isCountable = !!match?.master_drug_types?.is_countable;
     const suggestion = rx.billing_status === 'Pending'
       ? computeDispenseQty([{ dosage: rx.dosage, frequency: rx.frequency, duration: rx.duration }], isCountable)
@@ -141,6 +141,7 @@ export async function getPharmacyWorkspace(visitId) {
       isTaper: false,
       stepIds: [rx.id],
       suggestedDrugId: match?.id || null,
+      isExactMatch: exact,
       plainFrequency: plainFrequency(rx.frequency),
       suggestedQty: suggestion?.qty ?? null,
       qtyComputed: suggestion?.computed ?? false,
@@ -159,7 +160,7 @@ export async function getPharmacyWorkspace(visitId) {
       return;
     }
     const first = sorted[0];
-    const match = matchCatalog(first.drug_name);
+    const { drug: match, exact } = matchCatalog(first.drug_name);
     const isCountable = !!match?.master_drug_types?.is_countable;
     const suggestion = first.billing_status === 'Pending' ? computeDispenseQty(sorted, isCountable) : null;
     items.push({
@@ -182,6 +183,7 @@ export async function getPharmacyWorkspace(visitId) {
       invoice_line_items: first.invoice_line_items,
       created_at: first.created_at,
       suggestedDrugId: match?.id || null,
+      isExactMatch: exact,
       suggestedQty: suggestion?.qty ?? null,
       qtyComputed: suggestion?.computed ?? false,
       needsManualQty: suggestion?.needsManualEntry ?? false,

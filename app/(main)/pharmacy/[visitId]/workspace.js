@@ -24,6 +24,7 @@ export default function Workspace({ visitId }) {
   const [drugCatalog, setDrugCatalog] = useState([]);
   const [selections, setSelections] = useState({}); // { [prescriptionId]: { drugId, qty, discType, discValue } }
   const [checked, setChecked] = useState({});
+  const [showMatchPicker, setShowMatchPicker] = useState({}); // rows where the pharmacist asked to override a confident exact match
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [billing, setBilling] = useState(false);
@@ -288,40 +289,55 @@ export default function Workspace({ visitId }) {
                             <i className="ti ti-alert-triangle"></i> {rx.taperNote}
                           </div>
                         )}
-                        {isPending && (
-                          <select
-                            className="fi fi-sm"
-                            style={{ marginTop: 4, maxWidth: 260 }}
-                            value={selections[rx.id]?.drugId || ''}
-                            onChange={(e) => updateSelection(rx.id, 'drugId', e.target.value)}
-                          >
-                            <option value="">-- Match catalog item --</option>
-                            {drugCatalog.map((d) => (
-                              <option key={d.id} value={d.id}>{d.brand ? `${d.brand} (${d.generic})` : d.generic} -- {fmt(d.rate)}</option>
-                            ))}
-                          </select>
-                        )}
-                        {isPending && !selections[rx.id]?.drugId && (
-                          <div style={{ marginTop: 4 }}>
-                            <div style={{ fontSize: 10.5, color: 'var(--amber)', marginBottom: 2 }}>
-                              <i className="ti ti-alert-triangle"></i> Not in the drug catalog -- enter a price manually.
-                            </div>
-                            <div style={{ display: 'flex', gap: 4 }}>
-                              <input
-                                type="number" min="0" step="0.01" className="fi fi-sm" style={{ width: 80 }}
-                                placeholder="Rate Rs."
-                                value={selections[rx.id]?.manualRate ?? ''}
-                                onChange={(e) => updateSelection(rx.id, 'manualRate', e.target.value)}
-                              />
-                              <input
-                                type="number" min="0" max="100" step="0.01" className="fi fi-sm" style={{ width: 60 }}
-                                placeholder="GST %"
-                                value={selections[rx.id]?.manualGstPct ?? ''}
-                                onChange={(e) => updateSelection(rx.id, 'manualGstPct', e.target.value)}
-                              />
-                            </div>
-                          </div>
-                        )}
+                        {isPending && (() => {
+                          const isConfident = rx.isExactMatch && selections[rx.id]?.drugId === rx.suggestedDrugId;
+                          if (isConfident && !showMatchPicker[rx.id]) {
+                            const matched = drugCatalog.find((d) => d.id === rx.suggestedDrugId);
+                            return (
+                              <div style={{ marginTop: 4, fontSize: 11.5 }}>
+                                <i className="ti ti-check" style={{ color: 'var(--green)' }}></i>{' '}
+                                {matched ? (matched.brand ? `${matched.brand} (${matched.generic})` : matched.generic) : ''} -- {matched ? fmt(matched.rate) : ''}
+                                <button className="btn" style={{ padding: '0 6px', fontSize: 10, marginLeft: 6 }} onClick={() => setShowMatchPicker((p) => ({ ...p, [rx.id]: true }))}>Change</button>
+                              </div>
+                            );
+                          }
+                          return (
+                            <>
+                              <select
+                                className="fi fi-sm"
+                                style={{ marginTop: 4, maxWidth: 260 }}
+                                value={selections[rx.id]?.drugId || ''}
+                                onChange={(e) => updateSelection(rx.id, 'drugId', e.target.value)}
+                              >
+                                <option value="">-- Match catalog item --</option>
+                                {drugCatalog.map((d) => (
+                                  <option key={d.id} value={d.id}>{d.brand ? `${d.brand} (${d.generic})` : d.generic} -- {fmt(d.rate)}</option>
+                                ))}
+                              </select>
+                              {!selections[rx.id]?.drugId && (
+                                <div style={{ marginTop: 4 }}>
+                                  <div style={{ fontSize: 10.5, color: 'var(--amber)', marginBottom: 2 }}>
+                                    <i className="ti ti-alert-triangle"></i> Not in the drug catalog -- enter a price manually.
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 4 }}>
+                                    <input
+                                      type="number" min="0" step="0.01" className="fi fi-sm" style={{ width: 80 }}
+                                      placeholder="Rate Rs."
+                                      value={selections[rx.id]?.manualRate ?? ''}
+                                      onChange={(e) => updateSelection(rx.id, 'manualRate', e.target.value)}
+                                    />
+                                    <input
+                                      type="number" min="0" max="100" step="0.01" className="fi fi-sm" style={{ width: 60 }}
+                                      placeholder="GST %"
+                                      value={selections[rx.id]?.manualGstPct ?? ''}
+                                      onChange={(e) => updateSelection(rx.id, 'manualGstPct', e.target.value)}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td>
                         {isPending ? (
