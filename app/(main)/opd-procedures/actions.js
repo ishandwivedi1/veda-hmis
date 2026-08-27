@@ -75,7 +75,54 @@ export async function getOpdProcedureLists() {
   return { awaitingDecision, scheduled, checkedIn, completedToday, followUp };
 }
 
-// ── DECISION (mirrors surgical_cases / counselling setDecision) ──
+// ── PATIENT-CENTRIC LOOKUPS ──
+// Every OPD Procedure ever planned for this patient, newest first --
+// including legacy same-day 'Done' ones, since this view is meant to
+// be the complete picture for one patient, not just the workflow
+// queue. Single-patient ledger balance attached once, used by whichever
+// procedure is currently at the Scheduled stage.
+export async function getPatientOpdProcedureJourney(patientId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('plan_procedures')
+    .select('*, encounters!inner(id, visit_id, visits!inner(patient_id))')
+    .eq('encounters.visits.patient_id', patientId)
+    .order('created_at', { ascending: false });
+  if (error) return [];
+
+  const { data: ledgerRows } = await supabase.from('patient_ledger').select('amount').eq('patient_id', patientId);
+  const advanceBalance = (ledgerRows || []).reduce((sum, r) => sum + Number(r.amount), 0);
+
+  return (data || []).map((p) => ({ ...p, advanceBalance }));
+}
+
+// Quick "who's relevant today" shortcuts for the landing page, so staff
+// who don't have a name handy yet aren't forced to search blind. Grouped
+// by patient rather than by stage -- still patient-first, just scoped
+// to today's activity. One row per patient (a patient with two
+// procedures active today collapses to one entry with both listed).
+export async function getTodayOpdProcedurePatients() {
+  const supabase = await createClient();
+  const today = todayIst();
+
+  const { data, error } = await supabase
+    .from('plan_procedures')
+    .select('id, name, eye, status, scheduled_date, checked_in_at, completed_at, encounters!inner(visits!inner(patient_id, patients(id, first_name, last_name, uhid, mobile)))')
+    .or(`scheduled_date.eq.${today},checked_in_at.gte.${today}T00:00:00,completed_at.gte.${today}T00:00:00`)
+    .neq('status', 'Cancelled');
+  if (error) return [];
+
+  const byPatient = {};
+  (data || []).forEach((p) => {
+    const patient = p.encounters?.visits?.patients;
+    if (!patient) return;
+    if (!byPatient[patient.id]) byPatient[patient.id] = { patient, items: [] };
+    byPatient[patient.id].items.push({ name: p.name, eye: p.eye, status: p.status });
+  });
+  return Object.values(byPatient);
+}
+
+
 export async function setOpdProcedureDecision(id, decision, reason) {
   if (!DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
   const supabase = await createClient();

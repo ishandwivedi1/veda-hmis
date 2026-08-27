@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { TabButton } from '../ot-intraop/page';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
+import { searchPatients } from '../patient-timeline/actions';
 import {
-  getOpdProcedureLists,
+  getPatientOpdProcedureJourney,
+  getTodayOpdProcedurePatients,
   getCombinedSchedule,
   setOpdProcedureDecision,
   scheduleOpdProcedure,
@@ -14,54 +15,51 @@ import {
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 
+const STAGE = {
+  AwaitingDecision: { label: 'Awaiting Decision', color: 'var(--amber)' },
+  FollowUp: { label: 'Follow Up', color: 'var(--amber)' },
+  Scheduled: { label: 'Scheduled', color: 'var(--blue)' },
+  'Checked In': { label: 'Checked In', color: 'var(--indigo)' },
+  Completed: { label: 'Completed', color: 'var(--green)' },
+  Done: { label: 'Completed (same day)', color: 'var(--green)' },
+  Cancelled: { label: 'Cancelled', color: 'var(--g400)' },
+  Declined: { label: 'Declined', color: 'var(--g400)' },
+};
+
+function stageFor(p) {
+  if (p.status === 'Cancelled') return STAGE.Cancelled;
+  if (p.decision === 'Declined') return STAGE.Declined;
+  if (p.status === 'Completed') return STAGE.Completed;
+  if (p.status === 'Done') return STAGE.Done;
+  if (p.status === 'Checked In') return STAGE['Checked In'];
+  if (p.status === 'Scheduled') return STAGE.Scheduled;
+  if (p.decision && p.decision !== 'Accepted') return STAGE.FollowUp;
+  return STAGE.AwaitingDecision;
+}
+
 function fmtDate(d) {
   if (!d) return '--';
   return new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function CaseRow({ c, onOpen, selected }) {
-  return (
-    <tr onClick={() => onOpen(c.id)} style={{ cursor: 'pointer', background: selected ? 'var(--g100)' : undefined }}>
-      <td><strong>{c.patient.first_name} {c.patient.last_name}</strong><br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{c.patient.uhid}</span></td>
-      <td style={{ fontSize: 12 }}>{c.name} {c.eye ? `(${c.eye})` : ''}</td>
-      <td style={{ fontSize: 12 }}>{fmtDate(c.scheduled_date)}{c.scheduled_time ? ` -- ${c.scheduled_time.slice(0, 5)}` : ''}</td>
-      <td style={{ fontSize: 11 }}>
-        {c.decision && <span style={{ color: c.decision === 'Accepted' ? 'var(--green)' : 'var(--amber)' }}>{c.decision}</span>}
-        {c.status === 'Scheduled' && <div style={{ color: c.advanceBalance > 0 ? 'var(--green)' : 'var(--red)', marginTop: 2 }}>{c.advanceBalance > 0 ? 'Advance paid' : 'Advance pending'}</div>}
-      </td>
-      <td><i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i></td>
-    </tr>
-  );
-}
-
-function ListTable({ rows, onOpen, selectedId, emptyLabel }) {
-  return (
-    <table className="tbl">
-      <thead><tr><th>Patient</th><th>Procedure</th><th>Date</th><th>Status</th><th></th></tr></thead>
-      <tbody>
-        {rows.map((c) => <CaseRow key={c.id} c={c} onOpen={onOpen} selected={c.id === selectedId} />)}
-        {rows.length === 0 && <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>{emptyLabel}</td></tr>}
-      </tbody>
-    </table>
-  );
+function StageBadge({ p }) {
+  const s = stageFor(p);
+  return <span className="badge" style={{ background: `${s.color}20`, color: s.color, fontWeight: 600 }}>{s.label}</span>;
 }
 
 function DecisionPanel({ c, onSave, busy }) {
   const [decision, setDecision] = useState(c.decision || '');
   const [reason, setReason] = useState('');
   const needsReason = c.decision_locked && decision && decision !== c.decision;
-
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--g500)' }}>PATIENT DECISION</div>
+      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Patient Decision</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
         {DECISIONS.map((d) => (
           <button key={d} type="button" className="btn" style={{ fontSize: 12, background: decision === d ? 'var(--red)' : undefined, color: decision === d ? '#fff' : undefined }} onClick={() => setDecision(d)}>{d}</button>
         ))}
       </div>
-      {needsReason && (
-        <input className="fi fi-sm" placeholder="Reason for changing a locked decision" value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: '100%', marginBottom: 10 }} />
-      )}
+      {needsReason && <input className="fi fi-sm" placeholder="Reason for changing a locked decision" value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: '100%', marginBottom: 10 }} />}
       <button className="btn btn-primary" disabled={!decision || busy} onClick={() => onSave(decision, reason)}>Save Decision</button>
     </div>
   );
@@ -72,7 +70,7 @@ function SchedulePanel({ c, onSave, onCancel, busy }) {
   const [time, setTime] = useState(c.scheduled_time ? c.scheduled_time.slice(0, 5) : '');
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--g500)' }}>PROCEDURE DATE</div>
+      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Procedure Date</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input type="date" className="fi fi-sm" value={date} onChange={(e) => setDate(e.target.value)} />
         <input type="time" className="fi fi-sm" value={time} onChange={(e) => setTime(e.target.value)} />
@@ -85,17 +83,18 @@ function SchedulePanel({ c, onSave, onCancel, busy }) {
   );
 }
 
-function CheckinPanel({ c, onCheckIn, onCancel, busy }) {
+function CheckinPanel({ c, onCheckIn, onCancel, onReschedule, busy }) {
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--g500)' }}>CHECK-IN</div>
+      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Check-In</div>
       <div style={{ fontSize: 13, marginBottom: 10 }}>
         Scheduled for <strong>{fmtDate(c.scheduled_date)}</strong>{c.scheduled_time ? ` at ${c.scheduled_time.slice(0, 5)}` : ''}.<br />
         Advance balance: <strong style={{ color: c.advanceBalance > 0 ? 'var(--green)' : 'var(--red)' }}>Rs. {c.advanceBalance.toLocaleString('en-IN')}</strong>
         {c.advanceBalance <= 0 && <div style={{ color: 'var(--red)', marginTop: 4, fontSize: 12 }}>Collect the advance in Payments before check-in.</div>}
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn btn-primary" disabled={busy} onClick={onCheckIn}>Check In</button>
+        <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={onReschedule}><i className="ti ti-calendar-time"></i> Change Date</button>
         <button className="btn" style={{ color: 'var(--red)' }} disabled={busy} onClick={onCancel}>Cancel Procedure</button>
       </div>
     </div>
@@ -108,7 +107,7 @@ function CompletePanel({ c, onSave, busy }) {
   const [instructions, setInstructions] = useState(c.post_procedure_instructions || '');
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--g500)' }}>POST-PROCEDURE NOTES</div>
+      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Post-Procedure Notes</div>
       <label style={{ fontSize: 11, color: 'var(--g500)' }}>Procedure Performed</label>
       <input className="fi fi-sm" value={procedurePerformed} onChange={(e) => setProcedurePerformed(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
       <label style={{ fontSize: 11, color: 'var(--g500)' }}>Findings</label>
@@ -121,8 +120,9 @@ function CompletePanel({ c, onSave, busy }) {
 }
 
 function CompletedSummary({ c }) {
+  if (c.status !== 'Completed') return null;
   return (
-    <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+    <div style={{ fontSize: 13, lineHeight: 1.7, background: 'var(--g50)', borderRadius: 8, padding: 12 }}>
       <div><strong>Procedure Performed:</strong> {c.procedure_performed || '--'}</div>
       <div><strong>Findings:</strong> {c.findings || '--'}</div>
       <div><strong>Instructions:</strong> {c.post_procedure_instructions || '--'}</div>
@@ -131,17 +131,109 @@ function CompletedSummary({ c }) {
   );
 }
 
-function CalendarTab({ rows, loading }) {
+function JourneyCard({ p, expanded, onToggle, onAction, busy, error }) {
+  const s = stageFor(p);
+  const isTerminal = p.status === 'Completed' || p.status === 'Done' || p.status === 'Cancelled' || p.decision === 'Declined';
+
+  return (
+    <div className="card" style={{ marginBottom: 12, borderLeft: `3px solid ${s.color}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={onToggle}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name} {p.eye ? `(${p.eye})` : ''}</div>
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>
+            Advised {fmtDate(p.created_at?.slice(0, 10))}
+            {p.scheduled_date ? ` -- procedure date ${fmtDate(p.scheduled_date)}` : ''}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <StageBadge p={p} />
+          <i className={`ti ${expanded ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ color: 'var(--g400)' }}></i>
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--g100)' }}>
+          {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 10 }}>{error}</div>}
+          {p.notes && <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 10 }}><strong>Doctor&apos;s note:</strong> {p.notes}</div>}
+
+          {isTerminal ? (
+            p.status === 'Completed' ? <CompletedSummary c={p} /> : (
+              <div style={{ fontSize: 12, color: 'var(--g400)' }}>
+                {p.status === 'Cancelled' && 'This procedure was cancelled.'}
+                {p.decision === 'Declined' && p.status !== 'Cancelled' && `Patient declined${p.decision_reason ? ` -- ${p.decision_reason}` : ''}.`}
+                {p.status === 'Done' && 'Performed same-sitting and billed -- no further workflow needed.'}
+              </div>
+            )
+          ) : (
+            <>
+              {(!p.decision || (p.decision !== 'Accepted' && p.decision !== 'Declined' && p.status === 'Planned')) && (
+                <DecisionPanel c={p} busy={busy} onSave={(decision, reason) => onAction('decision', p, decision, reason)} />
+              )}
+              {p.decision === 'Accepted' && p.status === 'Planned' && (
+                <SchedulePanel c={p} busy={busy} onSave={(date, time) => onAction('schedule', p, date, time)} onCancel={() => onAction('cancel', p)} />
+              )}
+              {p.status === 'Scheduled' && (
+                p._rescheduling
+                  ? <SchedulePanel c={p} busy={busy} onSave={(date, time) => onAction('schedule', p, date, time)} onCancel={() => onAction('cancel', p)} />
+                  : <CheckinPanel c={p} busy={busy} onCheckIn={() => onAction('checkin', p)} onCancel={() => onAction('cancel', p)} onReschedule={() => onAction('toggleReschedule', p)} />
+              )}
+              {p.status === 'Checked In' && (
+                <CompletePanel c={p} busy={busy} onSave={(fields) => onAction('complete', p, fields)} />
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PatientHeader({ patient }) {
+  return (
+    <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16, padding: '14px 18px' }}>
+      <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--red-lt, #fee2e2)', color: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+        {patient.first_name?.[0]}{patient.last_name?.[0]}
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>{patient.first_name} {patient.last_name}</div>
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}>{patient.uhid} -- {patient.age ? `${patient.age} yrs` : ''} {patient.gender} -- {patient.mobile}</div>
+      </div>
+    </div>
+  );
+}
+
+function TodayShortcuts({ groups, loading, onSelect }) {
+  if (loading || groups.length === 0) return null;
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 10 }}>Today&apos;s OPD Procedure Patients</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {groups.map((g) => (
+          <button key={g.patient.id} type="button" className="btn" style={{ fontSize: 12, textAlign: 'left' }} onClick={() => onSelect(g.patient)}>
+            <strong>{g.patient.first_name} {g.patient.last_name}</strong>
+            <span style={{ color: 'var(--g400)', marginLeft: 6 }}>{g.patient.uhid}</span>
+            <span style={{ marginLeft: 8, color: 'var(--g500)' }}>{g.items.map((i) => i.status).join(', ')}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ rows, loading, onClose }) {
   const grouped = {};
   rows.forEach((r) => { (grouped[r.date] = grouped[r.date] || []).push(r); });
   const dates = Object.keys(grouped).sort();
 
-  if (loading) return <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>;
-  if (dates.length === 0) return <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Nothing scheduled.</div>;
-
   return (
     <div>
-      {dates.map((date) => (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div className="card-title" style={{ margin: 0 }}><i className="ti ti-calendar" style={{ color: 'var(--blue)' }}></i> Combined OPD Procedure &amp; OT Calendar</div>
+        <button className="btn" onClick={onClose}><i className="ti ti-x"></i> Close</button>
+      </div>
+      {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>}
+      {!loading && dates.length === 0 && <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Nothing scheduled.</div>}
+      {!loading && dates.map((date) => (
         <div key={date} className="card" style={{ marginBottom: 10 }}>
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{fmtDate(date)}</div>
           {grouped[date].map((e) => (
@@ -158,128 +250,147 @@ function CalendarTab({ rows, loading }) {
   );
 }
 
-export default function OpdProceduresPage() {
-  const [activeTab, setActiveTab] = useState('decision');
-  const [lists, setLists] = useState({ awaitingDecision: [], scheduled: [], checkedIn: [], completedToday: [], followUp: [] });
-  const [calendar, setCalendar] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [calLoading, setCalLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [rescheduling, setRescheduling] = useState(false);
+function OpdProceduresInner() {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [patient, setPatient] = useState(null);
+  const [journey, setJourney] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [rowError, setRowError] = useState({});
+  const [reschedulingId, setReschedulingId] = useState(null);
+  const [todayGroups, setTodayGroups] = useState([]);
+  const [todayLoading, setTodayLoading] = useState(true);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarRows, setCalendarRows] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const skipNextSearch = useRef(false);
 
-  const refresh = useCallback(async () => {
+  useEffect(() => {
+    if (skipNextSearch.current) { skipNextSearch.current = false; return; }
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); return; }
+    const t = setTimeout(async () => setResults(await searchPatients(q)), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    (async () => { setTodayGroups(await getTodayOpdProcedurePatients()); setTodayLoading(false); })();
+  }, []);
+
+  const loadPatientJourney = useCallback(async (p) => {
     setLoading(true);
-    setLists(await getOpdProcedureLists());
+    setResults([]);
+    setPatient(p);
+    setExpandedId(null);
+    const data = await getPatientOpdProcedureJourney(p.id);
+    const priority = data.find((x) => !['Completed', 'Done', 'Cancelled'].includes(x.status) && x.decision !== 'Declined');
+    setExpandedId(priority?.id || data[0]?.id || null);
+    setJourney(data);
     setLoading(false);
+    skipNextSearch.current = true;
+    setQuery(`${p.first_name} ${p.last_name} -- ${p.uhid}`);
   }, []);
 
-  const refreshCalendar = useCallback(async () => {
-    setCalLoading(true);
-    setCalendar(await getCombinedSchedule());
-    setCalLoading(false);
-  }, []);
-
-  useEffect(() => { refresh(); refreshCalendar(); }, [refresh, refreshCalendar]);
-  useEffect(() => { setRescheduling(false); setError(''); }, [selectedId]);
-
-  const allCases = [...lists.awaitingDecision, ...lists.scheduled, ...lists.checkedIn, ...lists.completedToday, ...lists.followUp];
-  const selected = allCases.find((c) => c.id === selectedId);
-
-  async function run(fn, ...args) {
-    setBusy(true);
-    setError('');
-    const result = await fn(...args);
-    setBusy(false);
-    if (result?.error) { setError(result.error); return; }
-    setSelectedId(null);
-    refresh();
-    refreshCalendar();
+  function openCalendar() {
+    setShowCalendar(true);
+    setCalendarLoading(true);
+    getCombinedSchedule().then((rows) => { setCalendarRows(rows); setCalendarLoading(false); });
   }
 
-  const tabs = [
-    { key: 'decision', label: 'Awaiting Decision', icon: 'ti-help-circle', rows: lists.awaitingDecision },
-    { key: 'followup', label: 'Follow Up', icon: 'ti-clock', rows: lists.followUp },
-    { key: 'scheduled', label: 'Scheduled', icon: 'ti-calendar-event', rows: lists.scheduled },
-    { key: 'checkedin', label: 'Checked In', icon: 'ti-clipboard-check', rows: lists.checkedIn },
-    { key: 'completed', label: 'Completed Today', icon: 'ti-circle-check', rows: lists.completedToday },
-  ];
+  async function refreshJourney() {
+    if (!patient) return;
+    const data = await getPatientOpdProcedureJourney(patient.id);
+    setJourney(data);
+  }
+
+  async function handleAction(type, p, ...args) {
+    setRowError((e) => ({ ...e, [p.id]: '' }));
+    if (type === 'toggleReschedule') {
+      setReschedulingId((cur) => (cur === p.id ? null : p.id));
+      return;
+    }
+    setBusyId(p.id);
+    let result;
+    if (type === 'decision') result = await setOpdProcedureDecision(p.id, args[0], args[1]);
+    if (type === 'schedule') { result = await scheduleOpdProcedure(p.id, args[0], args[1]); setReschedulingId(null); }
+    if (type === 'checkin') result = await checkInOpdProcedure(p.id);
+    if (type === 'complete') result = await completeOpdProcedure(p.id, args[0]);
+    if (type === 'cancel') result = await cancelOpdProcedure(p.id, 'Cancelled from patient journey view');
+    setBusyId(null);
+    if (result?.error) { setRowError((e) => ({ ...e, [p.id]: result.error })); return; }
+    refreshJourney();
+    getTodayOpdProcedurePatients().then(setTodayGroups);
+  }
+
+  if (showCalendar) return <CalendarView rows={calendarRows} loading={calendarLoading} onClose={() => setShowCalendar(false)} />;
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--g100)', borderRadius: 8, padding: 4, flexWrap: 'wrap' }}>
-        {tabs.map((t) => (
-          <TabButton key={t.key} active={activeTab === t.key} onClick={() => { setActiveTab(t.key); setSelectedId(null); }} icon={t.icon} label={`${t.label} (${t.rows.length})`} />
-        ))}
-        <TabButton active={activeTab === 'calendar'} onClick={() => { setActiveTab('calendar'); setSelectedId(null); }} icon="ti-calendar" label="Calendar" />
-      </div>
-
-      {activeTab === 'calendar' ? (
-        <CalendarTab rows={calendar} loading={calLoading} />
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: selected ? '1.3fr 1fr' : '1fr', gap: 16 }}>
-          <div className="card">
-            {loading ? (
-              <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>
-            ) : (
-              <ListTable rows={tabs.find((t) => t.key === activeTab).rows} onOpen={setSelectedId} selectedId={selectedId} emptyLabel="Nothing here right now." />
-            )}
-          </div>
-
-          {selected && (
-            <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div>
-                  <strong>{selected.patient.first_name} {selected.patient.last_name}</strong>
-                  <div style={{ fontSize: 11, color: 'var(--g400)' }}>{selected.patient.uhid} -- {selected.name} {selected.eye ? `(${selected.eye})` : ''}</div>
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div className="card-title" style={{ margin: 0 }}><i className="ti ti-tool" style={{ color: 'var(--blue)' }}></i> OPD Procedures</div>
+          <button className="btn" style={{ fontSize: 12 }} onClick={openCalendar}><i className="ti ti-calendar"></i> Procedure &amp; OT Calendar</button>
+        </div>
+        <div style={{ position: 'relative' }}>
+          <input className="fi" placeholder="Search patient by name or UHID to view their OPD Procedure journey..." value={query} onChange={(e) => setQuery(e.target.value)} />
+          {results.length > 0 && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--g200)', borderRadius: 8, marginTop: 4, zIndex: 10, boxShadow: '0 4px 16px rgba(0,0,0,.1)' }}>
+              {results.map((p) => (
+                <div
+                  key={p.id}
+                  onClick={() => loadPatientJourney(p)}
+                  style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid var(--g100)' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--g50)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
+                >
+                  <strong>{p.first_name} {p.last_name}</strong> <span style={{ color: 'var(--g400)', fontSize: 11 }}>{p.uhid} -- {p.age} {p.gender}</span>
                 </div>
-                <button className="btn" style={{ fontSize: 11 }} onClick={() => setSelectedId(null)}><i className="ti ti-x"></i></button>
-              </div>
-
-              {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 10 }}>{error}</div>}
-
-              {!selected.decision && selected.status === 'Planned' && (
-                <DecisionPanel c={selected} busy={busy} onSave={(decision, reason) => run(setOpdProcedureDecision, selected.id, decision, reason)} />
-              )}
-              {selected.decision && selected.decision !== 'Accepted' && selected.decision !== 'Declined' && selected.status === 'Planned' && (
-                <DecisionPanel c={selected} busy={busy} onSave={(decision, reason) => run(setOpdProcedureDecision, selected.id, decision, reason)} />
-              )}
-              {selected.decision === 'Accepted' && selected.status === 'Planned' && (
-                <SchedulePanel
-                  c={selected}
-                  busy={busy}
-                  onSave={(date, time) => run(scheduleOpdProcedure, selected.id, date, time)}
-                  onCancel={() => run(cancelOpdProcedure, selected.id, 'Cancelled from OPD Procedures workspace')}
-                />
-              )}
-              {selected.status === 'Scheduled' && !rescheduling && (
-                <div>
-                  <CheckinPanel
-                    c={selected}
-                    busy={busy}
-                    onCheckIn={() => run(checkInOpdProcedure, selected.id)}
-                    onCancel={() => run(cancelOpdProcedure, selected.id, 'Cancelled from OPD Procedures workspace')}
-                  />
-                  <button className="btn" style={{ fontSize: 11, marginTop: 10 }} onClick={() => setRescheduling(true)}><i className="ti ti-calendar-time"></i> Change Date</button>
-                </div>
-              )}
-              {selected.status === 'Scheduled' && rescheduling && (
-                <SchedulePanel
-                  c={selected}
-                  busy={busy}
-                  onSave={(date, time) => { setRescheduling(false); run(scheduleOpdProcedure, selected.id, date, time); }}
-                  onCancel={() => run(cancelOpdProcedure, selected.id, 'Cancelled from OPD Procedures workspace')}
-                />
-              )}
-              {selected.status === 'Checked In' && (
-                <CompletePanel c={selected} busy={busy} onSave={(fields) => run(completeOpdProcedure, selected.id, fields)} />
-              )}
-              {selected.status === 'Completed' && <CompletedSummary c={selected} />}
+              ))}
             </div>
           )}
         </div>
+      </div>
+
+      {!patient && <TodayShortcuts groups={todayGroups} loading={todayLoading} onSelect={loadPatientJourney} />}
+
+      {loading && <div style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>Loading patient journey...</div>}
+
+      {!loading && patient && (
+        <div>
+          <PatientHeader patient={patient} />
+          {journey.length === 0 && (
+            <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>No OPD Procedures on file for this patient yet.</div>
+          )}
+          {journey.map((p) => (
+            <JourneyCard
+              key={p.id}
+              p={{ ...p, _rescheduling: reschedulingId === p.id }}
+              expanded={expandedId === p.id}
+              onToggle={() => setExpandedId((cur) => (cur === p.id ? null : p.id))}
+              onAction={handleAction}
+              busy={busyId === p.id}
+              error={rowError[p.id]}
+            />
+          ))}
+        </div>
+      )}
+
+      {!loading && !patient && (
+        <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--g400)' }}>
+          <i className="ti ti-search" style={{ fontSize: 32, display: 'block', marginBottom: 10 }}></i>
+          Search for a patient above to view their OPD Procedure journey, or pick one of today&apos;s shortcuts.
+        </div>
       )}
     </div>
+  );
+}
+
+export default function OpdProceduresPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--g400)' }}>Loading...</div>}>
+      <OpdProceduresInner />
+    </Suspense>
   );
 }
