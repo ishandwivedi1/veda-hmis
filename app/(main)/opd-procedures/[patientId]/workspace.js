@@ -11,6 +11,8 @@ import {
   getDrugCatalogForOpdProcedures,
   addPostProcedureMedicine,
   removePostProcedureMedicine,
+  addPostProcedureTaperedMedicine,
+  removePostProcedureTaperGroup,
   setOpdProcedureDecision,
   scheduleOpdProcedure,
   checkInOpdProcedure,
@@ -276,12 +278,47 @@ function CompletePanel({ c, onSave, busy, editMode, onCancelEdit }) {
   );
 }
 
+// Groups flat prescription rows by taper_group_id so a tapering
+// schedule reads (and is removed) as one entry instead of N separate
+// rows -- same idea as Consultation's Action Tracker grouping.
+function groupPrescriptions(rows) {
+  const grouped = [];
+  const taperGroups = {};
+  (rows || []).forEach((rx) => {
+    if (rx.taper_group_id) {
+      if (!taperGroups[rx.taper_group_id]) {
+        const g = { id: rx.taper_group_id, isTaper: true, drug_name: rx.drug_name, eye: rx.eye, steps: [] };
+        taperGroups[rx.taper_group_id] = g;
+        grouped.push(g);
+      }
+      taperGroups[rx.taper_group_id].steps.push(rx);
+    } else {
+      grouped.push({ ...rx, isTaper: false });
+    }
+  });
+  grouped.forEach((g) => { if (g.isTaper) g.steps.sort((a, b) => (a.taper_step || 0) - (b.taper_step || 0)); });
+  return grouped;
+}
+
+function MedicineLine({ g }) {
+  if (g.isTaper) {
+    return (
+      <>
+        <strong>{g.drug_name}</strong> ({g.eye}) --{' '}
+        {g.steps.map((s, i) => (
+          <span key={s.id}>{i > 0 && ' -> '}{s.dosage} {s.frequency} x{s.duration}</span>
+        ))}, then stop
+      </>
+    );
+  }
+  return <><strong>{g.drug_name}</strong> -- {g.dosage} {g.frequency} x {g.duration} ({g.eye})</>;
+}
+
 // ── Post-procedure medicines -- same drug catalog, fields, and
-// prescriptions table Consultation's writer uses (tapering schedules
-// omitted here; post-procedure courses are typically simple, short
-// ones). Prints through the same Medicine Prescription template.
+// prescriptions table Consultation's writer uses, including tapering
+// schedules. No separate print button here -- medicines print as part
+// of the Procedure Summary Sheet (renderOpdProcedureSummaryHtml).
 function MedicineSection({ procedureId }) {
-  const [visitId, setVisitId] = useState(null);
   const [prescriptions, setPrescriptions] = useState([]);
   const [catalog, setCatalog] = useState({ drugs: [], dosages: [] });
   const [loading, setLoading] = useState(true);
@@ -295,10 +332,11 @@ function MedicineSection({ procedureId }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
+  const [showTaperBuilder, setShowTaperBuilder] = useState(false);
+  const [taperSteps, setTaperSteps] = useState([{ frequency: 'OD', duration: '1 week', dosage: '' }]);
 
   const refresh = useCallback(async () => {
     const [pres, cat] = await Promise.all([getPostProcedurePrescriptions(procedureId), getDrugCatalogForOpdProcedures()]);
-    setVisitId(pres.visitId);
     setPrescriptions(pres.prescriptions);
     setCatalog(cat);
     setLoading(false);
@@ -328,12 +366,36 @@ function MedicineSection({ procedureId }) {
     refresh();
   }
 
+  function addTaperStep() { setTaperSteps((prev) => [...prev, { frequency: 'OD', duration: '1 week', dosage: dosage || '' }]); }
+  function updateTaperStep(i, field, value) { setTaperSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, [field]: value } : s))); }
+  function removeTaperStep(i) { setTaperSteps((prev) => prev.filter((_, idx) => idx !== i)); }
+
+  async function handleAddTaper() {
+    setError('');
+    if (!drug.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
+    const steps = taperSteps.map((s) => ({ ...s, dosage: s.dosage || dosage }));
+    if (steps.some((s) => !s.dosage.trim())) { setError('Select a dosage for every step of the tapering schedule.'); return; }
+    setAdding(true);
+    const result = await addPostProcedureTaperedMedicine(procedureId, { drugName: drug, eye: isOcular ? eye : 'Oral', steps });
+    setAdding(false);
+    if (result.error) { setError(result.error); return; }
+    setDrug(''); setDosage(''); setDrugTypeId(null); setIsOcular(true); setShowTaperBuilder(false);
+    setTaperSteps([{ frequency: 'OD', duration: '1 week', dosage: '' }]);
+    refresh();
+  }
+
   async function handleRemove(id) {
     await removePostProcedureMedicine(id);
     refresh();
   }
 
+  async function handleRemoveTaperGroup(groupId) {
+    await removePostProcedureTaperGroup(groupId);
+    refresh();
+  }
+
   const dosageOptions = drugTypeId ? catalog.dosages.filter((o) => o.drug_type_id === drugTypeId) : [];
+  const grouped = groupPrescriptions(prescriptions);
 
   return (
     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--g100)' }}>
@@ -341,65 +403,96 @@ function MedicineSection({ procedureId }) {
       {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>{error}</div>}
       {loading ? <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div> : (
         <>
-          {prescriptions.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', marginBottom: 8 }}>No medicines added yet.</div>}
-          {prescriptions.map((rx) => (
-            <div key={rx.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12.5 }}>
-              <span style={{ flex: 1 }}><strong>{rx.drug_name}</strong> -- {rx.dosage} {rx.frequency} x {rx.duration} ({rx.eye})</span>
-              <button className="btn" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => handleRemove(rx.id)}><i className="ti ti-x"></i></button>
+          {grouped.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', marginBottom: 8 }}>No medicines added yet.</div>}
+          {grouped.map((g) => (
+            <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12.5 }}>
+              <span style={{ flex: 1 }}><MedicineLine g={g} /></span>
+              <button className="btn" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => (g.isTaper ? handleRemoveTaperGroup(g.id) : handleRemove(g.id))}><i className="ti ti-x"></i></button>
             </div>
           ))}
 
-          <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div style={{ position: 'relative', flex: '2 1 160px' }}>
-              <input
-                className="fi fi-sm" placeholder="Type to search medicines..."
-                value={drug}
-                onChange={(e) => { setDrug(e.target.value); setDrugTypeId(null); setIsOcular(true); setShowSuggestions(true); }}
-                onFocus={() => setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                style={{ width: '100%' }}
-              />
-              {showSuggestions && drug.trim().length > 0 && suggestions.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: '#fff', border: '1px solid var(--g200)', borderRadius: 8, boxShadow: '0 6px 16px rgba(0,0,0,.12)', maxHeight: 200, overflowY: 'auto', marginTop: 3 }}>
-                  {suggestions.map((d) => (
-                    <div key={d.id} onMouseDown={() => selectDrug(d)} style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>
-                      <strong>{d.brand}</strong>{d.generic ? ` (${d.generic})` : ''}
+          {!showTaperBuilder ? (
+            <>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                <div style={{ position: 'relative', flex: '2 1 160px' }}>
+                  <input
+                    className="fi fi-sm" placeholder="Type to search medicines..."
+                    value={drug}
+                    onChange={(e) => { setDrug(e.target.value); setDrugTypeId(null); setIsOcular(true); setShowSuggestions(true); }}
+                    onFocus={() => setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                    style={{ width: '100%' }}
+                  />
+                  {showSuggestions && drug.trim().length > 0 && suggestions.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: '#fff', border: '1px solid var(--g200)', borderRadius: 8, boxShadow: '0 6px 16px rgba(0,0,0,.12)', maxHeight: 200, overflowY: 'auto', marginTop: 3 }}>
+                      {suggestions.map((d) => (
+                        <div key={d.id} onMouseDown={() => selectDrug(d)} style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>
+                          <strong>{d.brand}</strong>{d.generic ? ` (${d.generic})` : ''}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
+                <select className="fi fi-sm" value={dosage} onChange={(e) => setDosage(e.target.value)} style={{ flex: '1 1 80px' }}>
+                  <option value="">-- Dosage --</option>
+                  {dosageOptions.map((o) => <option key={o.id} value={o.dosage_text}>{o.dosage_text}</option>)}
+                  {dosageOptions.length === 0 && <><option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option></>}
+                </select>
+                <select className="fi fi-sm" value={frequency} onChange={(e) => setFrequency(e.target.value)} style={{ flex: '1 1 70px' }}>
+                  <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
+                </select>
+                <select className="fi fi-sm" value={duration} onChange={(e) => setDuration(e.target.value)} style={{ flex: '1 1 90px' }}>
+                  <option>1 day</option><option>2 days</option><option>3 days</option><option>5 days</option>
+                  <option>1 week</option><option>2 weeks</option><option>10 days</option>
+                  <option>1 month</option><option>2 months</option><option>3 months</option>
+                  <option>Ongoing</option>
+                </select>
+                {isOcular ? (
+                  <select className="fi fi-sm" value={eye} onChange={(e) => setEye(e.target.value)} style={{ width: 90 }}>
+                    <option value="RE">RE</option><option value="LE">LE</option><option value="BE">BE</option>
+                  </select>
+                ) : (
+                  <div className="fi fi-sm" style={{ width: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--g500)' }}>Oral</div>
+                )}
+                <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={adding} onClick={handleAdd}>Add</button>
+              </div>
+              <button
+                className="btn" style={{ fontSize: 11.5, color: 'var(--purple)', marginTop: 8 }}
+                onClick={() => { setShowTaperBuilder(true); setTaperSteps((prev) => prev.map((s) => ({ ...s, dosage: s.dosage || dosage }))); }}
+              >
+                <i className="ti ti-chart-line"></i> Add as Tapering Schedule instead
+              </button>
+            </>
+          ) : (
+            <div style={{ marginTop: 8, padding: 10, background: 'var(--g50)', borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 6 }}>
+                Tapering Schedule -- uses the Drug{isOcular ? ' & Eye' : ''} entered above; dosage defaults to what&apos;s set above but can vary per step, alongside frequency and duration
+              </div>
+              {taperSteps.map((s, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, width: 16, color: 'var(--g500)' }}>{i + 1}.</span>
+                  <select className="fi fi-sm" value={s.dosage} onChange={(e) => updateTaperStep(i, 'dosage', e.target.value)} style={{ flex: '1 1 80px' }}>
+                    <option value="">-- Dosage --</option>
+                    {dosageOptions.map((o) => <option key={o.id} value={o.dosage_text}>{o.dosage_text}</option>)}
+                    {dosageOptions.length === 0 && <><option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option></>}
+                  </select>
+                  <select className="fi fi-sm" value={s.frequency} onChange={(e) => updateTaperStep(i, 'frequency', e.target.value)} style={{ flex: '1 1 70px' }}>
+                    <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
+                  </select>
+                  <select className="fi fi-sm" value={s.duration} onChange={(e) => updateTaperStep(i, 'duration', e.target.value)} style={{ flex: '1 1 90px' }}>
+                    <option>1 day</option><option>2 days</option><option>3 days</option><option>5 days</option>
+                    <option>1 week</option><option>2 weeks</option><option>10 days</option>
+                    <option>1 month</option><option>2 months</option><option>3 months</option>
+                  </select>
+                  {taperSteps.length > 1 && <button className="btn" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => removeTaperStep(i)}><i className="ti ti-x"></i></button>}
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <button className="btn" style={{ fontSize: 11 }} onClick={addTaperStep}><i className="ti ti-plus"></i> Add Step</button>
+                <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={adding} onClick={handleAddTaper}>Save Tapering Schedule</button>
+                <button className="btn" style={{ fontSize: 12 }} onClick={() => setShowTaperBuilder(false)}>Cancel</button>
+              </div>
             </div>
-            <select className="fi fi-sm" value={dosage} onChange={(e) => setDosage(e.target.value)} style={{ flex: '1 1 80px' }}>
-              <option value="">-- Dosage --</option>
-              {dosageOptions.map((o) => <option key={o.id} value={o.dosage_text}>{o.dosage_text}</option>)}
-              {dosageOptions.length === 0 && <><option>1 drop</option><option>2 drops</option><option>1 tablet</option><option>2 tablets</option></>}
-            </select>
-            <select className="fi fi-sm" value={frequency} onChange={(e) => setFrequency(e.target.value)} style={{ flex: '1 1 70px' }}>
-              <option>OD</option><option>BD</option><option>TDS</option><option>QID</option><option>HS</option><option>SOS</option>
-            </select>
-            <select className="fi fi-sm" value={duration} onChange={(e) => setDuration(e.target.value)} style={{ flex: '1 1 90px' }}>
-              <option>1 day</option><option>2 days</option><option>3 days</option><option>5 days</option>
-              <option>1 week</option><option>2 weeks</option><option>10 days</option>
-              <option>1 month</option><option>2 months</option><option>3 months</option>
-              <option>Ongoing</option>
-            </select>
-            {isOcular ? (
-              <select className="fi fi-sm" value={eye} onChange={(e) => setEye(e.target.value)} style={{ width: 90 }}>
-                <option value="RE">RE</option><option value="LE">LE</option><option value="BE">BE</option>
-              </select>
-            ) : (
-              <div className="fi fi-sm" style={{ width: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--g500)' }}>Oral</div>
-            )}
-            <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={adding} onClick={handleAdd}>Add</button>
-          </div>
-
-          {visitId && prescriptions.length > 0 && (
-            <button
-              className="btn btn-sm" style={{ marginTop: 10, background: 'var(--teal, #0d9488)', color: '#fff', border: 'none' }}
-              onClick={() => openTab(`/prescription-print/${visitId}`, `prescription-${visitId}`)}
-            >
-              <i className="ti ti-printer"></i> Print Prescription
-            </button>
           )}
         </>
       )}
@@ -408,13 +501,31 @@ function MedicineSection({ procedureId }) {
 }
 
 function CompletedSummary({ c, onEdit }) {
+  const [medicines, setMedicines] = useState([]);
+  const [medsLoading, setMedsLoading] = useState(true);
+
+  useEffect(() => {
+    if (c.status !== 'Completed') return;
+    getPostProcedurePrescriptions(c.id).then((r) => { setMedicines(r.prescriptions); setMedsLoading(false); });
+  }, [c.id, c.status]);
+
   if (c.status !== 'Completed') return null;
   const isToday = c.completed_at && c.completed_at.slice(0, 10) === todayISO();
+  const grouped = groupPrescriptions(medicines);
+
   return (
     <div style={{ fontSize: 13, lineHeight: 1.7, background: 'var(--g50)', borderRadius: 8, padding: 12 }}>
       <div><strong>Procedure Performed:</strong> {c.procedure_performed || '--'}</div>
       <div><strong>Findings:</strong> {c.findings || '--'}</div>
       <div><strong>Instructions:</strong> {c.post_procedure_instructions || '--'}</div>
+      <div style={{ marginTop: 4 }}>
+        <strong>Medicines:</strong>{' '}
+        {medsLoading ? <span style={{ color: 'var(--g400)' }}>Loading...</span> : grouped.length === 0 ? <span style={{ color: 'var(--g400)' }}>None prescribed.</span> : (
+          <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+            {grouped.map((g) => <li key={g.id} style={{ fontSize: 12.5 }}><MedicineLine g={g} /></li>)}
+          </ul>
+        )}
+      </div>
       <div style={{ color: 'var(--g400)', fontSize: 11, marginTop: 6 }}>Completed {c.completed_at ? new Date(c.completed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</div>
       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         <button
@@ -485,16 +596,11 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
 
           {isTerminal ? (
             p.status === 'Completed' ? (
-              <>
-                {p._editing ? (
-                  <CompletePanel c={p} busy={busy} editMode onSave={(fields) => onAction('editComplete', p, fields)} onCancelEdit={() => onAction('toggleEdit', p)} />
-                ) : (
-                  <>
-                    <CompletedSummary c={p} onEdit={() => onAction('toggleEdit', p)} />
-                    <MedicineSection procedureId={p.id} />
-                  </>
-                )}
-              </>
+              p._editing ? (
+                <CompletePanel c={p} busy={busy} editMode onSave={(fields) => onAction('editComplete', p, fields)} onCancelEdit={() => onAction('toggleEdit', p)} />
+              ) : (
+                <CompletedSummary c={p} onEdit={() => onAction('toggleEdit', p)} />
+              )
             ) : (
               <div style={{ fontSize: 12, color: 'var(--g400)' }}>
                 {p.status === 'Cancelled' && 'This procedure was cancelled.'}

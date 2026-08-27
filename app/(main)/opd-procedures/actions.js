@@ -447,6 +447,50 @@ export async function removePostProcedureMedicine(id) {
   return { success: true };
 }
 
+// Tapering schedule -- same drug across steps, dosage/frequency/duration
+// can each vary per step, all sharing one taper_group_id so they read
+// and print as one continuous instruction. Mirrors Consultation's
+// addTaperedPrescription exactly, just targeting the lazily-created
+// post-procedure encounter instead of the consultation encounter.
+export async function addPostProcedureTaperedMedicine(procedureId, values) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const steps = (values.steps || []).filter((s) => s.frequency && s.duration && s.dosage);
+  if (steps.length < 2) return { error: 'A tapering schedule needs at least 2 steps.' };
+
+  const encounterId = await ensurePostProcedureEncounter(supabase, procedureId);
+  if (!encounterId) return { error: 'Could not find an active visit to attach this prescription to.' };
+
+  const taperGroupId = crypto.randomUUID();
+  const rows = steps.map((s, i) => ({
+    encounter_id: encounterId,
+    drug_name: values.drugName,
+    dosage: s.dosage,
+    frequency: s.frequency,
+    duration: s.duration,
+    eye: values.eye,
+    taper_group_id: taperGroupId,
+    taper_step: i + 1,
+  }));
+
+  const { error } = await supabase.from('prescriptions').insert(rows);
+  if (error) return { error: error.message };
+
+  const { data: proc } = await supabase.from('plan_procedures').select('encounter_id').eq('id', procedureId).single();
+  if (proc?.encounter_id) {
+    const summary = steps.map((s) => `${s.dosage} ${s.frequency} x${s.duration}`).join(' -> ');
+    await addAudit(supabase, proc.encounter_id, `Post-procedure tapering schedule added: ${values.drugName} (${values.eye}) -- ${summary}`, userData?.user?.id);
+  }
+  return { success: true };
+}
+
+export async function removePostProcedureTaperGroup(taperGroupId) {
+  const supabase = await createClient();
+  const { error } = await supabase.from('prescriptions').delete().eq('taper_group_id', taperGroupId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // ── EDIT (same-day only) ──
 // Lets staff fix a typo or add something missed in the post-procedure
 // notes without reopening the whole workflow -- restricted to the same
