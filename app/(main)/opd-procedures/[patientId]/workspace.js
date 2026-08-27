@@ -267,7 +267,8 @@ function CompletePanel({ c, onSave, busy, editMode, onCancelEdit }) {
       <textarea className="fi fi-sm" value={findings} onChange={(e) => setFindings(e.target.value)} style={{ width: '100%', marginBottom: 8, minHeight: 60 }} />
       <label style={{ fontSize: 11, color: 'var(--g500)' }}>Post-Procedure Instructions</label>
       <textarea className="fi fi-sm" value={instructions} onChange={(e) => setInstructions(e.target.value)} style={{ width: '100%', marginBottom: 10, minHeight: 60 }} />
-      <div style={{ display: 'flex', gap: 8 }}>
+      <MedicineSection procedureId={c.id} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="btn btn-primary" disabled={busy} onClick={() => onSave({ procedurePerformed, findings, instructions })}>{editMode ? 'Save Changes' : 'Mark Completed'}</button>
         {editMode && <button className="btn" disabled={busy} onClick={onCancelEdit}>Cancel</button>}
       </div>
@@ -488,9 +489,11 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
                 {p._editing ? (
                   <CompletePanel c={p} busy={busy} editMode onSave={(fields) => onAction('editComplete', p, fields)} onCancelEdit={() => onAction('toggleEdit', p)} />
                 ) : (
-                  <CompletedSummary c={p} onEdit={() => onAction('toggleEdit', p)} />
+                  <>
+                    <CompletedSummary c={p} onEdit={() => onAction('toggleEdit', p)} />
+                    <MedicineSection procedureId={p.id} />
+                  </>
                 )}
-                <MedicineSection procedureId={p.id} />
               </>
             ) : (
               <div style={{ fontSize: 12, color: 'var(--g400)' }}>
@@ -530,10 +533,7 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
 
               <Section num={5} color="var(--green)" title="Post-Procedure Notes" done={completeDone} active={completeActive}>
                 {!checkinDone ? <LockedNote text="Patient must be checked in first." /> : (
-                  <>
-                    <MedicineSection procedureId={p.id} />
-                    <CompletePanel c={p} busy={busy} onSave={(fields) => onAction('complete', p, fields)} />
-                  </>
+                  <CompletePanel c={p} busy={busy} onSave={(fields) => onAction('complete', p, fields)} />
                 )}
               </Section>
             </>
