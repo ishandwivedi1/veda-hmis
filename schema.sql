@@ -835,6 +835,12 @@ CREATE TABLE IF NOT EXISTS "public"."prescriptions" (
     "billing_note" "text",
     "billing_updated_by" "uuid",
     "billing_updated_at" timestamp with time zone,
+    "taper_group_id" "uuid",
+    "taper_step" integer,
+    "qty" integer DEFAULT 1,
+    "invoice_id" "uuid",
+    "invoice_line_item_id" "uuid",
+    "dispensed_at" timestamp with time zone,
     CONSTRAINT "prescriptions_billing_status_check" CHECK (("billing_status" = ANY (ARRAY['Pending'::"text", 'Billed'::"text", 'Denied'::"text", 'Deferred'::"text"]))),
     CONSTRAINT "prescriptions_status_check" CHECK (("status" = ANY (ARRAY['Pending'::"text", 'Sent'::"text", 'Dispensed'::"text"])))
 );

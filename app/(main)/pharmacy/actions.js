@@ -194,6 +194,8 @@ export async function billPharmacyItems(visitId, items) {
   const { data: visit } = await supabase.from('visits').select('patient_id').eq('id', visitId).single();
   if (!visit) return { error: 'Visit not found.' };
 
+  const { data: userData } = await supabase.auth.getUser();
+
   const { data: invoice, error: invError } = await supabase.rpc('create_invoice_for_visit', {
     p_patient_id: visit.patient_id,
     p_visit_id: visitId,
@@ -240,10 +242,18 @@ export async function billPharmacyItems(visitId, items) {
     // point at that same line item and quantity, not just the first.
     // Non-taper items just have a single id here.
     const ids = item.prescriptionIds && item.prescriptionIds.length > 0 ? item.prescriptionIds : [item.prescriptionId];
+
+    // Billing now dispenses in the same step -- pharmacists no longer
+    // need a separate trip back to click Dispense after billing. Same
+    // intent as the older single-item dispense_prescription_and_bill
+    // RPC, just folded into this bulk/discount-aware path and covering
+    // the actual billed quantity rather than a hardcoded 1.
     const { error: updError } = await supabase
       .from('prescriptions')
       .update({
         billing_status: 'Billed',
+        status: 'Dispensed',
+        dispensed_at: new Date().toISOString(),
         qty: item.qty,
         invoice_id: invoice.id,
         invoice_line_item_id: line.id,
@@ -251,9 +261,34 @@ export async function billPharmacyItems(visitId, items) {
       })
       .in('id', ids);
     if (updError) return { error: updError.message };
+
+    // Stock deduction, best-effort -- if the drug isn't in the
+    // inventory catalog yet or no location is set up, billing still
+    // succeeds (matches the older RPC's soft-fail behaviour); this
+    // just won't move a stock ledger that doesn't exist yet.
+    if (item.serviceCode) {
+      const { data: matchedDrug } = await supabase.from('master_drugs').select('id').eq('code', item.serviceCode).eq('status', 'Active').maybeSingle();
+      if (matchedDrug) {
+        const { data: invItem } = await supabase.from('inventory_items').select('id').eq('drug_id', matchedDrug.id).eq('status', 'Active').limit(1).maybeSingle();
+        if (invItem) {
+          const { data: location } = await supabase.from('inventory_locations').select('id').eq('status', 'Active').order('created_at', { ascending: true }).limit(1).maybeSingle();
+          if (location) {
+            await supabase.rpc('deduct_stock_fefo', {
+              p_item_id: invItem.id,
+              p_location_id: location.id,
+              p_qty: item.qty,
+              p_reference_type: 'prescription',
+              p_reference_id: line.id,
+              p_created_by: userData?.user?.id || null,
+            });
+          }
+        }
+      }
+    }
   }
 
   await supabase.rpc('recompute_invoice_totals', { p_invoice_id: invoice.id });
+  await logJourneyEvent(supabase, visitId, 'pharmacy_dispensed', { count: items.length });
 
   return { success: true, invoiceId: invoice.id };
 }
