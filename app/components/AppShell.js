@@ -32,6 +32,7 @@ const NAV_ITEMS = [
   // ── OPD ──
   { href: '/optometry-dashboard', label: 'Optometry', icon: 'ti-eye-check', group: 'OPD' },
   { href: '/doctor-dashboard', label: 'Doctor Dashboard', icon: 'ti-stethoscope', group: 'OPD' },
+  { href: '/opd-procedures', label: 'OPD Procedures', icon: 'ti-tool', group: 'OPD' },
   { href: '/pharmacy', label: 'Pharmacy', icon: 'ti-pill', group: 'OPD' },
   { href: '/investigation', label: 'Investigation', icon: 'ti-flask', group: 'OPD' },
   { href: '/biometry', label: 'Biometry', icon: 'ti-ruler-measure', group: 'OPD' },
@@ -71,6 +72,7 @@ const PAGE_TITLES = [
   { match: /^\/queue/, title: 'Patient Flow' },
   { match: /^\/doctor-dashboard-surgery/, title: 'Surgery Dashboard' },
   { match: /^\/doctor-dashboard/, title: 'Doctor Dashboard' },
+  { match: /^\/opd-procedures/, title: 'OPD Procedures' },
   { match: /^\/medical-fitness/, title: 'Medical Fitness' },
   { match: /^\/patient-timeline/, title: 'Patient Timeline' },
   { match: /^\/workflow-monitor/, title: 'Workflow Monitor' },

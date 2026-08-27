@@ -2707,7 +2707,20 @@ CREATE TABLE IF NOT EXISTS "public"."plan_procedures" (
     "invoice_id" "uuid",
     "billing_updated_by" "uuid",
     "billing_updated_at" timestamp with time zone,
-    CONSTRAINT "plan_procedures_status_check" CHECK (("status" = ANY (ARRAY['Planned'::"text", 'Done'::"text"])))
+    "decision" "text",
+    "decision_reason" "text",
+    "decision_locked" boolean DEFAULT false NOT NULL,
+    "decision_accepted_at" timestamp with time zone,
+    "proceed_status" "text" DEFAULT 'Deciding'::"text" NOT NULL,
+    "scheduled_time" time without time zone,
+    "checked_in_at" timestamp with time zone,
+    "procedure_performed" "text",
+    "findings" "text",
+    "post_procedure_instructions" "text",
+    "completed_at" timestamp with time zone,
+    CONSTRAINT "plan_procedures_status_check" CHECK (("status" = ANY (ARRAY['Planned'::"text", 'Done'::"text", 'Scheduled'::"text", 'Checked In'::"text", 'Completed'::"text", 'Cancelled'::"text"]))),
+    CONSTRAINT "plan_procedures_decision_check" CHECK (("decision" = ANY (ARRAY['Accepted'::"text", 'Wants Time to Decide'::"text", 'Discuss with Family'::"text", 'Financial Constraint'::"text", 'Declined'::"text", 'Second Opinion'::"text", 'Other'::"text"]))),
+    CONSTRAINT "plan_procedures_proceed_status_check" CHECK (("proceed_status" = ANY (ARRAY['Deciding'::"text", 'Awaiting Return'::"text", 'Proceeding'::"text"])))
 );
 
 
