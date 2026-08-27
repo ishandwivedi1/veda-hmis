@@ -156,6 +156,30 @@ export async function setOpdProcedureDecision(id, decision, reason) {
   return { success: true };
 }
 
+// ── CALENDAR PICKER SUPPORT ──
+// Day-level counts for one calendar month, so the date picker can show
+// how busy a day already is -- same idea as OT Schedule's month
+// summary, but far lighter: no sessions/rooms/capacity, since OPD
+// Procedures don't book against theatre capacity.
+export async function getOpdProcedureMonthSummary(year, month) {
+  const supabase = await createClient();
+  const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+  const endDate = new Date(year, month + 1, 0).getDate();
+  const end = `${year}-${String(month + 1).padStart(2, '0')}-${String(endDate).padStart(2, '0')}`;
+
+  const { data, error } = await supabase
+    .from('plan_procedures')
+    .select('scheduled_date')
+    .in('status', ['Scheduled', 'Checked In'])
+    .gte('scheduled_date', start)
+    .lte('scheduled_date', end);
+  if (error) return {};
+
+  const byDate = {};
+  (data || []).forEach((r) => { byDate[r.scheduled_date] = (byDate[r.scheduled_date] || 0) + 1; });
+  return byDate;
+}
+
 // ── SCHEDULING ──
 // Allowed while the case is still 'Planned' (first booking) or already
 // 'Scheduled' (moving the date before check-in). Locked once checked in.

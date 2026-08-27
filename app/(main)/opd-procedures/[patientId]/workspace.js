@@ -7,6 +7,7 @@ import { openTab } from '@/lib/popup';
 import {
   getPatientOpdProcedureJourney,
   getTodayOpdProcedurePatients,
+  getOpdProcedureMonthSummary,
   setOpdProcedureDecision,
   scheduleOpdProcedure,
   checkInOpdProcedure,
@@ -94,17 +95,104 @@ function DecisionPanel({ c, onSave, busy }) {
   );
 }
 
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function todayISO() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+// ── Lightweight calendar picker for the Procedure Date step -- same
+// month-grid interaction as OT Schedule's calendar, but without any of
+// the OT-specific session/room/capacity machinery, since OPD Procedures
+// don't book against theatre capacity. Shows a small dot + count on
+// days that already have other OPD Procedures booked, purely for
+// awareness while picking a date.
+function ProcedureCalendar({ selectedDate, onSelectDate }) {
+  const today = todayISO();
+  const initial = selectedDate ? new Date(`${selectedDate}T00:00:00`) : new Date();
+  const [viewYear, setViewYear] = useState(initial.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initial.getMonth());
+  const [summary, setSummary] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getOpdProcedureMonthSummary(viewYear, viewMonth).then((s) => { if (!cancelled) { setSummary(s); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [viewYear, viewMonth]);
+
+  function changeMonth(delta) {
+    let m = viewMonth + delta;
+    let y = viewYear;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setViewMonth(m);
+    setViewYear(y);
+  }
+
+  const firstOfMonth = new Date(viewYear, viewMonth, 1);
+  const startWeekday = firstOfMonth.getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  return (
+    <div style={{ border: '1px solid var(--g200)', borderRadius: 8, padding: 10, marginBottom: 10, maxWidth: 300 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <button type="button" className="btn" style={{ padding: '3px 8px' }} onClick={() => changeMonth(-1)}><i className="ti ti-chevron-left"></i></button>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
+        <button type="button" className="btn" style={{ padding: '3px 8px' }} onClick={() => changeMonth(1)}><i className="ti ti-chevron-right"></i></button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 2 }}>
+        {DOW.map((d) => <div key={d} style={{ textAlign: 'center', fontSize: 9.5, fontWeight: 700, color: 'var(--g400)' }}>{d[0]}</div>)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, opacity: loading ? 0.5 : 1 }}>
+        {cells.map((day, idx) => {
+          if (day === null) return <div key={`e${idx}`} />;
+          const dateISO = new Date(viewYear, viewMonth, day).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+          const isPast = dateISO < today;
+          const isToday = dateISO === today;
+          const isSelected = selectedDate === dateISO;
+          const count = summary[dateISO] || 0;
+          return (
+            <button
+              type="button"
+              key={dateISO}
+              disabled={isPast}
+              onClick={() => onSelectDate(dateISO)}
+              style={{
+                height: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                border: isSelected ? '2px solid var(--blue)' : isToday ? '1.5px solid var(--indigo)' : '1px solid transparent',
+                borderRadius: 6, background: isSelected ? 'var(--blue-lt, #dbeafe)' : isPast ? 'transparent' : '#fff',
+                cursor: isPast ? 'default' : 'pointer', color: isPast ? 'var(--g300)' : 'var(--g700)', fontSize: 12, fontWeight: isToday ? 800 : 500, position: 'relative',
+              }}
+            >
+              {day}
+              {count > 0 && !isPast && <span style={{ position: 'absolute', bottom: 1, fontSize: 7, color: 'var(--amber)', fontWeight: 700 }}>{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SchedulePanel({ c, onSave, onCancel, busy }) {
   const [date, setDate] = useState(c.scheduled_date || '');
   const [time, setTime] = useState(c.scheduled_time ? c.scheduled_time.slice(0, 5) : '');
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-        <input type="date" className="fi fi-sm" value={date} onChange={(e) => setDate(e.target.value)} />
+      <ProcedureCalendar selectedDate={date} onSelectDate={setDate} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <label style={{ fontSize: 12, color: 'var(--g500)' }}>Time (optional)</label>
         <input type="time" className="fi fi-sm" value={time} onChange={(e) => setTime(e.target.value)} />
       </div>
+      {date && <div style={{ fontSize: 12.5, color: 'var(--g600)', marginBottom: 10 }}>Selected date: <strong>{fmtDate(date)}</strong></div>}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-primary" disabled={!date || busy} onClick={() => onSave(date, time)}>{c.status === 'Scheduled' ? 'Update Date' : 'Confirm Schedule'}</button>
+        <button className="btn btn-primary" disabled={!date || busy} onClick={() => onSave(date, time)}>{c.status === 'Scheduled' ? 'Confirm Reschedule' : 'Confirm Schedule'}</button>
         {c.status === 'Scheduled' && <button className="btn" style={{ color: 'var(--red)' }} disabled={busy} onClick={onCancel}>Cancel Procedure</button>}
       </div>
     </div>
@@ -152,7 +240,7 @@ function CheckinPanel({ c, onCheckIn, onCancel, onReschedule, busy }) {
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn btn-primary" disabled={busy} onClick={onCheckIn}>Check In</button>
-        <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={onReschedule}><i className="ti ti-calendar-time"></i> Change Date</button>
+        <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={onReschedule}><i className="ti ti-calendar-time"></i> Reschedule</button>
         <button className="btn" style={{ color: 'var(--red)' }} disabled={busy} onClick={onCancel}>Cancel Procedure</button>
       </div>
     </div>
@@ -253,7 +341,7 @@ function JourneyCard({ p, patient, expanded, onToggle, onAction, busy, error }) 
                 ) : (
                   <div>
                     <div style={{ fontSize: 13, marginBottom: 8 }}>Scheduled for <strong>{fmtDate(p.scheduled_date)}</strong>{p.scheduled_time ? ` at ${p.scheduled_time.slice(0, 5)}` : ''}.</div>
-                    {!checkinDone && <button className="btn" style={{ fontSize: 12 }} onClick={() => onAction('toggleReschedule', p)}><i className="ti ti-calendar-time"></i> Change Date</button>}
+                    {!checkinDone && <button className="btn" style={{ fontSize: 12 }} onClick={() => onAction('toggleReschedule', p)}><i className="ti ti-calendar-time"></i> Reschedule</button>}
                   </div>
                 )}
               </Section>
