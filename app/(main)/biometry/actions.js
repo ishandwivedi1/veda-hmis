@@ -281,7 +281,11 @@ export async function getBiometryHistory(patientFilter) {
 // includeBilled=true returns every biometry record regardless of
 // billing_status (used by the Billing Dashboard's Investigations tab,
 // which folds Biometry in alongside Investigation and shows the whole
-// list with a Billed/not-billed indicator per row).
+// list with a Billed/not-billed indicator per row). Grouped by patient
+// like the other three billing categories -- a patient can have more
+// than one biometry_records row (ordered again on a later visit), and
+// without grouping each row rendered as its own separate patient row,
+// so the same patient could appear to show up twice.
 export async function getPendingBiometryBilling({ includeBilled = false } = {}) {
   const supabase = await createClient();
   let query = supabase
@@ -293,9 +297,15 @@ export async function getPendingBiometryBilling({ includeBilled = false } = {}) 
 
   if (error) return [];
 
-  return (data || [])
-    .filter((r) => r.patients)
-    .map((r) => ({ patientId: r.patient_id, patient: r.patients, items: [r] }));
+  const groups = {};
+  (data || []).forEach((r) => {
+    if (!r.patients) return;
+    const pid = r.patient_id;
+    if (!groups[pid]) groups[pid] = { patientId: pid, patient: r.patients, items: [] };
+    groups[pid].items.push(r);
+  });
+
+  return Object.values(groups);
 }
 
 async function setBiometryBillingStatus(id, billingStatus, note) {

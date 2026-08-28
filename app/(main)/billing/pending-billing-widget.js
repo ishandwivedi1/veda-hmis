@@ -129,11 +129,13 @@ function filterGroupsToToday(groups) {
     .filter((g) => g.items.length > 0);
 }
 
-// Counts only what still needs action -- Billed/Denied items are
-// already resolved, so they don't belong in a "how much is left"
-// count even though they're now shown in the list itself.
+// Counts distinct patients still needing action, not raw line items --
+// a patient with two pending prescriptions is one Bill Now action, one
+// row in the table, so the KPI card should read "1" for that patient,
+// not "2" for their two medicines. Billed/Denied-only groups don't
+// count (nothing left to do for that patient in this category).
 function unbilledCount(groups) {
-  return groups.reduce((s, g) => s + g.items.filter((i) => i.billing_status !== 'Billed' && i.billing_status !== 'Denied').length, 0);
+  return groups.filter((g) => g.items.some((i) => i.billing_status !== 'Billed' && i.billing_status !== 'Denied')).length;
 }
 
 export default function PendingBillingWidget({ onCounts, bare = false, todayOnly = false, visibleCategories = ['Investigation', 'Biometry', 'Procedure', 'Pharmacy'] }) {
