@@ -374,7 +374,7 @@ export async function getLedgerHistory() {
     .from('patient_ledger')
     .select('*, patients(id, first_name, salutation, last_name, uhid), payments(mode:payment_modes(mode, amount), reference)')
     .order('recorded_at', { ascending: false })
-    .limit(30);
+    .limit(100);
   return data || [];
 }
 // ── ADJUSTMENTS ──
@@ -400,14 +400,21 @@ export async function applyAdjustment(patientId, invoiceId, amount) {
 }
 
 // ── RECEIPTS ──
-export async function searchReceipts(query, modeFilter) {
+export async function searchReceipts(query, modeFilter, dateFrom, dateTo) {
   const supabase = await createClient();
 
   let q = supabase
     .from('payments')
     .select('*, patients(id, first_name, salutation, last_name, uhid, mobile), payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number))')
-    .order('collected_at', { ascending: false })
-    .limit(50);
+    .order('collected_at', { ascending: false });
+
+  // Same bug and same fix as billing's searchInvoices: without a date
+  // range this stays capped at 50 recent receipts for speed, but that
+  // cap was silently hiding anything older with no way back in.
+  if (dateFrom) q = q.gte('collected_at', `${dateFrom}T00:00:00`);
+  if (dateTo) q = q.lte('collected_at', `${dateTo}T23:59:59`);
+  if (!dateFrom && !dateTo && !query) q = q.limit(50);
+  else q = q.limit(1000);
 
   if (query) {
     const { data: matches } = await supabase

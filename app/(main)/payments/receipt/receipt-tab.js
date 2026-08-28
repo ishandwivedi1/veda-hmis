@@ -31,6 +31,8 @@ function sortReceipts(receipts, sort) {
 export default function ReceiptTab() {
   const [query, setQuery] = useState('');
   const [modeFilter, setModeFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [receipts, setReceipts] = useState([]);
 
@@ -70,8 +72,8 @@ export default function ReceiptTab() {
   }
 
   const runSearch = useCallback(async () => {
-    setReceipts(await searchReceipts(query, modeFilter));
-  }, [query, modeFilter]);
+    setReceipts(await searchReceipts(query, modeFilter, dateFrom, dateTo));
+  }, [query, modeFilter, dateFrom, dateTo]);
 
   useEffect(() => { runSearch(); }, [runSearch]);
 
@@ -161,10 +163,17 @@ export default function ReceiptTab() {
             <option value="">All modes</option>
             {MODE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
+          <input type="date" className="fi" style={{ width: 150 }} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date" />
+          <input type="date" className="fi" style={{ width: 150 }} value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="To date" />
           <select className="fi" style={{ flex: 1 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
             {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>Sort: {o.label}</option>)}
           </select>
         </div>
+        {!query && !dateFrom && !dateTo && (
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 8 }}>
+            Showing the 50 most recent receipts. Search by receipt #/patient/UHID or set a date range to reach older ones.
+          </div>
+        )}
       </div>
 
       {error && <div className="msg-err">{error}</div>}

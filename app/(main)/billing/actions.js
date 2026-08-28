@@ -819,14 +819,23 @@ export async function getTodaysInvoicesForModification() {
   return data || [];
 }
 
-export async function searchInvoices(query, deptFilter) {
+export async function searchInvoices(query, deptFilter, dateFrom, dateTo) {
   const supabase = await createClient();
 
   let q = supabase
     .from('invoices')
     .select('*, patients(first_name, salutation, last_name, uhid), visits(visit_number)')
-    .order('created_at', { ascending: false })
-    .limit(50);
+    .order('created_at', { ascending: false });
+
+  // Without a date range, this is a "browse recent activity" view and
+  // stays capped at 50 so it loads fast -- older invoices are still
+  // there, just need a date range (or a patient search, which isn't
+  // capped) to reach them. This was the actual bug: invoices before
+  // ~24 Aug had silently scrolled off this cap with no way back in.
+  if (dateFrom) q = q.gte('created_at', `${dateFrom}T00:00:00`);
+  if (dateTo) q = q.lte('created_at', `${dateTo}T23:59:59`);
+  if (!dateFrom && !dateTo && !query) q = q.limit(50);
+  else q = q.limit(1000);
 
   if (query) {
     // First try to match by patient -- invoices don't carry patient

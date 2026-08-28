@@ -31,6 +31,8 @@ export default function InvoiceDetailsTab() {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
   const [deptFilter, setDeptFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [invoices, setInvoices] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -50,8 +52,8 @@ export default function InvoiceDetailsTab() {
   }
 
   const runSearch = useCallback(async () => {
-    setInvoices(await searchInvoices(query, deptFilter));
-  }, [query, deptFilter]);
+    setInvoices(await searchInvoices(query, deptFilter, dateFrom, dateTo));
+  }, [query, deptFilter, dateFrom, dateTo]);
 
   useEffect(() => { runSearch(); }, [runSearch]);
 
@@ -99,10 +101,17 @@ export default function InvoiceDetailsTab() {
             <option>Surgery</option>
             <option>Pharmacy</option>
           </select>
+          <input type="date" className="fi" style={{ width: 150 }} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date" />
+          <input type="date" className="fi" style={{ width: 150 }} value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="To date" />
           <select className="fi" style={{ flex: 1 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
             {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>Sort: {o.label}</option>)}
           </select>
         </div>
+        {!query && !dateFrom && !dateTo && (
+          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: -10, marginBottom: 12 }}>
+            Showing the 50 most recent invoices. Search by patient/UHID or set a date range to reach older ones.
+          </div>
+        )}
 
         <table className="tbl">
           <thead><tr><th>Invoice #</th><th>Date</th><th>Patient</th><th>Visit</th><th>Gross</th><th>Disc</th><th>Net</th><th>Paid</th><th>Status</th><th></th></tr></thead>
