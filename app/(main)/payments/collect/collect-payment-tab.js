@@ -28,6 +28,12 @@ export default function CollectPaymentTab() {
   const [applyingAdvance, setApplyingAdvance] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [overpaidAmount, setOverpaidAmount] = useState(0);
+  // Set when Apply Advance alone fully covers every selected invoice --
+  // applyAdjustment() is a ledger transfer, not a payment collection,
+  // so it never produces a `receipt`. Without this, the form was just
+  // left sitting at "0.00 to collect" with no sign anything happened,
+  // even though the invoice was already Paid server-side.
+  const [advancePaidInvoices, setAdvancePaidInvoices] = useState(null);
   const searchParams = useSearchParams();
   const router = useRouter();
   const urlPatientId = searchParams.get('patientId');
@@ -137,6 +143,18 @@ export default function CollectPaymentTab() {
     setInvoices(refreshedInvoices);
     setAdvanceBalance(refreshedAdvance);
     const stillOutstandingIds = refreshedInvoices.filter((i) => selectedInvoiceIds.includes(i.id)).map((i) => i.id);
+
+    // Advance alone covered every selected invoice -- there's nothing
+    // left to collect, so this IS the end of the flow. Show a clear
+    // confirmation instead of leaving the form at "0.00 to collect"
+    // with the Finalize Payment button still sitting there.
+    if (stillOutstandingIds.length === 0) {
+      setAdvancePaidInvoices(invoices.filter((i) => selectedInvoiceIds.includes(i.id)).map((i) => i.invoice_number));
+      setSelectedInvoiceIds([]);
+      setApplyingAdvance(false);
+      return;
+    }
+
     setSelectedInvoiceIds(stillOutstandingIds);
     const newTotal = refreshedInvoices
       .filter((i) => stillOutstandingIds.includes(i.id))
@@ -178,6 +196,7 @@ export default function CollectPaymentTab() {
     setRemarks('');
     setReceipt(null);
     setOverpaidAmount(0);
+    setAdvancePaidInvoices(null);
     setError('');
   }
 
@@ -215,13 +234,39 @@ export default function CollectPaymentTab() {
   // close the tab so the person lands back on the page they were
   // already on, instead of navigating that popup somewhere new.
   useEffect(() => {
-    if (!receipt || !urlInvoiceId) return;
+    if ((!receipt && !advancePaidInvoices) || !urlInvoiceId) return;
     const timer = setTimeout(() => {
       if (isPopup) { window.close(); return; }
       router.push(returnTo || '/billing');
     }, 2500);
     return () => clearTimeout(timer);
-  }, [receipt, urlInvoiceId, router, isPopup, returnTo]);
+  }, [receipt, advancePaidInvoices, urlInvoiceId, router, isPopup, returnTo]);
+
+  if (advancePaidInvoices) {
+    return (
+      <div className="card">
+        <div className="msg-success">
+          <i className="ti ti-piggy-bank"></i> Covered entirely by advance -- {advancePaidInvoices.join(', ')} {advancePaidInvoices.length > 1 ? 'are' : 'is'} now Paid. Nothing more to collect.
+        </div>
+        <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+          <div><strong>Patient:</strong> {formatPatientName(selectedPatient)} -- {selectedPatient.uhid}</div>
+          <div><strong>Remaining advance balance:</strong> Rs.{advanceBalance}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+          {urlInvoiceId ? (
+            <>
+              <button className="btn btn-primary" onClick={() => router.push('/billing')}>
+                <i className="ti ti-arrow-left"></i> Back to Billing Dashboard
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--g400)', alignSelf: 'center' }}>Returning automatically...</span>
+            </>
+          ) : (
+            <button className="btn btn-primary" onClick={reset}>Collect another payment</button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (receipt) {
     return (
