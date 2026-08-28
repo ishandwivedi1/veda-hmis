@@ -99,10 +99,23 @@ export async function getBillingDashboardData() {
   const outstandingInvoices = allOutstanding || [];
   const outstandingTotal = outstandingInvoices.reduce((s, i) => s + Math.max(0, Number(i.net) - Number(i.paid)), 0);
 
+  // Split out of the same list rather than a second query -- "today's
+  // outstanding" is just the subset of allOutstanding created within
+  // today's IST bounds. Mirrors the todayOnly/all-time split already
+  // used by Pending Billing, so the Outstanding stat card can honour
+  // the same Today/Historical toggle instead of always showing the
+  // all-time figure.
+  const outstandingInvoicesToday = outstandingInvoices.filter(
+    (i) => i.created_at >= startUTC && i.created_at <= endUTC
+  );
+  const outstandingTotalToday = outstandingInvoicesToday.reduce((s, i) => s + Math.max(0, Number(i.net) - Number(i.paid)), 0);
+
   return {
     todaysInvoices: todaysInvoices || [],
     outstandingInvoices,
     outstandingTotal,
+    outstandingInvoicesToday,
+    outstandingTotalToday,
   };
 }
 

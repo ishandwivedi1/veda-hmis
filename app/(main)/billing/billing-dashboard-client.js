@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import PendingBillingWidget from './pending-billing-widget';
 import RecentInvoicesTable from './recent-invoices-table';
+import OutstandingInvoicesTable from './outstanding-invoices-table';
 
 const RUPEE = (n) => `Rs.${Number(n || 0).toLocaleString('en-IN')}`;
 
@@ -19,9 +20,14 @@ const VISIT_TYPE_COLOR = {
   'OPD Procedure Only': '--teal',
 };
 
-function StatCard({ label, value, sub, color }) {
+function StatCard({ label, value, sub, color, onClick }) {
   return (
-    <div className="card" style={{ borderTop: `3px solid var(${color})` }}>
+    <div
+      className="card"
+      onClick={onClick}
+      style={{ borderTop: `3px solid var(${color})`, cursor: onClick ? 'pointer' : undefined }}
+      title={onClick ? 'Click to see the invoices behind this number' : undefined}
+    >
       <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
       <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>{sub}</div>}
@@ -84,12 +90,16 @@ function ScopeToggle({ todayOnly, onChange }) {
   );
 }
 
-export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal }) {
+export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal, outstandingInvoicesToday, outstandingTotalToday }) {
   const router = useRouter();
   // Needs Action starts collapsed -- it's the "here's what's still
   // outstanding" detail view, not the first thing a person should have
   // to scroll past to see today's invoices.
   const [needsActionOpen, setNeedsActionOpen] = useState(false);
+  // Outstanding Invoices drill-down also starts collapsed, opened by
+  // clicking the Outstanding stat card -- same "click the number to
+  // see what it's made of" affordance as the rest of the dashboard.
+  const [outstandingOpen, setOutstandingOpen] = useState(false);
   const [pendingBillingTotal, setPendingBillingTotal] = useState(0);
   // Defaults to today -- pending bills should read as "what's due right
   // now", not a mixed list where a 2-week-old deferred item sits next
@@ -97,6 +107,12 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
   const [todayOnly, setTodayOnly] = useState(true);
 
   const todaysInvoicesValue = todaysInvoices.reduce((s, i) => s + Number(i.net || 0), 0);
+
+  // Outstanding respects the same Today/Historical toggle as Pending
+  // Billing: Today = only invoices created today that are still
+  // Pending/Partial; Historical = the full all-time outstanding book.
+  const shownOutstandingInvoices = todayOnly ? outstandingInvoicesToday : outstandingInvoices;
+  const shownOutstandingTotal = todayOnly ? outstandingTotalToday : outstandingTotal;
 
   // Surgery Billing surfaces the moment full payment is received (see
   // getPendingPackageBilling), not gated on discharge -- there's no
@@ -112,7 +128,13 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
       {/* KPI STRIP */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
         <StatCard label="Today's Invoices" value={todaysInvoices.length} sub={RUPEE(todaysInvoicesValue)} color="--blue" />
-        <StatCard label="Outstanding" value={outstandingInvoices.length} sub={RUPEE(outstandingTotal)} color="--red" />
+        <StatCard
+          label="Outstanding"
+          value={shownOutstandingInvoices.length}
+          sub={`${RUPEE(shownOutstandingTotal)} -- ${todayOnly ? 'today' : 'all time'}`}
+          color="--red"
+          onClick={() => setOutstandingOpen((v) => !v)}
+        />
         <StatCard label="Pending Billing" value={pendingBillingTotal} sub={todayOnly ? 'Not yet invoiced -- today' : 'Not yet invoiced -- all time'} color="--amber" />
         <StatCard label="Surgery Billing Due" value={fullyPaidUnbilled.length} sub="Fully paid, not yet invoiced" color="--purple" />
       </div>
@@ -174,6 +196,24 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
           </tbody>
         </table>
       </div>
+
+      {/* OUTSTANDING INVOICES -- drill-down for the Outstanding stat
+          card above; collapsed until that card is clicked. Same list
+          honours the Today/Historical toggle so the card and its
+          detail view never disagree. */}
+      {outstandingOpen && (
+        <div className="card" style={{ marginBottom: 20, border: shownOutstandingInvoices.length > 0 ? '1.5px solid var(--red)' : undefined }}>
+          <button
+            type="button"
+            onClick={() => setOutstandingOpen(false)}
+            title="Collapse"
+            style={{ float: 'right', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--g400)', fontSize: 16, lineHeight: 1 }}
+          >
+            <i className="ti ti-x"></i>
+          </button>
+          <OutstandingInvoicesTable invoices={shownOutstandingInvoices} todayOnly={todayOnly} />
+        </div>
+      )}
 
       {/* NEEDS ACTION -- Surgery Billing + all four pending-billing
           categories (Investigation, Biometry, Consultation, Pharmacy),

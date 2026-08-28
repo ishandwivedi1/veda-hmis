@@ -20,6 +20,8 @@ export default async function BillingDashboardPage() {
         todaysInvoices={data.todaysInvoices}
         outstandingInvoices={data.outstandingInvoices}
         outstandingTotal={data.outstandingTotal}
+        outstandingInvoicesToday={data.outstandingInvoicesToday}
+        outstandingTotalToday={data.outstandingTotalToday}
       />
     </div>
   );
