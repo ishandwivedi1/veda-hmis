@@ -97,7 +97,7 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
 
       {/* KPI STRIP -- each card is a tab; clicking one shows only its
           entries in the panel below. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 16, marginBottom: 20 }}>
         <StatCard
           label="Today's Invoices" value={todaysInvoices.length} sub={RUPEE(todaysInvoicesValue)} color="--blue"
           active={activeTab === 'today'} onClick={() => setActiveTab('today')}
