@@ -62,16 +62,21 @@ function ItemsCell({ items, renderItem, busyId, onDefer, onDeny, onReset }) {
 // A single category's pending-billing table, laid out the same way as
 // the Billing Dashboard's Surgery Billing table: one row per patient,
 // a details column, and a Bill Now button in the last column.
-function CategoryTable({ type, groups, busyId, onDefer, onDeny, onReset, onBillNow, renderItem }) {
+// showHeader lets two categories share one outer heading/badge (used
+// to fold Biometry into "Investigation Billing" -- see listContent
+// below -- rather than giving it a second, separate category).
+function CategoryTable({ type, groups, busyId, onDefer, onDeny, onReset, onBillNow, renderItem, showHeader = true }) {
   const meta = CATEGORY_META[type];
   if (groups.length === 0) return null;
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
-        <i className={`ti ${meta.icon}`} style={{ color: meta.color }}></i> {meta.title}
-        <span className="badge b-amber" style={{ marginLeft: 8 }}>{groups.reduce((s, g) => s + g.items.length, 0)}</span>
-      </div>
+      {showHeader && (
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
+          <i className={`ti ${meta.icon}`} style={{ color: meta.color }}></i> {meta.title}
+          <span className="badge b-amber" style={{ marginLeft: 8 }}>{groups.reduce((s, g) => s + g.items.length, 0)}</span>
+        </div>
+      )}
       <table className="tbl">
         <thead><tr><th>Patient</th><th>Details</th><th></th></tr></thead>
         <tbody>
@@ -194,22 +199,39 @@ export default function PendingBillingWidget({ onTotalChange, bare = false, toda
 
       {!loading && (
         <>
-          <CategoryTable
-            type="Investigation" groups={investigationsShown} busyId={busyId}
-            onDefer={(id) => withBusy(id, (x) => markInvestigationDeferred(x, 'Patient asked to come back later'))}
-            onDeny={(id) => withBusy(id, (x) => markInvestigationDenied(x, 'Patient declined at Front Office'))}
-            onReset={(id) => withBusy(id, resetInvestigationBilling)}
-            onBillNow={(g) => billNowFor('Investigation', g)}
-            renderItem={(io) => <>{io.name} <span style={{ color: 'var(--g400)' }}>({io.eye})</span></>}
-          />
-          <CategoryTable
-            type="Biometry" groups={biometryShown} busyId={busyId}
-            onDefer={(id) => withBusy(id, (x) => markBiometryDeferred(x, 'Patient asked to come back later'))}
-            onDeny={(id) => withBusy(id, (x) => markBiometryDenied(x, 'Patient declined at Front Office'))}
-            onReset={(id) => withBusy(id, resetBiometryBilling)}
-            onBillNow={(g) => billNowFor('Biometry', g)}
-            renderItem={() => <>Biometry</>}
-          />
+          {/* Biometry is worked entirely through its own /biometry
+              module (measurements, calculation, approval) -- but for
+              billing purposes it must appear under Investigation
+              Billing, not as a separate category. One shared heading/
+              badge covers both tables; each row's Bill Now still
+              routes with the correct param (invOrderIds vs bioIds)
+              since that's determined per-table below, not per-heading. */}
+          {(investigationsShown.length > 0 || biometryShown.length > 0) && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
+                <i className={`ti ${CATEGORY_META.Investigation.icon}`} style={{ color: CATEGORY_META.Investigation.color }}></i> {CATEGORY_META.Investigation.title}
+                <span className="badge b-amber" style={{ marginLeft: 8 }}>
+                  {investigationsShown.reduce((s, g) => s + g.items.length, 0) + biometryShown.reduce((s, g) => s + g.items.length, 0)}
+                </span>
+              </div>
+              <CategoryTable
+                type="Investigation" groups={investigationsShown} busyId={busyId} showHeader={false}
+                onDefer={(id) => withBusy(id, (x) => markInvestigationDeferred(x, 'Patient asked to come back later'))}
+                onDeny={(id) => withBusy(id, (x) => markInvestigationDenied(x, 'Patient declined at Front Office'))}
+                onReset={(id) => withBusy(id, resetInvestigationBilling)}
+                onBillNow={(g) => billNowFor('Investigation', g)}
+                renderItem={(io) => <>{io.name} <span style={{ color: 'var(--g400)' }}>({io.eye})</span></>}
+              />
+              <CategoryTable
+                type="Biometry" groups={biometryShown} busyId={busyId} showHeader={false}
+                onDefer={(id) => withBusy(id, (x) => markBiometryDeferred(x, 'Patient asked to come back later'))}
+                onDeny={(id) => withBusy(id, (x) => markBiometryDenied(x, 'Patient declined at Front Office'))}
+                onReset={(id) => withBusy(id, resetBiometryBilling)}
+                onBillNow={(g) => billNowFor('Biometry', g)}
+                renderItem={() => <>Biometry</>}
+              />
+            </div>
+          )}
           <CategoryTable
             type="Procedure" groups={proceduresShown} busyId={busyId}
             onBillNow={(g) => billNowFor('Procedure', g)}
