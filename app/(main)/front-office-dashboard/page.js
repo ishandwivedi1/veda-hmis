@@ -31,7 +31,11 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     supabase.from('queue_entries').select('*, visits(patients(first_name, salutation, last_name))').neq('status', 'Done').neq('status', 'Cancelled').gte('issued_at', today).order('issued_at', { ascending: true }),
     supabase.from('visits').select('*', { count: 'exact', head: true }).gte('created_at', today).is('appointment_id', null),
     supabase.from('invoices').select('net, paid').in('status', ['Pending', 'Partial']),
-    supabase.from('visits').select('*, patients(id, first_name, salutation, last_name, uhid), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: false }),
+    // Oldest first -- this is front desk's own home page, and the
+    // whole point of looking here is "who came first". Newest-first
+    // (the old default) put the most recent arrival at the top, which
+    // is exactly backwards for that question.
+    supabase.from('visits').select('*, patients(id, first_name, salutation, last_name, uhid), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: true }),
     supabase.from('appointments').select('*, patients(first_name, salutation, last_name, uhid, mobile), profiles(full_name)').eq('appointment_date', today).order('appointment_time', { ascending: true }),
     supabase.from('surgical_cases').select('*', { count: 'exact', head: true }).eq('status', 'Pending Workup'),
     isTodayOpen(),
@@ -192,12 +196,13 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
             <i className="ti ti-door-enter" style={{ color: 'var(--blue)' }}></i> Today&apos;s Visits
           </div>
           <table className="tbl">
-            <thead><tr><th>Visit ID</th><th>Time</th><th>Patient</th><th>Type</th><th>Doctor</th><th>Status</th><th>Billing</th></tr></thead>
+            <thead><tr><th>#</th><th>Visit ID</th><th>Time</th><th>Patient</th><th>Type</th><th>Doctor</th><th>Status</th><th>Billing</th></tr></thead>
             <tbody>
-              {(todaysVisits || []).map((v) => {
+              {(todaysVisits || []).map((v, idx) => {
                 const billing = billingByVisit[v.id] || { count: 0, label: '--', badge: 'b-gray' };
                 return (
                   <tr key={v.id}>
+                    <td style={{ color: 'var(--g400)', fontSize: 12 }}>{idx + 1}</td>
                     <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{v.visit_number || '--'}</td>
                     <td>{new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
                     <td>
@@ -221,7 +226,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                 );
               })}
               {(!todaysVisits || todaysVisits.length === 0) && (
-                <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No visits yet today.</td></tr>
+                <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No visits yet today.</td></tr>
               )}
             </tbody>
           </table>
@@ -255,18 +260,31 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
             <div className="card-title" style={{ marginBottom: 10 }}>
               <i className="ti ti-list-numbers" style={{ color: 'var(--amber)' }}></i> Patients Waiting Now
             </div>
-            {(queueEntries || []).slice(0, 5).map((e) => (
+            {/* Numbered in overall arrival order (#1 = came in first),
+                not by token -- tokens reset per department (O-01,
+                D-01...) so O-03 and D-02 don't tell you on their own
+                who arrived first, even though this list is already
+                sorted that way underneath. */}
+            {(queueEntries || []).slice(0, 8).map((e, idx) => (
               <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                 <div>
+                  <span style={{ color: 'var(--g400)', fontSize: 11, marginRight: 6 }}>#{idx + 1}</span>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
                   {formatPatientName(e.visits?.patients)}
-                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>{e.department} -- {elapsedMin(e.issued_at)} min</div>
+                  <div style={{ fontSize: 11, color: 'var(--g500)' }}>
+                    {e.department} -- arrived {new Date(e.issued_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} ({elapsedMin(e.issued_at)} min ago)
+                  </div>
                 </div>
                 <span className={`badge ${e.status === 'Calling' || e.status === 'In Consultation' ? 'b-blue' : 'b-amber'}`}>{e.status}</span>
               </div>
             ))}
             {(!queueEntries || queueEntries.length === 0) && (
               <div style={{ fontSize: 12, color: 'var(--g400)' }}>Queue is empty.</div>
+            )}
+            {(queueEntries || []).length > 8 && (
+              <Link href="/queue" style={{ fontSize: 11, color: 'var(--blue)', display: 'block', marginTop: 6 }}>
+                + {queueEntries.length - 8} more waiting -- view full queue
+              </Link>
             )}
           </div>
 
