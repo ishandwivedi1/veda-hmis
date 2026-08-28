@@ -430,17 +430,23 @@ export default function CashManagementPage() {
             <table className="tbl">
               <thead><tr><th>Receipt #</th><th>Time</th><th>Patient</th><th>Mode(s)</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
               <tbody>
-                {summary.transactions.map((p) => (
-                  <tr key={p.id}>
-                    <td style={{ fontFamily: 'monospace' }}>{p.receipt_number}</td>
-                    <td>{new Date(p.collected_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
-                    <td>{formatPatientName(p.patients)}</td>
-                    <td>{(p.payment_modes || []).map((m) => m.mode).join('+')}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600, color: p.payment_type === 'refund' ? 'var(--red)' : 'var(--g800)' }}>
-                      {p.payment_type === 'refund' ? '-' : ''}{fmt(p.total_amount)}
-                    </td>
-                  </tr>
-                ))}
+                {summary.transactions.map((p) => {
+                  const isNonCash = p.payment_type === 'advance_adjustment' || p.payment_type === 'credit_note';
+                  return (
+                    <tr key={p.id} style={isNonCash ? { opacity: 0.65 } : undefined}>
+                      <td style={{ fontFamily: 'monospace' }}>{p.receipt_number}</td>
+                      <td>{new Date(p.collected_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td>{formatPatientName(p.patients)}</td>
+                      <td>
+                        {(p.payment_modes || []).map((m) => m.mode).join('+')}
+                        {isNonCash && <span className="badge b-gray" style={{ fontSize: 9, marginLeft: 4 }}>{p.payment_type === 'credit_note' ? 'Credit note -- no cash' : 'Adjustment -- no new cash'}</span>}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, color: p.payment_type === 'refund' ? 'var(--red)' : 'var(--g800)' }}>
+                        {p.payment_type === 'refund' ? '-' : ''}{fmt(p.total_amount)}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {summary.transactions.length === 0 && (
                   <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No transactions yet today.</td></tr>
                 )}

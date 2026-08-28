@@ -125,6 +125,14 @@ export async function getTodayCollectionSummary(date) {
 
   const rows = payments || [];
   const isRefund = (p) => p.payment_type === 'refund';
+  // advance_adjustment and credit_note both insert a payments row dated
+  // today (when the reallocation happens), but no cash actually moves
+  // that day -- the money was already received (advance) or was never
+  // received at all (credit note, a write-off). Including them here is
+  // exactly how an advance collected on a previous date ends up looking
+  // like fresh cash in today's total. byMode is unaffected already,
+  // since neither type ever gets a payment_modes row.
+  const isCashMovement = (p) => ['invoice_payment', 'advance', 'refund'].includes(p.payment_type);
 
   const byMode = {};
   rows.forEach((p) => {
@@ -133,7 +141,9 @@ export async function getTodayCollectionSummary(date) {
     });
   });
 
-  const total = rows.reduce((s, p) => s + (isRefund(p) ? -Number(p.total_amount) : Number(p.total_amount)), 0);
+  const total = rows
+    .filter(isCashMovement)
+    .reduce((s, p) => s + (isRefund(p) ? -Number(p.total_amount) : Number(p.total_amount)), 0);
 
   return { transactions: rows, byMode, total, count: rows.length };
 }
