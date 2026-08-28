@@ -397,13 +397,14 @@ export async function dispenseAllForVisit(prescriptionIds) {
 // Every prescription lands here the moment it's written in
 // Consultation, regardless of dispensing status -- Front Office can
 // bill it at the counter before the patient even reaches Pharmacy.
-export async function getPendingPrescriptionsForFrontOffice() {
+export async function getPendingPrescriptionsForFrontOffice({ includeBilled = false } = {}) {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from('prescriptions')
     .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
-    .in('billing_status', ['Pending', 'Deferred'])
     .order('created_at', { ascending: true });
+  if (!includeBilled) query = query.in('billing_status', ['Pending', 'Deferred']);
+  const { data, error } = await query;
 
   if (error) return [];
 

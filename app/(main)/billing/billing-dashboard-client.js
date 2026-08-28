@@ -66,13 +66,17 @@ function ScopeToggle({ todayOnly, onChange }) {
 
 export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal, outstandingInvoicesToday, outstandingTotalToday }) {
   const router = useRouter();
-  // Single-select tab across the four KPI cards -- clicking one shows
+  // Single-select tab across the six KPI cards -- clicking one shows
   // only its entries in the panel below, the rest stay out of view
   // rather than each having its own independent open/close state.
   // Defaults to "today" since Today's Invoices is what used to be the
   // permanently-visible section before this became tabbed.
   const [activeTab, setActiveTab] = useState('today');
-  const [pendingBillingTotal, setPendingBillingTotal] = useState(0);
+  // Live "still needs action" counts for the three billing-category
+  // KPI cards, fed by the single PendingBillingWidget instance below
+  // regardless of which tab is currently active (see that widget's
+  // onCounts comment for why it stays mounted at all times).
+  const [categoryCounts, setCategoryCounts] = useState({ investigation: 0, procedure: 0, pharmacy: 0 });
   // Defaults to today -- pending bills should read as "what's due right
   // now", not a mixed list where a 2-week-old deferred item sits next
   // to something from this morning. Historical is one click away.
@@ -80,9 +84,10 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
 
   const todaysInvoicesValue = todaysInvoices.reduce((s, i) => s + Number(i.net || 0), 0);
 
-  // Outstanding respects the same Today/Historical toggle as Pending
-  // Billing: Today = only invoices created today that are still
-  // Pending/Partial; Historical = the full all-time outstanding book.
+  // Outstanding respects the same Today/Historical toggle as the
+  // billing-category tabs: Today = only invoices created today that
+  // are still Pending/Partial; Historical = the full all-time
+  // outstanding book.
   const shownOutstandingInvoices = todayOnly ? outstandingInvoicesToday : outstandingInvoices;
   const shownOutstandingTotal = todayOnly ? outstandingTotalToday : outstandingTotal;
 
@@ -92,7 +97,7 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
 
       {/* KPI STRIP -- each card is a tab; clicking one shows only its
           entries in the panel below. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
         <StatCard
           label="Today's Invoices" value={todaysInvoices.length} sub={RUPEE(todaysInvoicesValue)} color="--blue"
           active={activeTab === 'today'} onClick={() => setActiveTab('today')}
@@ -105,26 +110,36 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
           active={activeTab === 'outstanding'} onClick={() => setActiveTab('outstanding')}
         />
         <StatCard
-          label="Pending Billing" value={pendingBillingTotal} sub={todayOnly ? 'Not yet invoiced -- today' : 'Not yet invoiced -- all time'} color="--amber"
-          active={activeTab === 'pending'} onClick={() => setActiveTab('pending')}
-        />
-        <StatCard
           label="Surgery Billing Due" value={fullyPaidUnbilled.length} sub="Fully paid, not yet invoiced" color="--purple"
           active={activeTab === 'surgery'} onClick={() => setActiveTab('surgery')}
+        />
+        <StatCard
+          label="Investigations" value={categoryCounts.investigation} sub={todayOnly ? 'Not yet billed -- today' : 'Not yet billed -- all time'} color="--teal"
+          active={activeTab === 'investigations'} onClick={() => setActiveTab('investigations')}
+        />
+        <StatCard
+          label="OPD Procedures" value={categoryCounts.procedure} sub={todayOnly ? 'Not yet billed -- today' : 'Not yet billed -- all time'} color="--amber"
+          active={activeTab === 'opdProcedures'} onClick={() => setActiveTab('opdProcedures')}
+        />
+        <StatCard
+          label="Pharmacy" value={categoryCounts.pharmacy} sub={todayOnly ? 'Not yet billed -- today' : 'Not yet billed -- all time'} color="--indigo"
+          active={activeTab === 'pharmacy'} onClick={() => setActiveTab('pharmacy')}
         />
       </div>
 
       {/* ENTRIES PANEL -- swaps content by activeTab. RecentInvoicesTable
-          already renders its own .card wrapper, so the other three tabs
-          get their own wrapper here rather than sharing one outer card
+          already renders its own .card wrapper, so the other tabs get
+          their own wrapper here rather than sharing one outer card
           (which would double the card chrome around Today's Invoices).
-          Pending Billing's widget and the Surgery Billing list stay
-          mounted at all times (just hidden via CSS when not active) so
-          Pending Billing's live count keeps feeding the KPI card above
-          even while another tab is showing -- it fetches its own data
-          client-side and unmounting it would lose that count until it
-          reloaded. Surgery Billing's list is plain page-load props, so
-          it's cheap to leave mounted too. */}
+          PendingBillingWidget and the Surgery Billing list stay mounted
+          at all times (just hidden via CSS when not active) so the
+          three billing-category KPI cards above keep live counts even
+          while another tab is showing -- the widget fetches its own
+          data client-side and unmounting it would lose those counts
+          until it reloaded. Surgery Billing's list is plain page-load
+          props, so it's cheap to leave mounted too. Investigations/OPD
+          Procedures/Pharmacy all render from that one widget instance,
+          each only showing its own category via visibleCategories. */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: activeTab === 'today' ? 'block' : 'none' }}>
           <RecentInvoicesTable invoices={todaysInvoices} />
@@ -171,9 +186,21 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
           </table>
         </div>
 
-        {/* Always mounted (see comment above); only its visibility toggles. */}
-        <div className="card" style={{ display: activeTab === 'pending' ? 'block' : 'none' }}>
-          <PendingBillingWidget bare todayOnly={todayOnly} onTotalChange={setPendingBillingTotal} />
+        {/* Always mounted (see comment above); only its visible
+            category (and hence its visibility) changes with the tab. */}
+        <div
+          className="card"
+          style={{ display: ['investigations', 'opdProcedures', 'pharmacy'].includes(activeTab) ? 'block' : 'none' }}
+        >
+          <PendingBillingWidget
+            bare todayOnly={todayOnly} onCounts={setCategoryCounts}
+            visibleCategories={
+              activeTab === 'investigations' ? ['Investigation', 'Biometry']
+                : activeTab === 'opdProcedures' ? ['Procedure']
+                : activeTab === 'pharmacy' ? ['Pharmacy']
+                : []
+            }
+          />
         </div>
       </div>
 

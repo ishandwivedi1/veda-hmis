@@ -312,14 +312,20 @@ export async function markUnableToPerform(id, reason) {
 // Consultation, regardless of lab status -- Front Office bills as soon
 // as the doctor orders it, it doesn't wait on the lab. Grouped by visit
 // the same way the lab's own Queue screen is, so it reads the same way.
-export async function getPendingInvestigationBilling() {
+// includeBilled=true returns every order regardless of billing_status
+// (used by the Billing Dashboard's Investigations tab, which shows the
+// whole list with a Billed/not-billed indicator per row) -- default
+// stays Pending/Deferred-only for any other caller expecting the old
+// "still needs action" behaviour.
+export async function getPendingInvestigationBilling({ includeBilled = false } = {}) {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from('investigation_orders')
     .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
-    .in('billing_status', ['Pending', 'Deferred'])
     .neq('status', 'Cancelled')
     .order('created_at', { ascending: true });
+  if (!includeBilled) query = query.in('billing_status', ['Pending', 'Deferred']);
+  const { data, error } = await query;
 
   if (error) return [];
 

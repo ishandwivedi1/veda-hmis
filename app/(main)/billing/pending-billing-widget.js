@@ -8,7 +8,7 @@ import { getPendingProcedureBilling } from '@/app/(main)/billing/actions';
 import { getPendingPrescriptionsForFrontOffice, markPrescriptionDenied, markPrescriptionDeferred, resetPrescriptionBilling } from '@/app/(main)/pharmacy/actions';
 import { getPendingBiometryBilling, markBiometryDenied, markBiometryDeferred, resetBiometryBilling } from '@/app/(main)/biometry/actions';
 
-const BILLING_BADGE = { Pending: 'b-amber', Deferred: 'b-indigo' };
+const BILLING_BADGE = { Pending: 'b-amber', Deferred: 'b-indigo', Denied: 'b-gray', Billed: 'b-green' };
 
 // type key -> billNowFor's URL param, plus the section's own heading/
 // icon/color -- title is the label shown to the person, which for
@@ -46,7 +46,7 @@ function ItemsCell({ items, renderItem, busyId, onDefer, onDeny, onReset }) {
                   </button>
                 </>
               )}
-              {item.billing_status === 'Deferred' && onReset && (
+              {(item.billing_status === 'Deferred' || item.billing_status === 'Denied') && onReset && (
                 <button className="btn" style={{ padding: '2px 6px', fontSize: 10 }} disabled={busyId === item.id} onClick={() => onReset(item.id)}>
                   Reset
                 </button>
@@ -80,22 +80,29 @@ function CategoryTable({ type, groups, busyId, onDefer, onDeny, onReset, onBillN
       <table className="tbl">
         <thead><tr><th>Patient</th><th>Details</th><th></th></tr></thead>
         <tbody>
-          {groups.map((g) => (
-            <tr key={g.visitId || g.patientId || g.patient?.id}>
-              <td>
-                <strong>{formatPatientName(g.patient)}</strong>
-                <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{g.patient?.uhid}</span>
-              </td>
-              <td style={{ fontSize: 12 }}>
-                <ItemsCell items={g.items} renderItem={renderItem} busyId={busyId} onDefer={onDefer} onDeny={onDeny} onReset={onReset} />
-              </td>
-              <td>
-                <button className="btn btn-primary btn-sm" onClick={() => onBillNow(g)}>
-                  <i className="ti ti-receipt"></i> Bill Now
-                </button>
-              </td>
-            </tr>
-          ))}
+          {groups.map((g) => {
+            const billableCount = g.items.filter((i) => i.billing_status !== 'Billed' && i.billing_status !== 'Denied').length;
+            return (
+              <tr key={g.visitId || g.patientId || g.patient?.id}>
+                <td>
+                  <strong>{formatPatientName(g.patient)}</strong>
+                  <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{g.patient?.uhid}</span>
+                </td>
+                <td style={{ fontSize: 12 }}>
+                  <ItemsCell items={g.items} renderItem={renderItem} busyId={busyId} onDefer={onDefer} onDeny={onDeny} onReset={onReset} />
+                </td>
+                <td>
+                  {billableCount > 0 ? (
+                    <button className="btn btn-primary btn-sm" onClick={() => onBillNow(g)}>
+                      <i className="ti ti-receipt"></i> Bill Now
+                    </button>
+                  ) : (
+                    <span className="badge b-green"><i className="ti ti-check"></i> Billed</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -122,7 +129,14 @@ function filterGroupsToToday(groups) {
     .filter((g) => g.items.length > 0);
 }
 
-export default function PendingBillingWidget({ onTotalChange, bare = false, todayOnly = false }) {
+// Counts only what still needs action -- Billed/Denied items are
+// already resolved, so they don't belong in a "how much is left"
+// count even though they're now shown in the list itself.
+function unbilledCount(groups) {
+  return groups.reduce((s, g) => s + g.items.filter((i) => i.billing_status !== 'Billed' && i.billing_status !== 'Denied').length, 0);
+}
+
+export default function PendingBillingWidget({ onCounts, bare = false, todayOnly = false, visibleCategories = ['Investigation', 'Biometry', 'Procedure', 'Pharmacy'] }) {
   const [investigations, setInvestigations] = useState([]);
   const [procedures, setProcedures] = useState([]);
   const [pharmacy, setPharmacy] = useState([]);
@@ -131,12 +145,20 @@ export default function PendingBillingWidget({ onTotalChange, bare = false, toda
   const [busyId, setBusyId] = useState(null);
   const router = useRouter();
 
+  // includeBilled: true -- this widget now shows every order/
+  // prescription/procedure regardless of billing status (not just the
+  // ones still needing action), each row carrying its own Billed/
+  // Pending/Deferred/Denied badge. All four categories are always
+  // fetched together in one instance regardless of which tab is
+  // active, so the KPI cards for all three billing tabs stay live even
+  // while only one tab's table is actually visible (see
+  // visibleCategories below).
   const load = useCallback(async () => {
     const [inv, proc, rx, bio] = await Promise.all([
-      getPendingInvestigationBilling(),
-      getPendingProcedureBilling(),
-      getPendingPrescriptionsForFrontOffice(),
-      getPendingBiometryBilling(),
+      getPendingInvestigationBilling({ includeBilled: true }),
+      getPendingProcedureBilling({ includeBilled: true }),
+      getPendingPrescriptionsForFrontOffice({ includeBilled: true }),
+      getPendingBiometryBilling({ includeBilled: true }),
     ]);
     setInvestigations(inv);
     setProcedures(proc);
@@ -159,19 +181,43 @@ export default function PendingBillingWidget({ onTotalChange, bare = false, toda
   const pharmacyShown = todayOnly ? filterGroupsToToday(pharmacy) : pharmacy;
   const biometryShown = todayOnly ? filterGroupsToToday(biometry) : biometry;
 
-  const totalItems = investigationsShown.reduce((s, g) => s + g.items.length, 0)
+  // Reported up to the parent so the three billing KPI cards (built on
+  // top of this one widget instance) show live "still needs action"
+  // counts no matter which tab is currently active. Biometry folds
+  // into the Investigations count -- see the merged section below.
+  useEffect(() => {
+    if (loading || !onCounts) return;
+    onCounts({
+      investigation: unbilledCount(investigationsShown) + unbilledCount(biometryShown),
+      procedure: unbilledCount(proceduresShown),
+      pharmacy: unbilledCount(pharmacyShown),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, todayOnly, investigations, procedures, pharmacy, biometry]);
+
+  function billNowFor(type, group) {
+    const billable = group.items.filter((i) => i.billing_status !== 'Billed' && i.billing_status !== 'Denied');
+    if (billable.length === 0) return;
+    const ids = billable.map((i) => i.id).join(',');
+    router.push(`/billing/new?visitId=${group.visitId}&${CATEGORY_META[type].param}=${ids}`);
+  }
+
+  const showInvestigation = visibleCategories.includes('Investigation') || visibleCategories.includes('Biometry');
+  const showProcedure = visibleCategories.includes('Procedure');
+  const showPharmacy = visibleCategories.includes('Pharmacy');
+
+  // What's actually on screen right now, scoped to whichever
+  // categories are visible -- used for the empty-state message so it
+  // reflects the active tab, not the other two tabs' data.
+  const visibleGroupsTotal =
+    (showInvestigation ? investigationsShown.reduce((s, g) => s + g.items.length, 0) + biometryShown.reduce((s, g) => s + g.items.length, 0) : 0)
+    + (showProcedure ? proceduresShown.reduce((s, g) => s + g.items.length, 0) : 0)
+    + (showPharmacy ? pharmacyShown.reduce((s, g) => s + g.items.length, 0) : 0);
+
+  const totalItemsAll = investigationsShown.reduce((s, g) => s + g.items.length, 0)
     + proceduresShown.reduce((s, g) => s + g.items.length, 0)
     + pharmacyShown.reduce((s, g) => s + g.items.length, 0)
     + biometryShown.reduce((s, g) => s + g.items.length, 0);
-
-  useEffect(() => {
-    if (!loading && onTotalChange) onTotalChange(totalItems);
-  }, [loading, totalItems, onTotalChange]);
-
-  function billNowFor(type, group) {
-    const ids = group.items.map((i) => i.id).join(',');
-    router.push(`/billing/new?visitId=${group.visitId}&${CATEGORY_META[type].param}=${ids}`);
-  }
 
   const listContent = (
     <>
@@ -179,21 +225,19 @@ export default function PendingBillingWidget({ onTotalChange, bare = false, toda
         <>
           <div className="card-title" style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
             <span><i className="ti ti-clipboard-list" style={{ color: 'var(--red)' }}></i> Pending Billing</span>
-            {totalItems > 0 && <span className="badge b-red">{totalItems}</span>}
+            {totalItemsAll > 0 && <span className="badge b-red">{totalItemsAll}</span>}
           </div>
           <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-            Everything prescribed or recommended for a patient, not yet billed -- by category.
+            Everything prescribed or recommended for a patient -- by category, billed or not.
           </div>
         </>
       )}
 
       {loading && <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div>}
 
-      {!loading && totalItems === 0 && (
+      {!loading && visibleGroupsTotal === 0 && (
         <div style={{ fontSize: 12, color: 'var(--g400)' }}>
-          {todayOnly && (investigations.length + procedures.length + pharmacy.length + biometry.length) > 0
-            ? 'Nothing pending from today -- switch to Historical to see the older backlog.'
-            : 'Nothing pending -- everything is billed.'}
+          {todayOnly ? 'Nothing from today -- switch to Historical to see the older backlog.' : 'Nothing recorded yet.'}
         </div>
       )}
 
@@ -206,7 +250,7 @@ export default function PendingBillingWidget({ onTotalChange, bare = false, toda
               badge covers both tables; each row's Bill Now still
               routes with the correct param (invOrderIds vs bioIds)
               since that's determined per-table below, not per-heading. */}
-          {(investigationsShown.length > 0 || biometryShown.length > 0) && (
+          {showInvestigation && (investigationsShown.length > 0 || biometryShown.length > 0) && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
                 <i className={`ti ${CATEGORY_META.Investigation.icon}`} style={{ color: CATEGORY_META.Investigation.color }}></i> {CATEGORY_META.Investigation.title}
@@ -232,19 +276,23 @@ export default function PendingBillingWidget({ onTotalChange, bare = false, toda
               />
             </div>
           )}
-          <CategoryTable
-            type="Procedure" groups={proceduresShown} busyId={busyId}
-            onBillNow={(g) => billNowFor('Procedure', g)}
-            renderItem={(p) => <>{p.name} <span style={{ color: 'var(--g400)' }}>({p.eye})</span>{p.notes && <div style={{ fontSize: 11, color: 'var(--g500)' }}>{p.notes}</div>}</>}
-          />
-          <CategoryTable
-            type="Pharmacy" groups={pharmacyShown} busyId={busyId}
-            onDefer={(id) => withBusy(id, (x) => markPrescriptionDeferred(x, 'Patient asked to come back later'))}
-            onDeny={(id) => withBusy(id, (x) => markPrescriptionDenied(x, 'Patient declined at Front Office'))}
-            onReset={(id) => withBusy(id, resetPrescriptionBilling)}
-            onBillNow={(g) => billNowFor('Pharmacy', g)}
-            renderItem={(rx) => <>{rx.drug_name} <span style={{ color: 'var(--g400)' }}>({rx.eye})</span></>}
-          />
+          {showProcedure && (
+            <CategoryTable
+              type="Procedure" groups={proceduresShown} busyId={busyId}
+              onBillNow={(g) => billNowFor('Procedure', g)}
+              renderItem={(p) => <>{p.name} <span style={{ color: 'var(--g400)' }}>({p.eye})</span>{p.notes && <div style={{ fontSize: 11, color: 'var(--g500)' }}>{p.notes}</div>}</>}
+            />
+          )}
+          {showPharmacy && (
+            <CategoryTable
+              type="Pharmacy" groups={pharmacyShown} busyId={busyId}
+              onDefer={(id) => withBusy(id, (x) => markPrescriptionDeferred(x, 'Patient asked to come back later'))}
+              onDeny={(id) => withBusy(id, (x) => markPrescriptionDenied(x, 'Patient declined at Front Office'))}
+              onReset={(id) => withBusy(id, resetPrescriptionBilling)}
+              onBillNow={(g) => billNowFor('Pharmacy', g)}
+              renderItem={(rx) => <>{rx.drug_name} <span style={{ color: 'var(--g400)' }}>({rx.eye})</span></>}
+            />
+          )}
         </>
       )}
     </>

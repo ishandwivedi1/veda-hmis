@@ -373,13 +373,16 @@ export async function markInvestigationOrdersBilled(ids, invoiceId) {
 
 // ── FRONT OFFICE WIDGET DATA -- grouped by visit, same shape as
 //    getPendingInvestigationBilling() in the investigation module. ──
-export async function getPendingProcedureBilling() {
+// includeBilled=true returns every procedure regardless of
+// billing_status (used by the Billing Dashboard's OPD Procedures tab).
+export async function getPendingProcedureBilling({ includeBilled = false } = {}) {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from('plan_procedures')
     .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
-    .eq('billing_status', 'Pending')
     .order('created_at', { ascending: true });
+  if (!includeBilled) query = query.eq('billing_status', 'Pending');
+  const { data, error } = await query;
 
   if (error) return [];
 

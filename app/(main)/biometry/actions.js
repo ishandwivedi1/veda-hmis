@@ -278,13 +278,18 @@ export async function getBiometryHistory(patientFilter) {
 }
 
 // ── FRONT OFFICE BILLING QUEUE ──
-export async function getPendingBiometryBilling() {
+// includeBilled=true returns every biometry record regardless of
+// billing_status (used by the Billing Dashboard's Investigations tab,
+// which folds Biometry in alongside Investigation and shows the whole
+// list with a Billed/not-billed indicator per row).
+export async function getPendingBiometryBilling({ includeBilled = false } = {}) {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from('biometry_records')
     .select('*, patients(id, first_name, salutation, last_name, uhid)')
-    .in('billing_status', ['Pending', 'Deferred'])
     .order('created_at', { ascending: true });
+  if (!includeBilled) query = query.in('billing_status', ['Pending', 'Deferred']);
+  const { data, error } = await query;
 
   if (error) return [];
 
