@@ -20,50 +20,24 @@ const VISIT_TYPE_COLOR = {
   'OPD Procedure Only': '--teal',
 };
 
-function StatCard({ label, value, sub, color, onClick }) {
+function StatCard({ label, value, sub, color, onClick, active }) {
   return (
     <div
       className="card"
       onClick={onClick}
-      style={{ borderTop: `3px solid var(${color})`, cursor: onClick ? 'pointer' : undefined }}
-      title={onClick ? 'Click to see the invoices behind this number' : undefined}
+      style={{
+        borderTop: `3px solid var(${color})`,
+        cursor: onClick ? 'pointer' : undefined,
+        boxShadow: active ? `0 0 0 2px var(${color})` : undefined,
+        background: active ? `var(${color}-lt)` : undefined,
+      }}
+      title={onClick ? 'Click to see the entries behind this number' : undefined}
     >
       <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
       <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>{sub}</div>}
     </div>
   );
-}
-
-// Shared collapsible-section header -- same toggle affordance as the
-// sidebar's group headings (chevron flips right/down), so a person
-// already used to collapsing sidebar groups recognizes it here too.
-function SectionHeader({ icon, iconColor, title, badgeCount, badgeCls, open, onToggle }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 0, marginBottom: open ? 4 : 0, fontFamily: 'inherit' }}
-    >
-      <span className="card-title" style={{ marginBottom: 0 }}>
-        <i className={`ti ${icon}`} style={{ color: iconColor }}></i> {title}
-        {badgeCount > 0 && <span className={`badge ${badgeCls}`} style={{ marginLeft: 8 }}>{badgeCount}</span>}
-      </span>
-      <i className={`ti ti-chevron-${open ? 'up' : 'down'}`} style={{ color: 'var(--g400)' }}></i>
-    </button>
-  );
-}
-
-// Same IST-day comparison used in pending-billing-widget.js -- kept as
-// a separate small copy rather than a shared import since it's a
-// two-line pure function and this file already has its own RUPEE/
-// VISIT_TYPE_COLOR helpers duplicated in the same spirit.
-function istDateOnly(dateInput) {
-  return new Date(dateInput).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-}
-function isToday(dateInput) {
-  if (!dateInput) return false;
-  return istDateOnly(dateInput) === istDateOnly(new Date());
 }
 
 function ScopeToggle({ todayOnly, onChange }) {
@@ -92,14 +66,12 @@ function ScopeToggle({ todayOnly, onChange }) {
 
 export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits, billingByVisit, todaysInvoices, outstandingInvoices, outstandingTotal, outstandingInvoicesToday, outstandingTotalToday }) {
   const router = useRouter();
-  // Needs Action starts collapsed -- it's the "here's what's still
-  // outstanding" detail view, not the first thing a person should have
-  // to scroll past to see today's invoices.
-  const [needsActionOpen, setNeedsActionOpen] = useState(false);
-  // Outstanding Invoices drill-down also starts collapsed, opened by
-  // clicking the Outstanding stat card -- same "click the number to
-  // see what it's made of" affordance as the rest of the dashboard.
-  const [outstandingOpen, setOutstandingOpen] = useState(false);
+  // Single-select tab across the four KPI cards -- clicking one shows
+  // only its entries in the panel below, the rest stay out of view
+  // rather than each having its own independent open/close state.
+  // Defaults to "today" since Today's Invoices is what used to be the
+  // permanently-visible section before this became tabbed.
+  const [activeTab, setActiveTab] = useState('today');
   const [pendingBillingTotal, setPendingBillingTotal] = useState(0);
   // Defaults to today -- pending bills should read as "what's due right
   // now", not a mixed list where a 2-week-old deferred item sits next
@@ -114,37 +86,99 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
   const shownOutstandingInvoices = todayOnly ? outstandingInvoicesToday : outstandingInvoices;
   const shownOutstandingTotal = todayOnly ? outstandingTotalToday : outstandingTotal;
 
-  // Surgery Billing surfaces the moment full payment is received (see
-  // getPendingPackageBilling), not gated on discharge -- there's no
-  // natural "today" anchor for that anymore (payment could've completed
-  // any day before this), so it always shows the full list regardless
-  // of the Today/Historical toggle above.
-  const needsActionCount = fullyPaidUnbilled.length + pendingBillingTotal;
-
   return (
     <div>
       <ScopeToggle todayOnly={todayOnly} onChange={setTodayOnly} />
 
-      {/* KPI STRIP */}
+      {/* KPI STRIP -- each card is a tab; clicking one shows only its
+          entries in the panel below. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
-        <StatCard label="Today's Invoices" value={todaysInvoices.length} sub={RUPEE(todaysInvoicesValue)} color="--blue" />
+        <StatCard
+          label="Today's Invoices" value={todaysInvoices.length} sub={RUPEE(todaysInvoicesValue)} color="--blue"
+          active={activeTab === 'today'} onClick={() => setActiveTab('today')}
+        />
         <StatCard
           label="Outstanding"
           value={shownOutstandingInvoices.length}
           sub={`${RUPEE(shownOutstandingTotal)} -- ${todayOnly ? 'today' : 'all time'}`}
           color="--red"
-          onClick={() => setOutstandingOpen((v) => !v)}
+          active={activeTab === 'outstanding'} onClick={() => setActiveTab('outstanding')}
         />
-        <StatCard label="Pending Billing" value={pendingBillingTotal} sub={todayOnly ? 'Not yet invoiced -- today' : 'Not yet invoiced -- all time'} color="--amber" />
-        <StatCard label="Surgery Billing Due" value={fullyPaidUnbilled.length} sub="Fully paid, not yet invoiced" color="--purple" />
+        <StatCard
+          label="Pending Billing" value={pendingBillingTotal} sub={todayOnly ? 'Not yet invoiced -- today' : 'Not yet invoiced -- all time'} color="--amber"
+          active={activeTab === 'pending'} onClick={() => setActiveTab('pending')}
+        />
+        <StatCard
+          label="Surgery Billing Due" value={fullyPaidUnbilled.length} sub="Fully paid, not yet invoiced" color="--purple"
+          active={activeTab === 'surgery'} onClick={() => setActiveTab('surgery')}
+        />
       </div>
 
-      {/* RECENT INVOICES -- full width, first thing after the KPI strip */}
+      {/* ENTRIES PANEL -- swaps content by activeTab. RecentInvoicesTable
+          already renders its own .card wrapper, so the other three tabs
+          get their own wrapper here rather than sharing one outer card
+          (which would double the card chrome around Today's Invoices).
+          Pending Billing's widget and the Surgery Billing list stay
+          mounted at all times (just hidden via CSS when not active) so
+          Pending Billing's live count keeps feeding the KPI card above
+          even while another tab is showing -- it fetches its own data
+          client-side and unmounting it would lose that count until it
+          reloaded. Surgery Billing's list is plain page-load props, so
+          it's cheap to leave mounted too. */}
       <div style={{ marginBottom: 20 }}>
-        <RecentInvoicesTable invoices={todaysInvoices} />
+        <div style={{ display: activeTab === 'today' ? 'block' : 'none' }}>
+          <RecentInvoicesTable invoices={todaysInvoices} />
+        </div>
+
+        <div className="card" style={{ display: activeTab === 'outstanding' ? 'block' : 'none' }}>
+          <OutstandingInvoicesTable invoices={shownOutstandingInvoices} todayOnly={todayOnly} />
+        </div>
+
+        <div className="card" style={{ display: activeTab === 'surgery' ? 'block' : 'none' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
+            <i className="ti ti-scalpel"></i> Surgery Billing
+            <span className="badge b-red" style={{ marginLeft: 8 }}>{fullyPaidUnbilled.length}</span>
+          </div>
+          <table className="tbl">
+            <thead><tr><th>Patient</th><th>Surgery</th><th>Amount</th><th></th></tr></thead>
+            <tbody>
+              {fullyPaidUnbilled.map((sc) => (
+                <tr key={sc.id} onClick={() => router.push(`/billing/new?pkgCaseId=${sc.id}`)} style={{ cursor: 'pointer' }}>
+                  <td>
+                    <strong>{formatPatientName(sc.patients)}</strong>
+                    <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span>
+                  </td>
+                  <td style={{ fontSize: 12 }}>
+                    {sc.procedure_name} ({sc.eye})
+                    {sc.additionalProcedures?.length > 0 && (
+                      <div style={{ color: 'var(--g400)' }}>
+                        + {sc.additionalProcedures.map((p) => `${p.procedure_name} (${p.eye})`).join(', ')}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{RUPEE(sc.netTotal)}</td>
+                  <td>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'none' }}>
+                      <i className="ti ti-receipt"></i> Bill Now
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {fullyPaidUnbilled.length === 0 && (
+                <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No surgeries fully paid and awaiting billing.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Always mounted (see comment above); only its visibility toggles. */}
+        <div className="card" style={{ display: activeTab === 'pending' ? 'block' : 'none' }}>
+          <PendingBillingWidget bare todayOnly={todayOnly} onTotalChange={setPendingBillingTotal} />
+        </div>
       </div>
 
-      {/* TODAY'S VISITS -- all visits for the day */}
+      {/* TODAY'S VISITS -- all visits for the day; not part of the tab
+          system above, always visible. */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-title" style={{ marginBottom: 10 }}>
           <i className="ti ti-door-enter" style={{ color: 'var(--blue)' }}></i> Today&apos;s Visits
@@ -197,75 +231,6 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
         </table>
       </div>
 
-      {/* OUTSTANDING INVOICES -- drill-down for the Outstanding stat
-          card above; collapsed until that card is clicked. Same list
-          honours the Today/Historical toggle so the card and its
-          detail view never disagree. */}
-      {outstandingOpen && (
-        <div className="card" style={{ marginBottom: 20, border: shownOutstandingInvoices.length > 0 ? '1.5px solid var(--red)' : undefined }}>
-          <button
-            type="button"
-            onClick={() => setOutstandingOpen(false)}
-            title="Collapse"
-            style={{ float: 'right', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--g400)', fontSize: 16, lineHeight: 1 }}
-          >
-            <i className="ti ti-x"></i>
-          </button>
-          <OutstandingInvoicesTable invoices={shownOutstandingInvoices} todayOnly={todayOnly} />
-        </div>
-      )}
-
-      {/* NEEDS ACTION -- Surgery Billing + all four pending-billing
-          categories (Investigation, Biometry, Consultation, Pharmacy),
-          each laid out like Surgery Billing's own table. Collapsed by
-          default; it's the detail view, not the first thing to greet
-          someone opening the dashboard. */}
-      <div className="card" style={{ border: needsActionCount > 0 ? '1.5px solid var(--red)' : undefined }}>
-        <SectionHeader
-          icon="ti-alert-circle" iconColor="var(--red)" title="Needs Action"
-          badgeCount={needsActionCount} badgeCls="b-red"
-          open={needsActionOpen} onToggle={() => setNeedsActionOpen((v) => !v)}
-        />
-        <div style={{ marginTop: needsActionOpen ? 10 : 0, display: needsActionOpen ? 'block' : 'none' }}>
-            {fullyPaidUnbilled.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>
-                  <i className="ti ti-scalpel"></i> Surgery Billing
-                  <span className="badge b-red" style={{ marginLeft: 8 }}>{fullyPaidUnbilled.length}</span>
-                </div>
-                <table className="tbl">
-                  <thead><tr><th>Patient</th><th>Surgery</th><th>Amount</th><th></th></tr></thead>
-                  <tbody>
-                    {fullyPaidUnbilled.map((sc) => (
-                      <tr key={sc.id} onClick={() => router.push(`/billing/new?pkgCaseId=${sc.id}`)} style={{ cursor: 'pointer' }}>
-                        <td>
-                          <strong>{formatPatientName(sc.patients)}</strong>
-                          <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{sc.patients?.uhid}</span>
-                        </td>
-                        <td style={{ fontSize: 12 }}>
-                          {sc.procedure_name} ({sc.eye})
-                          {sc.additionalProcedures?.length > 0 && (
-                            <div style={{ color: 'var(--g400)' }}>
-                              + {sc.additionalProcedures.map((p) => `${p.procedure_name} (${p.eye})`).join(', ')}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ fontWeight: 600 }}>{RUPEE(sc.netTotal)}</td>
-                        <td>
-                          <button type="button" className="btn btn-primary btn-sm" onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'none' }}>
-                            <i className="ti ti-receipt"></i> Bill Now
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <PendingBillingWidget bare todayOnly={todayOnly} onTotalChange={setPendingBillingTotal} />
-          </div>
-      </div>
     </div>
   );
 }
