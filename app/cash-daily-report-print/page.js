@@ -20,17 +20,21 @@ const tdLeft = { ...td, textAlign: 'left' };
 // plus a Via Advance column and a Total column -- consistent columns
 // regardless of which modes an individual category actually used, so
 // the printed table reads as a clean grid rather than ragged per-row
-// columns.
-function CategoryRow({ label, cat, bold }) {
-  const style = bold ? { fontWeight: 700 } : {};
+// columns. italic+indent marks a row as a constituent of the bold
+// parent above it (OPD Income's three components), so the roll-up
+// structure reads clearly on a printed page without needing color.
+function CategoryRow({ label, cat, bold, italic }) {
+  const style = {
+    ...(bold ? { fontWeight: 700 } : {}),
+    ...(italic ? { fontStyle: 'italic', fontWeight: 400, color: '#444' } : {}),
+  };
+  const labelStyle = italic ? { ...tdLeft, ...style, paddingLeft: 36 } : { ...tdLeft, ...style };
   return (
     <tr>
-      <td style={{ ...tdLeft, ...style }}>{label}</td>
+      <td style={labelStyle}>{label}</td>
       {MODES.map((m) => <td key={m} style={{ ...td, ...style }}>{cat.byMode[m] ? fmt(cat.byMode[m]) : '--'}</td>)}
-      <td style={{ ...td, ...style, color: cat.advanceAdjusted > 0.001 ? '#6d28d9' : undefined }}>
-        {cat.advanceAdjusted > 0.001 ? fmt(cat.advanceAdjusted) : '--'}
-      </td>
-      <td style={{ ...td, fontWeight: 700 }}>{fmt(cat.totalWithAdjustment ?? cat.total)}</td>
+      <td style={{ ...td, ...style, color: italic ? style.color : (cat.advanceAdjusted > 0.001 ? '#6d28d9' : undefined) }}>{cat.advanceAdjusted > 0.001 ? fmt(cat.advanceAdjusted) : '--'}</td>
+      <td style={{ ...td, ...style, fontWeight: bold ? 700 : (italic ? 400 : 700) }}>{fmt(cat.totalWithAdjustment ?? cat.total)}</td>
     </tr>
   );
 }
@@ -93,14 +97,14 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           </tr>
         </thead>
         <tbody>
-          <CategoryRow label="OPD Consultation charges" cat={report.opdIncome.consultation} />
-          <CategoryRow label="Procedure charges" cat={report.opdIncome.procedure} />
-          <CategoryRow label="Investigation charges" cat={report.opdIncome.investigation} />
-          <CategoryRow label="OPD Income (subtotal)" cat={report.opdIncome} bold />
-          <CategoryRow label="Pharmacy" cat={report.pharmacyIncome} />
-          <CategoryRow label="Surgery Income" cat={report.surgeryIncome} />
+          <CategoryRow label="OPD Income" cat={report.opdIncome} bold />
+          <CategoryRow label="OPD Consultation charges" cat={report.opdIncome.consultation} italic />
+          <CategoryRow label="Procedure charges" cat={report.opdIncome.procedure} italic />
+          <CategoryRow label="Investigation charges" cat={report.opdIncome.investigation} italic />
+          <CategoryRow label="Pharmacy" cat={report.pharmacyIncome} bold />
+          <CategoryRow label="Surgery Income" cat={report.surgeryIncome} bold />
           {report.unclassifiedIncome.total !== 0 && (
-            <CategoryRow label="Unclassified -- needs review" cat={report.unclassifiedIncome} />
+            <CategoryRow label="Unclassified -- needs review" cat={report.unclassifiedIncome} bold />
           )}
         </tbody>
       </table>
