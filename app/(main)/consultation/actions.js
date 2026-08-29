@@ -112,7 +112,7 @@ export async function getConsultationData(queueEntryId) {
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
     { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
-    { data: diagnosisHistoryRaw }, { data: surgicalCases },
+    { data: diagnosisHistoryRaw }, { data: surgicalCases }, { data: biometryRecords },
   ] = await Promise.all([
     supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
     supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
@@ -140,6 +140,14 @@ export async function getConsultationData(queueEntryId) {
     // follow-up query -- avoids an extra round-trip since it depends
     // on this query's own result anyway (surgicalCases[0].id).
     supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority, biometry_required, fitness_required, indicative_investigations, notes, decision, decision_locked, surgical_case_procedures(id, procedure_name, eye, notes)').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
+    // Biometry is patient-level, not encounter-scoped (see
+    // ensureBiometryRecord) -- whatever's on file for this patient,
+    // same lookup Surgical Journey's own case page already uses, so
+    // the "Open Biometry" link below can point straight at the actual
+    // record instead of just the module's generic landing page. That
+    // way choosing "keep existing" in the re-order confirmation still
+    // shows up here exactly like a freshly-ordered one would.
+    supabase.from('biometry_records').select('id, status, verify_remarks, verified_at').eq('patient_id', patientId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
   ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
@@ -175,6 +183,7 @@ export async function getConsultationData(queueEntryId) {
     counsellingItems: counsellingItems || [], followup: followup || null, diagnosisHistory,
     surgicalCases: surgicalCases || [],
     caseProcedures,
+    biometryRecords: biometryRecords || [],
     isLocked: encounter.status === 'Completed',
     isFollowUp, priorEncounterId: priorCompletedEncounters[0]?.id || null,
     isAdmin,

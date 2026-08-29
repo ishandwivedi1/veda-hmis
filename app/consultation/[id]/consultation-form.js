@@ -783,9 +783,14 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   // Biometry is a special investigation -- it's fulfilled
                   // through its own dedicated module (device readings,
                   // IOL recommendations, surgeon approval), not the plain
-                  // Investigation workspace. Route it to /biometry instead
-                  // of /investigation/[id], same as Surgical Journey does.
+                  // Investigation workspace. Route it to the specific
+                  // biometry_records row instead of the module's generic
+                  // landing page, same as Surgical Journey's own version
+                  // of this list -- so choosing "keep existing" in the
+                  // re-order confirmation still opens straight to that
+                  // record here, exactly like a freshly-ordered one would.
                   const isBiometry = i.name.trim().toLowerCase() === 'biometry';
+                  const bioRecord = isBiometry ? data.biometryRecords[0] : null;
                   const type = matchInvestigationType(i.name);
                   const hasResults = i.status === 'Available';
                   return (
@@ -797,8 +802,8 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span className={`badge ${INV_STATUS_BADGE[i.status] || 'b-gray'}`} style={{ fontSize: 10 }}>{i.status}</span>
                           {isBiometry ? (
-                            <a href="/biometry" target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '2px 8px', fontSize: 11, textDecoration: 'none' }}>
-                              <i className="ti ti-ruler-measure"></i> Open Biometry
+                            <a href={bioRecord?.id ? `/biometry/${bioRecord.id}` : '/biometry'} target="_blank" rel="noopener noreferrer" className="btn" style={{ padding: '2px 8px', fontSize: 11, textDecoration: 'none' }}>
+                              <i className="ti ti-ruler-measure"></i> {bioRecord?.status === 'Measured' ? 'View Report' : 'Open Biometry'}
                             </a>
                           ) : hasResults && (
                             <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => openPopup(`/investigation/${i.id}?mode=view`, `inv-${i.id}`)}>
