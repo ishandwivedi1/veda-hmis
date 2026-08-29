@@ -71,7 +71,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         <tbody>
           <tr>
             {[
-              ['Total Revenue (billed)', report.closing.total_revenue],
+              ['Total Collection', report.modeSummary.total],
               ['Total Cash', report.modeSummary.byMode['Cash'] || 0],
               ['Total UPI', report.modeSummary.byMode['UPI'] || 0],
               ['Total Other', totalOther],
@@ -85,42 +85,10 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         </tbody>
       </table>
 
-      {/* INCOME BY CATEGORY */}
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Income by Category</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6 }}>
-        <thead>
-          <tr>
-            <th style={thLeft}>Category</th>
-            {MODES.map((m) => <th key={m} style={th}>{m}</th>)}
-            <th style={th}>Via Advance</th>
-            <th style={th}>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          <CategoryRow label="OPD Income" cat={report.opdIncome} bold />
-          <CategoryRow label="OPD Consultation charges" cat={report.opdIncome.consultation} italic />
-          <CategoryRow label="Procedure charges" cat={report.opdIncome.procedure} italic />
-          <CategoryRow label="Investigation charges" cat={report.opdIncome.investigation} italic />
-          <CategoryRow label="Pharmacy" cat={report.pharmacyIncome} bold />
-          <CategoryRow label="Surgery Income" cat={report.surgeryIncome} bold />
-          {report.unclassifiedIncome.total !== 0 && (
-            <CategoryRow label="Unclassified -- needs review" cat={report.unclassifiedIncome} bold />
-          )}
-        </tbody>
-      </table>
-      <div style={{ fontSize: 10.5, color: '#666', marginBottom: 16 }}>
-        Investigation Income equals the "Investigation charges" row above -- already included in OPD Income, not additional.
-        "Via Advance" is revenue recognized today by applying an advance collected on an earlier day -- it involves no new cash movement today and is excluded from the Cash/UPI/Card columns and from Total Cash/UPI/Other above.
-      </div>
-
-      {(report.unclassifiedDepts.length > 0 || report.unclassifiedAdjustedDepts.length > 0) && (
-        <div style={{ border: '1px solid #b3261e', padding: 10, marginBottom: 16, fontSize: 11 }}>
-          <strong style={{ color: '#b3261e' }}>Flagged for review:</strong>{' '}
-          {[...report.unclassifiedDepts, ...report.unclassifiedAdjustedDepts].join(', ')}
-        </div>
-      )}
-
-      {/* BILLED ITEMS / ADVANCES / REFUNDS */}
+      {/* PAYMENT MODE SUMMARY -- comes first: this is the pure "what
+          actually moved today" figure the four KPI cells above are
+          built from, so it reads as the source of truth before Income
+          by Category re-slices the same money by revenue type. */}
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Payment Mode Summary</div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 18 }}>
         <thead>
@@ -149,12 +117,58 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
             </tr>
           )}
           <tr>
-            <td style={{ ...tdLeft, fontWeight: 700 }}>Grand Total (actual cash movement)</td>
+            <td style={{ ...tdLeft, fontWeight: 700 }}>Grand Total (= Total Collection above)</td>
             {MODES.map((m) => <td key={m} style={{ ...td, fontWeight: 700 }}>{report.modeSummary.byMode[m] ? fmt(report.modeSummary.byMode[m]) : '--'}</td>)}
             <td style={{ ...td, fontWeight: 800 }}>{fmt(report.modeSummary.total)}</td>
           </tr>
         </tbody>
       </table>
+
+      {/* INCOME BY CATEGORY */}
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Income by Category</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6 }}>
+        <thead>
+          <tr>
+            <th style={thLeft}>Category</th>
+            {MODES.map((m) => <th key={m} style={th}>{m}</th>)}
+            <th style={th}>Via Advance</th>
+            <th style={th}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <CategoryRow label="OPD Income" cat={report.opdIncome} bold />
+          <CategoryRow label="OPD Consultation charges" cat={report.opdIncome.consultation} italic />
+          <CategoryRow label="Procedure charges" cat={report.opdIncome.procedure} italic />
+          <CategoryRow label="Investigation charges" cat={report.opdIncome.investigation} italic />
+          <CategoryRow label="Pharmacy" cat={report.pharmacyIncome} bold />
+          <CategoryRow label="Surgery Income" cat={report.surgeryIncome} bold />
+          {report.unclassifiedIncome.total !== 0 && (
+            <CategoryRow label="Unclassified -- needs review" cat={report.unclassifiedIncome} bold />
+          )}
+          <CategoryRow
+            label="TOTAL"
+            cat={{
+              byMode: MODES.reduce((acc, m) => ({ ...acc, [m]: [report.opdIncome, report.pharmacyIncome, report.surgeryIncome, report.unclassifiedIncome].reduce((s, c) => s + (c.byMode[m] || 0), 0) }), {}),
+              total: report.opdIncome.total + report.pharmacyIncome.total + report.surgeryIncome.total + report.unclassifiedIncome.total,
+              advanceAdjusted: report.opdIncome.advanceAdjusted + report.pharmacyIncome.advanceAdjusted + report.surgeryIncome.advanceAdjusted,
+              totalWithAdjustment: report.opdIncome.totalWithAdjustment + report.pharmacyIncome.totalWithAdjustment + report.surgeryIncome.totalWithAdjustment + report.unclassifiedIncome.total,
+            }}
+            bold
+          />
+        </tbody>
+      </table>
+      <div style={{ fontSize: 10.5, color: '#666', marginBottom: 16 }}>
+        Investigation Income equals the "Investigation charges" row above -- already included in OPD Income, not additional.
+        "Via Advance" is revenue recognized today by applying an advance collected on an earlier day -- it involves no new cash movement today and is excluded from the Cash/UPI/Card columns and from Total Cash/UPI/Other above.
+        TOTAL = OPD Income + Pharmacy + Surgery Income (+ Unclassified, if any) -- equal to Billed Items in Payment Mode Summary above.
+      </div>
+
+      {(report.unclassifiedDepts.length > 0 || report.unclassifiedAdjustedDepts.length > 0) && (
+        <div style={{ border: '1px solid #b3261e', padding: 10, marginBottom: 16, fontSize: 11 }}>
+          <strong style={{ color: '#b3261e' }}>Flagged for review:</strong>{' '}
+          {[...report.unclassifiedDepts, ...report.unclassifiedAdjustedDepts].join(', ')}
+        </div>
+      )}
 
       {/* RECONCILIATION + DAY TOTALS */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 18 }}>
@@ -182,13 +196,21 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <tbody>
                   <tr><td style={tdLeft}>Total Revenue (billed)</td><td style={td}>{fmt(report.closing.total_revenue)}</td></tr>
-                  <tr><td style={tdLeft}>Total Collected</td><td style={td}>{fmt(report.closing.total_collected)}</td></tr>
+                  <tr><td style={tdLeft}>Total Collected (= Total Collection above)</td><td style={td}>{fmt(report.modeSummary.total)}</td></tr>
+                  {report.previousAdvanceAdjustedTotal > 0.001 && (
+                    <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Previous Advance Adjustment</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(report.previousAdvanceAdjustedTotal)}</td></tr>
+                  )}
                   <tr><td style={tdLeft}>Outstanding</td><td style={td}>{fmt(report.closing.total_outstanding)}</td></tr>
                   <tr><td style={tdLeft}>Petty Cash Spent</td><td style={td}>{fmt(report.closing.total_petty_cash_expenses)}</td></tr>
                   <tr><td style={tdLeft}>Invoices</td><td style={td}>{report.closing.total_invoices}</td></tr>
                   <tr><td style={tdLeft}>Visits</td><td style={td}>{report.closing.total_visits}</td></tr>
                 </tbody>
               </table>
+              {report.previousAdvanceAdjustedTotal > 0.001 && (
+                <div style={{ fontSize: 9.5, color: '#666', marginTop: 4 }}>
+                  Previous Advance Adjustment = revenue recognized today by applying an advance deposited on an earlier day -- no new cash today, already reflected in each category's "Via Advance" column above.
+                </div>
+              )}
             </td>
           </tr>
         </tbody>

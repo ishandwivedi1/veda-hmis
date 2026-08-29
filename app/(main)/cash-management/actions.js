@@ -162,6 +162,34 @@ async function getCategorizedIncome(supabase, txs) {
   return { categories, unclassifiedDepts: [...unclassifiedDepts] };
 }
 
+// Splits today's total advance-adjustment activity into "same-day"
+// (a patient paid an advance today and it was applied today too) vs
+// "previous-day" (the advance being drawn down was collected on an
+// earlier visit) -- per patient, treating today's own new advance as
+// consumed first, up to whichever is smaller: today's new advance for
+// that patient, or today's adjustment for that patient. This is a
+// conservative approximation (the advance ledger is a running balance,
+// not a dated queue of individual rupees, so there's no way to know
+// FOR CERTAIN which day's money got applied) -- but it never
+// overstates "previous day", since any ambiguous amount is attributed
+// to today's own advance first.
+function splitAdvanceAdjustmentByAge(advanceTx, adjustmentTx) {
+  function sumByPatient(txs) {
+    const m = {};
+    txs.forEach((p) => { m[p.patient_id] = (m[p.patient_id] || 0) + Number(p.total_amount || 0); });
+    return m;
+  }
+  const advanceByPatient = sumByPatient(advanceTx);
+  const adjustedByPatient = sumByPatient(adjustmentTx);
+  let previousDay = 0, sameDay = 0;
+  Object.entries(adjustedByPatient).forEach(([pid, adjustedAmt]) => {
+    const sameDayPortion = Math.min(advanceByPatient[pid] || 0, adjustedAmt);
+    sameDay += sameDayPortion;
+    previousDay += adjustedAmt - sameDayPortion;
+  });
+  return { previousDay, sameDay };
+}
+
 // ── PETTY CASH -- day-to-day hospital cash outgoings (stationery,
 // transport, refreshments, minor repairs). Entered by any staff on a
 // day that's open; no approval step. Folds into Cash reconciliation
@@ -463,6 +491,7 @@ export async function getDailyReport(date) {
     totalWithAdjustment: opdConsultation.totalWithAdjustment + opdProcedure.totalWithAdjustment + opdInvestigation.totalWithAdjustment,
   };
   const unclassified = cat('Unclassified');
+  const { previousDay: previousAdvanceAdjustedTotal, sameDay: sameDayAdvanceAdjustedTotal } = splitAdvanceAdjustmentByAge(advanceTx, adjustmentTx);
 
   return {
     closing, reconciliation: reconciliation || [], expenses,
@@ -486,6 +515,10 @@ export async function getDailyReport(date) {
     // reconciliation if merged in.
     unclassifiedAdjustedIncome: adjCategories.Unclassified || emptyCategory(),
     unclassifiedAdjustedDepts,
+    // "Previous Advance Adjustment" for Day Totals -- see
+    // splitAdvanceAdjustmentByAge for the same-day-first approximation.
+    previousAdvanceAdjustedTotal,
+    sameDayAdvanceAdjustedTotal,
   };
 }
 

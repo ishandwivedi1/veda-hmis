@@ -833,9 +833,9 @@ export default function CashManagementPage() {
                   summary sitting above the detail. */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
                 <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total Revenue</div>
-                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(report.closing.total_revenue)}</div>
-                  <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Billed today, all categories</div>
+                  <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total Collection</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(report.modeSummary.total)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Cash + UPI + Other, collected today</div>
                 </div>
                 <div className="card" style={{ borderTop: '3px solid var(--green)' }}>
                   <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total Cash</div>
@@ -865,6 +865,44 @@ export default function CashManagementPage() {
                   Closed by: {report.closing.profiles?.full_name || '--'} at {new Date(report.closing.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </div>
               </div>
+
+              {/* PAYMENT MODE SUMMARY -- comes first, right after the KPI
+                  strip: this is the pure "what actually moved today"
+                  figure the four KPI cards above are built from, so it
+                  reads as the source of truth before the category
+                  breakdown below re-slices the same money by revenue type. */}
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-cash-banknote" style={{ color: 'var(--green)' }}></i> Payment Mode Summary</div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+                  Billed Items + Advances{report.refunds.total !== 0 ? ' - Refunds' : ''}, by mode -- the actual cash movement for the day.
+                </div>
+                {Object.keys(report.modeSummary.byMode).length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'var(--g400)' }}>No payments recorded today.</div>
+                ) : (
+                  <>
+                    {Object.entries(report.modeSummary.byMode).map(([mode, amt]) => (
+                      <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                        <span>{mode}</span><span style={{ fontWeight: 600 }}>{fmt(amt)}</span>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', fontSize: 14, fontWeight: 700 }}>
+                      <span>Grand Total</span>
+                      <span style={{ color: 'var(--green)' }}>{fmt(report.modeSummary.total)}</span>
+                    </div>
+                  </>
+                )}
+                {report.refunds.total !== 0 && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--g200)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', marginBottom: 4 }}>Refunds paid out (already netted above)</div>
+                    {Object.entries(report.refunds.byMode).map(([mode, amt]) => (
+                      <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, color: 'var(--red)' }}>
+                        <span>{mode}</span><span>{fmt(amt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* INCOME BREAKDOWN -- OPD Income rolls up its three
                   components (each shown with its own mode split
                   underneath); Investigation Income is then restated as
@@ -918,6 +956,37 @@ export default function CashManagementPage() {
                   <ModeBreakdownRows cat={report.surgeryIncome} emptyLabel="No surgery collections today." totalColor="var(--red)" />
                 </div>
               </div>
+
+              {/* INCOME BY CATEGORY -- TOTAL: OPD Income + Pharmacy +
+                  Surgery Income + Unclassified (Investigation Income is
+                  NOT added again here -- it's already inside OPD Income,
+                  see the note on that card). By construction this cash
+                  total always equals Billed Items above and the Total
+                  Collection KPI minus Advances -- nothing collected
+                  today is ever left out of some category. */}
+              {(() => {
+                const catTotal = report.opdIncome.total + report.pharmacyIncome.total + report.surgeryIncome.total + report.unclassifiedIncome.total;
+                const catTotalWithAdj = report.opdIncome.totalWithAdjustment + report.pharmacyIncome.totalWithAdjustment + report.surgeryIncome.totalWithAdjustment + report.unclassifiedIncome.total;
+                const catAdvanceAdjusted = catTotalWithAdj - catTotal;
+                return (
+                  <div className="card" style={{ marginBottom: 16 }}>
+                    <div className="card-title" style={{ marginBottom: 4 }}>Income by Category -- Total</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13, fontWeight: 700 }}>
+                      <span>Cash + UPI + Other today</span><span style={{ color: 'var(--blue)' }}>{fmt(catTotal)}</span>
+                    </div>
+                    {catAdvanceAdjusted > 0.001 && (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12.5, color: 'var(--purple)' }}>
+                          <span><i className="ti ti-piggy-bank"></i> + Via Advance (adjusted today)</span><span>{fmt(catAdvanceAdjusted)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 0', marginTop: 2, borderTop: '1px solid var(--g200)', fontSize: 14, fontWeight: 800 }}>
+                          <span>Total revenue, all categories</span><span style={{ color: 'var(--blue)' }}>{fmt(catTotalWithAdj)}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
 
               {report.unclassifiedIncome.total !== 0 && (
                 <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--red)', background: 'var(--red-lt)' }}>
@@ -984,38 +1053,6 @@ export default function CashManagementPage() {
                 </div>
               </div>
 
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-cash-banknote" style={{ color: 'var(--green)' }}></i> Payment Mode Summary</div>
-                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-                  Billed Items + Advances{report.refunds.total !== 0 ? ' - Refunds' : ''}, by mode -- the actual cash movement for the day.
-                </div>
-                {Object.keys(report.modeSummary.byMode).length === 0 ? (
-                  <div style={{ fontSize: 12, color: 'var(--g400)' }}>No payments recorded today.</div>
-                ) : (
-                  <>
-                    {Object.entries(report.modeSummary.byMode).map(([mode, amt]) => (
-                      <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                        <span>{mode}</span><span style={{ fontWeight: 600 }}>{fmt(amt)}</span>
-                      </div>
-                    ))}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', fontSize: 14, fontWeight: 700 }}>
-                      <span>Grand Total</span>
-                      <span style={{ color: 'var(--green)' }}>{fmt(report.modeSummary.total)}</span>
-                    </div>
-                  </>
-                )}
-                {report.refunds.total !== 0 && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--g200)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', marginBottom: 4 }}>Refunds paid out (already netted above)</div>
-                    {Object.entries(report.refunds.byMode).map(([mode, amt]) => (
-                      <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, color: 'var(--red)' }}>
-                        <span>{mode}</span><span>{fmt(amt)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div className="card">
                   <div className="card-title" style={{ marginBottom: 10 }}>Reconciliation Summary</div>
@@ -1032,12 +1069,26 @@ export default function CashManagementPage() {
                   <div className="card-title" style={{ marginBottom: 10 }}>Day Totals</div>
                   <div style={{ fontSize: 13, lineHeight: 2 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Revenue (billed)</span><strong>{fmt(report.closing.total_revenue)}</strong></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Collected</span><strong style={{ color: 'var(--green)' }}>{fmt(report.closing.total_collected)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Total Collected</span>
+                      <strong style={{ color: 'var(--green)' }} title="Equal to the Total Collection KPI card above">{fmt(report.modeSummary.total)}</strong>
+                    </div>
+                    {report.previousAdvanceAdjustedTotal > 0.001 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--purple)' }}>Previous Advance Adjustment</span>
+                        <strong style={{ color: 'var(--purple)' }}>{fmt(report.previousAdvanceAdjustedTotal)}</strong>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outstanding</span><strong style={{ color: 'var(--amber)' }}>{fmt(report.closing.total_outstanding)}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Petty Cash Spent</span><strong style={{ color: 'var(--red)' }}>{fmt(report.closing.total_petty_cash_expenses)}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoices</span><strong>{report.closing.total_invoices}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Visits</span><strong>{report.closing.total_visits}</strong></div>
                   </div>
+                  {report.previousAdvanceAdjustedTotal > 0.001 && (
+                    <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 8 }}>
+                      Previous Advance Adjustment = revenue recognized today by applying an advance a patient deposited on an earlier day -- no new cash today, already reflected in each category's "Via Advance" line above.
+                    </div>
+                  )}
                 </div>
               </div>
 
