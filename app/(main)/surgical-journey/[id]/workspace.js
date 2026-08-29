@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
+import ConfirmActionModal from '@/app/components/ConfirmActionModal';
 import {
   getSurgicalCaseDetail,
   setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions,
@@ -21,6 +22,13 @@ import { rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
 import { openPopup, openTab } from '@/lib/popup';
 
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
+
+// "15 Aug 2026" style, for the biometry re-order confirmation message --
+// same format Consultation's own version of this prompt uses.
+function formatDateReadable(isoTimestamp) {
+  if (!isoTimestamp) return 'an earlier visit';
+  return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(isoTimestamp));
+}
 
 // ── HEADER (editable) ──────────────────────────────────────────────
 function CaseHeader({ sc, patient, onAction, caseProcedures = [] }) {
@@ -302,7 +310,7 @@ export default function Workspace({ caseId }) {
       <DecisionSection sc={sc} onAction={flash} onDecline={handleDecline} active={currentStep === 'decision'} />
 
       {/* 2. INVESTIGATIONS */}
-      <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} inHouseInvestigations={data.inHouseInvestigations} externalTests={data.externalTests} onAction={flash} active={currentStep === 'investigations'} />
+      <InvestigationsSection sc={sc} biometryRecords={data.biometryRecords} inHouseInvestigations={data.inHouseInvestigations} externalTests={data.externalTests} onAction={flash} refresh={refresh} active={currentStep === 'investigations'} />
 
       {/* 3. PACKAGE & IOL DECISION */}
       <PackageDecisionSection sc={sc} caseProcedures={data.caseProcedures} onAction={flash} active={currentStep === 'package'} />
@@ -517,21 +525,58 @@ function IolApprovalSection({ sc, iolApproval, active, refresh, num }) {
 // Investigation module, status + View Report) and External (done
 // elsewhere -- add multiple named tests, upload/view each one's report
 // separately, and print the whole list as a referral slip). ──
-function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, externalTests, onAction, active }) {
+function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, externalTests, onAction, refresh, active }) {
   const [invOptions, setInvOptions] = useState([]);
   const [selectedInv, setSelectedInv] = useState('');
   const [invEye, setInvEye] = useState('OU');
   const [extTestName, setExtTestName] = useState('');
   const [expandedTestId, setExpandedTestId] = useState(null);
+  const [invError, setInvError] = useState('');
+  // Set when adding "Biometry" comes back asking to confirm a fresh
+  // record despite an existing "Measured" one on file -- see the same
+  // pattern in Consultation's consultation-form.js.
+  const [biometryReorderPrompt, setBiometryReorderPrompt] = useState(null);
   const biometryOrdered = biometryRecords.length > 0;
 
   useEffect(() => { getInvestigationOptionsForCase().then(setInvOptions); }, []);
+
+  // Shared by the suggestion chips and the manual dropdown Add button --
+  // both can hit "Biometry", so both need to handle the confirmation
+  // response the same way instead of the generic onAction(flash)
+  // wrapper (which would show a false "Saved." for a needsConfirmation
+  // response, since that's not an error).
+  async function handleAddInvestigation(name, eye, confirmFreshBiometry = false) {
+    setInvError('');
+    const result = await addInHouseInvestigationForCase(sc.id, name, eye, confirmFreshBiometry);
+    if (result?.needsConfirmation === 'biometry') {
+      setBiometryReorderPrompt({ name, eye, existingDate: result.existingBiometryDate });
+      return;
+    }
+    setBiometryReorderPrompt(null);
+    if (result?.error) { setInvError(result.error); return; }
+    setSelectedInv('');
+    await refresh();
+  }
 
   return (
     <Section num={2} color="var(--purple)" title="Investigations" done={biometryOrdered} active={active}>
       <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 14 }}>
         Optional -- add whatever this case actually needs, not a fixed checklist.
       </div>
+
+      {invError && <div className="msg-err" style={{ marginBottom: 10 }}>{invError}</div>}
+
+      {biometryReorderPrompt && (
+        <ConfirmActionModal
+          icon="ti-ruler-2" iconColor="var(--purple)" iconBg="rgba(124,58,237,.12)"
+          title="Biometry already on file"
+          description={`Biometry for this patient was already measured on ${formatDateReadable(biometryReorderPrompt.existingDate)} and is available in the Biometry module -- it'll show up on this case automatically. Order a fresh measurement anyway?`}
+          confirmLabel="Yes, order a fresh one"
+          cancelLabel="No, use existing"
+          onCancel={() => setBiometryReorderPrompt(null)}
+          onConfirm={() => handleAddInvestigation(biometryReorderPrompt.name, biometryReorderPrompt.eye, true)}
+        />
+      )}
 
       {(() => {
         // The doctor's indicative picks from Consultation's "Pre Op
@@ -553,7 +598,7 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
               {suggestions.map((inv, idx) => (
                 <button
                   key={idx} type="button" className="btn btn-sm"
-                  onClick={() => onAction(addInHouseInvestigationForCase)(sc.id, inv.name, inv.eye || 'OU')}
+                  onClick={() => handleAddInvestigation(inv.name, inv.eye || 'OU')}
                 >
                   <i className="ti ti-plus"></i> {inv.name} ({inv.eye || 'OU'})
                 </button>
@@ -601,7 +646,7 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
           </select>
           <button
             className="btn btn-sm btn-primary" disabled={!selectedInv}
-            onClick={async () => { const r = await onAction(addInHouseInvestigationForCase)(sc.id, selectedInv, invEye); if (!r?.error) setSelectedInv(''); }}
+            onClick={() => handleAddInvestigation(selectedInv, invEye)}
           >
             <i className="ti ti-plus"></i> Add
           </button>

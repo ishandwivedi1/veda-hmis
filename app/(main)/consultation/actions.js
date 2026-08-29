@@ -882,11 +882,14 @@ async function ensureBiometryRecord(supabase, patientId, visitId, encounterId, i
 // if any) without moving the patient's queue position at all. Mirrors
 // exactly how Investigations work: "Add" saves the order, "Send for
 // Investigation" is a separate, later action that routes the patient.
-export async function adviseBiometry(patientId, visitId, encounterId, instructions) {
+// forceNew: see ensureBiometryRecord -- true always creates a fresh
+// record instead of reusing an existing one, used after a caller has
+// explicitly confirmed that despite an existing "Measured" record.
+export async function adviseBiometry(patientId, visitId, encounterId, instructions, forceNew = false) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
-  await ensureBiometryRecord(supabase, patientId, visitId, encounterId, instructions);
-  await addAudit(supabase, encounterId, 'Biometry advised', userData?.user?.id);
+  await ensureBiometryRecord(supabase, patientId, visitId, encounterId, instructions, forceNew);
+  await addAudit(supabase, encounterId, forceNew ? 'Biometry advised (fresh measurement requested despite existing record)' : 'Biometry advised', userData?.user?.id);
   return { success: true };
 }
 
