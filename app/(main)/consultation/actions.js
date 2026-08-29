@@ -589,8 +589,13 @@ export async function addInvestigation(encounterId, values) {
   // eye years later, etc). Rather than hard-blocking, this asks the
   // caller to confirm first: returns needsConfirmation instead of
   // creating anything, and the UI is expected to show what's on file
-  // and let the doctor decide. Passing values.confirmFreshBiometry=true
-  // skips this check and always creates a new record.
+  // and let the doctor decide between two real outcomes -- both create
+  // this visit's investigation_orders row either way, they only differ
+  // in whether the underlying biometry_records is a new one or the
+  // existing one gets attached to this visit. values.biometryChoice:
+  // 'fresh' forces a new record; 'existing' explicitly attaches the one
+  // already on file (this is NOT a no-op -- the whole point of asking
+  // was that silently doing nothing left nothing visible on this visit).
   if (values.name.trim().toLowerCase() === 'biometry') {
     const { data: enc } = await supabase.from('encounters').select('visit_id, visits(patient_id)').eq('id', encounterId).single();
     const patientId = enc?.visits?.patient_id;
@@ -605,7 +610,7 @@ export async function addInvestigation(encounterId, values) {
       .limit(1);
 
     const onFile = existing && existing.length > 0 ? existing[0] : null;
-    if (onFile && onFile.status === 'Measured' && !values.confirmFreshBiometry) {
+    if (onFile && onFile.status === 'Measured' && !values.biometryChoice) {
       return {
         needsConfirmation: 'biometry',
         existingBiometryDate: onFile.verified_at || onFile.updated_at,
@@ -620,9 +625,12 @@ export async function addInvestigation(encounterId, values) {
     // Shared with Surgical Journey's own "order Biometry" path --
     // creates the biometry_records row if none exists yet, or just
     // reuses the one that does, instead of duplicating that logic here.
-    await ensureBiometryRecord(supabase, patientId, enc.visit_id, encounterId, null, !!values.confirmFreshBiometry);
+    await ensureBiometryRecord(supabase, patientId, enc.visit_id, encounterId, null, values.biometryChoice === 'fresh');
 
-    await addAudit(supabase, encounterId, values.confirmFreshBiometry ? 'Biometry re-ordered (fresh measurement requested despite existing record)' : 'Biometry ordered', userData?.user?.id);
+    const auditMsg = values.biometryChoice === 'fresh' ? 'Biometry re-ordered (fresh measurement requested despite existing record)'
+      : values.biometryChoice === 'existing' ? 'Biometry ordered (existing record on file attached to this visit)'
+      : 'Biometry ordered';
+    await addAudit(supabase, encounterId, auditMsg, userData?.user?.id);
     return { success: true };
   }
 

@@ -536,18 +536,25 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
   // record despite an existing "Measured" one on file -- see the same
   // pattern in Consultation's consultation-form.js.
   const [biometryReorderPrompt, setBiometryReorderPrompt] = useState(null);
+  const [biometryReorderLoading, setBiometryReorderLoading] = useState(false);
   const biometryOrdered = biometryRecords.length > 0;
 
   useEffect(() => { getInvestigationOptionsForCase().then(setInvOptions); }, []);
 
-  // Shared by the suggestion chips and the manual dropdown Add button --
-  // both can hit "Biometry", so both need to handle the confirmation
-  // response the same way instead of the generic onAction(flash)
-  // wrapper (which would show a false "Saved." for a needsConfirmation
-  // response, since that's not an error).
-  async function handleAddInvestigation(name, eye, confirmFreshBiometry = false) {
+  // Shared by the suggestion chips, the manual dropdown Add button, and
+  // both resolutions of the biometry re-order prompt -- all four end up
+  // here since they all need the same needsConfirmation handling
+  // instead of the generic onAction(flash) wrapper (which would show a
+  // false "Saved." for a needsConfirmation response, since that's not
+  // an error). Both prompt resolutions ('fresh' and 'existing') create
+  // this case's investigation_orders row either way -- 'existing' is
+  // NOT a no-op, it explicitly attaches the record already on file so
+  // it still shows up here.
+  async function handleAddInvestigation(name, eye, biometryChoice) {
     setInvError('');
-    const result = await addInHouseInvestigationForCase(sc.id, name, eye, confirmFreshBiometry);
+    setBiometryReorderLoading(true);
+    const result = await addInHouseInvestigationForCase(sc.id, name, eye, biometryChoice);
+    setBiometryReorderLoading(false);
     if (result?.needsConfirmation === 'biometry') {
       setBiometryReorderPrompt({ name, eye, existingDate: result.existingBiometryDate });
       return;
@@ -570,11 +577,12 @@ function InvestigationsSection({ sc, biometryRecords, inHouseInvestigations, ext
         <ConfirmActionModal
           icon="ti-ruler-2" iconColor="var(--purple)" iconBg="rgba(124,58,237,.12)"
           title="Biometry already on file"
-          description={`Biometry for this patient was already measured on ${formatDateReadable(biometryReorderPrompt.existingDate)} and is available in the Biometry module -- it'll show up on this case automatically. Order a fresh measurement anyway?`}
+          description={`Biometry for this patient was already measured on ${formatDateReadable(biometryReorderPrompt.existingDate)} and is available in the Biometry module. Order a fresh measurement, or attach the existing record to this case?`}
           confirmLabel="Yes, order a fresh one"
           cancelLabel="No, use existing"
-          onCancel={() => setBiometryReorderPrompt(null)}
-          onConfirm={() => handleAddInvestigation(biometryReorderPrompt.name, biometryReorderPrompt.eye, true)}
+          loading={biometryReorderLoading}
+          onCancel={() => handleAddInvestigation(biometryReorderPrompt.name, biometryReorderPrompt.eye, 'existing')}
+          onConfirm={() => handleAddInvestigation(biometryReorderPrompt.name, biometryReorderPrompt.eye, 'fresh')}
         />
       )}
 

@@ -65,14 +65,14 @@ export async function getInvestigationOptionsForCase() {
   return data || [];
 }
 
-export async function addInHouseInvestigationForCase(caseId, name, eye, confirmFreshBiometry = false) {
+export async function addInHouseInvestigationForCase(caseId, name, eye, biometryChoice) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
   const { data: sc } = await supabase.from('surgical_cases').select('encounter_id, patient_id, visit_id').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
 
-  const result = await addInvestigationToSurgicalCase(supabase, sc, name, eye, { askBeforeReuse: true, confirmFreshBiometry });
+  const result = await addInvestigationToSurgicalCase(supabase, sc, name, eye, { askBeforeReuse: true, biometryChoice });
   if (result.needsConfirmation || result.error) return result;
 
   await supabase.from('encounter_audit_log').insert({

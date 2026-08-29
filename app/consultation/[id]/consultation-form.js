@@ -143,6 +143,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   // name/eye/priority so "Yes, order a fresh one" can resubmit with
   // confirmFreshBiometry: true without the doctor retyping anything.
   const [biometryReorderPrompt, setBiometryReorderPrompt] = useState(null);
+  const [biometryReorderLoading, setBiometryReorderLoading] = useState(false);
   // Asked inside the Complete Visit confirmation, only when this
   // encounter just advised a surgery AND the visit itself isn't
   // already a surgical-track visit type (Surgery Evaluation etc.) --
@@ -388,14 +389,18 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     refresh();
   }
 
-  // "Yes, order a fresh one" from the biometry re-order confirmation --
-  // resubmits the same values with confirmFreshBiometry: true, which
-  // skips the existing-record check server-side and always creates a
-  // new biometry_records row instead of reusing the one on file.
-  async function confirmFreshBiometryOrder() {
+  // Resolves the biometry re-order confirmation -- both choices create
+  // this visit's investigation_orders row (so it shows up in the list
+  // below either way); they only differ in whether ensureBiometryRecord
+  // makes a fresh biometry_records row or attaches the existing one.
+  // 'existing' is NOT a no-op/cancel -- the whole point of asking was
+  // that silently doing nothing left nothing visible on this visit.
+  async function resolveBiometryReorder(choice) {
     if (!biometryReorderPrompt) return;
     setError('');
-    const result = await addInvestigation(data.encounter.id, { ...biometryReorderPrompt.values, confirmFreshBiometry: true });
+    setBiometryReorderLoading(true);
+    const result = await addInvestigation(data.encounter.id, { ...biometryReorderPrompt.values, biometryChoice: choice });
+    setBiometryReorderLoading(false);
     setBiometryReorderPrompt(null);
     if (result.error) { setError(result.error); return; }
     setInvName('');
@@ -1546,11 +1551,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
             <ConfirmActionModal
               icon="ti-ruler-2" iconColor="var(--purple)" iconBg="rgba(124,58,237,.12)"
               title="Biometry already on file"
-              description={`Biometry for this patient was already measured on ${formatDateReadable(biometryReorderPrompt.existingDate)} and is available in the Biometry module. Order a fresh measurement anyway?`}
+              description={`Biometry for this patient was already measured on ${formatDateReadable(biometryReorderPrompt.existingDate)} and is available in the Biometry module. Order a fresh measurement, or attach the existing record to this visit?`}
               confirmLabel="Yes, order a fresh one"
-              cancelLabel="No, keep existing"
-              onCancel={() => setBiometryReorderPrompt(null)}
-              onConfirm={confirmFreshBiometryOrder}
+              cancelLabel="No, use existing"
+              loading={biometryReorderLoading}
+              onCancel={() => resolveBiometryReorder('existing')}
+              onConfirm={() => resolveBiometryReorder('fresh')}
             />
           )}
 
