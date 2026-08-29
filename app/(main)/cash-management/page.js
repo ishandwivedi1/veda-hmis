@@ -26,6 +26,7 @@ import { getApprovers } from '@/app/(main)/payments/actions';
 import { getOpenQueueEntriesToday, bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import { uploadAttachment } from '@/lib/attachments';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const TABS = [
   { key: 'summary', label: "Today's Collection", icon: 'ti-chart-bar' },
@@ -810,14 +811,51 @@ export default function CashManagementPage() {
 
       {activeTab === 'report' && (
         <div>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <label className="flbl">Report date</label>
-            <input type="date" className="fi" style={{ maxWidth: 200 }} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+          <div className="card" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <label className="flbl">Report date</label>
+              <input type="date" className="fi" style={{ maxWidth: 200 }} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+            </div>
+            {report?.closing && (
+              <button className="btn btn-primary" onClick={() => openPrintPopup(`/cash-daily-report-print?date=${reportDate}`)}>
+                <i className="ti ti-printer"></i> Print Daily Report
+              </button>
+            )}
           </div>
           {!report?.closing ? (
             <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>No closed day on record for this date.</div>
           ) : (
             <>
+              {/* KPI STRIP -- same visual style as the Billing Dashboard's
+                  tabs (colored top border, big number). Not click-to-filter
+                  here since the report below is one continuous printable
+                  document, not swappable panels -- these are a quick-glance
+                  summary sitting above the detail. */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+                <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total Revenue</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(report.closing.total_revenue)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Billed today, all categories</div>
+                </div>
+                <div className="card" style={{ borderTop: '3px solid var(--green)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total Cash</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(report.modeSummary.byMode['Cash'] || 0)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Collected today</div>
+                </div>
+                <div className="card" style={{ borderTop: '3px solid var(--indigo)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total UPI</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(report.modeSummary.byMode['UPI'] || 0)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Collected today</div>
+                </div>
+                <div className="card" style={{ borderTop: '3px solid var(--purple)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total Other</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>
+                    {fmt(Object.entries(report.modeSummary.byMode).filter(([m]) => m !== 'Cash' && m !== 'UPI').reduce((s, [, amt]) => s + amt, 0))}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Card, Cheque, Bank Transfer</div>
+                </div>
+              </div>
+
               <div style={{ background: 'linear-gradient(135deg,#1e1b4b,#1e4e8c)', color: '#fff', borderRadius: 12, padding: '20px 24px', marginBottom: 16 }}>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>VEDA EYE HOSPITAL</div>
                 <div style={{ fontSize: 12, opacity: .8 }}>Haridwar, Uttarakhand</div>
