@@ -46,21 +46,41 @@ function fmt(n) {
 // category in the Daily Report (OPD's three components, Investigation,
 // Pharmacy, Surgery) so the same Cash/UPI/Card/Cheque/Bank Transfer
 // demarcation appears identically everywhere instead of being
-// hand-rolled per section.
+// hand-rolled per section. If cat carries advanceAdjusted (money
+// recognized today via an advance applied today, e.g. a surgery
+// invoiced today but paid from an advance collected on an earlier
+// day), that's shown as its own line -- deliberately separate from the
+// Cash/UPI/etc rows above, since it's not new cash today -- plus a
+// combined total underneath.
 function ModeBreakdownRows({ cat, emptyLabel, totalColor = 'var(--g800)', totalLabel = 'Total' }) {
-  if (Object.keys(cat.byMode).length === 0) {
+  const hasAdjustment = !!cat.advanceAdjusted && Math.abs(cat.advanceAdjusted) > 0.001;
+  if (Object.keys(cat.byMode).length === 0 && !hasAdjustment) {
     return <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>{emptyLabel}</div>;
   }
   return (
     <>
+      {Object.keys(cat.byMode).length === 0 && (
+        <div style={{ fontSize: 11.5, color: 'var(--g400)', padding: '4px 0' }}>No cash collected today.</div>
+      )}
       {Object.entries(cat.byMode).map(([mode, amt]) => (
         <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12.5 }}>
           <span style={{ color: 'var(--g500)' }}>{mode}</span><span>{fmt(amt)}</span>
         </div>
       ))}
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 0', marginTop: 2, borderTop: '1px solid var(--g100)', fontSize: 13, fontWeight: 700 }}>
-        <span>{totalLabel}</span><span style={{ color: totalColor }}>{fmt(cat.total)}</span>
+        <span>{totalLabel}{hasAdjustment ? ' (cash today)' : ''}</span><span style={{ color: totalColor }}>{fmt(cat.total)}</span>
       </div>
+      {hasAdjustment && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12.5 }}>
+            <span style={{ color: 'var(--purple)' }}><i className="ti ti-piggy-bank"></i> Via Advance (adjusted today)</span>
+            <span style={{ color: 'var(--purple)' }}>{fmt(cat.advanceAdjusted)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 0', marginTop: 2, borderTop: '1px solid var(--g200)', fontSize: 13, fontWeight: 800 }}>
+            <span>Total revenue (cash + advance)</span><span style={{ color: totalColor }}>{fmt(cat.totalWithAdjustment)}</span>
+          </div>
+        </>
+      )}
     </>
   );
 }
@@ -820,9 +840,15 @@ export default function CashManagementPage() {
                 <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-building-hospital" style={{ color: 'var(--blue)' }}></i> OPD Income</div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Consultation + Procedure + Investigation charges billed and collected today.</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0 10px', marginBottom: 10, borderBottom: '1.5px solid var(--g200)' }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>Total, all modes</span>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>Total, all modes{report.opdIncome.advanceAdjusted > 0.001 ? ' (cash today)' : ''}</span>
                   <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--blue)' }}>{fmt(report.opdIncome.total)}</span>
                 </div>
+                {report.opdIncome.advanceAdjusted > 0.001 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 0 10px', marginBottom: 10, marginTop: -6, borderBottom: '1.5px solid var(--g200)' }}>
+                    <span style={{ fontSize: 12, color: 'var(--purple)' }}><i className="ti ti-piggy-bank"></i> + Via Advance (adjusted today)</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--purple)' }}>{fmt(report.opdIncome.advanceAdjusted)} -- total {fmt(report.opdIncome.totalWithAdjustment)}</span>
+                  </div>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
                   <div>
                     <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', marginBottom: 4 }}>OPD Consultation charges</div>
@@ -866,6 +892,18 @@ export default function CashManagementPage() {
                     Check Financial Masters for services with an unexpected or missing department, or an invoice with missing line items.
                   </div>
                   <ModeBreakdownRows cat={report.unclassifiedIncome} emptyLabel="" totalColor="var(--red)" />
+                </div>
+              )}
+
+              {report.unclassifiedAdjustedIncome.total !== 0 && (
+                <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--red)', background: 'var(--red-lt)' }}>
+                  <div className="card-title" style={{ marginBottom: 4, color: 'var(--red)' }}>
+                    <i className="ti ti-alert-triangle"></i> Unclassified Advance Adjustment -- needs review
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--g600)' }}>
+                    {fmt(report.unclassifiedAdjustedIncome.total)} was applied from advance against an invoice today, but didn't match a known revenue category
+                    {report.unclassifiedAdjustedDepts.length > 0 && <> -- service dept{report.unclassifiedAdjustedDepts.length > 1 ? 's' : ''}: <strong>{report.unclassifiedAdjustedDepts.join(', ')}</strong></>}.
+                  </div>
                 </div>
               )}
 

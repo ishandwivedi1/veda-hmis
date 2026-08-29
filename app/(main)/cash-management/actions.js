@@ -51,11 +51,13 @@ function mergeByMode(...cats) {
   return merged;
 }
 
-// Re-slices today's invoice_payment collections (already computed by
-// getTodayCollectionSummary) by revenue category, with each category's
-// own Cash/UPI/Card/Cheque/Bank Transfer breakdown -- not just "how
-// much was collected" but "how much of THIS specific revenue type
-// came in on THIS mode".
+// Re-slices a set of today's payment transactions (invoice_payment OR
+// advance_adjustment -- see getDailyReport, which calls this twice) by
+// revenue category, with each category's own Cash/UPI/Card/Cheque/Bank
+// Transfer breakdown -- not just "how much was collected" but "how
+// much of THIS specific revenue type came in on THIS mode". (Advance
+// adjustments never carry a mode -- no new cash moved -- so their
+// byMode stays empty and only .total is populated for them.)
 //
 // This requires a proper 3-way proportional split, not a simple
 // lookup, because none of the three layers line up 1:1:
@@ -72,10 +74,10 @@ function mergeByMode(...cats) {
 // with no line items on file at all) lands in 'Unclassified' instead,
 // and unclassifiedDepts lists exactly which raw dept strings triggered
 // it, so it can be flagged rather than silently missed.
-async function getCategorizedIncome(supabase, billedTx) {
-  if (billedTx.length === 0) return { categories: {}, unclassifiedDepts: [] };
+async function getCategorizedIncome(supabase, txs) {
+  if (txs.length === 0) return { categories: {}, unclassifiedDepts: [] };
 
-  const paymentIds = billedTx.map((p) => p.id);
+  const paymentIds = txs.map((p) => p.id);
   const { data: allocations } = await supabase
     .from('payment_allocations')
     .select('payment_id, invoice_id, amount')
@@ -102,33 +104,45 @@ async function getCategorizedIncome(supabase, billedTx) {
 
   const categories = {};
   const unclassifiedDepts = new Set();
-  function addTo(category, mode, amt) {
+  // Total and mode-split are tracked separately now, not derived from
+  // each other -- advance-adjustment transactions (see below) never
+  // get a payment_modes row at all, so a total that only accumulated
+  // inside the mode loop would silently stay zero for them.
+  function addTotal(category, amt) {
+    if (amt === 0) return;
+    if (!categories[category]) categories[category] = emptyCategory();
+    categories[category].total += amt;
+  }
+  function addMode(category, mode, amt) {
     if (amt === 0) return;
     if (!categories[category]) categories[category] = emptyCategory();
     categories[category].byMode[mode] = (categories[category].byMode[mode] || 0) + amt;
-    categories[category].total += amt;
   }
 
-  billedTx.forEach((p) => {
+  txs.forEach((p) => {
     const total = Number(p.total_amount) || 0;
     if (total <= 0) return;
     const allocs = allocByPayment[p.id] || [];
     const modes = p.payment_modes || [];
     let allocatedShare = 0;
     allocs.forEach((a) => {
-      const invShare = Number(a.amount) / total;
+      const allocAmt = Number(a.amount);
+      const invShare = allocAmt / total;
       allocatedShare += invShare;
       const invEntry = invoiceDeptMap[a.invoice_id];
       if (!invEntry || invEntry.totalNet <= 0) {
         unclassifiedDepts.add('(no line items on file for this invoice)');
-        modes.forEach((m) => addTo('Unclassified', m.mode, Number(m.amount) * invShare));
+        addTotal('Unclassified', allocAmt);
+        modes.forEach((m) => addMode('Unclassified', m.mode, Number(m.amount) * invShare));
         return;
       }
       Object.entries(invEntry.byDept).forEach(([dept, deptNet]) => {
         const deptShare = deptNet / invEntry.totalNet;
         const category = DEPT_CATEGORY[dept];
         if (!category) unclassifiedDepts.add(dept);
-        modes.forEach((m) => addTo(category || 'Unclassified', m.mode, Number(m.amount) * invShare * deptShare));
+        const finalCategory = category || 'Unclassified';
+        addTotal(finalCategory, allocAmt * deptShare);
+        modes.forEach((m) => addMode(finalCategory, m.mode, Number(m.amount) * invShare * deptShare));
       });
     });
     // collect_payment() auto-credits any amount beyond the selected
@@ -140,7 +154,8 @@ async function getCategorizedIncome(supabase, billedTx) {
     const leftoverShare = 1 - allocatedShare;
     if (leftoverShare > 0.001) {
       unclassifiedDepts.add('(overpayment auto-credited to patient advance)');
-      modes.forEach((m) => addTo('Unclassified', m.mode, Number(m.amount) * leftoverShare));
+      addTotal('Unclassified', total * leftoverShare);
+      modes.forEach((m) => addMode('Unclassified', m.mode, Number(m.amount) * leftoverShare));
     }
   });
 
@@ -406,9 +421,29 @@ export async function getDailyReport(date) {
   const billedTx = collectionSummary.transactions.filter((p) => p.payment_type === 'invoice_payment');
   const advanceTx = collectionSummary.transactions.filter((p) => p.payment_type === 'advance');
   const refundTx = collectionSummary.transactions.filter((p) => p.payment_type === 'refund');
+  // Advance applied against an invoice today (e.g. a surgery invoiced
+  // today, paid from an advance collected on an earlier day) -- no new
+  // cash moves, so this is correctly excluded from Billed Items/
+  // Payment Mode Summary above. But the revenue still needs to show up
+  // somewhere on invoice day, or Surgery Income would read Rs.0 for a
+  // surgery that was fully settled from advance. Categorized the same
+  // way as billedTx, kept as a separate "advanceAdjusted" figure per
+  // category rather than merged into the cash totals -- Payment Mode
+  // Summary stays a pure "what actually moved today" figure, while
+  // each Income category shows both its cash total and, separately,
+  // how much more was recognized today via an advance applied today.
+  const adjustmentTx = collectionSummary.transactions.filter((p) => p.payment_type === 'advance_adjustment');
 
-  const { categories, unclassifiedDepts } = await getCategorizedIncome(supabase, billedTx);
+  const [{ categories, unclassifiedDepts }, { categories: adjCategories, unclassifiedDepts: unclassifiedAdjustedDepts }] = await Promise.all([
+    getCategorizedIncome(supabase, billedTx),
+    getCategorizedIncome(supabase, adjustmentTx),
+  ]);
   const cat = (name) => categories[name] || emptyCategory();
+  const adjTotal = (name) => (adjCategories[name] || emptyCategory()).total;
+
+  function withAdjustment(base, adjustedTotal) {
+    return { ...base, advanceAdjusted: adjustedTotal, totalWithAdjustment: base.total + adjustedTotal };
+  }
 
   // OPD Income is the roll-up of the three OPD-workflow categories --
   // shown as its own headline total/mode-split, with each component
@@ -417,13 +452,15 @@ export async function getDailyReport(date) {
   // since Front Office may want to see it without wading through the
   // OPD breakdown -- it is NOT additional money on top of OPD Income,
   // just the same investigation revenue shown a second way.
-  const opdConsultation = cat('OPD Consultation charges');
-  const opdProcedure = cat('Procedure charges');
-  const opdInvestigation = cat('Investigation charges');
+  const opdConsultation = withAdjustment(cat('OPD Consultation charges'), adjTotal('OPD Consultation charges'));
+  const opdProcedure = withAdjustment(cat('Procedure charges'), adjTotal('Procedure charges'));
+  const opdInvestigation = withAdjustment(cat('Investigation charges'), adjTotal('Investigation charges'));
   const opdIncome = {
     consultation: opdConsultation, procedure: opdProcedure, investigation: opdInvestigation,
     byMode: mergeByMode(opdConsultation, opdProcedure, opdInvestigation),
     total: opdConsultation.total + opdProcedure.total + opdInvestigation.total,
+    advanceAdjusted: opdConsultation.advanceAdjusted + opdProcedure.advanceAdjusted + opdInvestigation.advanceAdjusted,
+    totalWithAdjustment: opdConsultation.totalWithAdjustment + opdProcedure.totalWithAdjustment + opdInvestigation.totalWithAdjustment,
   };
   const unclassified = cat('Unclassified');
 
@@ -438,10 +475,17 @@ export async function getDailyReport(date) {
     modeSummary: { byMode: collectionSummary.byMode, total: collectionSummary.total },
     opdIncome,
     investigationIncome: opdInvestigation,
-    pharmacyIncome: cat('Pharmacy'),
-    surgeryIncome: cat('Surgery Income'),
+    pharmacyIncome: withAdjustment(cat('Pharmacy'), adjTotal('Pharmacy')),
+    surgeryIncome: withAdjustment(cat('Surgery Income'), adjTotal('Surgery Income')),
     unclassifiedIncome: unclassified,
     unclassifiedDepts,
+    // Advance-adjustment activity that itself couldn't be categorized
+    // (e.g. an invoice with no line items) -- tracked separately from
+    // unclassifiedIncome/unclassifiedDepts above since it's not part
+    // of the same billedItems total, and would misreport that
+    // reconciliation if merged in.
+    unclassifiedAdjustedIncome: adjCategories.Unclassified || emptyCategory(),
+    unclassifiedAdjustedDepts,
   };
 }
 
