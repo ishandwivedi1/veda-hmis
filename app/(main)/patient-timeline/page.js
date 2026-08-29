@@ -186,7 +186,7 @@ function PatientTimelineInner() {
                 {selectedEvent.type === 'Investigation' && selectedEvent.id && (
                   selectedEvent.title?.trim().toLowerCase() === 'biometry' ? (
                     <a
-                      href="/biometry"
+                      href={`/biometry/${selectedEvent.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn btn-primary btn-sm"

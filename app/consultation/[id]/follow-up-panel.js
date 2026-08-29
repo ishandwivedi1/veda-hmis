@@ -26,12 +26,15 @@ function iopStr(iop) {
 
 // Biometry investigations are fulfilled through the Biometry module,
 // not the plain Investigation workspace -- route clicks accordingly.
+// e.id is the biometry_records id for these events (see
+// getPatientTimeline), so this opens the specific record directly,
+// same as Consultation and Surgical Journey's own report links.
 function isBiometryTitle(title) {
   return (title || '').trim().toLowerCase() === 'biometry';
 }
 
 function openInvestigation(e) {
-  if (isBiometryTitle(e.title)) window.open('/biometry', '_blank', 'noopener,noreferrer');
+  if (isBiometryTitle(e.title)) window.open(e.id ? `/biometry/${e.id}` : '/biometry', '_blank', 'noopener,noreferrer');
   else openPopup(`/investigation/${e.id}?mode=view`, `inv-${e.id}`);
 }
 

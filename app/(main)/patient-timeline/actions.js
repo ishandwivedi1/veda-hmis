@@ -65,11 +65,28 @@ export async function getPatientTimeline(patientId) {
   if (encounterIds.length > 0) {
     const [{ data: d }, { data: i }, { data: p }] = await Promise.all([
       supabase.from('diagnoses').select('*').in('encounter_id', encounterIds),
-      supabase.from('investigation_orders').select('*').in('encounter_id', encounterIds),
+      // Biometry is excluded here -- it's patient-level, not tied to
+      // any one encounter, and not every biometry order even creates
+      // an investigation_orders stub (Counselling's own "Send for
+      // Biometry" never does -- see sendForBiometry). Sourcing it from
+      // biometry_records directly below instead means it shows up
+      // regardless of which of the three places it was ordered from,
+      // and without risking a second, duplicate "Biometry" entry when
+      // a stub row does exist alongside it.
+      supabase.from('investigation_orders').select('*').in('encounter_id', encounterIds).not('name', 'ilike', 'biometry'),
       supabase.from('prescriptions').select('*').in('encounter_id', encounterIds),
     ]);
     diagnoses = d || []; investigations = i || []; prescriptions = p || [];
   }
+
+  // Patient-level, not encounter-scoped -- same lookup Consultation and
+  // Surgical Journey's own case pages already use.
+  const { data: biometryRecords } = await supabase
+    .from('biometry_records')
+    .select('id, status, verify_remarks, verified_at, created_at, visit_id')
+    .eq('patient_id', patientId)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false });
 
   const visitById = {};
   (visits || []).forEach((v) => { visitById[v.id] = v; });
@@ -103,6 +120,20 @@ export async function getPatientTimeline(patientId) {
       detail: `${i.eye} -- ${i.status}${i.result_notes ? ` -- ${i.result_notes}` : ''}`,
       visit: visit?.visit_number || '--',
       id: i.id, status: i.status,
+    });
+  });
+
+  // id here is the biometry_records id (not an investigation_orders
+  // id) -- the UI's openInvestigation() routes Biometry-titled events
+  // to /biometry/[id] using this same id, same as Consultation and
+  // Surgical Journey's own report links.
+  (biometryRecords || []).forEach((b) => {
+    const visit = visitById[b.visit_id];
+    events.push({
+      type: 'Investigation', date: b.created_at, title: 'Biometry',
+      detail: `${b.status}${b.verify_remarks ? ` -- ${b.verify_remarks}` : ''}`,
+      visit: visit?.visit_number || '--',
+      id: b.id, status: b.status,
     });
   });
 
