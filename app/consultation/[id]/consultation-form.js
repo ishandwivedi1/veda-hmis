@@ -55,6 +55,12 @@ function todayIst() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
+// "15 Aug 2026" style, for the biometry re-order confirmation message.
+function formatDateReadable(isoTimestamp) {
+  if (!isoTimestamp) return 'an earlier visit';
+  return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(isoTimestamp));
+}
+
 const INV_STATUS_BADGE = { Ordered: 'b-gray', 'In Progress': 'b-blue', Completed: 'b-teal', Available: 'b-purple', Cancelled: 'b-red' };
 
 function DiagnosisRow({ d, index, encounterId, onRemove }) {
@@ -131,6 +137,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   // null | 'complete' | 'dilate' | 'investigate' | 'procedure' -- which
   // of the bottom action bar's confirmation modals is currently open.
   const [confirmAction, setConfirmAction] = useState(null);
+  // Set when addInvestigation comes back asking to confirm a fresh
+  // Biometry order despite an existing "Measured" record on file --
+  // holds the date so the modal can show it, and the in-flight
+  // name/eye/priority so "Yes, order a fresh one" can resubmit with
+  // confirmFreshBiometry: true without the doctor retyping anything.
+  const [biometryReorderPrompt, setBiometryReorderPrompt] = useState(null);
   // Asked inside the Complete Visit confirmation, only when this
   // encounter just advised a surgery AND the visit itself isn't
   // already a surgical-track visit type (Surgery Evaluation etc.) --
@@ -365,7 +377,26 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleAddInvestigation() {
     setError('');
     if (!invName.trim()) { setError('Investigation name is required.'); return; }
-    const result = await addInvestigation(data.encounter.id, { name: invName, eye: invEye, priority: invPriority });
+    const values = { name: invName, eye: invEye, priority: invPriority };
+    const result = await addInvestigation(data.encounter.id, values);
+    if (result.needsConfirmation === 'biometry') {
+      setBiometryReorderPrompt({ values, existingDate: result.existingBiometryDate });
+      return;
+    }
+    if (result.error) { setError(result.error); return; }
+    setInvName('');
+    refresh();
+  }
+
+  // "Yes, order a fresh one" from the biometry re-order confirmation --
+  // resubmits the same values with confirmFreshBiometry: true, which
+  // skips the existing-record check server-side and always creates a
+  // new biometry_records row instead of reusing the one on file.
+  async function confirmFreshBiometryOrder() {
+    if (!biometryReorderPrompt) return;
+    setError('');
+    const result = await addInvestigation(data.encounter.id, { ...biometryReorderPrompt.values, confirmFreshBiometry: true });
+    setBiometryReorderPrompt(null);
     if (result.error) { setError(result.error); return; }
     setInvName('');
     refresh();
@@ -1503,6 +1534,18 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
               loading={loading}
               onCancel={() => setConfirmAction(null)}
               onConfirm={runSendForProcedure}
+            />
+          )}
+
+          {biometryReorderPrompt && (
+            <ConfirmActionModal
+              icon="ti-ruler-2" iconColor="var(--purple)" iconBg="rgba(124,58,237,.12)"
+              title="Biometry already on file"
+              description={`Biometry for this patient was already measured on ${formatDateReadable(biometryReorderPrompt.existingDate)} and is available in the Biometry module. Order a fresh measurement anyway?`}
+              confirmLabel="Yes, order a fresh one"
+              cancelLabel="No, keep existing"
+              onCancel={() => setBiometryReorderPrompt(null)}
+              onConfirm={confirmFreshBiometryOrder}
             />
           )}
 

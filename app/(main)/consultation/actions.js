@@ -574,8 +574,14 @@ export async function addInvestigation(encounterId, values) {
   // normal investigation_orders row (shows up in this OPD list like
   // anything else), but also ensures the underlying biometry_records
   // row exists so it correctly routes there. Biometry is patient-level
-  // and reusable for years -- if it's already Measured, there's
-  // nothing to re-order, just say so instead of creating a duplicate.
+  // and reusable for years -- if it's already Measured, that's usually
+  // not something to re-order, but a doctor sometimes genuinely does
+  // need a fresh session (readings can legitimately change, a second
+  // eye years later, etc). Rather than hard-blocking, this asks the
+  // caller to confirm first: returns needsConfirmation instead of
+  // creating anything, and the UI is expected to show what's on file
+  // and let the doctor decide. Passing values.confirmFreshBiometry=true
+  // skips this check and always creates a new record.
   if (values.name.trim().toLowerCase() === 'biometry') {
     const { data: enc } = await supabase.from('encounters').select('visit_id, visits(patient_id)').eq('id', encounterId).single();
     const patientId = enc?.visits?.patient_id;
@@ -583,14 +589,18 @@ export async function addInvestigation(encounterId, values) {
 
     const { data: existing } = await supabase
       .from('biometry_records')
-      .select('id, status')
+      .select('id, status, verified_at, updated_at')
       .eq('patient_id', patientId)
       .neq('status', 'Cancelled')
       .order('created_at', { ascending: false })
       .limit(1);
 
-    if (existing && existing.length > 0 && existing[0].status === 'Measured') {
-      return { error: 'Biometry is already on file for this patient (Measured) -- no need to re-order. Open it from the Biometry module if you need to review it.' };
+    const onFile = existing && existing.length > 0 ? existing[0] : null;
+    if (onFile && onFile.status === 'Measured' && !values.confirmFreshBiometry) {
+      return {
+        needsConfirmation: 'biometry',
+        existingBiometryDate: onFile.verified_at || onFile.updated_at,
+      };
     }
 
     const { error } = await supabase.from('investigation_orders').insert({
@@ -601,9 +611,9 @@ export async function addInvestigation(encounterId, values) {
     // Shared with Surgical Journey's own "order Biometry" path --
     // creates the biometry_records row if none exists yet, or just
     // reuses the one that does, instead of duplicating that logic here.
-    await ensureBiometryRecord(supabase, patientId, enc.visit_id, encounterId, null);
+    await ensureBiometryRecord(supabase, patientId, enc.visit_id, encounterId, null, !!values.confirmFreshBiometry);
 
-    await addAudit(supabase, encounterId, 'Biometry ordered', userData?.user?.id);
+    await addAudit(supabase, encounterId, values.confirmFreshBiometry ? 'Biometry re-ordered (fresh measurement requested despite existing record)' : 'Biometry ordered', userData?.user?.id);
     return { success: true };
   }
 
@@ -838,27 +848,34 @@ export async function sendForProcedureFromConsultation(encounterId) {
 // surgical case for that patient (readings don't meaningfully change
 // for years). "Advise" just ensures a record exists for this patient,
 // updating instructions if one already does.
-async function ensureBiometryRecord(supabase, patientId, visitId, encounterId, instructions) {
-  const { data: existing } = await supabase
-    .from('biometry_records')
-    .select('id')
-    .eq('patient_id', patientId)
-    .neq('status', 'Cancelled')
-    .order('created_at', { ascending: false })
-    .limit(1);
+// forceNew=true skips the reuse-existing check entirely and always
+// inserts a fresh row -- used when a doctor has explicitly confirmed
+// they want a new measurement despite an existing "Measured" one on
+// file (patient's readings may have genuinely changed, second eye
+// years later, etc).
+async function ensureBiometryRecord(supabase, patientId, visitId, encounterId, instructions, forceNew = false) {
+  if (!forceNew) {
+    const { data: existing } = await supabase
+      .from('biometry_records')
+      .select('id')
+      .eq('patient_id', patientId)
+      .neq('status', 'Cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1);
 
-  if (!existing || existing.length === 0) {
-    const { data: created } = await supabase.from('biometry_records').insert({
-      patient_id: patientId, visit_id: visitId || null, encounter_id: encounterId || null,
-      doctor_instructions: instructions?.trim() || null,
-    }).select('id').single();
-    return created?.id;
+    if (existing && existing.length > 0) {
+      await supabase.from('biometry_records').update({
+        doctor_instructions: instructions?.trim() || null,
+      }).eq('id', existing[0].id);
+      return existing[0].id;
+    }
   }
 
-  await supabase.from('biometry_records').update({
+  const { data: created } = await supabase.from('biometry_records').insert({
+    patient_id: patientId, visit_id: visitId || null, encounter_id: encounterId || null,
     doctor_instructions: instructions?.trim() || null,
-  }).eq('id', existing[0].id);
-  return existing[0].id;
+  }).select('id').single();
+  return created?.id;
 }
 
 // The "Add" step -- advises Biometry is needed (records instructions,
