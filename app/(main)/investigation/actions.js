@@ -317,12 +317,22 @@ export async function markUnableToPerform(id, reason) {
 // whole list with a Billed/not-billed indicator per row) -- default
 // stays Pending/Deferred-only for any other caller expecting the old
 // "still needs action" behaviour.
+//
+// Excludes "Biometry"-named orders -- ordering Biometry from
+// Consultation deliberately creates BOTH a normal investigation_orders
+// stub (so it shows in the OPD investigation list a doctor already
+// checks) AND the real biometry_records row (the actual billable
+// artifact, handled by getPendingBiometryBilling). Without this
+// exclusion the same biometry order would show up twice on the Billing
+// Dashboard -- once from each table -- and could genuinely be billed
+// twice, since both rows carry their own independent billing_status.
 export async function getPendingInvestigationBilling({ includeBilled = false } = {}) {
   const supabase = await createClient();
   let query = supabase
     .from('investigation_orders')
     .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
     .neq('status', 'Cancelled')
+    .not('name', 'ilike', 'biometry')
     .order('created_at', { ascending: true });
   if (!includeBilled) query = query.in('billing_status', ['Pending', 'Deferred']);
   const { data, error } = await query;
