@@ -784,6 +784,77 @@ export default function CashManagementPage() {
                   Closed by: {report.closing.profiles?.full_name || '--'} at {new Date(report.closing.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </div>
               </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-receipt" style={{ color: 'var(--blue)' }}></i> Billed Items</div>
+                  {Object.keys(report.billedItems.byMode).length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing collected against invoices today.</div>
+                  ) : (
+                    <>
+                      {Object.entries(report.billedItems.byMode).map(([mode, amt]) => (
+                        <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                          <span>{mode}</span><span>{fmt(amt)}</span>
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', fontSize: 13, fontWeight: 700 }}>
+                        <span>Total ({report.billedItems.count} receipt{report.billedItems.count === 1 ? '' : 's'})</span>
+                        <span style={{ color: 'var(--blue)' }}>{fmt(report.billedItems.total)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-piggy-bank" style={{ color: 'var(--purple)' }}></i> Advances</div>
+                  {Object.keys(report.advances.byMode).length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--g400)' }}>No advances collected today.</div>
+                  ) : (
+                    <>
+                      {Object.entries(report.advances.byMode).map(([mode, amt]) => (
+                        <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                          <span>{mode}</span><span>{fmt(amt)}</span>
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', fontSize: 13, fontWeight: 700 }}>
+                        <span>Total ({report.advances.count} receipt{report.advances.count === 1 ? '' : 's'})</span>
+                        <span style={{ color: 'var(--purple)' }}>{fmt(report.advances.total)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-cash-banknote" style={{ color: 'var(--green)' }}></i> Payment Mode Summary</div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
+                  Billed Items + Advances{report.refunds.total !== 0 ? ' - Refunds' : ''}, by mode -- the actual cash movement for the day.
+                </div>
+                {Object.keys(report.modeSummary.byMode).length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'var(--g400)' }}>No payments recorded today.</div>
+                ) : (
+                  <>
+                    {Object.entries(report.modeSummary.byMode).map(([mode, amt]) => (
+                      <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                        <span>{mode}</span><span style={{ fontWeight: 600 }}>{fmt(amt)}</span>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', fontSize: 14, fontWeight: 700 }}>
+                      <span>Grand Total</span>
+                      <span style={{ color: 'var(--green)' }}>{fmt(report.modeSummary.total)}</span>
+                    </div>
+                  </>
+                )}
+                {report.refunds.total !== 0 && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--g200)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', marginBottom: 4 }}>Refunds paid out (already netted above)</div>
+                    {Object.entries(report.refunds.byMode).map(([mode, amt]) => (
+                      <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, color: 'var(--red)' }}>
+                        <span>{mode}</span><span>{fmt(amt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div className="card">
                   <div className="card-title" style={{ marginBottom: 10 }}>Reconciliation Summary</div>

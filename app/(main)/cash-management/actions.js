@@ -247,14 +247,49 @@ export async function getDayClosingHistory() {
   return data || [];
 }
 
+// Splits a day's real cash-movement transactions into the two
+// categories Front Office actually cares about at closing time --
+// money collected against an invoice (Billed Items) vs money held as
+// Advance for later -- each with its own mode-wise breakdown. negate
+// flips the sign (used for Refunds, which are cash going out).
+function modeBreakdown(txs, negate = false) {
+  const byMode = {};
+  txs.forEach((p) => {
+    (p.payment_modes || []).forEach((m) => {
+      byMode[m.mode] = (byMode[m.mode] || 0) + (negate ? -Number(m.amount) : Number(m.amount));
+    });
+  });
+  const total = txs.reduce((s, p) => s + (negate ? -Number(p.total_amount) : Number(p.total_amount)), 0);
+  return { byMode, total, count: txs.length };
+}
+
 export async function getDailyReport(date) {
   const supabase = await createClient();
-  const [{ data: closing }, { data: reconciliation }, expenses] = await Promise.all([
+  const [{ data: closing }, { data: reconciliation }, expenses, collectionSummary] = await Promise.all([
     supabase.from('day_closings').select('*, profiles(full_name)').eq('closing_date', date).maybeSingle(),
     supabase.from('day_reconciliation').select('*, profiles(full_name)').eq('closing_date', date),
     getExpensesForDate(date),
+    // Same underlying query the Reconciliation tab uses, so the
+    // report's numbers can never drift from what Front Office actually
+    // reconciled against -- advance_adjustment/credit_note excluded
+    // (no real cash moved), refund netted negative.
+    getTodayCollectionSummary(date),
   ]);
-  return { closing, reconciliation: reconciliation || [], expenses };
+
+  const billedTx = collectionSummary.transactions.filter((p) => p.payment_type === 'invoice_payment');
+  const advanceTx = collectionSummary.transactions.filter((p) => p.payment_type === 'advance');
+  const refundTx = collectionSummary.transactions.filter((p) => p.payment_type === 'refund');
+
+  return {
+    closing, reconciliation: reconciliation || [], expenses,
+    billedItems: modeBreakdown(billedTx),
+    advances: modeBreakdown(advanceTx),
+    refunds: modeBreakdown(refundTx, true),
+    // Combined Cash/UPI/Card/Cheque/Bank Transfer totals across Billed
+    // + Advance - Refund -- the single "here's what actually moved,
+    // by mode, today" figure the report should lead with.
+    modeSummary: { byMode: collectionSummary.byMode, total: collectionSummary.total },
+  };
 }
 
 export async function reopenDay(date, reason) {
