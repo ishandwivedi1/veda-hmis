@@ -20,6 +20,133 @@ function istDayBoundsUTC(dateStr) {
   };
 }
 
+// Canonical revenue-category mapping from invoice_line_items.dept.
+// 'Minor Procedure' is a legacy dept string some older line items were
+// tagged with before the code settled on 'OPD Procedure' -- same
+// thing, kept as an alias so that old revenue doesn't fall into
+// Unclassified. 'Biometry' folds into Investigation, consistent with
+// the Billing Dashboard's own Investigation Billing section. Anything
+// NOT in this map (a service added with an unexpected/custom dept
+// string) falls through to 'Unclassified' rather than being silently
+// dropped or mis-bucketed -- see getCategorizedIncome below.
+const DEPT_CATEGORY = {
+  Consultation: 'OPD Consultation charges',
+  'OPD Procedure': 'Procedure charges',
+  'Minor Procedure': 'Procedure charges',
+  Investigation: 'Investigation charges',
+  Biometry: 'Investigation charges',
+  Pharmacy: 'Pharmacy',
+  Surgery: 'Surgery Income',
+};
+
+function emptyCategory() {
+  return { byMode: {}, total: 0 };
+}
+
+function mergeByMode(...cats) {
+  const merged = {};
+  cats.forEach((c) => {
+    Object.entries(c.byMode || {}).forEach(([mode, amt]) => { merged[mode] = (merged[mode] || 0) + amt; });
+  });
+  return merged;
+}
+
+// Re-slices today's invoice_payment collections (already computed by
+// getTodayCollectionSummary) by revenue category, with each category's
+// own Cash/UPI/Card/Cheque/Bank Transfer breakdown -- not just "how
+// much was collected" but "how much of THIS specific revenue type
+// came in on THIS mode".
+//
+// This requires a proper 3-way proportional split, not a simple
+// lookup, because none of the three layers line up 1:1:
+//  - one payment/receipt can be split across multiple payment modes
+//  - one payment can be allocated across multiple invoices (payment_allocations)
+//  - one invoice can (rarely) contain line items from more than one
+//    dept (invoices.purpose is a single rolled-up label and doesn't
+//    reflect that)
+// So for every payment, its mode-split is distributed across its
+// invoice allocations by each allocation's share of the payment, and
+// each invoice's amount is further distributed across its line items'
+// depts by each dept's share of that invoice's net. Nothing is ever
+// dropped -- a dept string that isn't in DEPT_CATEGORY (or an invoice
+// with no line items on file at all) lands in 'Unclassified' instead,
+// and unclassifiedDepts lists exactly which raw dept strings triggered
+// it, so it can be flagged rather than silently missed.
+async function getCategorizedIncome(supabase, billedTx) {
+  if (billedTx.length === 0) return { categories: {}, unclassifiedDepts: [] };
+
+  const paymentIds = billedTx.map((p) => p.id);
+  const { data: allocations } = await supabase
+    .from('payment_allocations')
+    .select('payment_id, invoice_id, amount')
+    .in('payment_id', paymentIds);
+
+  const invoiceIds = [...new Set((allocations || []).map((a) => a.invoice_id))];
+  let lineItems = [];
+  if (invoiceIds.length > 0) {
+    const { data } = await supabase.from('invoice_line_items').select('invoice_id, dept, net').in('invoice_id', invoiceIds);
+    lineItems = data || [];
+  }
+
+  const invoiceDeptMap = {};
+  lineItems.forEach((li) => {
+    if (!invoiceDeptMap[li.invoice_id]) invoiceDeptMap[li.invoice_id] = { totalNet: 0, byDept: {} };
+    const entry = invoiceDeptMap[li.invoice_id];
+    entry.totalNet += Number(li.net);
+    const dept = li.dept || '(no dept set)';
+    entry.byDept[dept] = (entry.byDept[dept] || 0) + Number(li.net);
+  });
+
+  const allocByPayment = {};
+  (allocations || []).forEach((a) => { (allocByPayment[a.payment_id] ||= []).push(a); });
+
+  const categories = {};
+  const unclassifiedDepts = new Set();
+  function addTo(category, mode, amt) {
+    if (amt === 0) return;
+    if (!categories[category]) categories[category] = emptyCategory();
+    categories[category].byMode[mode] = (categories[category].byMode[mode] || 0) + amt;
+    categories[category].total += amt;
+  }
+
+  billedTx.forEach((p) => {
+    const total = Number(p.total_amount) || 0;
+    if (total <= 0) return;
+    const allocs = allocByPayment[p.id] || [];
+    const modes = p.payment_modes || [];
+    let allocatedShare = 0;
+    allocs.forEach((a) => {
+      const invShare = Number(a.amount) / total;
+      allocatedShare += invShare;
+      const invEntry = invoiceDeptMap[a.invoice_id];
+      if (!invEntry || invEntry.totalNet <= 0) {
+        unclassifiedDepts.add('(no line items on file for this invoice)');
+        modes.forEach((m) => addTo('Unclassified', m.mode, Number(m.amount) * invShare));
+        return;
+      }
+      Object.entries(invEntry.byDept).forEach(([dept, deptNet]) => {
+        const deptShare = deptNet / invEntry.totalNet;
+        const category = DEPT_CATEGORY[dept];
+        if (!category) unclassifiedDepts.add(dept);
+        modes.forEach((m) => addTo(category || 'Unclassified', m.mode, Number(m.amount) * invShare * deptShare));
+      });
+    });
+    // collect_payment() auto-credits any amount beyond the selected
+    // invoices' outstanding total to the patient's advance -- but the
+    // receipt itself stays payment_type 'invoice_payment' and its
+    // payment_allocations rows only cover the invoiced portion. Without
+    // this, that leftover share would just be dropped from every
+    // category's total instead of showing up anywhere.
+    const leftoverShare = 1 - allocatedShare;
+    if (leftoverShare > 0.001) {
+      unclassifiedDepts.add('(overpayment auto-credited to patient advance)');
+      modes.forEach((m) => addTo('Unclassified', m.mode, Number(m.amount) * leftoverShare));
+    }
+  });
+
+  return { categories, unclassifiedDepts: [...unclassifiedDepts] };
+}
+
 // ── PETTY CASH -- day-to-day hospital cash outgoings (stationery,
 // transport, refreshments, minor repairs). Entered by any staff on a
 // day that's open; no approval step. Folds into Cash reconciliation
@@ -280,6 +407,26 @@ export async function getDailyReport(date) {
   const advanceTx = collectionSummary.transactions.filter((p) => p.payment_type === 'advance');
   const refundTx = collectionSummary.transactions.filter((p) => p.payment_type === 'refund');
 
+  const { categories, unclassifiedDepts } = await getCategorizedIncome(supabase, billedTx);
+  const cat = (name) => categories[name] || emptyCategory();
+
+  // OPD Income is the roll-up of the three OPD-workflow categories --
+  // shown as its own headline total/mode-split, with each component
+  // broken out underneath. Investigation Income is then restated as
+  // its own standalone line too (same figure as the component above)
+  // since Front Office may want to see it without wading through the
+  // OPD breakdown -- it is NOT additional money on top of OPD Income,
+  // just the same investigation revenue shown a second way.
+  const opdConsultation = cat('OPD Consultation charges');
+  const opdProcedure = cat('Procedure charges');
+  const opdInvestigation = cat('Investigation charges');
+  const opdIncome = {
+    consultation: opdConsultation, procedure: opdProcedure, investigation: opdInvestigation,
+    byMode: mergeByMode(opdConsultation, opdProcedure, opdInvestigation),
+    total: opdConsultation.total + opdProcedure.total + opdInvestigation.total,
+  };
+  const unclassified = cat('Unclassified');
+
   return {
     closing, reconciliation: reconciliation || [], expenses,
     billedItems: modeBreakdown(billedTx),
@@ -289,6 +436,12 @@ export async function getDailyReport(date) {
     // + Advance - Refund -- the single "here's what actually moved,
     // by mode, today" figure the report should lead with.
     modeSummary: { byMode: collectionSummary.byMode, total: collectionSummary.total },
+    opdIncome,
+    investigationIncome: opdInvestigation,
+    pharmacyIncome: cat('Pharmacy'),
+    surgeryIncome: cat('Surgery Income'),
+    unclassifiedIncome: unclassified,
+    unclassifiedDepts,
   };
 }
 
