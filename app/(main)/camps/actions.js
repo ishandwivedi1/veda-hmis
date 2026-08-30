@@ -117,19 +117,20 @@ export async function registerAttendee(campEventId, values) {
   if (!/^\d{10}$/.test(values.phone.trim())) return { error: 'Mobile number must be 10 digits.' };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  const { data, error } = await supabase
-    .from('camp_screenings')
-    .insert({
-      camp_event_id: campEventId,
-      full_name: toTitleCase(values.fullName.trim()),
-      phone: values.phone.trim(),
-      age: values.age ? parseInt(values.age, 10) : null,
-      gender: values.gender || null,
-      whatsapp_consent: !!values.whatsappConsent,
-      created_by: user?.id || null,
-    })
-    .select('*')
-    .single();
+  // register_camp_screening assigns both a unique registration_no
+  // (CAMPYY-NNNNN, same gap-safe pattern as patient UHID/surgery code)
+  // and a token_no (1, 2, 3... in order of arrival, scoped to this
+  // camp) under advisory locks, so a busy reception desk entering
+  // several people in quick succession never collides or skips.
+  const { data, error } = await supabase.rpc('register_camp_screening', {
+    p_camp_event_id: campEventId,
+    p_full_name: toTitleCase(values.fullName.trim()),
+    p_phone: values.phone.trim(),
+    p_age: values.age ? parseInt(values.age, 10) : null,
+    p_gender: values.gender || null,
+    p_whatsapp_consent: !!values.whatsappConsent,
+    p_created_by: user?.id || null,
+  });
   if (error) return { error: error.message };
   return { screening: data };
 }

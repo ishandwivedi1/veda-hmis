@@ -119,12 +119,12 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
 
       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--g600)', marginBottom: 8 }}>Registered so far ({screenings.length}) -- click a row to fix a mistake</div>
       <table className="tbl">
-        <thead><tr><th>Name</th><th>Phone</th><th>Age/Gender</th><th>Time</th><th></th></tr></thead>
+        <thead><tr><th>Token#</th><th>Name</th><th>Phone</th><th>Age/Gender</th><th>Time</th><th></th></tr></thead>
         <tbody>
           {[...screenings].reverse().map((s) => (
             editingId === s.id ? (
               <tr key={s.id} style={{ background: 'var(--blue-lt)' }}>
-                <td colSpan={5} style={{ padding: 10 }}>
+                <td colSpan={6} style={{ padding: 10 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 0.6fr 0.7fr auto auto', gap: 8, alignItems: 'center' }}>
                     <input className="fi fi-sm" value={editValues.fullName} onChange={(e) => setEditValues({ ...editValues, fullName: e.target.value })} onBlur={() => setEditValues((v) => ({ ...v, fullName: toTitleCase(v.fullName) }))} />
                     <input className="fi fi-sm" value={editValues.phone} onChange={(e) => setEditValues({ ...editValues, phone: e.target.value })} maxLength={10} />
@@ -140,7 +140,11 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
               </tr>
             ) : (
               <tr key={s.id} onClick={() => startEdit(s)} style={{ cursor: 'pointer' }}>
-                <td>{s.full_name}</td>
+                <td style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--g600)' }}>#{s.token_no}</td>
+                <td>
+                  {s.full_name}
+                  <div style={{ fontSize: 10.5, color: 'var(--g400)' }}>{s.registration_no}</div>
+                </td>
                 <td style={{ fontSize: 12 }}>{s.phone}</td>
                 <td style={{ fontSize: 12 }}>{s.age || '--'}{s.gender ? `/${s.gender}` : ''}</td>
                 <td style={{ fontSize: 11, color: 'var(--g400)' }}>{fmtTime(s.created_at)}</td>
@@ -148,7 +152,7 @@ function RegistrationStation({ campEventId, screenings, onRefresh }) {
               </tr>
             )
           ))}
-          {screenings.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--g400)' }}>No one registered yet.</td></tr>}
+          {screenings.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--g400)' }}>No one registered yet.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -200,6 +204,11 @@ function QueueRow({ s, selected, done, onClick, subtitle }) {
         borderLeft: '4px solid', borderLeftColor: selected ? 'var(--blue)' : done ? 'var(--green)' : 'var(--g300)',
       }}
     >
+      {/* Token/S.No -- order of arrival for the day, so the room can
+          see at a glance who came first without leaving this list. */}
+      <div style={{ width: 20, flexShrink: 0, textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--g500)' }}>
+        #{s.token_no}
+      </div>
       <div style={{
         width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -288,7 +297,10 @@ function EyeCheckupStation({ pending, done, onRefresh }) {
                 {initials(selected.full_name)}
               </div>
               <div>
-                <div className="card-title" style={{ marginBottom: 1 }}>{selected.full_name}</div>
+                <div className="card-title" style={{ marginBottom: 1 }}>
+                  <span className="badge b-teal" style={{ marginRight: 6 }}>Token #{selected.token_no}</span>
+                  {selected.full_name}
+                </div>
                 <div style={{ fontSize: 12, color: 'var(--g500)' }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
               </div>
             </div>
@@ -377,7 +389,10 @@ function DoctorExamStation({ pending, done, onRefresh }) {
                 {initials(selected.full_name)}
               </div>
               <div style={{ flex: 1 }}>
-                <div className="card-title" style={{ marginBottom: 1 }}>{selected.full_name}</div>
+                <div className="card-title" style={{ marginBottom: 1 }}>
+                  <span className="badge b-indigo" style={{ marginRight: 6 }}>Token #{selected.token_no}</span>
+                  {selected.full_name}
+                </div>
                 <div style={{ fontSize: 12, color: 'var(--g500)' }}>{selected.phone} -- {selected.age || '--'}{selected.gender ? `/${selected.gender}` : ''}</div>
               </div>
               {/* tel: opens the device's own dialer with the number
@@ -504,13 +519,14 @@ function OverviewStation({ screenings, onDelete, onConvert, onSendWhatsApp, send
 
   return (
     <table className="tbl">
-      <thead><tr><th>Attendee</th><th>Stage</th><th>VA (OD/OS)</th><th>Finding</th><th>Patient</th><th>WhatsApp</th><th></th></tr></thead>
+      <thead><tr><th>Token#</th><th>Attendee</th><th>Stage</th><th>VA (OD/OS)</th><th>Finding</th><th>Patient</th><th>WhatsApp</th><th></th></tr></thead>
       <tbody>
         {screenings.map((s) => (
           <tr key={s.id}>
+            <td style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--g600)' }}>#{s.token_no}</td>
             <td>
               <strong>{s.full_name}</strong>
-              <div style={{ fontSize: 11, color: 'var(--g400)' }}>{s.phone} -- {s.age || '--'}{s.gender ? `/${s.gender}` : ''}</div>
+              <div style={{ fontSize: 11, color: 'var(--g400)' }}>{s.registration_no} -- {s.phone} -- {s.age || '--'}{s.gender ? `/${s.gender}` : ''}</div>
             </td>
             <td>{stageLabel(s)}</td>
             <td style={{ fontSize: 12 }}>{s.va_od || '--'} / {s.va_os || '--'}</td>
@@ -550,7 +566,7 @@ function OverviewStation({ screenings, onDelete, onConvert, onSendWhatsApp, send
             <td><button className="btn btn-sm" onClick={() => onDelete(s.id)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button></td>
           </tr>
         ))}
-        {screenings.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--g400)' }}>No attendees logged yet.</td></tr>}
+        {screenings.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--g400)' }}>No attendees logged yet.</td></tr>}
       </tbody>
     </table>
   );
