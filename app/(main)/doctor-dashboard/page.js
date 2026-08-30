@@ -60,13 +60,14 @@ function TabButton({ active, onClick, icon, label, disabled }) {
   );
 }
 
-function DashboardTab({ active, intermediate, completed, optometryWaiting, proceduresDueToday, visitTypeCounts, totalVisitsToday, error, onRunAction, onOpen }) {
+function DashboardTab({ active, intermediate, completed, optometryWaiting, proceduresDueToday, visitTypeCounts, totalVisitsToday, error, warning, onRunAction, onOpen }) {
   const inConsultation = active.find((e) => e.status === 'In Consultation');
   const waitingCount = active.filter((e) => e.status === 'Waiting' || e.status === 'Ready for Review').length;
 
   return (
     <div>
       {error && <div className="msg-err">{error}</div>}
+      {warning && <div className="msg-warn">{warning}</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
         <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
@@ -348,6 +349,7 @@ export default function DoctorDashboardPage() {
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
 
   const refresh = useCallback(async () => {
     const [result, dueToday] = await Promise.all([getDoctorDashboardData(), getProceduresDueToday()]);
@@ -382,13 +384,23 @@ export default function DoctorDashboardPage() {
   async function openConsultation(entry) {
     if (entry.visits?.visit_type === 'Post-operative Review') {
       const episodeId = await getOpenPostOpEpisodeForPatient(entry.visits.patients.id);
-      if (!episodeId) {
-        setError('This is marked as a Post-operative Review visit, but no open post-op episode was found for this patient.');
+      if (episodeId) {
+        setWarning('');
+        setPostOpEpisodeId(episodeId);
+        setActiveTab('workspace');
         return;
       }
-      setPostOpEpisodeId(episodeId);
-      setActiveTab('workspace');
-      return;
+      // No matching surgical/recovery record on file for this patient --
+      // most likely the surgery itself was never entered in the system
+      // (staff missed it, or it happened before HMIS/off-site). That's a
+      // data gap to fix separately; it must never be the reason a patient
+      // already standing at the front desk can't be seen. Warn, don't
+      // block -- fall through to the same standard consultation window
+      // every other visit type opens below, so the doctor can still
+      // examine, prescribe, and document this visit today.
+      setWarning(`No surgical record on file for ${patientName(entry)} -- opening as a standard consultation instead. Flag this for admin to enter the surgical case separately.`);
+    } else {
+      setWarning('');
     }
     // Opens in its own window, which closes itself once the doctor
     // finishes this sitting (Save Draft / Send for Dilation / Send for
@@ -431,7 +443,7 @@ export default function DoctorDashboardPage() {
           active={active} intermediate={intermediate} completed={completed} optometryWaiting={optometryWaiting}
           proceduresDueToday={proceduresDueToday}
           visitTypeCounts={visitTypeCounts} totalVisitsToday={totalVisitsToday}
-          error={error} onRunAction={runAction} onOpen={openConsultation}
+          error={error} warning={warning} onRunAction={runAction} onOpen={openConsultation}
         />
       )}
 
