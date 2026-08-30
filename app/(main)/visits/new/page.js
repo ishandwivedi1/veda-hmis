@@ -337,6 +337,7 @@ function NewVisitForm() {
               <select className="fi" value={visitType} onChange={(e) => { setVisitType(e.target.value); if (e.target.value !== 'Surgery') setSurgeryType(''); }}>
                 <option>New Consultation</option>
                 <option>Follow-up</option>
+                <option>In House Camp</option>
                 <option>Surgery Evaluation</option>
                 <option>OPD Procedure Only</option>
                 <option>Surgery</option>

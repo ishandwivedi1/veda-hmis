@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { registerPatient, registerAndCreateVisit, checkDuplicateMobile } from '../actions';
+import { registerPatient, registerAndCreateVisit, registerAndCreateInhouseCampVisit, checkDuplicateMobile } from '../actions';
 import { linkPatientToAppointment } from '@/app/(main)/appointments/actions';
 import VisitCreatedModal from '@/app/components/VisitCreatedModal';
 
@@ -77,6 +77,27 @@ export default function RegistrationForm() {
     return () => clearTimeout(debounceRef.current);
   }, [values.mobile]);
 
+  // Register and Create Inhouse Camp Visit redirects back to this same
+  // page (with ?campRegistered=<uhid>) instead of the front office
+  // dashboard -- an in-house camp registers many people back-to-back,
+  // so front desk needs a blank form ready for the next person rather
+  // than a success modal to dismiss each time. Since the router stays
+  // on /patients/new, the component doesn't remount on its own -- this
+  // effect does the reset explicitly whenever that param shows up.
+  useEffect(() => {
+    if (!searchParams.get('campRegistered')) return;
+    setValues({
+      salutation: '', firstName: '', lastName: '',
+      gender: '', dateOfBirth: '', age: '', bloodGroup: '',
+      mobile: '', alternateMobile: '',
+      address: '', city: '', state: 'Uttarakhand', pinCode: '',
+      idType: '', idNumber: '', insuranceScheme: '', insuranceNumber: '',
+      referralSource: '', preferredLanguage: 'Hindi', remarks: '',
+    });
+    setDuplicates([]);
+    setError('');
+  }, [searchParams]);
+
   function validate() {
     if (!values.firstName || !values.gender || !values.mobile) {
       setError('First name, gender, and mobile are required.');
@@ -117,6 +138,23 @@ export default function RegistrationForm() {
     setRegisteredVisitInfo({ patient: result.patient, visit: result.visit });
   }
 
+  async function handleRegisterAndInhouseCampVisit() {
+    setError('');
+    if (!validate()) return;
+    setLoading(true);
+    const result = await registerAndCreateInhouseCampVisit(values);
+    setLoading(false);
+    if (result.error) { setError(result.error); return; }
+    if (result.visitError) {
+      setError(`Patient registered (UHID: ${result.patient.uhid}), but creating the camp visit failed: ${result.visitError}`);
+      return;
+    }
+    // Straight back to a blank registration form -- no success modal --
+    // since an in-house camp means registering the next person right
+    // away, not reviewing this one's visit details.
+    router.push(`/patients/new?campRegistered=${result.patient.uhid}`);
+  }
+
   async function handleRegisterAndLinkAppointment() {
     setError('');
     if (!validate()) return;
@@ -138,6 +176,12 @@ export default function RegistrationForm() {
         </div>
 
         {error && <div className="msg-err">{error}</div>}
+
+        {searchParams.get('campRegistered') && (
+          <div className="msg-success">
+            <i className="ti ti-circle-check"></i> Registered for In House Camp -- UHID: {searchParams.get('campRegistered')}. Ready for the next patient.
+          </div>
+        )}
 
         {returnTo === 'appointment' && (
           <div className="msg-info">
@@ -248,6 +292,9 @@ export default function RegistrationForm() {
           )}
           <button className={returnTo === 'visit' ? 'btn btn-primary' : 'btn btn-green'} onClick={handleRegisterAndVisit} disabled={loading}>
             <i className="ti ti-file-plus"></i> {loading ? 'Working...' : 'Register & Create Visit'}
+          </button>
+          <button className="btn" style={{ background: 'var(--lime)', color: '#fff', border: 'none' }} onClick={handleRegisterAndInhouseCampVisit} disabled={loading}>
+            <i className="ti ti-tent"></i> {loading ? 'Working...' : 'Register and Create Inhouse Camp Visit'}
           </button>
           <button className={returnTo ? 'btn' : 'btn btn-primary'} onClick={handleRegisterOnly} disabled={loading}>
             <i className="ti ti-user-check"></i> {loading ? 'Working...' : 'Register Patient Only'}

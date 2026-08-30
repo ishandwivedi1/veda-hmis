@@ -198,3 +198,31 @@ export async function registerAndCreateVisit(values) {
   return { patient: regResult.patient, visit: { ...visitResult.visit, doctor_name: doctorName } };
 }
 
+// Register a patient and open an "In House Camp" visit in one step --
+// used by the Patient Registration page's "Register and Create Inhouse
+// Camp Visit" button, for an on-site camp held at the hospital itself
+// (distinct from the outreach camps module in app/(main)/camps, which
+// runs off-site and only converts to a real patient afterward). This
+// visit type carries no consultation charge -- create_walk_in_visit
+// routes it through the normal Optometry queue like any other OPD
+// visit (only Surgery/Investigation Only/Surgery Evaluation/OPD
+// Procedure Only get special routing there), so the patient is still
+// seen by the doctor, just without a fee attached to the visit.
+export async function registerAndCreateInhouseCampVisit(values) {
+  const regResult = await registerPatient(values);
+  if (regResult.error) return regResult;
+
+  const visitResult = await createWalkInVisit({
+    patientId: regResult.patient.id,
+    doctorId: null,
+    visitType: 'In House Camp',
+    referralSource: 'In House Camp',
+  });
+
+  if (visitResult.error) {
+    return { patient: regResult.patient, visitError: visitResult.error };
+  }
+
+  return { patient: regResult.patient, visit: visitResult.visit };
+}
+

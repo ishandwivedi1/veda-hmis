@@ -19,6 +19,7 @@
   --indigo: #3730a3; --indigo-lt: #e7e5fb;
   --cyan: #0b7285; --cyan-lt: #e0f5f8;
   --teal: #0e6b60; --teal-lt: #e1f5f1;
+  --lime: #4d7c0f; --lime-lt: #ecf5db;
   --g50: #f8f9fa; --g100: #f1f3f5; --g200: #e3e6ea; --g300: #cbd0d6;
   --g400: #97a0aa; --g500: #62707c; --g600: #46525c; --g700: #303a42; --g800: #1c242b; --g900: #10161b;
 
@@ -223,6 +224,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .b-indigo { background: var(--indigo-lt); color: var(--indigo); }
 .b-cyan { background: var(--cyan-lt); color: var(--cyan); }
 .b-teal { background: var(--teal-lt); color: var(--teal); }
+.b-lime { background: var(--lime-lt); color: var(--lime); }
 
 /* ── FORMS ── */
 .fi {

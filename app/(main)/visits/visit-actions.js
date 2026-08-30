@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateVisit, cancelVisit, getSurgeryTypeOptions, resendVisitWhatsApp } from './actions';
 
-const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Surgery Evaluation', 'OPD Procedure Only', 'Post-operative Review', 'Emergency', 'Surgery'];
+const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Surgery Evaluation', 'OPD Procedure Only', 'Post-operative Review', 'Emergency', 'Surgery', 'In House Camp'];
 
 export default function VisitActions({ visit, doctors }) {
   const [mode, setMode] = useState(null); // 'edit' | 'cancel' | null
