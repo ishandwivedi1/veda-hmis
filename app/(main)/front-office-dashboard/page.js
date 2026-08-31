@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
@@ -28,15 +28,15 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
     dayOpen,
   ] = await Promise.all([
     supabase.from('patients').select('*', { count: 'exact', head: true }).gte('created_at', today),
-    supabase.from('queue_entries').select('*, visits(patients(first_name, salutation, last_name))').neq('status', 'Done').neq('status', 'Cancelled').gte('issued_at', today).order('issued_at', { ascending: true }),
+    supabase.from('queue_entries').select('*, visits(patients(first_name, salutation, last_name, age))').neq('status', 'Done').neq('status', 'Cancelled').gte('issued_at', today).order('issued_at', { ascending: true }),
     supabase.from('visits').select('*', { count: 'exact', head: true }).gte('created_at', today).is('appointment_id', null),
     supabase.from('invoices').select('net, paid').in('status', ['Pending', 'Partial']),
     // Oldest first -- this is front desk's own home page, and the
     // whole point of looking here is "who came first". Newest-first
     // (the old default) put the most recent arrival at the top, which
     // is exactly backwards for that question.
-    supabase.from('visits').select('*, patients(id, first_name, salutation, last_name, uhid), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: true }),
-    supabase.from('appointments').select('*, patients(first_name, salutation, last_name, uhid, mobile), profiles(full_name)').eq('appointment_date', today).order('appointment_time', { ascending: true }),
+    supabase.from('visits').select('*, patients(id, first_name, salutation, last_name, uhid, age), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: true }),
+    supabase.from('appointments').select('*, patients(first_name, salutation, last_name, uhid, mobile, age), profiles(full_name)').eq('appointment_date', today).order('appointment_time', { ascending: true }),
     supabase.from('surgical_cases').select('*', { count: 'exact', head: true }).eq('status', 'Pending Workup'),
     isTodayOpen(),
   ]);
@@ -164,7 +164,8 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
           <tbody>
             {(todaysAppointments || []).map((a) => {
               const isRegistered = !!a.patients;
-              const name = isRegistered ? `${formatPatientName(a.patients)}` : a.patient_name_temp;
+              const age = isRegistered ? formatPatientAge(a.patients) : '';
+              const name = (isRegistered ? formatPatientName(a.patients) : a.patient_name_temp) + (age ? ` (${age})` : '');
               const mobile = isRegistered ? a.patients.mobile : a.mobile_temp;
               return (
                 <tr key={a.id}>
@@ -206,7 +207,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                     <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: 11 }}>{v.visit_number || '--'}</td>
                     <td>{new Date(v.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
                     <td>
-                      <div style={{ fontWeight: 600 }}>{formatPatientName(v.patients)}</div>
+                      <div style={{ fontWeight: 600 }}>{formatPatientName(v.patients)}{formatPatientAge(v.patients) ? ` (${formatPatientAge(v.patients)})` : ''}</div>
                       <div style={{ fontSize: 11, color: 'var(--g500)', fontFamily: 'monospace' }}>{v.patients?.uhid}</div>
                     </td>
                     <td><span className="badge" style={{ background: `var(${VISIT_TYPE_COLOR[v.visit_type] || '--g100'})`, color: '#fff' }}>{v.visit_type}</span></td>
@@ -270,7 +271,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                 <div>
                   <span style={{ color: 'var(--g400)', fontSize: 11, marginRight: 6 }}>#{idx + 1}</span>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{e.token}</span>{' '}
-                  {formatPatientName(e.visits?.patients)}
+                  {formatPatientName(e.visits?.patients)}{formatPatientAge(e.visits?.patients) ? ` (${formatPatientAge(e.visits?.patients)})` : ''}
                   <div style={{ fontSize: 11, color: 'var(--g500)' }}>
                     {e.department} -- arrived {new Date(e.issued_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} ({elapsedMin(e.issued_at)} min ago)
                   </div>

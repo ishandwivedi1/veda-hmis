@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getBiometryQueue, getBiometryCompletedToday } from './actions';
 
@@ -57,7 +57,7 @@ export default function BiometryQueuePage() {
               {row.patient?.first_name?.charAt(0) || '?'}
             </div>
             <div style={{ flex: 1 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(row.patient)}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(row.patient)}{formatPatientAge(row.patient) ? ` (${formatPatientAge(row.patient)})` : ''}</span>
               <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>{row.status}</span>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                 {row.patient?.uhid}{row.doctorInstructions ? ` -- ${row.doctorInstructions}` : ''}
@@ -85,7 +85,7 @@ export default function BiometryQueuePage() {
               {row.patient?.first_name?.charAt(0) || '?'}
             </div>
             <div style={{ flex: 1 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(row.patient)}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(row.patient)}{formatPatientAge(row.patient) ? ` (${formatPatientAge(row.patient)})` : ''}</span>
               <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>Measured</span>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>{row.patient?.uhid}</div>
             </div>

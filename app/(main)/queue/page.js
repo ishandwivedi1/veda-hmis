@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useState, useEffect, useCallback } from 'react';
 import {
   getQueues,
@@ -45,7 +45,9 @@ function totalBadgeClass(mins) {
 
 function patientName(entry) {
   const p = entry.visits?.patients;
-  return p ? `${formatPatientName(p)}` : 'Unknown';
+  if (!p) return 'Unknown';
+  const age = formatPatientAge(p);
+  return age ? `${formatPatientName(p)} (${age})` : formatPatientName(p);
 }
 
 function TokenBadge({ token }) {

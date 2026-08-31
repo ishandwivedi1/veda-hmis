@@ -18,7 +18,7 @@ export async function getPendingIolApprovals() {
 
   const { data: cases, error } = await supabase
     .from('surgical_cases')
-    .select('id, patient_id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid), master_packages:package_id(name, iol_category)')
+    .select('id, patient_id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid, age), master_packages:package_id(name, iol_category)')
     .in('status', ['Pending Workup', 'Ready for Scheduling'])
     .neq('biometry_required', false);
   if (error) return [];
@@ -63,7 +63,7 @@ export async function getApprovedToday() {
 
   const { data, error } = await supabase
     .from('iol_approvals')
-    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid), master_packages:package_id(name)), master_iol_catalog(brand, model)')
+    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid, age), master_packages:package_id(name)), master_iol_catalog(brand, model)')
     .eq('status', 'Approved')
     .gte('approved_at', startUTC)
     .lte('approved_at', endUTC)
@@ -81,7 +81,7 @@ export async function getIolApprovalHistory(fromDate, toDate, search) {
 
   let query = supabase
     .from('iol_approvals')
-    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid), master_packages:package_id(name)), master_iol_catalog(brand, model)')
+    .select('*, surgical_cases(id, procedure_name, eye, package_id, patients:patient_id(first_name, salutation, last_name, uhid, age), master_packages:package_id(name)), master_iol_catalog(brand, model)')
     .eq('status', 'Approved')
     .order('approved_at', { ascending: false })
     .limit(300);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardDischargedToday, getSurgeryDashboardHistory } from './actions';
 import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
@@ -11,7 +11,16 @@ import { getMedicalFitnessQueue } from '@/app/(main)/medical-fitness/actions';
 
 function patientName(sc) {
   const p = sc?.patients;
-  return p ? `${formatPatientName(p)}` : 'Unknown';
+  return p ? displayName(p) : 'Unknown';
+}
+
+// Shared by patientName() and the three normalize* row builders below --
+// name plus age, so surgeon and OT staff can identify who's who across
+// Arrivals, Surgical Evaluation, and Post-Op without opening each row.
+function displayName(p) {
+  if (!p) return 'Unknown';
+  const age = formatPatientAge(p);
+  return age ? `${formatPatientName(p)} (${age})` : formatPatientName(p);
 }
 
 function fmtDate(d) {
@@ -52,16 +61,16 @@ function normalizeArrival(row, stageLabel) {
   const sc = row.surgical_cases;
   const p = sc?.patients;
   const href = (stageLabel === 'Pending Check-In' || stageLabel === 'Checked In' || stageLabel === 'In OT') ? `/ot-intraop?otScheduleId=${row.id}` : `/ot-recovery?episodeId=${stageLabel === 'In Recovery' ? row.recoveryEpisodeId : row.id}`;
-  return { key: `arr-${row.id}`, name: p ? `${formatPatientName(p)}` : 'Unknown', uhid: p?.uhid, subtitle: `${sc?.procedure_name || ''}${sc?.eye ? ` (${sc.eye})` : ''}`, stageLabel, href };
+  return { key: `arr-${row.id}`, name: displayName(p), uhid: p?.uhid, subtitle: `${sc?.procedure_name || ''}${sc?.eye ? ` (${sc.eye})` : ''}`, stageLabel, href };
 }
 function normalizeSurgicalEval(c) {
   const p = c.patients;
-  return { key: `eval-${c.id}`, name: p ? `${formatPatientName(p)}` : 'Unknown', uhid: p?.uhid, subtitle: `${c.procedure_name || ''}${c.eye ? ` (${c.eye})` : ''}`, href: `/surgical-journey/${c.id}` };
+  return { key: `eval-${c.id}`, name: displayName(p), uhid: p?.uhid, subtitle: `${c.procedure_name || ''}${c.eye ? ` (${c.eye})` : ''}`, href: `/surgical-journey/${c.id}` };
 }
 function normalizePostOp(e) {
   const sc = e.surgical_cases;
   const p = sc?.patients;
-  return { key: `postop-${e.id}`, name: p ? `${formatPatientName(p)}` : 'Unknown', uhid: p?.uhid, subtitle: `${sc?.procedure_name || ''}${sc?.eye ? ` (${sc.eye})` : ''}`, href: `/ot-postop?episodeId=${e.id}` };
+  return { key: `postop-${e.id}`, name: displayName(p), uhid: p?.uhid, subtitle: `${sc?.procedure_name || ''}${sc?.eye ? ` (${sc.eye})` : ''}`, href: `/ot-postop?episodeId=${e.id}` };
 }
 
 // One column within Today's Surgery Related Visits -- header (icon,

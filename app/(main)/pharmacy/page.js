@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getPharmacyDashboard } from './actions';
 import PharmacyTabs from './pharmacy-tabs';
@@ -67,7 +67,7 @@ export default function PharmacyDashboard() {
           {rows.map((g) => (
             <tr key={g.visitId}>
               <td>
-                <strong>{formatPatientName(g.patient)}</strong>
+                <strong>{formatPatientName(g.patient)}{formatPatientAge(g.patient) ? ` (${formatPatientAge(g.patient)})` : ''}</strong>
                 <div style={{ fontSize: 11, color: 'var(--g400)' }}>{g.patient?.uhid}</div>
               </td>
               <td style={{ fontSize: 12, color: 'var(--g500)' }}>{g.visitNumber}</td>

@@ -11,7 +11,7 @@ export async function getInvestigationQueue() {
 
   const { data: pending, error } = await supabase
     .from('investigation_orders')
-    .select('*, encounters(id, visit_id, visits(id, patients(first_name, salutation, last_name, uhid)))')
+    .select('*, encounters(id, visit_id, visits(id, patients(first_name, salutation, last_name, uhid, age)))')
     .in('status', ['Ordered', 'In Progress'])
     // Biometry is ordered here too (so it shows in the doctor's OPD
     // list), but it's fulfilled through its own biometry_records row,
@@ -62,7 +62,7 @@ export async function getInvestigationQueue() {
   // separate IOL Approval module).
   const { data: bio } = await supabase
     .from('biometry_records')
-    .select('*, visits(id, patients(first_name, salutation, last_name, uhid))')
+    .select('*, visits(id, patients(first_name, salutation, last_name, uhid, age))')
     .eq('status', 'Awaiting Biometry')
     .order('created_at', { ascending: true });
 
@@ -127,7 +127,7 @@ export async function getTodaysInvestigations() {
 
   const { data, error } = await supabase
     .from('investigation_orders')
-    .select('*, encounters(visit_id, visits(patients(first_name, salutation, last_name, uhid)))')
+    .select('*, encounters(visit_id, visits(patients(first_name, salutation, last_name, uhid, age)))')
     .gte('created_at', startUTC)
     .lte('created_at', endUTC)
     .order('created_at', { ascending: false });

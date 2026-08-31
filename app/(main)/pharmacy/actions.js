@@ -34,7 +34,7 @@ export async function getPharmacyDashboard() {
 
   const { data, error } = await supabase
     .from('prescriptions')
-    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
+    .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile, age)))')
     .gte('created_at', startUTC).lte('created_at', endUTC)
     .order('created_at', { ascending: true });
 

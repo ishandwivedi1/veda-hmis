@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { getDoctorDashboardData, getDoctorHistory, getProceduresDueToday } from './actions';
 import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
 import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
@@ -22,7 +22,9 @@ function waitBadgeClass(mins) {
 
 function patientName(entry) {
   const p = entry.visits?.patients;
-  return p ? `${formatPatientName(p)}` : 'Unknown';
+  if (!p) return 'Unknown';
+  const age = formatPatientAge(p);
+  return age ? `${formatPatientName(p)} (${age})` : formatPatientName(p);
 }
 
 

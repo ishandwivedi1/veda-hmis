@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import {
   getMedicalFitnessQueue, getMedicalFitnessHistory, getMedicalFitnessClearedToday, getMedicalFitnessDetail,
@@ -82,7 +82,7 @@ function QueueTab({ rows, loading, onOpen }) {
               {r.visits?.patients?.first_name?.charAt(0) || '?'}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(r.visits?.patients)}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(r.visits?.patients)}{formatPatientAge(r.visits?.patients) ? ` (${formatPatientAge(r.visits?.patients)})` : ''}</span>
               <span className="badge b-amber" style={{ marginLeft: 8, fontSize: 10 }}>Pending Review</span>
               {r.surgical_cases?.priority && r.surgical_cases.priority !== 'Routine' && <span className="badge b-red" style={{ marginLeft: 4, fontSize: 10 }}>{r.surgical_cases.priority}</span>}
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
@@ -121,7 +121,7 @@ function ClearedTodayCard({ rows, loading, onOpen }) {
             {r.visits?.patients?.first_name?.charAt(0) || '?'}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(r.visits?.patients)}</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(r.visits?.patients)}{formatPatientAge(r.visits?.patients) ? ` (${formatPatientAge(r.visits?.patients)})` : ''}</span>
             <span className={`badge ${HISTORY_STATUS_BADGE[r.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{r.status}</span>
             <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
               {r.visits?.patients?.uhid} -- {r.surgical_cases?.procedure_name} ({r.surgical_cases?.eye}) -- by {r.clearedByName}

@@ -14,7 +14,7 @@ export async function getBiometryQueue() {
 
   const { data: records, error } = await supabase
     .from('biometry_records')
-    .select('*, patients(first_name, salutation, last_name, uhid)')
+    .select('*, patients(first_name, salutation, last_name, uhid, age)')
     .eq('status', 'Awaiting Biometry')
     .order('created_at', { ascending: true });
 
@@ -58,7 +58,7 @@ export async function getBiometryCompletedToday() {
 
   const { data, error } = await supabase
     .from('biometry_records')
-    .select('*, patients(first_name, salutation, last_name, uhid)')
+    .select('*, patients(first_name, salutation, last_name, uhid, age)')
     .eq('status', 'Measured')
     .gte('updated_at', startUTC)
     .lte('updated_at', endUTC)

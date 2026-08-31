@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { getPendingIolApprovals, getApprovedToday, getIolApprovalHistory, getIolApprovalDetail, approveIol } from './actions';
 import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
@@ -37,7 +37,7 @@ function DashboardTab({ pending, approvedToday, loading, onOpen }) {
               {item.patient?.first_name?.charAt(0)}
             </div>
             <div style={{ flex: 1 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(item.patient)}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(item.patient)}{formatPatientAge(item.patient) ? ` (${formatPatientAge(item.patient)})` : ''}</span>
               <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>{EYE_LABEL[item.eye] || item.eye}</span>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                 {item.patient?.uhid} -- {item.procedureName}{item.packageName ? ` -- ${item.packageName}` : ''}
@@ -61,7 +61,7 @@ function DashboardTab({ pending, approvedToday, loading, onOpen }) {
               {a.surgical_cases?.patients?.first_name?.charAt(0)}
             </div>
             <div style={{ flex: 1 }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(a.surgical_cases?.patients)}</span>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(a.surgical_cases?.patients)}{formatPatientAge(a.surgical_cases?.patients) ? ` (${formatPatientAge(a.surgical_cases?.patients)})` : ''}</span>
               <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>{EYE_LABEL[a.eye] || a.eye}</span>
               <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
                 {a.master_iol_catalog?.brand} {a.master_iol_catalog?.model} -- {a.power}D

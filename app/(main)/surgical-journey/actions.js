@@ -346,7 +346,7 @@ export async function getSurgicalEvaluationArrivalsToday() {
 
   const { data: cases, error: casesError } = await supabase
     .from('surgical_cases')
-    .select('id, patient_id, procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid)')
+    .select('id, patient_id, procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid, age)')
     .in('patient_id', [...patientIds])
     .not('status', 'in', '("Completed","Cancelled")');
   if (casesError) return [];

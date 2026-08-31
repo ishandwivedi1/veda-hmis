@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { logJourneyEvent } from '@/lib/journey-events';
 
 function tokenNum(token) {
@@ -35,7 +35,7 @@ export async function getQueues() {
   // today's list.
   const { data: entries, error } = await supabase
     .from('queue_entries')
-    .select('*, visits(patients(first_name, salutation, last_name, uhid))')
+    .select('*, visits(patients(first_name, salutation, last_name, uhid, age))')
     .not('status', 'in', '(Done,Cancelled,Incomplete)')
     .gte('issued_at', startUTC)
     .lte('issued_at', endUTC)
@@ -205,7 +205,7 @@ export async function getPatientFlow() {
     { data: biometry },
   ] = await Promise.all([
     supabase.from('visits')
-      .select('id, visit_type, priority, status, created_at, closed_at, patients(first_name, salutation, last_name, uhid), profiles:doctor_id(full_name)')
+      .select('id, visit_type, priority, status, created_at, closed_at, patients(first_name, salutation, last_name, uhid, age), profiles:doctor_id(full_name)')
       .neq('status', 'Cancelled')
       .gte('created_at', startUTC).lte('created_at', endUTC)
       .order('created_at', { ascending: true }),
@@ -244,7 +244,7 @@ export async function getPatientFlow() {
     const p = v.patients;
     byColumn[stage.column].push({
       visitId: v.id,
-      patientName: p ? `${formatPatientName(p)}` : 'Unknown',
+      patientName: p ? `${formatPatientName(p)}${formatPatientAge(p) ? ` (${formatPatientAge(p)})` : ''}` : 'Unknown',
       uhid: p?.uhid,
       doctorName: v.profiles?.full_name,
       priority: v.priority,

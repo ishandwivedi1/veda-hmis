@@ -26,7 +26,7 @@ async function getWorkflowCasesWithContext() {
 
   const { data, error } = await supabase
     .from('plan_procedures')
-    .select('*, encounters(id, visit_id, visits(patient_id, patients(id, first_name, salutation, last_name, uhid, mobile)))')
+    .select('*, encounters(id, visit_id, visits(patient_id, patients(id, first_name, salutation, last_name, uhid, mobile, age)))')
     .neq('status', 'Cancelled')
     .neq('status', 'Done')
     .order('created_at', { ascending: false });
@@ -116,7 +116,7 @@ export async function getTodayOpdProcedurePatients() {
 
   const { data, error } = await supabase
     .from('plan_procedures')
-    .select('id, name, eye, status, scheduled_date, checked_in_at, completed_at, encounters!inner(visits!inner(patient_id, patients(id, first_name, salutation, last_name, uhid, mobile)))')
+    .select('id, name, eye, status, scheduled_date, checked_in_at, completed_at, encounters!inner(visits!inner(patient_id, patients(id, first_name, salutation, last_name, uhid, mobile, age)))')
     .or(`scheduled_date.eq.${today},checked_in_at.gte.${today}T00:00:00,completed_at.gte.${today}T00:00:00`)
     .neq('status', 'Cancelled');
   if (error) return [];
@@ -294,13 +294,13 @@ export async function getCombinedSchedule() {
   const [otResult, procResult] = await Promise.all([
     supabase
       .from('ot_schedule')
-      .select('id, scheduled_date, scheduled_time, status, surgical_cases(procedure_name, eye, patients(first_name, salutation, last_name, uhid))')
+      .select('id, scheduled_date, scheduled_time, status, surgical_cases(procedure_name, eye, patients(first_name, salutation, last_name, uhid, age))')
       .in('status', ['Scheduled', 'In Progress'])
       .gte('scheduled_date', today)
       .order('scheduled_date', { ascending: true }),
     supabase
       .from('plan_procedures')
-      .select('id, name, eye, scheduled_date, scheduled_time, status, encounters(visits(patients(first_name, salutation, last_name, uhid)))')
+      .select('id, name, eye, scheduled_date, scheduled_time, status, encounters(visits(patients(first_name, salutation, last_name, uhid, age)))')
       .in('status', ['Scheduled', 'Checked In'])
       .gte('scheduled_date', today)
       .order('scheduled_date', { ascending: true }),

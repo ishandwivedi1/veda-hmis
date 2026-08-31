@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { formatPatientName } from '@/lib/patientName';
+import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { searchPatients } from '../patient-timeline/actions';
 import { getOpdProcedureLists, getCombinedSchedule, getOpdProcedureHistory } from './actions';
@@ -26,7 +26,7 @@ function CaseRow({ c, color, onOpen }) {
         {c.patient.first_name?.charAt(0)}
       </div>
       <div style={{ flex: 1 }}>
-        <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patient)}</span>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patient)}{formatPatientAge(c.patient) ? ` (${formatPatientAge(c.patient)})` : ''}</span>
         {color === 'var(--amber)' && <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>}
         {c.status === 'Scheduled' && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>Date booked, unpaid</span>}
         <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
@@ -58,7 +58,7 @@ function CalendarView({ rows, loading, onClose }) {
             <div key={`${e.kind}-${e.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderTop: '1px solid var(--g100)' }}>
               <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, color: '#fff', background: e.kind === 'Surgery' ? 'var(--blue)' : 'var(--teal, #0d9488)' }}>{e.kind}</span>
               <span style={{ fontSize: 12, width: 60, color: 'var(--g500)' }}>{e.time ? e.time.slice(0, 5) : '--'}</span>
-              <span style={{ fontSize: 13, flex: 1 }}><strong>{formatPatientName(e.patient)}</strong> -- {e.name} {e.eye ? `(${e.eye})` : ''}</span>
+              <span style={{ fontSize: 13, flex: 1 }}><strong>{formatPatientName(e.patient)}{formatPatientAge(e.patient) ? ` (${formatPatientAge(e.patient)})` : ''}</strong> -- {e.name} {e.eye ? `(${e.eye})` : ''}</span>
               <span style={{ fontSize: 11, color: 'var(--g400)' }}>{e.status}</span>
             </div>
           ))}

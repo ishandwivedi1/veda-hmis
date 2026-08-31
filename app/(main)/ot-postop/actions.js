@@ -49,7 +49,7 @@ export async function getPostOpTurnedUpToday() {
 
   const { data, error } = await supabase
     .from('recovery_episodes')
-    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid), profiles:surgeon_id(full_name))')
+    .select('*, surgical_cases(procedure_name, eye, patients:patient_id(first_name, salutation, last_name, uhid, age), profiles:surgeon_id(full_name))')
     .in('id', ids.map((r) => r.episode_id))
     .order('discharge_date', { ascending: true });
   if (error) return [];
