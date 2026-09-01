@@ -536,9 +536,18 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleMarkForSurgery() {
     setError('');
     if (!surgeryProcedure) { setError('Select a surgery.'); return; }
-    if (!surgeryDecision) { setError("Select the patient's decision -- right now."); return; }
+    // Decision is deliberately NOT required here anymore -- markForSurgery
+    // already accepts a null decision (the DB column is nullable, and
+    // every downstream read of .decision checks it against a specific
+    // value like 'Accepted'/'Declined', both false for null, so an
+    // undecided case behaves correctly everywhere it's read). This lets
+    // the doctor save the primary procedure first, which immediately
+    // reveals "Additional Procedures in This Surgery" below, so a
+    // combined surgery (e.g. Cataract + Anti-VEGF) can be fully listed
+    // before the decision is ever touched -- the decision buttons stay
+    // right there in the same expanded view for whenever it's ready.
     setSurgeryLoading(true);
-    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision);
+    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision || null);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setShowSurgery(false);
@@ -1340,7 +1349,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <input className="fi" placeholder="Any notes for this surgery recommendation..." value={surgeryNotes} onChange={(e) => setSurgeryNotes(e.target.value)} />
                     </div>
                     <div style={{ marginBottom: 8 }}>
-                      <label className="flbl">Patient's Decision -- Right Now</label>
+                      <label className="flbl">Patient's Decision -- Right Now (optional)</label>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {[
                           { v: 'Accepted', label: 'Willing', color: 'var(--green)' },
@@ -1357,7 +1366,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         ))}
                       </div>
                       <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
-                        "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way.
+                        "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way. Leave it unset if you first want to add other procedures done in the same surgery (Anti-VEGF alongside Cataract, etc.) -- Save below, and both the additional-procedures list and the decision buttons will still be right here once the case exists.
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
