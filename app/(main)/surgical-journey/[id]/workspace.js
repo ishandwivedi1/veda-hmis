@@ -271,7 +271,16 @@ export default function Workspace({ caseId }) {
     iolApproval: !isCataract || data.iolApproval?.status === 'Approved',
     iol: !!data.otSchedule,
     fitness: sc.fitness_cleared || sc.fitness_required === false || data.fitnessReferral?.status === 'Cleared',
-    payment: netPackageAmount > 0 && advanceBalance >= netPackageAmount - 0.01,
+    // A surgery can be paid two legitimate ways: an advance collected
+    // up front, or billed directly on an invoice with no advance at
+    // all (allPackagesBilled, computed above from package_billed --
+    // set the moment ANY invoice line references this case's package,
+    // regardless of route). Previously this only ever checked advance
+    // balance, so a surgery billed directly -- exactly the fix for a
+    // late-entered surgery that skipped the normal advance-first flow
+    // -- would show "Balance due" forever even with its invoice
+    // already marked Paid.
+    payment: allPackagesBilled || (netPackageAmount > 0 && advanceBalance >= netPackageAmount - 0.01),
     checkin: !!data.checkinCompletedAt,
     intraop: data.otSchedule?.status === 'Completed',
     recovery: !!data.recoveryEpisode?.discharge_date,

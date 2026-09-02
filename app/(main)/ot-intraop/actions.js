@@ -131,20 +131,25 @@ export async function getOTCaseList() {
   const overdueIds = new Set((overdueScheduled || []).map((b) => b.id));
 
   // Additional procedures within the same surgery (see
-  // surgical_case_procedures) each keep their own package/price too --
-  // summed in here so a discounted-but-otherwise-billed additional
-  // procedure doesn't let the case look "advance cleared" while part of
-  // the surgery is still unpaid.
+  // surgical_case_procedures) each keep their own package/price and
+  // their own package_billed too -- summed in here so a
+  // discounted-but-otherwise-billed additional procedure doesn't let
+  // the case look "advance cleared" while part of the surgery is still
+  // unpaid, and conversely so an ALREADY-billed additional procedure
+  // doesn't keep demanding an advance for money that's already been
+  // collected on its own invoice.
   const caseIds = [...new Set(cases.map((b) => b.surgical_cases.id))];
   const extraByCase = {};
+  const unbilledExtraByCase = {};
   if (caseIds.length > 0) {
     const { data: extraProcs } = await supabase
       .from('surgical_case_procedures')
-      .select('surgical_case_id, package_discount, master_packages:package_id(price)')
+      .select('surgical_case_id, package_discount, package_billed, master_packages:package_id(price)')
       .in('surgical_case_id', caseIds);
     (extraProcs || []).forEach((p) => {
       const net = Math.max(0, Number(p.master_packages?.price || 0) - Number(p.package_discount || 0));
       extraByCase[p.surgical_case_id] = (extraByCase[p.surgical_case_id] || 0) + net;
+      if (!p.package_billed) unbilledExtraByCase[p.surgical_case_id] = (unbilledExtraByCase[p.surgical_case_id] || 0) + net;
     });
   }
 
@@ -169,12 +174,21 @@ export async function getOTCaseList() {
     // Net payable = package price minus whatever discount was recorded
     // at Package Selection / Payment step in Surgical Journey --
     // matches netPackageAmount there exactly (surgical-journey/[id]/workspace.js).
-    // Previously this used the raw package price with no discount
-    // applied, so a discounted patient always showed an inflated
-    // "amount to collect" here at check-in.
     const packagePrice = Number(b.surgical_cases.master_packages?.price || 0);
     const packageDiscount = Number(b.surgical_cases.package_discount || 0);
-    const netPackageAmount = Math.max(0, packagePrice - packageDiscount) + (extraByCase[b.surgical_cases.id] || 0);
+    const primaryNet = Math.max(0, packagePrice - packageDiscount);
+    const netPackageAmount = primaryNet + (extraByCase[b.surgical_cases.id] || 0);
+    // A surgery can be paid two legitimate ways: an advance collected
+    // up front (patient_ledger, checked via advanceBalance), or billed
+    // directly on an invoice with no advance at all (package_billed
+    // flips true the moment ANY invoice line references this case's
+    // package -- see markPackageBilled in billing/actions.js, called
+    // regardless of which route got it there). unbilledNet is only the
+    // portion NOT already covered that way -- the primary package if
+    // sc.package_billed is still false, plus whichever additional
+    // procedures haven't been billed yet -- so advance is only ever
+    // asked to cover what's actually still outstanding.
+    const unbilledNet = (b.surgical_cases.package_billed ? 0 : primaryNet) + (unbilledExtraByCase[b.surgical_cases.id] || 0);
     const advanceBalance = balanceByPatient[b.surgical_cases.patient_id] || 0;
     const isScheduled = b.status === 'Scheduled';
     return {
@@ -183,8 +197,8 @@ export async function getOTCaseList() {
       packageDiscount,
       netPackageAmount,
       advanceBalance,
-      amountPayable: Math.max(0, netPackageAmount - advanceBalance),
-      advanceCleared: netPackageAmount <= 0 || advanceBalance >= netPackageAmount,
+      amountPayable: Math.max(0, unbilledNet - advanceBalance),
+      advanceCleared: unbilledNet <= 0 || advanceBalance >= unbilledNet,
       hasVisitToday: isScheduled ? !!visitByPatient[b.surgical_cases.patient_id] : true,
       isOverdue: overdueIds.has(b.id),
     };
