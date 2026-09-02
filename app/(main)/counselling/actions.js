@@ -238,7 +238,7 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
   const cleanInvestigations = (investigations || []).filter((i) => i?.name?.trim());
   const biometryRequired = cleanInvestigations.some((i) => i.name.trim().toLowerCase() === 'biometry');
 
-  const { error } = await supabase.from('surgical_cases').insert({
+  const { data: newCase, error } = await supabase.from('surgical_cases').insert({
     patient_id: patientId,
     encounter_id: encounterId,
     visit_id: encounter?.visit_id || null,
@@ -258,10 +258,13 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     // first change.
     decision: decision || null,
     decision_locked: decision === 'Accepted',
-  });
+  }).select('id').single();
   if (error) return { error: error.message };
 
-  return { success: true };
+  // caseId lets the caller immediately attach any additional procedures
+  // (addCaseProcedure) staged before Save was even clicked, in the same
+  // sitting -- see consultation-form.js's handleMarkForSurgery.
+  return { success: true, caseId: newCase.id };
 }
 
 // Asked at OPD visit completion, right after a surgery is advised --

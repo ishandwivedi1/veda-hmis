@@ -168,6 +168,19 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [surgeryInvEye, setSurgeryInvEye] = useState('OU');
   const [surgeryNotes, setSurgeryNotes] = useState('');
   const [surgeryDecision, setSurgeryDecision] = useState('');
+  // Additional procedures for a combined surgery, staged client-side
+  // BEFORE Save is even clicked (the surgical case doesn't exist yet,
+  // so there's nothing to attach these to in the database until then).
+  // On Save, handleMarkForSurgery creates the primary case first, then
+  // loops through this list calling addCaseProcedure for each --
+  // functionally identical to adding them one at a time afterward via
+  // the "Additional Procedures" section below, just batched into one
+  // click. Cleared on save/cancel like the other surgery-advice fields.
+  const [pendingCaseProcedures, setPendingCaseProcedures] = useState([]);
+  const [showPendingProc, setShowPendingProc] = useState(false);
+  const [pendingProcName, setPendingProcName] = useState('');
+  const [pendingProcEye, setPendingProcEye] = useState('OU');
+  const [pendingProcNotes, setPendingProcNotes] = useState('');
   // Additional procedures performed within the same surgery (e.g. this
   // case is Cataract, adding Anti-VEGF Injection alongside it) --
   // staging fields for the small add-procedure form under the saved
@@ -548,13 +561,38 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     // right there in the same expanded view for whenever it's ready.
     setSurgeryLoading(true);
     const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision || null);
+    if (result.error) {
+      setSurgeryLoading(false);
+      setError(result.error);
+      return;
+    }
+    // Attach whatever additional procedures were staged before Save --
+    // sequential, not Promise.all, so a failure partway through leaves
+    // a predictable, reportable set of what did/didn't make it rather
+    // than a race between rows that all reference the same brand-new
+    // caseId.
+    const failedProcedures = [];
+    for (const p of pendingCaseProcedures) {
+      const addResult = await addCaseProcedure(result.caseId, p.name, p.eye, p.notes);
+      if (addResult.error) failedProcedures.push(`${p.name} (${addResult.error})`);
+    }
     setSurgeryLoading(false);
-    if (result.error) { setError(result.error); return; }
+    if (failedProcedures.length > 0) {
+      // The primary case saved fine either way -- this only reports the
+      // additional procedures that didn't attach, so nothing here is
+      // silently lost. They can still be added from the "Additional
+      // Procedures" section that appears now that the case exists.
+      setError(`Surgery saved, but these additional procedures could not be added: ${failedProcedures.join(', ')}. You can add them below.`);
+    }
     setShowSurgery(false);
     setSurgeryProcedure('');
     setSurgeryInvestigations([]);
     setSurgeryNotes('');
     setSurgeryDecision('');
+    setPendingCaseProcedures([]);
+    setShowPendingProc(false);
+    setPendingProcName('');
+    setPendingProcNotes('');
     refresh();
   }
 
@@ -577,6 +615,23 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     const result = await removeCaseProcedure(procedureId);
     if (result.error) { setError(result.error); return; }
     refresh();
+  }
+
+  // Purely local -- nothing hits the database until handleMarkForSurgery
+  // saves the primary case and then attaches each of these. Mirrors
+  // handleAddCaseProcedure/handleRemoveCaseProcedure's validation and
+  // reset behavior so the two flows feel identical to use even though
+  // one is staged and one writes immediately.
+  function addPendingCaseProcedure() {
+    setError('');
+    if (!pendingProcName) { setError('Select a procedure.'); return; }
+    setPendingCaseProcedures((list) => [...list, { name: pendingProcName, eye: pendingProcEye, notes: pendingProcNotes.trim() }]);
+    setShowPendingProc(false);
+    setPendingProcName('');
+    setPendingProcNotes('');
+  }
+  function removePendingCaseProcedure(idx) {
+    setPendingCaseProcedures((list) => list.filter((_, i) => i !== idx));
   }
 
   function startEditSurgicalCase(sc) {
@@ -1349,6 +1404,44 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <input className="fi" placeholder="Any notes for this surgery recommendation..." value={surgeryNotes} onChange={(e) => setSurgeryNotes(e.target.value)} />
                     </div>
                     <div style={{ marginBottom: 8 }}>
+                      <label className="flbl">Additional Procedures in This Surgery (optional)</label>
+                      <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 6 }}>
+                        Other procedures done in the same sitting as the one above (e.g. Anti-VEGF Injection alongside Cataract). Added here now, or from the same section after Save -- either way, before or after the decision is recorded.
+                      </div>
+                      {pendingCaseProcedures.map((p, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12 }}>
+                          <i className="ti ti-point" style={{ color: 'var(--g400)' }}></i>
+                          <span style={{ flex: 1 }}>
+                            {p.name} -- {p.eye === 'OD' ? 'Right (OD)' : p.eye === 'OS' ? 'Left (OS)' : 'Both (OU)'}
+                            {p.notes && <span style={{ color: 'var(--g400)' }}> ({p.notes})</span>}
+                          </span>
+                          <i className="ti ti-trash" style={{ cursor: 'pointer', color: 'var(--red)' }} onClick={() => removePendingCaseProcedure(idx)}></i>
+                        </div>
+                      ))}
+                      {!showPendingProc ? (
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginTop: 4 }} onClick={() => setShowPendingProc(true)}>
+                          <i className="ti ti-plus"></i> Add Procedure
+                        </button>
+                      ) : (
+                        <div style={{ marginTop: 6, padding: 8, background: 'var(--g50)', borderRadius: 6 }}>
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                            <select className="fi fi-sm" value={pendingProcName} onChange={(e) => setPendingProcName(e.target.value)} style={{ flex: 2 }}>
+                              <option value="">-- Select procedure --</option>
+                              {surgeryOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            </select>
+                            <select className="fi fi-sm" value={pendingProcEye} onChange={(e) => setPendingProcEye(e.target.value)} style={{ width: 100 }}>
+                              <option value="OD">RE</option><option value="OS">LE</option><option value="OU">Both</option>
+                            </select>
+                          </div>
+                          <input className="fi fi-sm" placeholder="Notes (optional)" value={pendingProcNotes} onChange={(e) => setPendingProcNotes(e.target.value)} style={{ marginBottom: 6 }} />
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-primary btn-sm" onClick={addPendingCaseProcedure}>Add</button>
+                            <button className="btn btn-sm" onClick={() => { setShowPendingProc(false); setPendingProcName(''); setPendingProcNotes(''); }}>Cancel</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
                       <label className="flbl">Patient's Decision -- Right Now (optional)</label>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {[
@@ -1366,14 +1459,14 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         ))}
                       </div>
                       <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>
-                        "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way. Leave it unset if you first want to add other procedures done in the same surgery (Anti-VEGF alongside Cataract, etc.) -- Save below, and both the additional-procedures list and the decision buttons will still be right here once the case exists.
+                        "Needs Time to Decide" puts this patient on Front Desk's follow-up list in Surgical Journey. This can be updated later either way -- and so can the additional procedures above, from the same section once the case exists.
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn btn-primary btn-sm" onClick={handleMarkForSurgery} disabled={surgeryLoading}>
                         {surgeryLoading ? 'Saving...' : 'Save'}
                       </button>
-                      <button className="btn btn-sm" onClick={() => setShowSurgery(false)}>Cancel</button>
+                      <button className="btn btn-sm" onClick={() => { setShowSurgery(false); setPendingCaseProcedures([]); setShowPendingProc(false); setPendingProcName(''); setPendingProcNotes(''); }}>Cancel</button>
                     </div>
                   </div>
                 )}
