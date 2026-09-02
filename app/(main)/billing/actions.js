@@ -678,11 +678,11 @@ export async function markPackageBilled(caseId, invoiceId) {
   if (!caseId) return { success: true };
   if (typeof caseId === 'string' && caseId.startsWith('proc:')) {
     const procedureId = caseId.slice('proc:'.length);
-    const { error } = await supabase.from('surgical_case_procedures').update({ package_billed: true }).eq('id', procedureId);
+    const { error } = await supabase.from('surgical_case_procedures').update({ package_billed: true, billed_invoice_id: invoiceId || null }).eq('id', procedureId);
     if (error) return { error: error.message };
     return { success: true };
   }
-  const { error } = await supabase.from('surgical_cases').update({ package_billed: true }).eq('id', caseId);
+  const { error } = await supabase.from('surgical_cases').update({ package_billed: true, billed_invoice_id: invoiceId || null }).eq('id', caseId);
   if (error) return { error: error.message };
   return { success: true };
 }

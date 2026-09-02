@@ -303,6 +303,58 @@ export async function getCaseProcedures(caseId) {
   return data || [];
 }
 
+// ── LINK EXISTING INVOICE -- for a surgery that was genuinely billed
+// and paid, but not through either of the case-linked "Bill" buttons
+// (Surgical Journey's own, or the Billing Dashboard's Pending Package
+// Billing list -- the latter only surfaces a case once its advance
+// already covers the full package, so a normal partial-advance-then-
+// settle-the-rest-at-billing patient never qualifies for it at all).
+// A generic New Invoice search can bill the exact right package with
+// the exact right discount and still leave package_billed sitting
+// false forever, because nothing about that route knows to link it
+// back. This reconciles it after the fact instead of requiring a
+// database fix every time it happens.
+export async function getPatientInvoicesForCase(caseId) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('patient_id').eq('id', caseId).maybeSingle();
+  if (!sc) return [];
+  const { data } = await supabase
+    .from('invoices')
+    .select('id, invoice_number, purpose, gross, net, paid, status, created_at')
+    .eq('patient_id', sc.patient_id)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+// caseId can be either a plain surgical_cases id (primary procedure)
+// or "proc:<id>" (see getCaseProcedures/addCaseProcedure) -- but
+// unlike markPackageBilled (which only ever touches the one line an
+// actual New Invoice save just billed), linking here marks the WHOLE
+// surgery billed at once, primary plus every additional procedure --
+// matching the "one invoice covers the whole surgery" rule the normal
+// Create Invoice button already follows (see allPackagesBilled in
+// surgical-journey/[id]/workspace.js). A patient-mismatch is checked
+// server-side, not just hidden by the picker only showing this
+// patient's own invoices -- belt and braces for a financial link.
+export async function linkExistingInvoiceToPackage(caseId, invoiceId) {
+  const supabase = await createClient();
+  const { data: sc } = await supabase.from('surgical_cases').select('id, patient_id').eq('id', caseId).maybeSingle();
+  if (!sc) return { error: 'Surgical case not found.' };
+
+  const { data: inv } = await supabase.from('invoices').select('patient_id').eq('id', invoiceId).maybeSingle();
+  if (!inv) return { error: 'Invoice not found.' };
+  if (inv.patient_id !== sc.patient_id) return { error: "This invoice doesn't belong to this patient." };
+
+  const { error: caseErr } = await supabase.from('surgical_cases').update({ package_billed: true, billed_invoice_id: invoiceId }).eq('id', caseId);
+  if (caseErr) return { error: caseErr.message };
+
+  const { error: procErr } = await supabase.from('surgical_case_procedures').update({ package_billed: true, billed_invoice_id: invoiceId }).eq('surgical_case_id', caseId);
+  if (procErr) return { error: procErr.message };
+
+  return { success: true };
+}
+
 // Can only add while the surgery itself is still Pending Workup --
 // once it's Ready for Scheduling or further along, the procedure list
 // is locked, same rule as editing the primary procedure.

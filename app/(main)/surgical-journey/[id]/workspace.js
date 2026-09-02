@@ -17,6 +17,7 @@ import {
   selectPackage, changePackage, updatePackageDiscount, getPackagesForCase,
   setDecision, markReadyForScheduling, bookOTSlot, getSurgeons,
   getCaseProcedures, selectProcedurePackage, changeProcedurePackage, updateProcedurePackageDiscount,
+  getPatientInvoicesForCase, linkExistingInvoiceToPackage,
 } from '@/app/(main)/counselling/actions';
 import { rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
 import { openPopup, openTab } from '@/lib/popup';
@@ -393,10 +394,41 @@ export default function Workspace({ caseId }) {
                 <button className="btn btn-sm" disabled>
                   <i className="ti ti-circle-check"></i> Invoice Created
                 </button>
+              ) : showLinkInvoice ? (
+                <div style={{ padding: 8, background: 'var(--g50)', borderRadius: 6, maxWidth: 420 }}>
+                  <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 6 }}>
+                    Pick the invoice that already covers this surgery -- links it here instead of creating a new one.
+                  </div>
+                  {loadingInvoices ? (
+                    <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading invoices...</div>
+                  ) : patientInvoices.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--g400)' }}>No invoices found for this patient.</div>
+                  ) : (
+                    <select className="fi fi-sm" value={selectedInvoiceId} onChange={(e) => setSelectedInvoiceId(e.target.value)} style={{ marginBottom: 8 }}>
+                      <option value="">-- Select invoice --</option>
+                      {patientInvoices.map((inv) => (
+                        <option key={inv.id} value={inv.id}>
+                          {inv.invoice_number} -- {new Date(inv.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })} -- {inv.purpose} -- Rs.{Number(inv.net).toLocaleString('en-IN')} ({inv.status})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-primary btn-sm" onClick={confirmLinkInvoice} disabled={!selectedInvoiceId || linking}>
+                      {linking ? 'Linking...' : 'Link This Invoice'}
+                    </button>
+                    <button className="btn btn-sm" onClick={() => setShowLinkInvoice(false)}>Cancel</button>
+                  </div>
+                </div>
               ) : (
-                <button className="btn btn-sm" onClick={() => openTab(`/billing/new?pkgCaseId=${sc.id}`, `invoice-${sc.id}`)}>
-                  <i className="ti ti-receipt"></i> Create Invoice
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-sm" onClick={() => openTab(`/billing/new?pkgCaseId=${sc.id}`, `invoice-${sc.id}`)}>
+                    <i className="ti ti-receipt"></i> Create Invoice
+                  </button>
+                  <button className="btn btn-sm" onClick={openLinkInvoicePicker}>
+                    <i className="ti ti-link"></i> Link Existing Invoice
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -987,10 +1019,37 @@ function PackagePickerBlock({ title, target, packages, onSelect, onChangePackage
 function PackageDecisionSection({ sc, caseProcedures, onAction, active }) {
   const [packages, setPackages] = useState([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
+  // Link Existing Invoice -- for a surgery that was genuinely billed
+  // and paid but through a route that doesn't set package_billed on
+  // its own (see linkExistingInvoiceToPackage's comment). Only fetches
+  // the patient's invoices once the picker is actually opened, not on
+  // every render of this section.
+  const [showLinkInvoice, setShowLinkInvoice] = useState(false);
+  const [patientInvoices, setPatientInvoices] = useState([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
+  const [linking, setLinking] = useState(false);
 
   useEffect(() => {
     getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoadingPackages(false); });
   }, [sc.iol_category]);
+
+  async function openLinkInvoicePicker() {
+    setShowLinkInvoice(true);
+    setSelectedInvoiceId('');
+    setLoadingInvoices(true);
+    const invs = await getPatientInvoicesForCase(sc.id);
+    setPatientInvoices(invs);
+    setLoadingInvoices(false);
+  }
+
+  async function confirmLinkInvoice() {
+    if (!selectedInvoiceId) return;
+    setLinking(true);
+    const result = await onAction(linkExistingInvoiceToPackage)(sc.id, selectedInvoiceId);
+    setLinking(false);
+    if (!result?.error) { setShowLinkInvoice(false); setSelectedInvoiceId(''); }
+  }
 
   const allSelected = !!sc.package_id && caseProcedures.every((p) => !!p.package_id);
   // Only meaningful once every procedure in the surgery has a package
