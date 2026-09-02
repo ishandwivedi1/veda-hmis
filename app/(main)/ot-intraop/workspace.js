@@ -99,6 +99,12 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   // null | 'checkin' | 'surgery' -- which confirmation modal is open
   const [confirmAction, setConfirmAction] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  // Set only when completeCheckin comes back asking for a reason (an
+  // overdue check-in) -- the modal then shows a required text field
+  // instead of a plain confirm, and runCompleteCheckin sends the typed
+  // reason on the retry.
+  const [checkinOverrideReason, setCheckinOverrideReason] = useState('');
+  const [needsCheckinReason, setNeedsCheckinReason] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [checkinUnlocked, setCheckinUnlocked] = useState(false);
 
@@ -193,7 +199,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;
 
-  const { booking, biometryPlans, intraop, consumables, events, complications, consentForms, hasActiveVisitToday, caseProcedures } = data;
+  const { booking, biometryPlans, intraop, consumables, events, complications, consentForms, hasActiveVisit, caseProcedures } = data;
   const sc = booking.surgical_cases;
   const patient = sc.patients;
   const isCompleted = booking.status === 'Completed';
@@ -202,15 +208,16 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   // an IOL power calc, i.e. non-cataract surgery. The IOL Verification
   // card below only makes sense for cataract cases.
   const isCataract = sc.biometry_required !== false;
-  // Check-in day lock (mirrors assertCheckinDayLock server-side) --
-  // BOTH conditions checked here, same as the server: (1) today is the
-  // scheduled OT day, and (2) the patient has an actual active visit
-  // today (front-desk arrival), not just that OT Schedule happens to
-  // say "today". This used to only be enforced server-side, discovered
-  // only after filling in the form and clicking Save -- now it's the
-  // first thing checked, before the person can interact with anything.
-  const isWrongDayForCheckin = booking.status === 'Scheduled' && booking.scheduled_date !== todayIst();
-  const isMissingActiveVisit = booking.status === 'Scheduled' && !isWrongDayForCheckin && !hasActiveVisitToday;
+  // Check-in date gate (mirrors assertCheckinDayLock server-side) --
+  // a FUTURE scheduled_date is still a hard lock (can't check in
+  // before the surgery day arrives). A PAST scheduled_date is no
+  // longer a lock -- it's allowed through so a late entry can be
+  // prepared, flagged with isOverdueCheckin as an informational
+  // banner instead. The active-visit check is no longer "today"
+  // specific either -- any open visit for this patient satisfies it.
+  const isWrongDayForCheckin = booking.status === 'Scheduled' && booking.scheduled_date > todayIst();
+  const isOverdueCheckin = booking.status === 'Scheduled' && booking.scheduled_date < todayIst();
+  const isMissingActiveVisit = booking.status === 'Scheduled' && !isWrongDayForCheckin && !hasActiveVisit;
   const checkinLocked = isWrongDayForCheckin || isMissingActiveVisit;
   // Once completed, the intraoperative fields are locked for reference
   // unless explicitly unlocked -- same "Unlock to Edit" pattern as a
@@ -269,17 +276,31 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   }
 
   function handleCompleteCheckin() {
+    setCheckinOverrideReason('');
+    setNeedsCheckinReason(false);
     setConfirmAction('checkin');
   }
 
   async function runCompleteCheckin() {
+    if (needsCheckinReason && !checkinOverrideReason.trim()) {
+      setError('Enter a reason before confirming.');
+      return;
+    }
     setError('');
     setConfirming(true);
-    const result = await completeCheckin(otScheduleId, sc.id);
+    const result = await completeCheckin(otScheduleId, sc.id, checkinOverrideReason);
     setConfirming(false);
+    if (result.needsOverrideReason) {
+      // Don't close the modal -- just switch it into "reason required"
+      // mode so the person can type one and hit confirm again, same
+      // modal, no re-navigation.
+      setNeedsCheckinReason(true);
+      setError(result.error);
+      return;
+    }
     if (result.error) { setConfirmAction(null); setError(result.error); return; }
     setConfirmAction(null);
-    addLog('OT Check-In completed');
+    addLog(needsCheckinReason ? `OT Check-In completed late -- reason: ${checkinOverrideReason.trim()}` : 'OT Check-In completed');
     setOk('Check-in complete -- patient confirmed in OT.');
     await refresh();
     // Opened as a deep link from Surgical Journey (a real opener window
@@ -531,14 +552,32 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
           <span>
             {isWrongDayForCheckin ? (
               <>
-                Check-in locked -- this surgery is scheduled for {new Date(`${booking.scheduled_date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
-                {booking.scheduled_date > todayIst() ? ', which hasn\u2019t arrived yet' : ' and was never checked in that day'}. Check-in only works on the scheduled day itself -- use OT Schedule to reschedule if needed.
+                Check-in locked -- this surgery is scheduled for {new Date(`${booking.scheduled_date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}, which hasn&apos;t arrived yet. Check-in can&apos;t happen before the scheduled day -- use OT Schedule to reschedule if needed.
               </>
             ) : (
               <>
-                Check-in locked -- this patient has no active visit today. Create a visit for them (Visit Type: Surgery) in Visits before checking in.
+                Check-in locked -- this patient has no active visit. Create a visit for them (Visit Type: Surgery) in Visits before checking in.
               </>
             )}
+          </span>
+        </div>
+      )}
+
+      {/* Overdue is informational, not a lock -- check-in can proceed
+          normally below, but completing it will ask for a reason (see
+          runCompleteCheckin), logged to the OT audit trail. */}
+      {isOverdueCheckin && !checkinLocked && (
+        <div
+          className="msg-info"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: 'var(--amber-lt)', color: 'var(--amber)',
+            padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14, fontWeight: 600,
+          }}
+        >
+          <i className="ti ti-clock-exclamation"></i>
+          <span>
+            This surgery was scheduled for {new Date(`${booking.scheduled_date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })} and wasn&apos;t checked in that day. You can check in now -- completing it will ask for a reason.
           </span>
         </div>
       )}
@@ -637,8 +676,8 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Check-in is locked</div>
               <div style={{ fontSize: 12, maxWidth: 420, margin: '0 auto' }}>
                 {isWrongDayForCheckin
-                  ? 'This surgery is not scheduled for today. See the notice above for details.'
-                  : 'This patient has no active visit today. Create a visit for them (Visit Type: Surgery) in Visits, then come back here.'}
+                  ? "This surgery's scheduled day hasn't arrived yet. See the notice above for details."
+                  : 'This patient has no active visit. Create a visit for them (Visit Type: Surgery) in Visits, then come back here.'}
               </div>
             </div>
           ) : (
@@ -1181,14 +1220,28 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
 
       {confirmAction === 'checkin' && (
         <ConfirmActionModal
-          icon="ti-clipboard-check" iconColor="var(--green)" iconBg="var(--green-lt)"
-          title="Confirm Patient Check-In?"
-          description={`Confirms ${formatPatientName(patient)} is checked in and ready for OT.`}
-          confirmLabel="Yes, Confirm Check-In"
+          icon={needsCheckinReason ? 'ti-clock-exclamation' : 'ti-clipboard-check'}
+          iconColor={needsCheckinReason ? 'var(--amber)' : 'var(--green)'}
+          iconBg={needsCheckinReason ? 'var(--amber-lt)' : 'var(--green-lt)'}
+          title={needsCheckinReason ? 'Late Check-In -- Reason Required' : 'Confirm Patient Check-In?'}
+          description={needsCheckinReason
+            ? `This surgery was scheduled for ${new Date(`${booking.scheduled_date}T00:00:00`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })} and wasn't checked in that day. This is logged to the OT audit trail.`
+            : `Confirms ${formatPatientName(patient)} is checked in and ready for OT.`}
+          confirmLabel={needsCheckinReason ? 'Confirm Late Check-In' : 'Yes, Confirm Check-In'}
           loading={confirming}
           onCancel={() => setConfirmAction(null)}
           onConfirm={runCompleteCheckin}
-        />
+        >
+          {needsCheckinReason && (
+            <input
+              className="fi"
+              placeholder="Reason this wasn't checked in on the scheduled day..."
+              value={checkinOverrideReason}
+              onChange={(e) => { setCheckinOverrideReason(e.target.value); setError(''); }}
+              autoFocus
+            />
+          )}
+        </ConfirmActionModal>
       )}
       {confirmAction === 'surgery' && (
         <ConfirmActionModal

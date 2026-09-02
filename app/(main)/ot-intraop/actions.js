@@ -88,21 +88,30 @@ export async function getOTCaseList() {
 
   const CASE_SELECT = '*, master_ot_sessions(name), surgical_cases(id, surgery_code, procedure_name, eye, package_billed, package_discount, patient_id, master_packages:package_id(price), patients:patient_id(first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name))';
 
-  // Scheduled (not yet checked in) is now strictly locked to scheduled_date
-  // === today -- not "on or before today" as it used to be. A case
-  // scheduled for tomorrow shouldn't be checkable-in today, and a case
-  // scheduled days ago that was never checked in has genuinely been
-  // missed -- it needs an actual reschedule via OT Schedule, not a
-  // silent same-day check-in here. In Progress is NOT date-restricted:
+  // Scheduled (not yet checked in) covers two buckets now: today's
+  // normal queue, and anything overdue (scheduled_date in the past,
+  // still 'Scheduled', never checked in) -- surfaced separately and
+  // flagged isOverdue so it doesn't just blend into today's queue.
+  // These are exactly the cases the new late-check-in flow exists for
+  // (see completeCheckin's overrideReason) -- they need to be findable
+  // here, not invisible just because their day already passed. A case
+  // scheduled for tomorrow still isn't checkable-in today, so future
+  // dates are excluded from both. In Progress is NOT date-restricted:
   // once a patient is already checked in, the case must stay reachable
   // to finish even if it runs past midnight.
-  const [{ data: scheduledToday, error: scheduledError }, { data: inProgress, error: inProgressError }, { data: completedToday, error: completedError }] = await Promise.all([
+  const [{ data: scheduledToday, error: scheduledError }, { data: overdueScheduled, error: overdueError }, { data: inProgress, error: inProgressError }, { data: completedToday, error: completedError }] = await Promise.all([
     supabase
       .from('ot_schedule')
       .select(CASE_SELECT)
       .eq('status', 'Scheduled')
       .eq('scheduled_date', todayIst)
       .order('sequence_number', { ascending: true, nullsFirst: false }),
+    supabase
+      .from('ot_schedule')
+      .select(CASE_SELECT)
+      .eq('status', 'Scheduled')
+      .lt('scheduled_date', todayIst)
+      .order('scheduled_date', { ascending: true }),
     supabase
       .from('ot_schedule')
       .select(CASE_SELECT)
@@ -116,9 +125,10 @@ export async function getOTCaseList() {
       .eq('scheduled_date', todayIst)
       .order('scheduled_date', { ascending: true }),
   ]);
-  if (scheduledError || inProgressError || completedError) return [];
+  if (scheduledError || overdueError || inProgressError || completedError) return [];
 
-  const cases = [...(scheduledToday || []), ...(inProgress || []), ...(completedToday || [])].filter((b) => b.surgical_cases);
+  const cases = [...(scheduledToday || []), ...(overdueScheduled || []), ...(inProgress || []), ...(completedToday || [])].filter((b) => b.surgical_cases);
+  const overdueIds = new Set((overdueScheduled || []).map((b) => b.id));
 
   // Additional procedures within the same surgery (see
   // surgical_case_procedures) each keep their own package/price too --
@@ -145,13 +155,14 @@ export async function getOTCaseList() {
     balanceByPatient[pid] = bal || 0;
   }));
 
-  // hasVisitToday only matters for cases still awaiting check-in
-  // (Scheduled) -- an In Progress/Completed case has already cleared
-  // that gate by definition. Computed per-patient once, not per-case.
-  const visitTodayByPatient = {};
-  const scheduledPatientIds = [...new Set((scheduledToday || []).map((b) => b.surgical_cases?.patient_id).filter(Boolean))];
-  await Promise.all(scheduledPatientIds.map(async (pid) => {
-    visitTodayByPatient[pid] = await hasActiveVisitToday(supabase, pid, todayIst);
+  // hasVisit only matters for cases still awaiting check-in (Scheduled,
+  // today or overdue) -- an In Progress/Completed case has already
+  // cleared that gate by definition. Computed per-patient once, not
+  // per-case.
+  const visitByPatient = {};
+  const awaitingCheckinPatientIds = [...new Set([...(scheduledToday || []), ...(overdueScheduled || [])].map((b) => b.surgical_cases?.patient_id).filter(Boolean))];
+  await Promise.all(awaitingCheckinPatientIds.map(async (pid) => {
+    visitByPatient[pid] = await hasActiveVisit(supabase, pid);
   }));
 
   return cases.map((b) => {
@@ -174,55 +185,62 @@ export async function getOTCaseList() {
       advanceBalance,
       amountPayable: Math.max(0, netPackageAmount - advanceBalance),
       advanceCleared: netPackageAmount <= 0 || advanceBalance >= netPackageAmount,
-      hasVisitToday: isScheduled ? !!visitTodayByPatient[b.surgical_cases.patient_id] : true,
+      hasVisitToday: isScheduled ? !!visitByPatient[b.surgical_cases.patient_id] : true,
+      isOverdue: overdueIds.has(b.id),
     };
   });
 }
 
-// ── ACTIVE VISIT TODAY -- checked in at the front desk (Visits module)
-// today, not just scheduled in OT. These are two genuinely separate
-// facts that used to only ever get compared by accident: a surgery
-// visit could be created without the patient ever landing anywhere
-// near Check-In, and Check-In itself never actually verified a visit
-// existed at all. This closes that gap directly.
-async function hasActiveVisitToday(supabase, patientId, todayIst) {
+// ── ACTIVE VISIT CHECK -- an open visit in the Visits module, not just
+// a scheduled OT booking. These are two genuinely separate facts that
+// used to only ever get compared by accident: a surgery visit could
+// be created without the patient ever landing anywhere near Check-In,
+// and Check-In itself never actually verified a visit existed at all.
+// This closes that gap directly. No longer scoped to "created today"
+// -- any currently open visit counts, so a visit still open from the
+// real surgery day satisfies this just as well as a fresh one.
+async function hasActiveVisit(supabase, patientId) {
   if (!patientId) return false;
-  const { data: openVisits } = await supabase.from('visits').select('id, created_at').eq('patient_id', patientId).eq('status', 'Open');
-  return (openVisits || []).some((v) => new Date(v.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === todayIst);
+  const { count } = await supabase.from('visits').select('id', { count: 'exact', head: true }).eq('patient_id', patientId).eq('status', 'Open');
+  return (count || 0) > 0;
 }
 
-// ── CHECK-IN DAY LOCK -- server-side gate, not just a list filter. The
+// ── CHECK-IN DATE GATE -- server-side, not just a list filter. The
 // Patient Check-In page is deep-linkable straight into a specific case
 // via ?otScheduleId= (from Surgical Journey), which bypasses
 // getOTCaseList entirely -- so the date rule has to be enforced again
-// here, or a stale/deep-linked tab could still check a patient in (or
-// even complete surgery-adjacent steps) on the wrong day. Only applies
-// while status is still 'Scheduled' -- once check-in is actually
-// completed and the case has moved to 'In Progress', it must be free
-// to keep going regardless of the clock.
+// here, or a stale/deep-linked tab could still check a patient in on
+// the wrong day. Only applies while status is still 'Scheduled' --
+// once check-in is actually completed and the case has moved to 'In
+// Progress', it must be free to keep going regardless of the clock
+// (same for everything after it -- Intraop, Recovery, Discharge are
+// already fully date-independent).
 //
-// Two independent conditions, both required: (1) today is the actual
-// scheduled OT day, and (2) the patient has an active (Open) visit
-// created today in the Visits module -- i.e. they've genuinely arrived
-// and been registered today, not just that OT Schedule happens to say
-// "today". A patient can't be checked in on the strength of the OT
-// booking alone.
+// A FUTURE scheduled_date is still a hard block -- a surgery can't be
+// checked in before its own day arrives. A PAST scheduled_date is no
+// longer blocked here -- staff can fill in check-in fields (checklist,
+// consents, anaesthesia, IOL verification) for a surgery that's
+// overdue, so a late entry can be prepared. The actual commit point,
+// completeCheckin, is where a past date requires an explicit reason
+// instead of being silently allowed through -- see there for why.
+//
+// The active-visit requirement is no longer "created today" either --
+// any currently open visit for this patient satisfies it, so a visit
+// still open from the real surgery day works just as well as a fresh
+// one made today.
 async function assertCheckinDayLock(supabase, otScheduleId) {
   const { data: booking } = await supabase.from('ot_schedule').select('scheduled_date, status, surgical_cases(patient_id)').eq('id', otScheduleId).single();
   if (!booking) return { error: 'OT booking not found.' };
   if (booking.status !== 'Scheduled') return null;
 
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  if (booking.scheduled_date !== todayIst) {
-    const detail = booking.scheduled_date > todayIst
-      ? `this surgery is scheduled for ${booking.scheduled_date}, which hasn't arrived yet`
-      : `this surgery was scheduled for ${booking.scheduled_date} and was never checked in on that day`;
-    return { error: `Check-in is locked -- ${detail}. Check-in can only happen on the scheduled day itself. Use OT Schedule to reschedule this case if the date needs to change.` };
+  if (booking.scheduled_date > todayIst) {
+    return { error: `Check-in is locked -- this surgery is scheduled for ${booking.scheduled_date}, which hasn't arrived yet.` };
   }
 
-  const hasVisit = await hasActiveVisitToday(supabase, booking.surgical_cases?.patient_id, todayIst);
+  const hasVisit = await hasActiveVisit(supabase, booking.surgical_cases?.patient_id);
   if (!hasVisit) {
-    return { error: 'Check-in is locked -- this patient has no active visit today. Create a visit for them (Visit Type: Surgery) in Visits before checking in.' };
+    return { error: 'Check-in is locked -- this patient has no active visit. Create a visit for them (Visit Type: Surgery) in Visits before checking in.' };
   }
 
   return null;
@@ -232,12 +250,16 @@ async function assertCheckinDayLock(supabase, otScheduleId) {
 // Surgery-type visit gets created for them (see visits/new/page.js,
 // which now sends every Surgery visit straight to Patient Check-In
 // instead of the Front Office Dashboard). This is the single place
-// that answers "what's actually going on with this patient's surgery
-// today" so staff aren't left guessing:
-//   - an OT booking that matches today -> hand back its id so the
-//     caller can go straight into the normal check-in workspace.
-//   - a booking that exists but for a different day -> flag it as
-//     needing a reschedule decision, with enough detail to act on.
+// that answers "what's actually going on with this patient's surgery"
+// so staff aren't left guessing:
+//   - an OT booking that's today or overdue -> hand back its id so the
+//     caller can go straight into the normal check-in workspace
+//     (overdue still requires a reason at actual check-in completion,
+//     enforced by completeCheckin -- this resolver doesn't need to
+//     know that, it just needs to route there instead of detouring).
+//   - a booking scheduled for the FUTURE -> flag it as needing a
+//     reschedule decision, with enough detail to act on -- you
+//     genuinely can't check in before the day arrives.
 //   - no surgical case at all -> flag that OT Schedule's "Register
 //     Surgery Directly" is what's actually needed here.
 export async function getSurgeryLandingForPatient(patientId) {
@@ -257,12 +279,12 @@ export async function getSurgeryLandingForPatient(patientId) {
     .order('scheduled_date', { ascending: true });
   if (!schedules || schedules.length === 0) return { noCase: true };
 
-  const todayMatch = schedules.find((s) => s.status === 'In Progress' || (s.status === 'Scheduled' && s.scheduled_date === todayIst));
-  if (todayMatch) return { otScheduleId: todayMatch.id };
+  const checkinableMatch = schedules.find((s) => s.status === 'In Progress' || (s.status === 'Scheduled' && s.scheduled_date <= todayIst));
+  if (checkinableMatch) return { otScheduleId: checkinableMatch.id };
 
-  // Nothing lines up with today -- surface the nearest booking so staff
-  // can decide right here whether it needs to move to today or stay
-  // where it is.
+  // Nothing checkin-able -- every remaining booking is in the future.
+  // Surface the nearest one so staff can decide right here whether it
+  // needs to move sooner or stay where it is.
   const next = schedules[0];
   const caseInfo = (cases || []).find((c) => c.id === next.surgical_case_id);
   return {
@@ -325,7 +347,7 @@ export async function getOTCaseDetail(otScheduleId) {
   // instead of several sequential round-trips one after another.
   const [
     { data: approval }, { data: intraop }, { data: consumables }, { data: events },
-    consentForms, activeVisitToday, caseProcedures,
+    consentForms, activeVisit, caseProcedures,
   ] = await Promise.all([
     supabase.from('iol_approvals').select('*, master_iol_catalog(brand, model, category)').eq('surgical_case_id', sc.id).eq('status', 'Approved').maybeSingle(),
     supabase.from('ot_intraop_records').select('*').eq('ot_schedule_id', otScheduleId).maybeSingle(),
@@ -353,7 +375,7 @@ export async function getOTCaseDetail(otScheduleId) {
     // very first thing on load, before the person starts filling
     // anything in, instead of only discovering it from an error after
     // clicking Save.
-    hasActiveVisitToday(supabase, sc?.patient_id, todayIst),
+    hasActiveVisit(supabase, sc?.patient_id),
 
     // Additional procedures within the same surgery (e.g. Anti-VEGF
     // Injection alongside a Cataract case) -- shown alongside the
@@ -368,7 +390,7 @@ export async function getOTCaseDetail(otScheduleId) {
     events: (events || []).filter((e) => e.kind === 'Event'),
     complications: (events || []).filter((e) => e.kind === 'Complication'),
     consentForms,
-    hasActiveVisitToday: activeVisitToday,
+    hasActiveVisit: activeVisit,
     caseProcedures,
   };
 }
@@ -393,10 +415,31 @@ export async function saveCheckinItems(otScheduleId, surgicalCaseId, checkinItem
   return { success: true };
 }
 
-export async function completeCheckin(otScheduleId, surgicalCaseId) {
+export async function completeCheckin(otScheduleId, surgicalCaseId, overrideReason) {
   const supabase = await createClient();
   const lock = await assertCheckinDayLock(supabase, otScheduleId);
   if (lock) return lock;
+
+  // A PAST scheduled_date is allowed through assertCheckinDayLock (see
+  // its comment) so staff can prepare a late entry, but this is the
+  // actual commit point -- the one place a genuinely missed surgery
+  // and a legitimately late-logged one need a person to tell them
+  // apart. An overdue check-in requires an explicit reason, which gets
+  // logged to the OT audit trail below -- same override-with-reason
+  // pattern used elsewhere in this app (e.g. changing a locked
+  // surgical decision). Draft saves before this point (checklist
+  // items, consents, anaesthesia, IOL verification) don't ask again.
+  const { data: bookingRow } = await supabase.from('ot_schedule').select('scheduled_date').eq('id', otScheduleId).single();
+  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const isOverdue = bookingRow && bookingRow.scheduled_date < todayIst;
+  if (isOverdue && !overrideReason?.trim()) {
+    return {
+      needsOverrideReason: true,
+      scheduledDate: bookingRow.scheduled_date,
+      error: `This surgery was scheduled for ${bookingRow.scheduled_date} and wasn't checked in that day. Enter a reason to check in now.`,
+    };
+  }
+
   const recordId = await ensureIntraopRecord(supabase, otScheduleId, surgicalCaseId);
   if (!recordId) return { error: 'Could not create intraop record.' };
 
@@ -428,7 +471,10 @@ export async function completeCheckin(otScheduleId, surgicalCaseId) {
   const { data: userData } = await supabase.auth.getUser();
   await supabase.from('ot_intraop_records').update({ checkin_completed_at: new Date().toISOString() }).eq('id', recordId);
   await supabase.from('ot_schedule').update({ status: 'In Progress' }).eq('id', otScheduleId);
-  await supabase.from('ot_schedule_audit_log').insert({ ot_schedule_id: otScheduleId, action: 'Check-In', detail: 'OT check-in completed', changed_by: userData?.user?.id || null });
+  const auditDetail = isOverdue
+    ? `OT check-in completed late (originally scheduled ${bookingRow.scheduled_date}) -- reason: ${overrideReason.trim()}`
+    : 'OT check-in completed';
+  await supabase.from('ot_schedule_audit_log').insert({ ot_schedule_id: otScheduleId, action: 'Check-In', detail: auditDetail, changed_by: userData?.user?.id || null });
   return { success: true };
 }
 
