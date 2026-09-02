@@ -173,6 +173,18 @@ export default function Workspace({ caseId }) {
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const router = useRouter();
+  // Link Existing Invoice (Payment section, below) -- for a surgery
+  // that was genuinely billed and paid but through a route that
+  // doesn't set package_billed on its own (see
+  // linkExistingInvoiceToPackage's comment in counselling/actions.js).
+  // Declared here, not inside PackageDecisionSection -- the Payment
+  // section that actually uses these is rendered directly in this
+  // component's own JSX, a separate section from Package selection.
+  const [showLinkInvoice, setShowLinkInvoice] = useState(false);
+  const [patientInvoices, setPatientInvoices] = useState([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
+  const [linking, setLinking] = useState(false);
 
   const refresh = useCallback(async () => {
     const result = await getSurgicalCaseDetail(caseId);
@@ -255,6 +267,23 @@ export default function Workspace({ caseId }) {
   // billed -- a surgery with no additional procedures just checks the
   // primary case's own package_billed flag.
   const allPackagesBilled = !!sc.package_billed && (data.caseProcedures || []).every((p) => !p.master_packages || p.package_billed);
+
+  async function openLinkInvoicePicker() {
+    setShowLinkInvoice(true);
+    setSelectedInvoiceId('');
+    setLoadingInvoices(true);
+    const invs = await getPatientInvoicesForCase(sc.id);
+    setPatientInvoices(invs);
+    setLoadingInvoices(false);
+  }
+
+  async function confirmLinkInvoice() {
+    if (!selectedInvoiceId) return;
+    setLinking(true);
+    const result = await flash(linkExistingInvoiceToPackage)(sc.id, selectedInvoiceId);
+    setLinking(false);
+    if (!result?.error) { setShowLinkInvoice(false); setSelectedInvoiceId(''); }
+  }
 
   // Drives the "Next Step" highlight -- the first not-yet-done stage in
   // the natural order gets the full-color treatment, everything else
@@ -1019,37 +1048,10 @@ function PackagePickerBlock({ title, target, packages, onSelect, onChangePackage
 function PackageDecisionSection({ sc, caseProcedures, onAction, active }) {
   const [packages, setPackages] = useState([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
-  // Link Existing Invoice -- for a surgery that was genuinely billed
-  // and paid but through a route that doesn't set package_billed on
-  // its own (see linkExistingInvoiceToPackage's comment). Only fetches
-  // the patient's invoices once the picker is actually opened, not on
-  // every render of this section.
-  const [showLinkInvoice, setShowLinkInvoice] = useState(false);
-  const [patientInvoices, setPatientInvoices] = useState([]);
-  const [loadingInvoices, setLoadingInvoices] = useState(false);
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
-  const [linking, setLinking] = useState(false);
 
   useEffect(() => {
     getPackagesForCase(sc.iol_category).then((p) => { setPackages(p); setLoadingPackages(false); });
   }, [sc.iol_category]);
-
-  async function openLinkInvoicePicker() {
-    setShowLinkInvoice(true);
-    setSelectedInvoiceId('');
-    setLoadingInvoices(true);
-    const invs = await getPatientInvoicesForCase(sc.id);
-    setPatientInvoices(invs);
-    setLoadingInvoices(false);
-  }
-
-  async function confirmLinkInvoice() {
-    if (!selectedInvoiceId) return;
-    setLinking(true);
-    const result = await onAction(linkExistingInvoiceToPackage)(sc.id, selectedInvoiceId);
-    setLinking(false);
-    if (!result?.error) { setShowLinkInvoice(false); setSelectedInvoiceId(''); }
-  }
 
   const allSelected = !!sc.package_id && caseProcedures.every((p) => !!p.package_id);
   // Only meaningful once every procedure in the surgery has a package
