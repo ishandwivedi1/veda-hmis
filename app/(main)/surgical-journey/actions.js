@@ -242,9 +242,15 @@ async function getOpenSurgicalCasesWithBalances() {
 export async function getSurgicalCaseLists() {
   const open = await getOpenSurgicalCasesWithBalances();
   const eligible = open.filter((c) => c.decision !== 'Declined');
-  const active = eligible.filter((c) => c.status === 'Completed' || c.advanceBalance > 0);
+  // Awaiting Confirmation means waiting on the PATIENT's decision, not
+  // on payment -- a patient who's said yes (Accepted/"Willing") has
+  // confirmed the surgery and belongs in Active Cases straight away,
+  // whether or not an advance has been collected yet. Payment is its
+  // own step inside the case itself (see Payment section in
+  // workspace.js), not a second confirmation gate here.
+  const active = eligible.filter((c) => c.status === 'Completed' || c.decision === 'Accepted');
   const awaitingConfirmation = eligible
-    .filter((c) => c.status !== 'Completed' && c.advanceBalance <= 0)
+    .filter((c) => c.status !== 'Completed' && c.decision !== 'Accepted')
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   return { active, awaitingConfirmation };
 }

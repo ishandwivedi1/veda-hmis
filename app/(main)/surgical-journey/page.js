@@ -164,45 +164,43 @@ export default function SurgicalJourneyPage() {
       </div>
 
       {activeTab === 'active' && (
-        <>
-          {awaiting.length > 0 && (
-            <div className="card" style={{ marginBottom: 16, borderColor: 'var(--amber)' }}>
-              <div className="card-title" style={{ marginBottom: 4 }}>
-                <i className="ti ti-clock-pause" style={{ color: 'var(--amber)' }}></i> Awaiting Confirmation
-                <span className="badge b-amber" style={{ marginLeft: 8 }}>{awaiting.length}</span>
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
-                No advance paid yet -- surgery isn't confirmed until it is, even if a date's already been booked. Worth a call if it's been a while.
-              </div>
-              {awaitingSorted.map((c) => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--amber)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-                    {c.patients?.first_name?.charAt(0)}
-                  </div>
-                  <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => router.push(`/surgical-journey/${c.id}`)}>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patients)}</span>
-                    <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>
-                    {c.status === 'Scheduled' && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>Date booked, unpaid</span>}
-                    {c.reminder_count > 0 && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>{c.reminder_count} call{c.reminder_count > 1 ? 's' : ''} logged</span>}
-                    {arrivedToday.has(c.patient_id) && (
-                      <span className="badge b-green" style={{ marginLeft: 6, fontSize: 10 }}><i className="ti ti-door-enter"></i> Arrived Today</span>
-                    )}
-                    <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
-                      {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye} -- {c.patients?.mobile}
-                    </div>
-                  </div>
-                  <button className="btn btn-sm" onClick={() => setReminderFor(c)}>
-                    <i className="ti ti-phone-call"></i> Log Call
-                  </button>
-                  <button className="btn btn-sm btn-primary" onClick={() => router.push(`/surgical-journey/${c.id}`)}>
-                    Open
-                  </button>
-                </div>
-              ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, alignItems: 'start' }}>
+          <div className="card" style={{ borderColor: 'var(--amber)', marginBottom: 0 }}>
+            <div className="card-title" style={{ marginBottom: 4 }}>
+              <i className="ti ti-clock-pause" style={{ color: 'var(--amber)' }}></i> Awaiting Confirmation
+              <span className="badge b-amber" style={{ marginLeft: 8 }}>{awaiting.length}</span>
             </div>
-          )}
+            <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 10 }}>
+              Patient hasn't said yes yet -- moves to Active Cases the moment their decision is recorded as Willing, regardless of payment. Worth a call if it's been a while.
+            </div>
+            {awaitingSorted.map((c) => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--amber)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                  {c.patients?.first_name?.charAt(0)}
+                </div>
+                <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => router.push(`/surgical-journey/${c.id}`)}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(c.patients)}</span>
+                  <span className="badge b-gray" style={{ marginLeft: 8, fontSize: 10 }}>Advised {daysAgo(c.created_at)}</span>
+                  {c.status === 'Scheduled' && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>Date booked, undecided</span>}
+                  {c.reminder_count > 0 && <span className="badge b-blue" style={{ marginLeft: 6, fontSize: 10 }}>{c.reminder_count} call{c.reminder_count > 1 ? 's' : ''} logged</span>}
+                  {arrivedToday.has(c.patient_id) && (
+                    <span className="badge b-green" style={{ marginLeft: 6, fontSize: 10 }}><i className="ti ti-door-enter"></i> Arrived Today</span>
+                  )}
+                  <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+                    {c.surgery_code ? `${c.surgery_code} -- ` : ''}{c.patients?.uhid} -- {c.procedure_name} -- {c.eye} -- {c.patients?.mobile}
+                  </div>
+                </div>
+                <button className="btn btn-sm" onClick={() => setReminderFor(c)}>
+                  <i className="ti ti-phone-call"></i> Log Call
+                </button>
+              </div>
+            ))}
+            {awaiting.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nobody awaiting a decision right now.</div>
+            )}
+          </div>
 
-          <div className="card">
+          <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-title" style={{ marginBottom: 10 }}>
               <i className="ti ti-list-numbers" style={{ color: 'var(--indigo)' }}></i> Active Cases
               <span className="badge b-gray" style={{ marginLeft: 8 }}>{cases.length}</span>
@@ -257,7 +255,7 @@ export default function SurgicalJourneyPage() {
               <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nobody discharged yet today.</div>
             )}
           </div>
-        </>
+        </div>
       )}
 
       {activeTab === 'history' && (
