@@ -271,21 +271,68 @@ const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Sur
 // Doctor / visit type / priority can be corrected after check-in --
 // front desk mistakes happen. Scoped to Open visits only; a closed or
 // cancelled visit is a historical record and shouldn't be edited.
+// Visit types split into two groups for queue purposes: most types get
+// a normal Optometry queue token the moment the visit is created (see
+// create_walk_in_visit); these four deliberately don't -- Surgery
+// updates an existing OT booking's arrival time instead of queueing,
+// and the other three skip the queue by design (see their own error
+// messages in create_walk_in_visit for why).
+const NO_QUEUE_VISIT_TYPES = ['Surgery', 'Investigation Only', 'Surgery Evaluation', 'OPD Procedure Only'];
+
 export async function updateVisit(visitId, values) {
   const supabase = await createClient();
 
-  const { data: visit } = await supabase.from('visits').select('status').eq('id', visitId).single();
+  const { data: visit } = await supabase.from('visits').select('status, visit_type').eq('id', visitId).single();
   if (!visit) return { error: 'Visit not found.' };
   if (visit.status !== 'Open') return { error: `This visit is ${visit.status} and can no longer be edited.` };
   if (values.visitType && !VISIT_TYPES.includes(values.visitType)) return { error: 'Invalid visit type.' };
 
+  const oldType = visit.visit_type;
+  const newType = values.visitType;
+
   const { error } = await supabase.from('visits').update({
     doctor_id: values.doctorId || null,
-    visit_type: values.visitType,
+    visit_type: newType,
     priority: values.priority || 'Routine',
-    surgery_type: values.visitType === 'Surgery' ? (values.surgeryType || null) : null,
+    surgery_type: newType === 'Surgery' ? (values.surgeryType || null) : null,
   }).eq('id', visitId);
   if (error) return { error: error.message };
+
+  // Changing the visit type doesn't retroactively fix (or create)
+  // queue presence on its own -- issue_queue_token only ever runs
+  // once, at creation, inside create_walk_in_visit. Editing a visit
+  // that was wrongly created as one of the no-queue types (e.g. staff
+  // registered a "Surgery" visit for a patient whose surgery was never
+  // actually advised) back to a normal type would otherwise leave
+  // that patient invisible on every queue forever, even after the
+  // type itself is corrected -- the type field says one thing, but
+  // nothing ever created the queue entry a normal visit relies on.
+  // Handled both directions, so this stays correct however the type
+  // actually changes:
+  const oldHadNoQueue = NO_QUEUE_VISIT_TYPES.includes(oldType);
+  const newHasNoQueue = NO_QUEUE_VISIT_TYPES.includes(newType);
+
+  if (oldHadNoQueue && !newHasNoQueue) {
+    // Moving INTO a normal queued type -- issue the token now if one
+    // doesn't already exist. Idempotent on purpose: editing the type
+    // back and forth, or re-saving without changing it, must never
+    // double-issue a token for the same visit.
+    const { data: existing } = await supabase.from('queue_entries').select('id').eq('visit_id', visitId).limit(1);
+    if (!existing || existing.length === 0) {
+      await supabase.rpc('issue_queue_token', { p_visit_id: visitId, p_department: 'Optometry' });
+    }
+  } else if (!oldHadNoQueue && newHasNoQueue) {
+    // Moving OUT of a normal queued type -- pull them back out of
+    // whatever queue they were sitting in, same cleanup cancelVisit
+    // already does, so they don't linger as a phantom entry for a
+    // visit type that was never meant to be queued at all.
+    await supabase
+      .from('queue_entries')
+      .update({ status: 'Cancelled' })
+      .eq('visit_id', visitId)
+      .not('status', 'in', '("Done","Cancelled")');
+  }
+
   return { success: true };
 }
 
