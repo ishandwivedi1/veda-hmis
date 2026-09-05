@@ -169,7 +169,7 @@ export default function ClinicalMastersPage() {
       return (
         <tr key={record.id} style={{ background: 'var(--g50)' }}>
           <td style={{ fontFamily: 'monospace' }}>{record.code}</td>
-          <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} /></td>
+          <td><input className="fi fi-sm" value={editForm.name} onChange={updateEdit('name')} autoCapitalize="off" autoCorrect="off" spellCheck="false" /></td>
           {withCategory && <td><input className="fi fi-sm" value={editForm.category} onChange={updateEdit('category')} /></td>}
           <td><span className={`badge ${record.status === 'Active' ? 'b-green' : 'b-gray'}`}>{record.status}</span></td>
           <td style={{ display: 'flex', gap: 4 }}>
@@ -250,7 +250,7 @@ export default function ClinicalMastersPage() {
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Name (e.g. Phacoemulsification)" onChange={update('name')} />
+                  <input className="fi" placeholder="Name (e.g. Phacoemulsification)" autoCapitalize="off" autoCorrect="off" spellCheck="false" onChange={update('name')} />
                   <input className="fi" placeholder="Category (e.g. Cataract, Glaucoma, Retina)" onChange={update('category')} />
                 </div>
                 <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
@@ -377,7 +377,7 @@ export default function ClinicalMastersPage() {
             {showAdd && (
               <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Name" onChange={update('name')} />
+                  <input className="fi" placeholder="Name" autoCapitalize="off" autoCorrect="off" spellCheck="false" onChange={update('name')} />
                   <input className="fi" placeholder="Category (e.g. Lens, Retina)" onChange={update('category')} />
                 </div>
                 <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>

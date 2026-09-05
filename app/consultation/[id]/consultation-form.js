@@ -942,7 +942,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   {diagnosisOptions.map((d) => <option key={d.id} value={d.name}>{d.name}{d.category ? ` (${d.category})` : ''}</option>)}
                 </select>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                  <input className="fi" placeholder="Diagnosis name" value={dxName} onChange={(e) => setDxName(e.target.value)} style={{ flex: 2 }} />
+                  <input className="fi" placeholder="Diagnosis name" value={dxName} onChange={(e) => setDxName(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" style={{ flex: 2 }} />
                   <select className="fi" value={dxEye} onChange={(e) => setDxEye(e.target.value)} style={{ width: 110 }}>
                     <option value="OD">Right (OD)</option>
                     <option value="OS">Left (OS)</option>
@@ -1036,6 +1036,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       onChange={(e) => { setRxDrug(e.target.value); setRxDrugTypeId(null); setRxIsOcular(true); setShowRxSuggestions(true); }}
                       onFocus={() => setShowRxSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowRxSuggestions(false), 150)}
+                      autoCapitalize="off" autoCorrect="off" spellCheck="false"
                       style={{ width: '100%' }}
                     />
                     {showRxSuggestions && rxDrug.trim().length > 0 && (

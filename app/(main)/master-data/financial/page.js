@@ -266,8 +266,8 @@ export default function FinancialMastersPage() {
               )}
               {tabDef.type === 'drug' && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  <input className="fi" placeholder="Name" onChange={update('brand')} />
-                  <input className="fi" placeholder="Salt Composition" onChange={update('generic')} />
+                  <input className="fi" placeholder="Name" autoCapitalize="off" autoCorrect="off" spellCheck="false" onChange={update('brand')} />
+                  <input className="fi" placeholder="Salt Composition" autoCapitalize="off" autoCorrect="off" spellCheck="false" onChange={update('generic')} />
                   <input className="fi" placeholder="Strength (e.g. 0.5%)" onChange={update('strength')} />
                   <select className="fi" onChange={update('drugTypeId')} defaultValue="">
                     <option value="">-- Type (e.g. Eye Drop) --</option>
@@ -365,8 +365,8 @@ export default function FinancialMastersPage() {
                   editingId === d.id ? (
                     <tr key={d.id} style={{ background: 'var(--g50)' }}>
                       <td style={{ fontFamily: 'monospace' }}>{d.code}</td>
-                      <td><input className="fi fi-sm" value={editForm.brand} onChange={updateEdit('brand')} /></td>
-                      <td><input className="fi fi-sm" value={editForm.generic} onChange={updateEdit('generic')} /></td>
+                      <td><input className="fi fi-sm" value={editForm.brand} onChange={updateEdit('brand')} autoCapitalize="off" autoCorrect="off" spellCheck="false" /></td>
+                      <td><input className="fi fi-sm" value={editForm.generic} onChange={updateEdit('generic')} autoCapitalize="off" autoCorrect="off" spellCheck="false" /></td>
                       <td><input className="fi fi-sm" style={{ width: 80 }} value={editForm.strength} onChange={updateEdit('strength')} /></td>
                       <td>
                         <select className="fi fi-sm" value={editForm.drugTypeId || ''} onChange={updateEdit('drugTypeId')}>
