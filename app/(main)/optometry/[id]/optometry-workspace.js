@@ -9,8 +9,10 @@ import {
   completeAssessment,
   updateCompletedAssessment,
   addIopReading,
+  sendForDilation,
+  sendForInvestigation,
 } from '@/app/(main)/optometry/actions';
-import { getIopMethods } from '@/app/(main)/master-data/actions';
+import { getIopMethods, getServices } from '@/app/(main)/master-data/actions';
 import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
 import HistoryTab from '@/app/consultation/[id]/history-tab';
 import { openPrintPopup } from '@/lib/printPopup';
@@ -218,6 +220,47 @@ function ConfirmCompleteModal({ onCancel, onConfirm, saving }) {
   );
 }
 
+function ConfirmSendOutModal({ kind, investigationOptions, invName, invEye, onInvNameChange, onInvEyeChange, saving, onCancel, onConfirm }) {
+  const isDilate = kind === 'dilate';
+  return (
+    <div onClick={saving ? undefined : onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 420, width: '100%', boxShadow: '0 12px 40px rgba(0,0,0,.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ width: 34, height: 34, borderRadius: '50%', background: isDilate ? 'var(--amber-lt)' : 'var(--indigo-lt)', color: isDilate ? 'var(--amber)' : 'var(--indigo)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <i className={`ti ${isDilate ? 'ti-droplet' : 'ti-flask'}`} style={{ fontSize: 18 }}></i>
+          </span>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--g800)' }}>{isDilate ? 'Send for Dilation?' : 'Send for Investigation?'}</div>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--g600)', marginBottom: 14, lineHeight: 1.5 }}>
+          {isDilate
+            ? "Closes this assessment and routes the patient straight to the doctor's Intermediate list as Awaiting Dilation -- no further assessment needed from Optometry."
+            : "Places a real investigation order (same as the doctor's own Investigations section) and routes the patient straight to the doctor's Intermediate list as Awaiting Investigation."}
+        </div>
+        {!isDilate && (
+          <div style={{ marginBottom: 16 }}>
+            <select className="fi" style={{ marginBottom: 8 }} value="" onChange={(e) => { if (e.target.value) onInvNameChange(e.target.value); }}>
+              <option value="">-- Pick from Investigations master (or type below) --</option>
+              {investigationOptions.map((s) => <option key={s.id} value={s.name}>{s.name} -- Rs.{s.rate}</option>)}
+            </select>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input className="fi" placeholder="Investigation name" value={invName} onChange={(e) => onInvNameChange(e.target.value)} style={{ flex: 2 }} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+              <select className="fi" value={invEye} onChange={(e) => onInvEyeChange(e.target.value)} style={{ width: 110 }}>
+                <option value="OD">Right (OD)</option><option value="OS">Left (OS)</option><option value="OU">Both (OU)</option>
+              </select>
+            </div>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-sm" onClick={onCancel} disabled={saving}>Cancel</button>
+          <button type="button" className="btn btn-sm btn-primary" onClick={onConfirm} disabled={saving || (!isDilate && !invName.trim())}>
+            {saving ? 'Sending...' : isDilate ? 'Yes, Send for Dilation' : 'Yes, Send for Investigation'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AsmtSection({ id, num, color, title, badge, badgeCls, open, onToggle, children }) {
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -273,6 +316,18 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
   const [forceCloseReason, setForceCloseReason] = useState('');
   const [forceClosing, setForceClosing] = useState(false);
   const [iopMethods, setIopMethods] = useState([]);
+  // Send for Dilation / Send for Investigation -- lets the optometrist
+  // route a patient straight to the doctor's Intermediate list without
+  // finishing a full assessment first (BR-OPT-004). Investigation also
+  // needs a real order placed (name + eye), same catalog the doctor's
+  // own Investigations section uses -- see sendForInvestigation's
+  // comment in optometry/actions.js for why a bare status flag alone
+  // wouldn't reach billing or the Investigation department's queue.
+  const [showSendOutConfirm, setShowSendOutConfirm] = useState(null); // 'dilate' | 'investigate' | null
+  const [sendingOut, setSendingOut] = useState(false);
+  const [investigationOptions, setInvestigationOptions] = useState([]);
+  const [sendOutInvName, setSendOutInvName] = useState('');
+  const [sendOutInvEye, setSendOutInvEye] = useState('OU');
   const router = useRouter();
 
   // Prefer the onDone callback (the hub resets its own tab state and
@@ -320,6 +375,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
 
   useEffect(() => {
     getIopMethods().then((all) => setIopMethods(all.filter((m) => m.status === 'Active')));
+    getServices().then((sv) => setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation')));
   }, []);
 
   const isEdit = assessment?.status === 'Completed';
@@ -523,6 +579,32 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     // Doctor queue token got created previously).
     setShowCompleteConfirm(false);
     setOkMsg('Assessment completed -- routed to Doctor Queue.');
+    setTimeout(() => goToDashboard(), 1200);
+  }
+
+  function handleSendOut(kind) {
+    setError('');
+    setSendOutInvName('');
+    setSendOutInvEye('OU');
+    setShowSendOutConfirm(kind);
+  }
+
+  async function runSendOut() {
+    setSendingOut(true);
+    setError('');
+    setOkMsg('');
+    const result = showSendOutConfirm === 'dilate'
+      ? await sendForDilation(assessment.id, queueEntryId, form)
+      : await sendForInvestigation(assessment.id, queueEntryId, encounter.id, form, { name: sendOutInvName, eye: sendOutInvEye });
+    if (result.error) {
+      setSendingOut(false);
+      setError(result.error);
+      return;
+    }
+    // Same deliberate non-reset as runComplete above -- stays disabled
+    // through the navigation delay so a second click can't re-run this.
+    setShowSendOutConfirm(null);
+    setOkMsg(showSendOutConfirm === 'dilate' ? 'Sent for Dilation -- routed to Doctor Queue.' : 'Sent for Investigation -- routed to Doctor Queue.');
     setTimeout(() => goToDashboard(), 1200);
   }
 
@@ -1059,6 +1141,19 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
           onConfirm={runComplete}
         />
       )}
+      {showSendOutConfirm && (
+        <ConfirmSendOutModal
+          kind={showSendOutConfirm}
+          investigationOptions={investigationOptions}
+          invName={sendOutInvName}
+          invEye={sendOutInvEye}
+          onInvNameChange={setSendOutInvName}
+          onInvEyeChange={setSendOutInvEye}
+          saving={sendingOut}
+          onCancel={() => setShowSendOutConfirm(null)}
+          onConfirm={runSendOut}
+        />
+      )}
 
       {showRefInstructions && (
         <div onClick={() => setShowRefInstructions(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -1224,6 +1319,12 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
               <>
                 <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.1)', color: '#e2e8f0', borderColor: 'rgba(255,255,255,.2)' }} onClick={handleSaveDraft} disabled={saving}>
                   <i className="ti ti-device-floppy"></i> Save Draft
+                </button>
+                <button className="btn btn-sm" style={{ background: 'rgba(251,191,36,.15)', color: '#fbbf24', borderColor: 'rgba(251,191,36,.3)' }} onClick={() => handleSendOut('dilate')} disabled={saving}>
+                  <i className="ti ti-droplet"></i> Send for Dilation
+                </button>
+                <button className="btn btn-sm" style={{ background: 'rgba(129,140,248,.15)', color: '#a5b4fc', borderColor: 'rgba(129,140,248,.3)' }} onClick={() => handleSendOut('investigate')} disabled={saving}>
+                  <i className="ti ti-flask"></i> Send for Investigation
                 </button>
                 <button className="btn btn-sm" style={{ background: 'rgba(94,234,212,.2)', color: '#5eead4', borderColor: 'rgba(94,234,212,.3)', fontWeight: 700 }} onClick={handleComplete} disabled={saving}>
                   <i className="ti ti-circle-check"></i> Complete Assessment

@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { isCurrentUserAdmin } from '@/lib/authz';
+import { doctorSendOut } from '@/app/(main)/queue/actions';
+import { addInvestigation } from '@/app/(main)/consultation/actions';
 
 // Fields that live directly on optometry_assessments -- everything
 // except IOP readings (own table, timestamped list) and audit entries
@@ -206,6 +208,97 @@ export async function completeAssessment(assessmentId, queueEntryId, fields) {
   if (completeError) return { error: completeError.message };
 
   await addAudit(supabase, assessmentId, 'Assessment COMPLETED -- routed to Doctor Queue (AUTO-OPT-001)', userData?.user?.id);
+  return { success: true };
+}
+
+// Shared by sendForDilation/sendForInvestigation below -- closes out
+// this Optometry queue entry (same optometry_complete RPC completion
+// uses, so it's exactly as final: gone from the Optometry queue,
+// nothing further expected here) and issues the fresh Doctor token
+// that always comes with it, then immediately flips that new token
+// from "Waiting" to "Awaiting <label>" via the doctor's own
+// doctorSendOut -- the exact function the doctor's "Send for
+// Dilation/Investigation" buttons already use. The patient lands
+// directly in the doctor's Intermediate list, never sitting in the
+// normal active queue at all.
+async function routeToDoctorAwaiting(supabase, queueEntryId, kind) {
+  const { data: entry } = await supabase.from('queue_entries').select('visit_id').eq('id', queueEntryId).single();
+  if (!entry) return { error: 'Queue entry not found.' };
+
+  const { error: completeError } = await supabase.rpc('optometry_complete', { p_queue_entry_id: queueEntryId });
+  if (completeError) return { error: completeError.message };
+
+  const { data: doctorEntry } = await supabase
+    .from('queue_entries')
+    .select('id')
+    .eq('visit_id', entry.visit_id)
+    .eq('department', 'Doctor')
+    .order('issued_at', { ascending: false })
+    .limit(1)
+    .single();
+  if (!doctorEntry) return { error: 'Could not find the new Doctor queue entry.' };
+
+  return doctorSendOut(doctorEntry.id, kind);
+}
+
+// No VA requirement here (unlike completeAssessment's VAL-OPT-002) --
+// dilation drops go in before VA can be measured, so requiring VA
+// first would be backwards for this specific path. Whatever's been
+// entered so far is saved as-is; the optometrist's role on this visit
+// ends the moment this succeeds.
+export async function sendForDilation(assessmentId, queueEntryId, fields) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error: updateError } = await supabase
+    .from('optometry_assessments')
+    .update({ ...pickAssessmentFields(fields), recorded_by: userData?.user?.id || null, updated_at: new Date().toISOString() })
+    .eq('id', assessmentId);
+  if (updateError) return { error: updateError.message };
+
+  const result = await routeToDoctorAwaiting(supabase, queueEntryId, 'dilate');
+  if (result.error) return result;
+
+  await addAudit(supabase, assessmentId, 'Sent for Dilation -- routed to Doctor Queue (Awaiting Dilation)', userData?.user?.id);
+  return { success: true };
+}
+
+// Also no VA requirement -- some investigations (OCT, for instance)
+// don't depend on it. Unlike Dilation, this also places a REAL
+// investigation order (addInvestigation) -- the same function, same
+// investigation_orders table, the doctor's own Investigations section
+// already uses. That's deliberate: a bare "Awaiting Investigation"
+// status with no order behind it would show the patient as sent out
+// on the doctor's dashboard while the Investigation department has no
+// idea what to actually do, and nothing would reach billing (Pending
+// Billing reads investigation_orders directly, not queue status).
+// Ordering here is the same record the doctor will see in their own
+// Investigations section once they open this same encounter -- not a
+// parallel, optometry-only list.
+export async function sendForInvestigation(assessmentId, queueEntryId, encounterId, fields, investigationValues) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (!investigationValues?.name?.trim()) {
+    return { error: 'Select an investigation before sending.' };
+  }
+
+  const { error: updateError } = await supabase
+    .from('optometry_assessments')
+    .update({ ...pickAssessmentFields(fields), recorded_by: userData?.user?.id || null, updated_at: new Date().toISOString() })
+    .eq('id', assessmentId);
+  if (updateError) return { error: updateError.message };
+
+  const orderResult = await addInvestigation(encounterId, investigationValues);
+  if (orderResult.needsConfirmation) {
+    return { error: `A biometry record already exists for ${orderResult.existingBiometryDate || 'an earlier date'} -- order Biometry from the Investigations section after the doctor opens this visit instead.` };
+  }
+  if (orderResult.error) return orderResult;
+
+  const result = await routeToDoctorAwaiting(supabase, queueEntryId, 'investigate');
+  if (result.error) return result;
+
+  await addAudit(supabase, assessmentId, `Sent for Investigation (${investigationValues.name.trim()}, ${investigationValues.eye}) -- routed to Doctor Queue (Awaiting Investigation)`, userData?.user?.id);
   return { success: true };
 }
 
