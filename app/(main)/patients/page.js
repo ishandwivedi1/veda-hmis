@@ -3,6 +3,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase-server';
 import SortSelect from '@/app/components/SortSelect';
+import SendReviewButton from './send-review-button';
 
 const GENDER_BADGE = { M: 'b-blue', F: 'b-purple', O: 'b-gray' };
 const GENDER_LABEL = { M: 'Male', F: 'Female', O: 'Other' };
@@ -151,6 +152,7 @@ export default async function PatientsPage({ searchParams }) {
                     >
                       <i className="ti ti-door-enter"></i> Create Visit
                     </Link>
+                    <SendReviewButton patientId={p.id} mobile={p.mobile} />
                   </div>
                 </td>
               </tr>
