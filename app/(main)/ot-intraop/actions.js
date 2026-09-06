@@ -153,22 +153,32 @@ export async function getOTCaseList() {
     });
   }
 
+  // Bulk ledger lookup (one query for every patient on this board at
+  // once) instead of one get_advance_balance RPC call per patient --
+  // same fix already applied in surgical-journey/actions.js
+  // (getOpenSurgicalCasesWithBalances) for the identical N+1 pattern.
+  // patient_ledger.amount is signed (deposits positive, consumption
+  // negative), so a plain per-patient sum is the same live balance
+  // get_advance_balance's RPC computes, just batched here.
   const balanceByPatient = {};
   const patientIds = [...new Set(cases.map((b) => b.surgical_cases.patient_id).filter(Boolean))];
-  await Promise.all(patientIds.map(async (pid) => {
-    const { data: bal } = await supabase.rpc('get_advance_balance', { p_patient_id: pid });
-    balanceByPatient[pid] = bal || 0;
-  }));
+  if (patientIds.length > 0) {
+    const { data: ledgerRows } = await supabase.from('patient_ledger').select('patient_id, amount').in('patient_id', patientIds);
+    (ledgerRows || []).forEach((r) => {
+      balanceByPatient[r.patient_id] = (balanceByPatient[r.patient_id] || 0) + Number(r.amount);
+    });
+  }
 
   // hasVisit only matters for cases still awaiting check-in (Scheduled,
   // today or overdue) -- an In Progress/Completed case has already
-  // cleared that gate by definition. Computed per-patient once, not
-  // per-case.
+  // cleared that gate by definition. Same batching fix as above --
+  // one query for every patient awaiting check-in, not one per patient.
   const visitByPatient = {};
   const awaitingCheckinPatientIds = [...new Set([...(scheduledToday || []), ...(overdueScheduled || [])].map((b) => b.surgical_cases?.patient_id).filter(Boolean))];
-  await Promise.all(awaitingCheckinPatientIds.map(async (pid) => {
-    visitByPatient[pid] = await hasActiveVisit(supabase, pid);
-  }));
+  if (awaitingCheckinPatientIds.length > 0) {
+    const { data: openVisits } = await supabase.from('visits').select('patient_id').in('patient_id', awaitingCheckinPatientIds).eq('status', 'Open');
+    (openVisits || []).forEach((v) => { visitByPatient[v.patient_id] = true; });
+  }
 
   return cases.map((b) => {
     // Net payable = package price minus whatever discount was recorded

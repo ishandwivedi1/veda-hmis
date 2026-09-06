@@ -303,26 +303,23 @@ export async function getRevenueByDepartmentToday() {
   const invoicePaymentIds = (payments || []).filter((p) => p.payment_type === 'invoice_payment').map((p) => p.id);
   const refundIds = (payments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
 
+  const [{ data: allocations }, { data: refunds }] = await Promise.all([
+    invoicePaymentIds.length > 0
+      ? supabase.from('payment_allocations').select('payment_id, amount, invoices(purpose)').in('payment_id', invoicePaymentIds)
+      : Promise.resolve({ data: [] }),
+    refundIds.length > 0
+      ? supabase.from('payment_refunds').select('refund_payment_id, invoices(purpose)').in('refund_payment_id', refundIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
   let allocationsByPayment = {};
-  if (invoicePaymentIds.length > 0) {
-    const { data: allocations } = await supabase
-      .from('payment_allocations')
-      .select('payment_id, amount, invoices(purpose)')
-      .in('payment_id', invoicePaymentIds);
-    (allocations || []).forEach((a) => {
-      if (!allocationsByPayment[a.payment_id]) allocationsByPayment[a.payment_id] = [];
-      allocationsByPayment[a.payment_id].push(a);
-    });
-  }
+  (allocations || []).forEach((a) => {
+    if (!allocationsByPayment[a.payment_id]) allocationsByPayment[a.payment_id] = [];
+    allocationsByPayment[a.payment_id].push(a);
+  });
 
   let refundInfoByPayment = {};
-  if (refundIds.length > 0) {
-    const { data: refunds } = await supabase
-      .from('payment_refunds')
-      .select('refund_payment_id, invoices(purpose)')
-      .in('refund_payment_id', refundIds);
-    (refunds || []).forEach((r) => { refundInfoByPayment[r.refund_payment_id] = r; });
-  }
+  (refunds || []).forEach((r) => { refundInfoByPayment[r.refund_payment_id] = r; });
 
   const byDept = {};
   (payments || []).forEach((p) => {

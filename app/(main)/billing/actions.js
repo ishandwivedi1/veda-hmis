@@ -590,11 +590,17 @@ export async function getPendingPackageBilling() {
   if (readyCases.length === 0) return [];
 
   const patientIds = [...new Set(readyCases.map((sc) => sc.patient_id).filter(Boolean))];
+  // Batched -- one query for every patient here at once, not one
+  // get_advance_balance RPC call per patient (same N+1 fix as
+  // getOpenSurgicalCasesWithBalances in surgical-journey/actions.js
+  // and getOTCaseList in ot-intraop/actions.js).
   const balanceByPatient = {};
-  await Promise.all(patientIds.map(async (pid) => {
-    const { data: bal } = await supabase.rpc('get_advance_balance', { p_patient_id: pid });
-    balanceByPatient[pid] = Number(bal) || 0;
-  }));
+  if (patientIds.length > 0) {
+    const { data: ledgerRows } = await supabase.from('patient_ledger').select('patient_id, amount').in('patient_id', patientIds);
+    (ledgerRows || []).forEach((r) => {
+      balanceByPatient[r.patient_id] = (balanceByPatient[r.patient_id] || 0) + Number(r.amount);
+    });
+  }
 
   return readyCases
     .map((sc) => {
