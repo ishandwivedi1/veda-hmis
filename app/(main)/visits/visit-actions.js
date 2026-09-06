@@ -80,7 +80,7 @@ export default function VisitActions({ visit, doctors }) {
   const waButton = (
     <>
       <button className="btn btn-sm" title="Resend WhatsApp confirmation" onClick={handleResendWhatsApp} disabled={waStatus === 'sending'}>
-        <i className="ti ti-brand-whatsapp" style={{ color: 'var(--green)' }}></i>
+        <i className="ti ti-brand-whatsapp" style={{ color: 'var(--green)' }}></i> Confirm
       </button>
       {waStatus === 'sent' && <span style={{ fontSize: 10, color: 'var(--green)' }}><i className="ti ti-circle-check"></i></span>}
       {waStatus === 'warning' && <span style={{ fontSize: 10, color: 'var(--amber)' }} title={waMsg}><i className="ti ti-alert-triangle"></i></span>}
@@ -110,8 +110,8 @@ export default function VisitActions({ visit, doctors }) {
   return (
     <>
       {waButton}
-      <button className="btn btn-sm" onClick={openEdit}><i className="ti ti-edit"></i></button>
-      <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => { setError(''); setCancelReason(''); setMode('cancel'); }}><i className="ti ti-x"></i></button>
+      <button className="btn btn-sm" onClick={openEdit}><i className="ti ti-edit"></i> Edit</button>
+      <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => { setError(''); setCancelReason(''); setMode('cancel'); }}><i className="ti ti-x"></i> Cancel</button>
 
       {mode === 'edit' && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setMode(null)}>
