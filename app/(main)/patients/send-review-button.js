@@ -29,7 +29,7 @@ export default function SendReviewButton({ patientId, mobile }) {
         onClick={handleClick}
         disabled={status === 'sending' || !mobile}
       >
-        <i className="ti ti-star" style={{ color: 'var(--amber)' }}></i>
+        <i className="ti ti-star" style={{ color: 'var(--amber)' }}></i> Review
       </button>
       {status === 'sent' && <span style={{ fontSize: 10, color: 'var(--green)' }}><i className="ti ti-circle-check"></i></span>}
       {status === 'warning' && <span style={{ fontSize: 10, color: 'var(--amber)' }} title={msg}><i className="ti ti-alert-triangle"></i></span>}

@@ -86,7 +86,7 @@ export default function VisitActions({ visit, doctors }) {
       {waStatus === 'warning' && <span style={{ fontSize: 10, color: 'var(--amber)' }} title={waMsg}><i className="ti ti-alert-triangle"></i></span>}
       {waStatus === 'error' && <span style={{ fontSize: 10, color: 'var(--red)' }} title={waMsg}><i className="ti ti-alert-circle"></i></span>}
       <button className="btn btn-sm" title="Send Review Request" onClick={handleSendReviewRequest} disabled={reviewStatus === 'sending'}>
-        <i className="ti ti-star" style={{ color: 'var(--amber)' }}></i>
+        <i className="ti ti-star" style={{ color: 'var(--amber)' }}></i> Review
       </button>
       {reviewStatus === 'sent' && <span style={{ fontSize: 10, color: 'var(--green)' }}><i className="ti ti-circle-check"></i></span>}
       {reviewStatus === 'warning' && <span style={{ fontSize: 10, color: 'var(--amber)' }} title={reviewMsg}><i className="ti ti-alert-triangle"></i></span>}
