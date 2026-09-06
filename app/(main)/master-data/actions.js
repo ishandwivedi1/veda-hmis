@@ -57,6 +57,18 @@ function normalizeName(s) {
     .replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 }
 
+// Trims/collapses whitespace like normalizeName, but never touches
+// letter casing -- for fields where the exact case IS the data:
+// medicine brand names (CYNQ, not Cynq), and clinical terms doctors
+// deliberately type in a specific case. normalizeName's title-casing
+// was silently rewriting these on every save, server-side, regardless
+// of device or browser -- the autoCapitalize/autoCorrect attributes on
+// the input fields only ever addressed a keyboard-level version of
+// this that turned out not to be the actual (or only) cause.
+function preserveCase(s) {
+  return (s || '').trim().replace(/\s+/g, ' ');
+}
+
 // Derives a short prefix from a category (or a fixed fallback for
 // tables with no category concept) -- multi-word categories become an
 // initialism ("OPD Procedure" -> OP, "chief_complaint" -> CC), single
@@ -547,7 +559,7 @@ export async function getSurgeries() {
 }
 export async function addSurgery(values) {
   const supabase = await createClient();
-  const name = normalizeName(values.name);
+  const name = preserveCase(values.name);
   const category = normalizeName(values.category);
   const code = await generateCategoryCode(supabase, 'master_surgeries', 'SUR');
   const { error } = await supabase.from('master_surgeries').insert({ code, name, category, status: 'Active' });
@@ -557,7 +569,7 @@ export async function addSurgery(values) {
 }
 export async function updateSurgery(id, oldValues, values) {
   const supabase = await createClient();
-  const name = normalizeName(values.name);
+  const name = preserveCase(values.name);
   const category = normalizeName(values.category);
   const { error } = await supabase.from('master_surgeries').update({ name, category }).eq('id', id);
   if (error) return { error: error.message };
@@ -592,11 +604,11 @@ async function generateDrugCode(supabase) {
 
 export async function addDrug(values) {
   const supabase = await createClient();
-  const brand = normalizeName(values.brand);
-  const generic = normalizeName(values.generic);
+  const brand = preserveCase(values.brand);
+  const generic = preserveCase(values.generic);
   const code = await generateDrugCode(supabase);
   const { error } = await supabase.from('master_drugs').insert({
-    code, brand, generic, strength: values.strength, form: normalizeName(values.form),
+    code, brand, generic, strength: values.strength, form: preserveCase(values.form),
     drug_type_id: values.drugTypeId || null,
     rate: parseFloat(values.rate) || 0, gst_pct: parseFloat(values.gstPct) || 0, status: 'Active',
   });
@@ -606,9 +618,9 @@ export async function addDrug(values) {
 }
 export async function updateDrug(id, oldValues, values) {
   const supabase = await createClient();
-  const brand = normalizeName(values.brand);
-  const generic = normalizeName(values.generic);
-  const form = normalizeName(values.form);
+  const brand = preserveCase(values.brand);
+  const generic = preserveCase(values.generic);
+  const form = preserveCase(values.form);
   const { error } = await supabase.from('master_drugs').update({
     brand, generic, strength: values.strength, form,
     drug_type_id: values.drugTypeId || null,
@@ -683,7 +695,7 @@ export async function getDiagnosesMaster() {
 }
 export async function addDiagnosisMaster(values) {
   const supabase = await createClient();
-  const name = normalizeName(values.name);
+  const name = preserveCase(values.name);
   const category = normalizeName(values.category);
   const code = await generateCategoryCode(supabase, 'master_diagnoses', 'DIAG');
   const { error } = await supabase.from('master_diagnoses').insert({ code, name, category, status: 'Active' });
@@ -693,7 +705,7 @@ export async function addDiagnosisMaster(values) {
 }
 export async function updateDiagnosisMaster(id, oldValues, values) {
   const supabase = await createClient();
-  const name = normalizeName(values.name);
+  const name = preserveCase(values.name);
   const category = normalizeName(values.category);
   const { error } = await supabase.from('master_diagnoses').update({ name, category }).eq('id', id);
   if (error) return { error: error.message };
