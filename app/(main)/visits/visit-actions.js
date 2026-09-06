@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { updateVisit, cancelVisit, getSurgeryTypeOptions, resendVisitWhatsApp } from './actions';
+import { updateVisit, cancelVisit, getSurgeryTypeOptions, resendVisitWhatsApp, sendReviewRequestForVisit } from './actions';
 
 const VISIT_TYPES = ['New Consultation', 'Follow-up', 'Investigation Only', 'Surgery Evaluation', 'OPD Procedure Only', 'Post-operative Review', 'Emergency', 'Surgery', 'In House Camp'];
 
@@ -18,6 +18,11 @@ export default function VisitActions({ visit, doctors }) {
   const [saving, setSaving] = useState(false);
   const [waStatus, setWaStatus] = useState(''); // '', 'sending', 'sent', 'warning', 'error'
   const [waMsg, setWaMsg] = useState('');
+  // Separate status state from waStatus above -- these are two
+  // independent WhatsApp sends (visit confirmation vs review request),
+  // each with its own button and its own success/failure feedback.
+  const [reviewStatus, setReviewStatus] = useState('');
+  const [reviewMsg, setReviewMsg] = useState('');
   const router = useRouter();
 
   async function handleResendWhatsApp() {
@@ -27,6 +32,17 @@ export default function VisitActions({ visit, doctors }) {
     if (result.error) { setWaStatus('error'); setWaMsg(result.error); return; }
     if (result.warning) { setWaStatus('warning'); setWaMsg(result.warning); return; }
     setWaStatus('sent');
+  }
+
+  // Entirely manual -- staff judges this specific visit went well and
+  // sends it themselves. Nothing triggers this automatically.
+  async function handleSendReviewRequest() {
+    setReviewStatus('sending');
+    setReviewMsg('');
+    const result = await sendReviewRequestForVisit(visit.id);
+    if (result.error) { setReviewStatus('error'); setReviewMsg(result.error); return; }
+    if (result.warning) { setReviewStatus('warning'); setReviewMsg(result.warning); return; }
+    setReviewStatus('sent');
   }
 
   function openEdit() {
@@ -69,6 +85,12 @@ export default function VisitActions({ visit, doctors }) {
       {waStatus === 'sent' && <span style={{ fontSize: 10, color: 'var(--green)' }}><i className="ti ti-circle-check"></i></span>}
       {waStatus === 'warning' && <span style={{ fontSize: 10, color: 'var(--amber)' }} title={waMsg}><i className="ti ti-alert-triangle"></i></span>}
       {waStatus === 'error' && <span style={{ fontSize: 10, color: 'var(--red)' }} title={waMsg}><i className="ti ti-alert-circle"></i></span>}
+      <button className="btn btn-sm" title="Send Review Request" onClick={handleSendReviewRequest} disabled={reviewStatus === 'sending'}>
+        <i className="ti ti-star" style={{ color: 'var(--amber)' }}></i>
+      </button>
+      {reviewStatus === 'sent' && <span style={{ fontSize: 10, color: 'var(--green)' }}><i className="ti ti-circle-check"></i></span>}
+      {reviewStatus === 'warning' && <span style={{ fontSize: 10, color: 'var(--amber)' }} title={reviewMsg}><i className="ti ti-alert-triangle"></i></span>}
+      {reviewStatus === 'error' && <span style={{ fontSize: 10, color: 'var(--red)' }} title={reviewMsg}><i className="ti ti-alert-circle"></i></span>}
     </>
   );
 

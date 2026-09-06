@@ -5,6 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { searchPatients, getPatientTimeline } from './actions';
+import { sendReviewRequestForPatient } from '@/app/(main)/patients/actions';
 import { openPopup } from '@/lib/popup';
 
 // Same mapping used in the Consultation workspace's context sidebar --
@@ -35,6 +36,20 @@ function PatientTimelineInner() {
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
   const skipNextSearch = useRef(false);
+  // Patient-level review request -- manual, independent of any
+  // specific visit (visits/visit-actions.js has the per-visit
+  // equivalent). Nothing triggers this automatically.
+  const [reviewStatus, setReviewStatus] = useState('');
+  const [reviewMsg, setReviewMsg] = useState('');
+
+  async function handleSendReviewRequest() {
+    setReviewStatus('sending');
+    setReviewMsg('');
+    const result = await sendReviewRequestForPatient(patient.id);
+    if (result.error) { setReviewStatus('error'); setReviewMsg(result.error); return; }
+    if (result.warning) { setReviewStatus('warning'); setReviewMsg(result.warning); return; }
+    setReviewStatus('sent');
+  }
 
   function handleSearch(val) {
     setQuery(val);
@@ -217,6 +232,15 @@ function PatientTimelineInner() {
                     <span>{type}</span><span className="badge" style={{ background: `${TYPE_COLOR[type]}20`, color: TYPE_COLOR[type] }}>{count}</span>
                   </div>
                 ))}
+              </div>
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--g100)' }}>
+                <button className="btn btn-sm" style={{ width: '100%' }} onClick={handleSendReviewRequest} disabled={reviewStatus === 'sending' || !patient.mobile}>
+                  <i className="ti ti-star" style={{ color: 'var(--amber)' }}></i> {reviewStatus === 'sending' ? 'Sending...' : 'Send Review Request'}
+                </button>
+                {reviewStatus === 'sent' && <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6 }}><i className="ti ti-circle-check"></i> Sent.</div>}
+                {reviewStatus === 'warning' && <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 6 }}><i className="ti ti-alert-triangle"></i> {reviewMsg}</div>}
+                {reviewStatus === 'error' && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}><i className="ti ti-alert-circle"></i> {reviewMsg}</div>}
+                {!patient.mobile && <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 6 }}>No mobile number on file.</div>}
               </div>
             </div>
           </div>

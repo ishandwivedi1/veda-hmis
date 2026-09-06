@@ -4,7 +4,7 @@ import { after } from 'next/server';
 import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import { createWalkInVisit } from '@/app/(main)/visits/actions';
-import { sendRegistrationWhatsApp } from '@/lib/whatsapp';
+import { sendRegistrationWhatsApp, sendReviewRequestWhatsApp } from '@/lib/whatsapp';
 
 export async function registerPatient(values) {
   const supabase = await createClient();
@@ -224,5 +224,38 @@ export async function registerAndCreateInhouseCampVisit(values) {
   }
 
   return { patient: regResult.patient, visit: visitResult.visit };
+}
+
+// Patient-level equivalent of sendReviewRequestForVisit in
+// visits/actions.js -- manual, entirely staff-initiated, not tied to
+// any specific visit. Lives here (not visits/actions.js) since it's
+// meant to be sent from a patient's own record (Clinical Timeline),
+// e.g. for a patient staff remembers was especially happy, days or
+// weeks after whichever visit prompted it.
+export async function sendReviewRequestForPatient(patientId) {
+  if (!patientId) return { error: 'Missing patient id.' };
+
+  const supabase = await createClient();
+  const { data: patient, error } = await supabase
+    .from('patients')
+    .select('id, first_name, mobile')
+    .eq('id', patientId)
+    .single();
+
+  if (error) return { error: error.message };
+  if (!patient) return { error: 'Patient not found.' };
+  if (!patient.mobile) return { error: 'Patient has no mobile number on file.' };
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const whatsapp = await sendReviewRequestWhatsApp({
+    firstName: patient.first_name,
+    mobile: patient.mobile,
+    patientId: patient.id,
+    meta: { module: 'patient-review-request', triggeredBy: user?.id || null },
+  });
+
+  if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
+  if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };
+  return { success: true };
 }
 

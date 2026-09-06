@@ -3,7 +3,7 @@
 import { after } from 'next/server';
 import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
-import { sendVisitConfirmationWhatsApp, formatVisitDateIST } from '@/lib/whatsapp';
+import { sendVisitConfirmationWhatsApp, sendReviewRequestWhatsApp, formatVisitDateIST } from '@/lib/whatsapp';
 
 // Fetches a single patient for pre-filling the New Visit form when
 // arriving via a "Create Visit" link from the Patients list, so the
@@ -260,6 +260,46 @@ export async function resendVisitWhatsApp(visitId) {
 
   const { data: { user } } = await supabase.auth.getUser();
   const whatsapp = await sendVisitWhatsAppCore(visit, user?.id);
+
+  if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
+  if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };
+  return { success: true };
+}
+
+// Manual, entirely staff-initiated -- no automatic trigger fires this
+// for any visit. Available as a per-visit button on the Visits list
+// (see visit-actions.js) so staff can send it for any specific visit
+// they judge went well; sendReviewRequestForPatient in
+// patients/actions.js is the patient-level equivalent, for asking
+// independent of any particular visit.
+export async function sendReviewRequestForVisit(visitId) {
+  if (!visitId) return { error: 'Missing visit id.' };
+
+  const supabase = await createClient();
+  const { data: visit, error } = await supabase
+    .from('visits')
+    .select('id, patient_id')
+    .eq('id', visitId)
+    .single();
+
+  if (error) return { error: error.message };
+  if (!visit) return { error: 'Visit not found.' };
+
+  const { data: patient } = await supabase
+    .from('patients')
+    .select('id, first_name, mobile')
+    .eq('id', visit.patient_id)
+    .single();
+  if (!patient || !patient.mobile) return { error: 'Patient has no mobile number on file.' };
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const whatsapp = await sendReviewRequestWhatsApp({
+    firstName: patient.first_name,
+    mobile: patient.mobile,
+    patientId: patient.id,
+    visitId: visit.id,
+    meta: { module: 'visit-review-request', triggeredBy: user?.id || null },
+  });
 
   if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
   if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };
