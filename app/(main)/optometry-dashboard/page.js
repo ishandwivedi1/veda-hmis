@@ -8,20 +8,17 @@ import { getOptometryDashboardData } from './actions';
 import { getOptometryHistory } from '@/app/(main)/optometry-history/actions';
 import { optometryCallNext, optometryCallSpecific } from '@/app/(main)/queue/actions';
 
-// Workspace (Final Rx entry, ~1200 lines) and the read-only History
-// detail viewer (~420 lines) are the two heavy pieces of this module.
-// Loaded on demand with next/dynamic + ssr:false so the Dashboard tab
-// -- which is what most people land on -- never pulls their code or
-// hydration cost into the initial page load. Neither needs SSR: both
-// only render once a specific queue entry / assessment is selected,
-// client-side, after the hub has already mounted.
+// The Workspace (Final Rx entry, ~1200 lines) is the one heavy piece of
+// this module. Loaded on demand with next/dynamic + ssr:false so the
+// Dashboard tab -- what most people land on -- never pulls its code or
+// hydration cost into the initial page load. Doubles as the read-only
+// historical viewer too (History's "View" reopens the same real
+// workspace via its original queue entry, rather than a separate
+// hand-maintained viewer -- see getOptometryHistory's comment on
+// queueEntryByVisit for why that viewer was retired).
 const OptometryWorkspace = dynamic(() => import('@/app/(main)/optometry/[id]/optometry-workspace'), {
   ssr: false,
   loading: () => <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 40 }}>Loading workspace...</div>,
-});
-const AssessmentViewer = dynamic(() => import('@/app/(main)/optometry-history/[assessmentId]/assessment-viewer'), {
-  ssr: false,
-  loading: () => <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 40 }}>Loading assessment...</div>,
 });
 
 function TabButton({ active, onClick, icon, label, disabled }) {
@@ -176,12 +173,11 @@ function DashboardTab({ active, completed, onOpen, refresh }) {
 }
 
 // ── HISTORY ───────────────────────────────────────────────────────
-function HistoryTab() {
+function HistoryTab({ onOpen }) {
   const [rows, setRows] = useState([]);
   const [filter, setFilter] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [viewingId, setViewingId] = useState(null);
 
   const refresh = useCallback(async (status) => {
     setLoading(true);
@@ -193,10 +189,6 @@ function HistoryTab() {
   }, []);
 
   useEffect(() => { refresh(filter); }, [filter, refresh]);
-
-  if (viewingId) {
-    return <AssessmentViewer assessmentId={viewingId} onBack={() => setViewingId(null)} />;
-  }
 
   return (
     <div>
@@ -229,7 +221,7 @@ function HistoryTab() {
               const by = r.status === 'Completed' ? (r.completed_by_profile?.full_name || '--') : (r.recorded_by_profile?.full_name || '--');
               const dt = new Date(r.completed_at || r.updated_at || r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
               return (
-                <tr key={r.id} onClick={() => setViewingId(r.id)} style={{ cursor: 'pointer' }}>
+                <tr key={r.id} onClick={() => (r.queueEntryId ? onOpen(r.queueEntryId) : null)} style={{ cursor: r.queueEntryId ? 'pointer' : 'default' }} title={r.queueEntryId ? undefined : 'Original queue entry not found -- cannot reopen this record'}>
                   <td style={{ fontSize: 11 }}>{dt}</td>
                   <td>
                     <strong>{patientName(r)}</strong>
@@ -271,6 +263,7 @@ function OptometryHubInner() {
 
   const [activeTab, setActiveTab] = useState(deepLinkQueueEntryId ? 'workspace' : 'dashboard');
   const [selectedQueueEntryId, setSelectedQueueEntryId] = useState(deepLinkQueueEntryId || null);
+  const [workspaceOrigin, setWorkspaceOrigin] = useState('dashboard');
   const [active, setActive] = useState([]);
   const [completed, setCompleted] = useState([]);
 
@@ -290,8 +283,9 @@ function OptometryHubInner() {
     return () => clearInterval(interval);
   }, [activeTab, refresh]);
 
-  function openWorkspace(queueEntryId) {
+  function openWorkspace(queueEntryId, origin = 'dashboard') {
     setSelectedQueueEntryId(queueEntryId);
+    setWorkspaceOrigin(origin);
     setActiveTab('workspace');
   }
 
@@ -299,10 +293,13 @@ function OptometryHubInner() {
   // Close / Back to Queue -- resets the hub's own tab state directly
   // instead of relying on a route push landing on an already-mounted
   // instance of this same page (see goToDashboard's comment in
-  // optometry-workspace.js for why that silently did nothing).
+  // optometry-workspace.js for why that silently did nothing). Returns
+  // to wherever this workspace was actually opened from -- History's
+  // "View" shouldn't dump someone back on the live queue Dashboard,
+  // any more than opening a live entry should leave them on History.
   function handleWorkspaceDone() {
     setSelectedQueueEntryId(null);
-    setActiveTab('dashboard');
+    setActiveTab(workspaceOrigin);
     refresh();
   }
 
@@ -324,7 +321,7 @@ function OptometryHubInner() {
       {activeTab === 'workspace' && !selectedQueueEntryId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select an entry from the Dashboard.</div>
       )}
-      {activeTab === 'history' && <HistoryTab />}
+      {activeTab === 'history' && <HistoryTab onOpen={(id) => openWorkspace(id, 'history')} />}
     </div>
   );
 }

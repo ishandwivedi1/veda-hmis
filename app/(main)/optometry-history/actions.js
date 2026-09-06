@@ -54,6 +54,28 @@ export async function getOptometryHistory(filterStatus) {
     (overrideRows || []).forEach((r) => overriddenIds.add(r.assessment_id));
   }
 
+  // Every assessment's Optometry queue entry from the day it was
+  // originally worked on -- queue_entries rows are never deleted (they
+  // move to 'Done', not removed), so this reliably exists for any
+  // assessment no matter how old. Lets History's "View" reopen the
+  // real, current entry workspace (optometry-workspace.js) directly,
+  // instead of a separate hand-maintained read-only viewer that has
+  // already drifted out of sync with it once before (see
+  // assessment-viewer.js's own comment on why it was retired).
+  const visitIds = [...new Set((assessments || []).map((a) => a.visit_id).filter(Boolean))];
+  let queueEntryByVisit = {};
+  if (visitIds.length > 0) {
+    const { data: entries } = await supabase
+      .from('queue_entries')
+      .select('id, visit_id')
+      .in('visit_id', visitIds)
+      .eq('department', 'Optometry')
+      .order('issued_at', { ascending: false });
+    (entries || []).forEach((e) => {
+      if (!queueEntryByVisit[e.visit_id]) queueEntryByVisit[e.visit_id] = e.id;
+    });
+  }
+
   const rows = (assessments || []).map((a) => {
     const readings = readingsByAssessment[a.id] || { RE: [], LE: [] };
     const lastRe = readings.RE.length ? readings.RE[readings.RE.length - 1].value : null;
@@ -65,6 +87,7 @@ export async function getOptometryHistory(filterStatus) {
       iopLe: lastLe,
       iopReadings: readings,
       hasDoctorCorrection: overriddenIds.has(a.id),
+      queueEntryId: queueEntryByVisit[a.visit_id] || null,
     };
   });
 
