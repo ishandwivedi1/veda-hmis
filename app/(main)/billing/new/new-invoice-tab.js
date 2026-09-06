@@ -437,8 +437,8 @@ export default function NewInvoiceTab() {
     setSubmitting(true);
 
     // purpose drives the "Department" shown in Billing Dashboard /
-    // Revenue by Department -- it must reflect what's actually being
-    // billed, not always default to Consultation. Surgery takes
+    // Collections by Department -- it must reflect what's actually
+    // being billed, not always default to Consultation. Surgery takes
     // priority if present (it's what also decides which print template
     // renders), otherwise whichever department was billed first.
     const deptsPresent = draftLines.map((l) => l.dept);

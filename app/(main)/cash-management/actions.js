@@ -262,21 +262,92 @@ export async function deleteExpense(id, expenseDate) {
 // ── REVENUE BY DEPARTMENT -- moved here from the Billing Dashboard,
 // since it's a same-day revenue breakdown that belongs alongside the
 // rest of today's collection summary. ──
+// Collections by Department -- built from actual payments collected
+// today, not invoices raised today. Those are genuinely different
+// numbers (an invoice can be raised today but paid later, paid
+// earlier against an advance, or only partially paid today), so the
+// old invoice-based version could never be guaranteed to sum to the
+// day's real Total Collected (getTodayCollectionSummary below).
+// Advance is its own line here -- a standalone advance payment (no
+// invoice yet) was previously invisible in this breakdown entirely,
+// which was exactly why the two totals could disagree. Same
+// payment_type filter and refund sign convention as
+// getTodayCollectionSummary uses for Total, on purpose: these two
+// numbers must always be constructible from the same underlying
+// payments, or "sum of the parts" and "the total" will keep drifting
+// apart for someone reconciling the day.
+//
+// Two different tables carry the invoice link depending on
+// payment_type -- there's no single "payments.invoice_id" column:
+//   - invoice_payment: payment_allocations (payment_id -> [{invoice_id,
+//     amount}]) -- ONE payment can settle bills spanning MULTIPLE
+//     departments (e.g. a single receipt covering an OPD consultation
+//     and a pharmacy bill), so it's split across each allocation's own
+//     invoice, not attributed whole to one department.
+//   - refund: payment_refunds (refund_payment_id -> invoice_id) -- a
+//     refund's own payments row never gets a payment_allocations
+//     entry at all; invoice_id there is null for an advance refund
+//     (refund_advance), in which case it nets against Advance rather
+//     than a department.
 export async function getRevenueByDepartmentToday() {
   const supabase = await createClient();
   const { startUTC, endUTC } = istDayBoundsUTC();
 
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('purpose, net')
-    .gte('created_at', startUTC)
-    .lte('created_at', endUTC)
-    .neq('status', 'Cancelled');
+  const { data: payments } = await supabase
+    .from('payments')
+    .select('id, payment_type, total_amount')
+    .gte('collected_at', startUTC)
+    .lte('collected_at', endUTC)
+    .in('payment_type', ['invoice_payment', 'advance', 'refund']);
+
+  const invoicePaymentIds = (payments || []).filter((p) => p.payment_type === 'invoice_payment').map((p) => p.id);
+  const refundIds = (payments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
+
+  let allocationsByPayment = {};
+  if (invoicePaymentIds.length > 0) {
+    const { data: allocations } = await supabase
+      .from('payment_allocations')
+      .select('payment_id, amount, invoices(purpose)')
+      .in('payment_id', invoicePaymentIds);
+    (allocations || []).forEach((a) => {
+      if (!allocationsByPayment[a.payment_id]) allocationsByPayment[a.payment_id] = [];
+      allocationsByPayment[a.payment_id].push(a);
+    });
+  }
+
+  let refundInfoByPayment = {};
+  if (refundIds.length > 0) {
+    const { data: refunds } = await supabase
+      .from('payment_refunds')
+      .select('refund_payment_id, invoices(purpose)')
+      .in('refund_payment_id', refundIds);
+    (refunds || []).forEach((r) => { refundInfoByPayment[r.refund_payment_id] = r; });
+  }
 
   const byDept = {};
-  (invoices || []).forEach((i) => {
-    const dept = i.purpose || 'Other';
-    byDept[dept] = (byDept[dept] || 0) + Number(i.net);
+  (payments || []).forEach((p) => {
+    if (p.payment_type === 'advance') {
+      byDept.Advance = (byDept.Advance || 0) + Number(p.total_amount);
+      return;
+    }
+    if (p.payment_type === 'invoice_payment') {
+      const allocs = allocationsByPayment[p.id];
+      if (allocs && allocs.length > 0) {
+        allocs.forEach((a) => {
+          const dept = a.invoices?.purpose || 'Other';
+          byDept[dept] = (byDept[dept] || 0) + Number(a.amount);
+        });
+      } else {
+        // Shouldn't happen for a genuine invoice_payment, but the
+        // money still collected today either way -- never drop it
+        // silently just because it has no allocation on record.
+        byDept.Other = (byDept.Other || 0) + Number(p.total_amount);
+      }
+      return;
+    }
+    // refund
+    const dept = refundInfoByPayment[p.id]?.invoices?.purpose || 'Advance';
+    byDept[dept] = (byDept[dept] || 0) - Number(p.total_amount);
   });
 
   return byDept;

@@ -451,9 +451,9 @@ export default function CashManagementPage() {
 
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 10 }}>
-              <i className="ti ti-chart-bar" style={{ color: 'var(--amber)' }}></i> Revenue by Department -- Today
+              <i className="ti ti-chart-bar" style={{ color: 'var(--amber)' }}></i> Collections by Department -- Today
             </div>
-            {Object.keys(revenueByDept).length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No invoices yet today.</div>}
+            {Object.keys(revenueByDept).length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)' }}>No collections yet today.</div>}
             {Object.entries(revenueByDept).sort((a, b) => b[1] - a[1]).map(([dept, amount]) => {
               const max = Math.max(...Object.values(revenueByDept));
               return (

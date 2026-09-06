@@ -117,9 +117,9 @@ export default async function PaymentsDashboardPage() {
         <div>
           {/* REVENUE BY DEPARTMENT */}
           <div className="card">
-            <div className="card-title" style={{ marginBottom: 14 }}><i className="ti ti-chart-bar" style={{ color: 'var(--blue)' }}></i> Revenue by Department -- Today</div>
+            <div className="card-title" style={{ marginBottom: 14 }}><i className="ti ti-chart-bar" style={{ color: 'var(--blue)' }}></i> Collections by Department -- Today</div>
             {deptEntries.length === 0 ? (
-              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--g400)', fontSize: 13 }}>No invoices generated yet today.</div>
+              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--g400)', fontSize: 13 }}>No collections yet today.</div>
             ) : (
               deptEntries.map(([dept, amt]) => (
                 <div key={dept} style={{ marginBottom: 12 }}>
