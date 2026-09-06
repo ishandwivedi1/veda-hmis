@@ -268,7 +268,7 @@ export default function FinancialMastersPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                   <input className="fi" placeholder="Name" autoCapitalize="off" autoCorrect="off" spellCheck="false" onChange={update('brand')} />
                   <input className="fi" placeholder="Salt Composition" autoCapitalize="off" autoCorrect="off" spellCheck="false" onChange={update('generic')} />
-                  <input className="fi" placeholder="Strength (e.g. 0.5%)" onChange={update('strength')} />
+                  <input className="fi" placeholder="Strength (e.g. 0.5%)" autoCapitalize="off" autoCorrect="off" spellCheck="false" onChange={update('strength')} />
                   <select className="fi" onChange={update('drugTypeId')} defaultValue="">
                     <option value="">-- Type (e.g. Eye Drop) --</option>
                     {drugTypes.filter((t) => t.status === 'Active').map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -367,7 +367,7 @@ export default function FinancialMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{d.code}</td>
                       <td><input className="fi fi-sm" value={editForm.brand} onChange={updateEdit('brand')} autoCapitalize="off" autoCorrect="off" spellCheck="false" /></td>
                       <td><input className="fi fi-sm" value={editForm.generic} onChange={updateEdit('generic')} autoCapitalize="off" autoCorrect="off" spellCheck="false" /></td>
-                      <td><input className="fi fi-sm" style={{ width: 80 }} value={editForm.strength} onChange={updateEdit('strength')} /></td>
+                      <td><input className="fi fi-sm" style={{ width: 80 }} value={editForm.strength} onChange={updateEdit('strength')} autoCapitalize="off" autoCorrect="off" spellCheck="false" /></td>
                       <td>
                         <select className="fi fi-sm" value={editForm.drugTypeId || ''} onChange={updateEdit('drugTypeId')}>
                           <option value="">-- Type --</option>
