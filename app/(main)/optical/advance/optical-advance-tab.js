@@ -24,7 +24,6 @@ export default function OpticalAdvanceTab() {
   const [newMobile, setNewMobile] = useState('');
 
   const [balance, setBalance] = useState(0);
-  const [amount, setAmount] = useState('');
   const [modeAmounts, setModeAmounts] = useState({ Cash: '' });
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
@@ -90,14 +89,13 @@ export default function OpticalAdvanceTab() {
     const result = await collectOpticalAdvance({
       patientId: selected?.type === 'patient' ? selected.id : null,
       opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null,
-      amount, modes, reference, remarks,
+      amount: modesTotal, modes, reference, remarks,
     });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setSuccessMsg(`Advance recorded -- receipt ${result.payment.receipt_number}`);
     const bal = await getOpticalAdvanceBalance({ patientId: selected?.type === 'patient' ? selected.id : null, opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null });
     setBalance(bal);
-    setAmount('');
     setModeAmounts({ Cash: '' });
     setReference('');
     setRemarks('');
@@ -152,10 +150,7 @@ export default function OpticalAdvanceTab() {
 
         {selected && (
           <>
-            <label className="flbl" style={{ marginTop: 16 }}>Amount</label>
-            <input className="fi" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
-
-            <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s)</label>
+            <label className="flbl" style={{ marginTop: 16 }}>Payment Mode(s)</label>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
               {PAYMENT_MODES.map((m) => (
                 <button key={m} className={m in modeAmounts ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => toggleMode(m)}>{m}</button>
@@ -167,16 +162,17 @@ export default function OpticalAdvanceTab() {
                 <input className="fi" type="number" value={modeAmounts[m]} onChange={(e) => updateModeAmount(m, e.target.value)} />
               </div>
             ))}
-            <div style={{ fontSize: 11.5, color: modesTotal === Number(amount) ? 'var(--g500)' : 'var(--red)', marginBottom: 10 }}>
-              Mode split total: {fmt(modesTotal)} {modesTotal !== Number(amount) && amount ? `(must equal ${fmt(amount)})` : ''}
-            </div>
+
+            <label className="flbl" style={{ marginTop: 10 }}>Amount</label>
+            <input className="fi" type="number" value={modesTotal} disabled style={{ background: 'var(--g50, #f7f8fa)', color: 'var(--g600)', fontWeight: 700 }} />
+            <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 4, marginBottom: 10 }}>Auto-calculated from the payment mode(s) above.</div>
 
             <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
               <input className="fi" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Reference (optional)" />
               <input className="fi" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="What's this advance for? (optional)" />
             </div>
 
-            <button className="btn btn-primary" disabled={saving || !amount} onClick={handleCollect}>
+            <button className="btn btn-primary" disabled={saving || modesTotal <= 0} onClick={handleCollect}>
               <i className="ti ti-piggy-bank"></i> {saving ? 'Recording...' : 'Collect Advance'}
             </button>
           </>
