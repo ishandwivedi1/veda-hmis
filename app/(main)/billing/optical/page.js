@@ -1,11 +1,8 @@
-import BillingTabs from '../billing-tabs';
-import OpticalShopTab from './optical-shop-tab';
+import { redirect } from 'next/navigation';
 
-export default function OpticalShopPage() {
-  return (
-    <div>
-      <BillingTabs />
-      <OpticalShopTab />
-    </div>
-  );
+// /billing/optical is now a small multi-page module (see optical-tabs.js)
+// -- New Bill, Collect Payment, Advance, History. This index just sends
+// staff to the natural starting point.
+export default function OpticalShopIndexPage() {
+  redirect('/billing/optical/new');
 }

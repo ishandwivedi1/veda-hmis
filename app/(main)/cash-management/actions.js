@@ -218,13 +218,15 @@ export async function getPettyCashTotal(date) {
   return (data || []).reduce((sum, r) => sum + Number(r.amount), 0);
 }
 
-// Optical Shop sales are recorded in their own table (see
+// Optical Shop sales/payments are recorded in their own tables (see
 // app/(main)/billing/optical), not through invoices/payments -- walk-in
 // optical customers frequently have no patient record at all, so they
 // can't flow through the invoice pipeline the way Consultation/Pharmacy/
-// Surgery revenue does. This reads that table directly and returns the
-// same { byMode, total } shape the rest of this file uses, so it can be
-// shown in the Daily Report as its own line.
+// Surgery revenue does. This reads actual money collected that day --
+// sale payments and advances (real cash movement), excluding
+// advance_adjustment (an existing balance being applied, no new cash) --
+// and returns the same { byMode, total } shape the rest of this file
+// uses, so it can be shown in the Daily Report as its own line.
 //
 // Deliberately kept OUT of getTodayCollectionSummary/getCategorizedIncome
 // and out of getReconciliationData's expected-cash math -- those have
@@ -235,18 +237,21 @@ export async function getPettyCashTotal(date) {
 // and reconciled by Front Office as a separate, manual add-on for now.
 export async function getOpticalIncomeForDate(date) {
   const supabase = await createClient();
-  const targetDate = date || todayIST();
-  const { data } = await supabase
-    .from('optical_sales')
-    .select('payment_mode, net')
-    .eq('sale_date', targetDate)
-    .eq('status', 'Completed');
+  const { startUTC, endUTC } = istDayBoundsUTC(date);
+  const { data: payments } = await supabase
+    .from('optical_payments')
+    .select('id, total_amount, payment_type, optical_payment_modes(mode, amount)')
+    .in('payment_type', ['sale_payment', 'advance'])
+    .gte('collected_at', startUTC)
+    .lte('collected_at', endUTC);
+
   const byMode = {};
   let total = 0;
-  (data || []).forEach((s) => {
-    const amt = Number(s.net) || 0;
-    byMode[s.payment_mode] = (byMode[s.payment_mode] || 0) + amt;
-    total += amt;
+  (payments || []).forEach((p) => {
+    total += Number(p.total_amount) || 0;
+    (p.optical_payment_modes || []).forEach((m) => {
+      byMode[m.mode] = (byMode[m.mode] || 0) + (Number(m.amount) || 0);
+    });
   });
   return { byMode, total };
 }

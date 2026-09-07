@@ -1,6 +1,5 @@
 import { getOpticalSaleDetail } from '@/app/(main)/billing/optical/actions';
 import { getHospitalSettings } from '@/app/print-templates/actions';
-import { formatPatientName } from '@/lib/patientName';
 import PrintButton from '../../invoice-print/[invoiceId]/print-button';
 
 function inr(n) {
@@ -13,17 +12,14 @@ function fmtDate(iso) {
 
 export default async function OpticalReceiptPrintPage({ params }) {
   const { saleId } = await params;
-  const [{ sale, items, error }, settings] = await Promise.all([
+  const [{ sale, items, payments, error }, settings] = await Promise.all([
     getOpticalSaleDetail(saleId),
     getHospitalSettings(),
   ]);
 
   if (error || !sale) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#b3261e' }}>{error || 'Sale not found.'}</div>;
+    return <div style={{ padding: 40, textAlign: 'center', color: '#b3261e' }}>{error || 'Bill not found.'}</div>;
   }
-
-  const customerName = sale.patients ? formatPatientName(sale.patients) : sale.customer_name;
-  const customerMobile = sale.patients?.mobile || sale.customer_mobile;
 
   return (
     <div>
@@ -61,16 +57,16 @@ export default async function OpticalReceiptPrintPage({ params }) {
             <tr>
               <td style={{ width: '50%', padding: '10px 14px', verticalAlign: 'top', borderRight: '1px solid #999' }}>
                 <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' }}>Customer</div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>{customerName || 'Walk-in Customer'}</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{sale.displayName || 'Walk-in Customer'}</div>
                 {sale.patients?.uhid && <div style={{ fontSize: 11.5, color: '#444' }}>{sale.patients.uhid}</div>}
-                {customerMobile && <div style={{ fontSize: 11.5, color: '#444' }}>{customerMobile}</div>}
+                {sale.displayMobile && <div style={{ fontSize: 11.5, color: '#444' }}>{sale.displayMobile}</div>}
               </td>
               <td style={{ width: '50%', padding: '10px 14px', verticalAlign: 'top' }}>
                 <table style={{ width: '100%', fontSize: 12 }}>
                   <tbody>
                     <tr><td style={{ width: 90, color: '#444' }}>Bill No</td><td>: <strong>{sale.sale_number}</strong></td></tr>
                     <tr><td style={{ color: '#444' }}>Date</td><td>: <strong>{fmtDate(sale.created_at)}</strong></td></tr>
-                    <tr><td style={{ color: '#444' }}>Payment Mode</td><td>: <strong>{sale.payment_mode}</strong></td></tr>
+                    <tr><td style={{ color: '#444' }}>Status</td><td>: <strong>{sale.status}</strong></td></tr>
                   </tbody>
                 </table>
               </td>
@@ -101,7 +97,7 @@ export default async function OpticalReceiptPrintPage({ params }) {
           </tbody>
         </table>
 
-        <table style={{ width: 260, margin: '14px 0 0 auto', borderCollapse: 'collapse', fontSize: 12 }}>
+        <table style={{ width: 280, margin: '14px 0 0 auto', borderCollapse: 'collapse', fontSize: 12 }}>
           <tbody>
             <tr>
               <td style={{ border: '1px solid #999', background: '#e9edf2', padding: '6px 10px', fontWeight: 700 }}>GROSS AMOUNT</td>
@@ -112,16 +108,50 @@ export default async function OpticalReceiptPrintPage({ params }) {
               <td style={{ border: '1px solid #999', padding: '6px 10px', textAlign: 'right' }}>{inr(sale.discount)}</td>
             </tr>
             <tr>
-              <td style={{ border: '1px solid #999', background: '#e9edf2', padding: '6px 10px', fontWeight: 700 }}>NET AMOUNT PAID</td>
+              <td style={{ border: '1px solid #999', background: '#e9edf2', padding: '6px 10px', fontWeight: 700 }}>NET AMOUNT</td>
               <td style={{ border: '1px solid #999', padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>{inr(sale.net)}</td>
+            </tr>
+            <tr>
+              <td style={{ border: '1px solid #999', padding: '6px 10px' }}>PAID</td>
+              <td style={{ border: '1px solid #999', padding: '6px 10px', textAlign: 'right' }}>{inr(sale.paid)}</td>
+            </tr>
+            <tr>
+              <td style={{ border: '1px solid #999', background: sale.outstanding > 0 ? '#fef2f2' : '#e9edf2', padding: '6px 10px', fontWeight: 700 }}>BALANCE DUE</td>
+              <td style={{ border: '1px solid #999', padding: '6px 10px', textAlign: 'right', fontWeight: 700, color: sale.outstanding > 0 ? '#b91c1c' : 'inherit' }}>{inr(sale.outstanding)}</td>
             </tr>
           </tbody>
         </table>
 
+        {payments.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>Payments Received</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+              <thead>
+                <tr style={{ background: '#e9edf2' }}>
+                  <th style={{ border: '1px solid #999', padding: 6, textAlign: 'left' }}>Receipt No</th>
+                  <th style={{ border: '1px solid #999', padding: 6, textAlign: 'left' }}>Date</th>
+                  <th style={{ border: '1px solid #999', padding: 6, textAlign: 'left' }}>Mode</th>
+                  <th style={{ border: '1px solid #999', padding: 6, textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ border: '1px solid #999', padding: 6 }}>{p.receipt_number}</td>
+                    <td style={{ border: '1px solid #999', padding: 6 }}>{fmtDate(p.collected_at)}</td>
+                    <td style={{ border: '1px solid #999', padding: 6 }}>{p.payment_type === 'advance_adjustment' ? 'Advance Applied' : (p.optical_payment_modes || []).map((m) => m.mode).join(', ')}</td>
+                    <td style={{ border: '1px solid #999', padding: 6, textAlign: 'right' }}>{inr(p.total_amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {sale.notes && <div style={{ marginTop: 14, fontSize: 11.5, color: '#444' }}>Notes: {sale.notes}</div>}
         {sale.status === 'Cancelled' && (
           <div style={{ marginTop: 14, padding: '8px 12px', background: '#fef2f2', border: '1px solid #b91c1c', borderRadius: 6, color: '#b91c1c', fontSize: 12, fontWeight: 700 }}>
-            THIS SALE HAS BEEN CANCELLED{sale.cancellation_reason ? ` -- ${sale.cancellation_reason}` : ''}
+            THIS BILL HAS BEEN CANCELLED{sale.cancellation_reason ? ` -- ${sale.cancellation_reason}` : ''}
           </div>
         )}
 
