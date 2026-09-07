@@ -34,7 +34,7 @@ export default async function OpticalReceiptPrintPage({ params }) {
                 {settings.logo_data_url && <img src={settings.logo_data_url} alt="" style={{ width: 88, height: 88, objectFit: 'contain' }} />}
               </td>
               <td style={{ verticalAlign: 'top' }}>
-                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '.3px', textDecoration: 'underline' }}>{settings.name || 'VEDA EYE HOSPITAL'}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '.3px', textDecoration: 'underline' }}>Veda Opticals</div>
                 <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}>{settings.unit_line || ''}</div>
                 {settings.regn_no && <div style={{ fontSize: 10, fontWeight: 700 }}>REGN NO : {settings.regn_no}</div>}
               </td>
@@ -161,7 +161,7 @@ export default async function OpticalReceiptPrintPage({ params }) {
               <td style={{ fontSize: 12 }}>&nbsp;</td>
               <td style={{ textAlign: 'right', fontSize: 12 }}>
                 <div>AUTHORISED SIGNATURE</div>
-                <div>FOR {settings.name || 'VEDA EYE HOSPITAL'}</div>
+                <div>FOR VEDA OPTICALS</div>
               </td>
             </tr>
           </tbody>
