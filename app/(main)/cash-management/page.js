@@ -957,6 +957,19 @@ export default function CashManagementPage() {
                 </div>
               </div>
 
+              {/* OPTICAL SHOP -- recorded in its own table, not via
+                  invoices/payments (see getOpticalIncomeForDate), so it
+                  is shown here for visibility only. Deliberately NOT
+                  included in Payment Mode Summary, Income by Category,
+                  or the Reconciliation tab's expected-cash figure --
+                  count this cash separately until reconciliation is
+                  extended to cover it. */}
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-glasses" style={{ color: 'var(--blue)' }}></i> Optical Shop Sales</div>
+                <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 8 }}>Tracked separately from hospital billing -- not included in Payment Mode Summary or Income by Category above. Count this cash separately when reconciling the drawer.</div>
+                <ModeBreakdownRows cat={report.opticalIncome} emptyLabel="No optical sales today." totalColor="var(--blue)" />
+              </div>
+
               {/* INCOME BY CATEGORY -- TOTAL: OPD Income + Pharmacy +
                   Surgery Income + Unclassified (Investigation Income is
                   NOT added again here -- it's already inside OPD Income,

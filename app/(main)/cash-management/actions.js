@@ -218,6 +218,39 @@ export async function getPettyCashTotal(date) {
   return (data || []).reduce((sum, r) => sum + Number(r.amount), 0);
 }
 
+// Optical Shop sales are recorded in their own table (see
+// app/(main)/billing/optical), not through invoices/payments -- walk-in
+// optical customers frequently have no patient record at all, so they
+// can't flow through the invoice pipeline the way Consultation/Pharmacy/
+// Surgery revenue does. This reads that table directly and returns the
+// same { byMode, total } shape the rest of this file uses, so it can be
+// shown in the Daily Report as its own line.
+//
+// Deliberately kept OUT of getTodayCollectionSummary/getCategorizedIncome
+// and out of getReconciliationData's expected-cash math -- those have
+// several careful invariants (Payment Mode Summary == Billed Items +
+// Advances - Refunds; Income by Category total == Billed Items) that a
+// second, unrelated cash stream would silently break. Optical income is
+// shown for visibility only; the cash it represents should be counted
+// and reconciled by Front Office as a separate, manual add-on for now.
+export async function getOpticalIncomeForDate(date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const { data } = await supabase
+    .from('optical_sales')
+    .select('payment_mode, net')
+    .eq('sale_date', targetDate)
+    .eq('status', 'Completed');
+  const byMode = {};
+  let total = 0;
+  (data || []).forEach((s) => {
+    const amt = Number(s.net) || 0;
+    byMode[s.payment_mode] = (byMode[s.payment_mode] || 0) + amt;
+    total += amt;
+  });
+  return { byMode, total };
+}
+
 export async function addExpense(categoryId, amount, paidTo, note) {
   const dayGuard = await requireDayOpen();
   if (dayGuard) return dayGuard;
@@ -503,7 +536,7 @@ function modeBreakdown(txs, negate = false) {
 
 export async function getDailyReport(date) {
   const supabase = await createClient();
-  const [{ data: closing }, { data: reconciliation }, expenses, collectionSummary] = await Promise.all([
+  const [{ data: closing }, { data: reconciliation }, expenses, collectionSummary, opticalIncome] = await Promise.all([
     supabase.from('day_closings').select('*, profiles(full_name)').eq('closing_date', date).maybeSingle(),
     supabase.from('day_reconciliation').select('*, profiles(full_name)').eq('closing_date', date),
     getExpensesForDate(date),
@@ -512,6 +545,9 @@ export async function getDailyReport(date) {
     // reconciled against -- advance_adjustment/credit_note excluded
     // (no real cash moved), refund netted negative.
     getTodayCollectionSummary(date),
+    // See getOpticalIncomeForDate -- shown as its own line below, never
+    // merged into billedTx/categories/modeSummary.
+    getOpticalIncomeForDate(date),
   ]);
 
   const billedTx = collectionSummary.transactions.filter((p) => p.payment_type === 'invoice_payment');
@@ -576,6 +612,11 @@ export async function getDailyReport(date) {
     surgeryIncome: withAdjustment(cat('Surgery Income'), adjTotal('Surgery Income')),
     unclassifiedIncome: unclassified,
     unclassifiedDepts,
+    // Separate revenue stream, not part of the invoice/payment pipeline
+    // -- see getOpticalIncomeForDate. Not included in modeSummary or any
+    // "Income by Category" total above, and not part of reconciliation's
+    // expected-cash figure; shown as its own card for visibility only.
+    opticalIncome,
     // Advance-adjustment activity that itself couldn't be categorized
     // (e.g. an invoice with no line items) -- tracked separately from
     // unclassifiedIncome/unclassifiedDepts above since it's not part
