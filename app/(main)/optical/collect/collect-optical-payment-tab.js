@@ -132,68 +132,7 @@ export default function CollectOpticalPaymentTab() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: detail ? '1fr 1.3fr' : '1fr', gap: 20 }}>
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-search" style={{ color: 'var(--blue)' }}></i> Find Bill</div>
-        {error && <div className="msg-err">{error}</div>}
-
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          <button className={mode === 'number' ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setMode('number')}>By Bill Number</button>
-          <button className={mode === 'customer' ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setMode('customer')}>By Customer</button>
-        </div>
-
-        {mode === 'number' ? (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="fi" value={billQuery} onChange={(e) => setBillQuery(e.target.value)} placeholder="OPT26-000001" />
-            <button className="btn btn-primary" onClick={handleBillSearch}><i className="ti ti-search"></i></button>
-          </div>
-        ) : (
-          <div>
-            <input className="fi" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} placeholder="Search patient or optical customer..." />
-            {customerResults.length > 0 && (
-              <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
-                {customerResults.map((c) => (
-                  <div key={`${c.type}-${c.id}`} onClick={() => pickCustomer(c)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                    <strong>{c.name}</strong> -- {c.type === 'patient' ? c.uhid : 'Optical Customer'} -- {c.mobile || 'no mobile'}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {saleResults.length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            {saleResults.map((s) => (
-              <div key={s.id} onClick={() => loadSale(s.id)} style={{ padding: '8px 12px', cursor: 'pointer', border: '1px solid var(--g200)', borderRadius: 8, marginBottom: 6, fontSize: 12.5, display: 'flex', justifyContent: 'space-between' }}>
-                <span><strong>{s.sale_number}</strong> -- {s.displayName}</span>
-                <span>{s.status} -- Due {fmt(s.outstanding)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1.5px solid var(--g200)' }}>
-          <div className="card-title" style={{ marginBottom: 8, fontSize: 13 }}><i className="ti ti-list-details" style={{ color: 'var(--purple)' }}></i> Pending Bills</div>
-          {pendingBills.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing outstanding right now.</div>
-          ) : (
-            pendingBills.map((s) => (
-              <div key={s.id} onClick={() => loadSale(s.id)} style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12.5, background: detail?.sale.id === s.id ? 'var(--g50, #f7f8fa)' : 'transparent' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>{s.sale_number}</strong>
-                  <span style={{ color: s.status === 'Partial' ? 'var(--purple)' : 'var(--g500)' }}>{s.status}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--g500)' }}>
-                  <span>{s.displayName}</span>
-                  <span>Due {fmt(s.outstanding)}</span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
+    <div style={{ display: 'grid', gridTemplateColumns: detail ? '1.3fr 1fr' : '1fr', gap: 20 }}>
       {detail && (
         <div className="card">
           <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-receipt" style={{ color: 'var(--blue)' }}></i> {detail.sale.sale_number}</div>
@@ -284,6 +223,67 @@ export default function CollectOpticalPaymentTab() {
           </a>
         </div>
       )}
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-search" style={{ color: 'var(--blue)' }}></i> Find Bill</div>
+        {error && <div className="msg-err">{error}</div>}
+
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <button className={mode === 'number' ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setMode('number')}>By Bill Number</button>
+          <button className={mode === 'customer' ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setMode('customer')}>By Customer</button>
+        </div>
+
+        {mode === 'number' ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="fi" value={billQuery} onChange={(e) => setBillQuery(e.target.value)} placeholder="OPT26-000001" />
+            <button className="btn btn-primary" onClick={handleBillSearch}><i className="ti ti-search"></i></button>
+          </div>
+        ) : (
+          <div>
+            <input className="fi" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} placeholder="Search patient or optical customer..." />
+            {customerResults.length > 0 && (
+              <div style={{ border: '1px solid var(--g200)', borderRadius: 8, marginTop: 8 }}>
+                {customerResults.map((c) => (
+                  <div key={`${c.type}-${c.id}`} onClick={() => pickCustomer(c)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
+                    <strong>{c.name}</strong> -- {c.type === 'patient' ? c.uhid : 'Optical Customer'} -- {c.mobile || 'no mobile'}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {saleResults.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            {saleResults.map((s) => (
+              <div key={s.id} onClick={() => loadSale(s.id)} style={{ padding: '8px 12px', cursor: 'pointer', border: '1px solid var(--g200)', borderRadius: 8, marginBottom: 6, fontSize: 12.5, display: 'flex', justifyContent: 'space-between' }}>
+                <span><strong>{s.sale_number}</strong> -- {s.displayName}</span>
+                <span>{s.status} -- Due {fmt(s.outstanding)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1.5px solid var(--g200)' }}>
+          <div className="card-title" style={{ marginBottom: 8, fontSize: 13 }}><i className="ti ti-list-details" style={{ color: 'var(--purple)' }}></i> Pending Bills</div>
+          {pendingBills.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing outstanding right now.</div>
+          ) : (
+            pendingBills.map((s) => (
+              <div key={s.id} onClick={() => loadSale(s.id)} style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12.5, background: detail?.sale.id === s.id ? 'var(--g50, #f7f8fa)' : 'transparent' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong>{s.sale_number}</strong>
+                  <span style={{ color: s.status === 'Partial' ? 'var(--purple)' : 'var(--g500)' }}>{s.status}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--g500)' }}>
+                  <span>{s.displayName}</span>
+                  <span>Due {fmt(s.outstanding)}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
