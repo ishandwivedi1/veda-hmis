@@ -227,8 +227,9 @@ export default function CollectOpticalPaymentTab() {
                 </div>
               )}
 
-              <label className="flbl">Amount to Collect Now</label>
-              <input className="fi" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              <label className="flbl">Amount to Collect</label>
+              <input className="fi" type="number" value={amount} disabled style={{ background: 'var(--g50, #f7f8fa)', color: 'var(--g600)', fontWeight: 700 }} />
+              <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 4, marginBottom: 4 }}>Locked to the outstanding balance -- split it across modes below.</div>
 
               <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s)</label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
