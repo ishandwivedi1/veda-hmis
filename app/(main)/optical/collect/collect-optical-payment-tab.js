@@ -10,6 +10,7 @@ import {
   getOpticalAdvanceBalance,
   collectOpticalPayment,
   applyOpticalAdvanceAdjustment,
+  getOutstandingOpticalBills,
 } from '../actions';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
@@ -29,6 +30,7 @@ export default function CollectOpticalPaymentTab() {
   const [saleResults, setSaleResults] = useState([]);
 
   const [detail, setDetail] = useState(null); // { sale, items, payments }
+  const [pendingBills, setPendingBills] = useState([]);
   const [advanceBalance, setAdvanceBalance] = useState(0);
   const [amount, setAmount] = useState('');
   const [modeAmounts, setModeAmounts] = useState({ Cash: '' });
@@ -42,7 +44,13 @@ export default function CollectOpticalPaymentTab() {
 
   useEffect(() => {
     if (initialSaleId) loadSale(initialSaleId);
+    refreshPendingBills();
   }, [initialSaleId]);
+
+  async function refreshPendingBills() {
+    const result = await getOutstandingOpticalBills();
+    setPendingBills(result.sales || []);
+  }
 
   useEffect(() => {
     const q = customerQuery.trim();
@@ -103,6 +111,7 @@ export default function CollectOpticalPaymentTab() {
     if (result.error) { setError(result.error); return; }
     setSuccessMsg(`Payment recorded -- receipt ${result.payment.receipt_number}`);
     loadSale(detail.sale.id);
+    refreshPendingBills();
     setReference('');
     setRemarks('');
   }
@@ -119,6 +128,7 @@ export default function CollectOpticalPaymentTab() {
     setSuccessMsg('Advance applied against this bill.');
     setApplyAdvanceAmt('');
     loadSale(detail.sale.id);
+    refreshPendingBills();
   }
 
   return (
@@ -162,6 +172,26 @@ export default function CollectOpticalPaymentTab() {
             ))}
           </div>
         )}
+
+        <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1.5px solid var(--g200)' }}>
+          <div className="card-title" style={{ marginBottom: 8, fontSize: 13 }}><i className="ti ti-list-details" style={{ color: 'var(--purple)' }}></i> Pending Bills</div>
+          {pendingBills.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing outstanding right now.</div>
+          ) : (
+            pendingBills.map((s) => (
+              <div key={s.id} onClick={() => loadSale(s.id)} style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12.5, background: detail?.sale.id === s.id ? 'var(--g50, #f7f8fa)' : 'transparent' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong>{s.sale_number}</strong>
+                  <span style={{ color: s.status === 'Partial' ? 'var(--purple)' : 'var(--g500)' }}>{s.status}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--g500)' }}>
+                  <span>{s.displayName}</span>
+                  <span>Due {fmt(s.outstanding)}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {detail && (

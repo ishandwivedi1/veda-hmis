@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { searchOpticalSaleHistory, getOpticalSaleDetail, cancelOpticalSale } from '../actions';
 
 const STATUSES = ['', 'Pending', 'Partial', 'Paid', 'Cancelled'];
@@ -14,6 +15,7 @@ function fmtDate(d) {
 }
 
 export default function OpticalHistoryTab() {
+  const router = useRouter();
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [status, setStatus] = useState('');
@@ -142,6 +144,11 @@ export default function OpticalHistoryTab() {
             <a href={`/optical-receipt-print/${detail.sale.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
               <i className="ti ti-printer"></i> Print
             </a>
+            {detail.sale.outstanding > 0 && detail.sale.status !== 'Cancelled' && (
+              <button className="btn btn-sm btn-primary" onClick={() => router.push(`/optical/collect?saleId=${detail.sale.id}`)}>
+                <i className="ti ti-cash"></i> Collect Payment
+              </button>
+            )}
             {detail.sale.status === 'Pending' && detail.sale.paid === 0 && !showCancel && (
               <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => setShowCancel(true)}><i className="ti ti-x"></i> Cancel Bill</button>
             )}

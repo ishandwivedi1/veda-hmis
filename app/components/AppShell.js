@@ -23,9 +23,9 @@ const NAV_ITEMS = [
   { href: '/camps', label: 'Camps', icon: 'ti-map-pin', group: 'Outreach' },
   // ── FINANCE ──
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', group: 'Finance' },
-  { href: '/optical/new', label: 'Optical Shop', icon: 'ti-glasses', group: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
   { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
+  { href: '/optical/new', label: 'Optical Shop', icon: 'ti-sunglasses', group: 'Finance' },
   { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', group: 'Finance' },
   { href: '/payments/credit-note', label: 'Credit Note', icon: 'ti-file-minus', group: 'Finance' },
   { href: '/payments/refund', label: 'Refund', icon: 'ti-rotate-clockwise', group: 'Finance' },

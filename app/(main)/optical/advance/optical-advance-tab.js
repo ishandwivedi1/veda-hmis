@@ -6,6 +6,7 @@ import {
   createWalkInOpticalCustomer,
   getOpticalAdvanceBalance,
   collectOpticalAdvance,
+  getRecentOpticalAdvances,
 } from '../actions';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
@@ -31,6 +32,14 @@ export default function OpticalAdvanceTab() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [recentAdvances, setRecentAdvances] = useState([]);
+
+  useEffect(() => { refreshRecentAdvances(); }, []);
+
+  async function refreshRecentAdvances() {
+    const result = await getRecentOpticalAdvances();
+    setRecentAdvances(result.advances || []);
+  }
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -92,6 +101,7 @@ export default function OpticalAdvanceTab() {
     setModeAmounts({ Cash: '' });
     setReference('');
     setRemarks('');
+    refreshRecentAdvances();
   }
 
   return (
@@ -173,13 +183,34 @@ export default function OpticalAdvanceTab() {
         )}
       </div>
 
-      <div className="card">
-        <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-info-circle"></i> How this works</div>
-        <ul style={{ fontSize: 12.5, color: 'var(--g500)', paddingLeft: 18, lineHeight: 1.7 }}>
-          <li>Use this when a customer pays before a bill exists yet -- e.g. a booking advance for made-to-order lenses.</li>
-          <li>The balance is held against this customer and can be applied to any of their bills later, from the Collect Payment tab.</li>
-          <li>A walk-in with a mobile number is matched automatically on future visits -- adding one is strongly recommended so the balance can be found again.</li>
-        </ul>
+      <div>
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-info-circle"></i> How this works</div>
+          <ul style={{ fontSize: 12.5, color: 'var(--g500)', paddingLeft: 18, lineHeight: 1.7 }}>
+            <li>Use this when a customer pays before a bill exists yet -- e.g. a booking advance for made-to-order lenses.</li>
+            <li>The balance is held against this customer and can be applied to any of their bills later, from the Collect Payment tab.</li>
+            <li>A walk-in with a mobile number is matched automatically on future visits -- adding one is strongly recommended so the balance can be found again.</li>
+          </ul>
+        </div>
+
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-list-details" style={{ color: 'var(--purple)' }}></i> Advances Collected</div>
+          {recentAdvances.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--g400)' }}>No advances collected yet.</div>
+          ) : (
+            recentAdvances.map((a) => (
+              <div key={a.id} onClick={() => pick(a.customer)} style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12.5 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong>{a.customer.name}</strong><span>{fmt(a.amount)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--g500)' }}>
+                  <span>{a.receiptNumber}</span>
+                  <span>{new Date(a.collectedAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

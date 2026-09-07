@@ -115,6 +115,41 @@ export async function getOpticalSaleDetail(saleId) {
   return { sale: shapeSale(sale), items: items || [], payments: payments || [] };
 }
 
+// Browsable default list for the Collect Payment tab's sidebar -- every
+// bill still owed money, newest first, so staff can pick one without
+// needing to search by number or customer first.
+export async function getOutstandingOpticalBills() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('optical_sales').select(SALE_SELECT)
+    .in('status', ['Pending', 'Partial']).order('created_at', { ascending: false }).limit(100);
+  if (error) return { error: error.message, sales: [] };
+  return { sales: (data || []).map(shapeSale) };
+}
+
+// Browsable list for the Advance tab's sidebar -- recent advances
+// collected (not sale payments or adjustments), newest first, so staff
+// can see what's been collected and jump straight to a customer.
+export async function getRecentOpticalAdvances() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('optical_payments')
+    .select('id, receipt_number, total_amount, collected_at, patient_id, optical_customer_id, patients(id, uhid, salutation, first_name, last_name, mobile), optical_customers(id, name, mobile)')
+    .eq('payment_type', 'advance')
+    .order('collected_at', { ascending: false })
+    .limit(50);
+  if (error) return { error: error.message, advances: [] };
+  const advances = (data || []).map((p) => ({
+    id: p.id,
+    receiptNumber: p.receipt_number,
+    amount: p.total_amount,
+    collectedAt: p.collected_at,
+    customer: p.patients
+      ? { type: 'patient', id: p.patients.id, name: formatPatientName(p.patients), uhid: p.patients.uhid, mobile: p.patients.mobile }
+      : { type: 'optical_customer', id: p.optical_customers.id, name: p.optical_customers.name, mobile: p.optical_customers.mobile },
+  }));
+  return { advances };
+}
+
 export async function getOpticalSalesForDate(date) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
