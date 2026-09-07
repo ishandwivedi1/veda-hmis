@@ -331,12 +331,25 @@ export async function getRevenueByDepartmentToday() {
   const supabase = await createClient();
   const { startUTC, endUTC } = istDayBoundsUTC();
 
-  const { data: payments } = await supabase
-    .from('payments')
-    .select('id, payment_type, total_amount')
-    .gte('collected_at', startUTC)
-    .lte('collected_at', endUTC)
-    .in('payment_type', ['invoice_payment', 'advance', 'refund']);
+  const [{ data: payments }, { data: opticalPayments }] = await Promise.all([
+    supabase
+      .from('payments')
+      .select('id, payment_type, total_amount')
+      .gte('collected_at', startUTC)
+      .lte('collected_at', endUTC)
+      .in('payment_type', ['invoice_payment', 'advance', 'refund']),
+    // Optical sales/advances are real cash collected today too, just
+    // via a separate table (see app/(main)/optical) since walk-in
+    // customers often have no patient record. advance_adjustment is
+    // excluded -- that's an existing balance being applied, not new
+    // cash arriving today.
+    supabase
+      .from('optical_payments')
+      .select('total_amount')
+      .gte('collected_at', startUTC)
+      .lte('collected_at', endUTC)
+      .in('payment_type', ['sale_payment', 'advance']),
+  ]);
 
   const invoicePaymentIds = (payments || []).filter((p) => p.payment_type === 'invoice_payment').map((p) => p.id);
   const refundIds = (payments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
@@ -385,6 +398,10 @@ export async function getRevenueByDepartmentToday() {
     byDept[dept] = (byDept[dept] || 0) - Number(p.total_amount);
   });
 
+  (opticalPayments || []).forEach((p) => {
+    byDept.Optical = (byDept.Optical || 0) + Number(p.total_amount);
+  });
+
   return byDept;
 }
 
@@ -392,14 +409,43 @@ export async function getTodayCollectionSummary(date) {
   const supabase = await createClient();
   const { startUTC, endUTC } = istDayBoundsUTC(date);
 
-  const { data: payments } = await supabase
-    .from('payments')
-    .select('*, payment_modes(mode, amount), patients(first_name, salutation, last_name)')
-    .gte('collected_at', startUTC)
-    .lte('collected_at', endUTC)
-    .order('collected_at', { ascending: false });
+  const [{ data: payments }, { data: opticalPayments }] = await Promise.all([
+    supabase
+      .from('payments')
+      .select('*, payment_modes(mode, amount), patients(first_name, salutation, last_name)')
+      .gte('collected_at', startUTC)
+      .lte('collected_at', endUTC)
+      .order('collected_at', { ascending: false }),
+    // Optical sales/advances are real cash collected today too, via a
+    // separate table (see app/(main)/optical) since walk-in customers
+    // often have no patient record. Folded in here -- not just
+    // displayed alongside -- so Total Collected/Cash/UPI/Card, the
+    // department breakdown, the transactions list, and (via byMode)
+    // the Close Day reconciliation's expected-cash figure all reflect
+    // it consistently, rather than the drawer count including optical
+    // cash while "expected" silently didn't.
+    supabase
+      .from('optical_payments')
+      .select('id, receipt_number, payment_type, total_amount, collected_at, optical_payment_modes(mode, amount), patients(first_name, salutation, last_name), optical_customers(name)')
+      .gte('collected_at', startUTC)
+      .lte('collected_at', endUTC)
+      .order('collected_at', { ascending: false }),
+  ]);
 
-  const rows = payments || [];
+  const opticalRows = (opticalPayments || []).map((p) => ({
+    id: `optical-${p.id}`,
+    source: 'optical',
+    receipt_number: p.receipt_number,
+    payment_type: p.payment_type,
+    total_amount: p.total_amount,
+    collected_at: p.collected_at,
+    payment_modes: p.optical_payment_modes,
+    patients: p.patients,
+    opticalCustomerName: p.optical_customers?.name,
+  }));
+
+  const rows = [...(payments || []), ...opticalRows].sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
+
   const isRefund = (p) => p.payment_type === 'refund';
   // advance_adjustment and credit_note both insert a payments row dated
   // today (when the reallocation happens), but no cash actually moves
@@ -407,8 +453,9 @@ export async function getTodayCollectionSummary(date) {
   // received at all (credit note, a write-off). Including them here is
   // exactly how an advance collected on a previous date ends up looking
   // like fresh cash in today's total. byMode is unaffected already,
-  // since neither type ever gets a payment_modes row.
-  const isCashMovement = (p) => ['invoice_payment', 'advance', 'refund'].includes(p.payment_type);
+  // since neither type ever gets a payment_modes row. sale_payment is
+  // optical's equivalent of invoice_payment -- real cash, counted.
+  const isCashMovement = (p) => ['invoice_payment', 'advance', 'refund', 'sale_payment'].includes(p.payment_type);
 
   const byMode = {};
   rows.forEach((p) => {

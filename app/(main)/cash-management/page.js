@@ -18,7 +18,6 @@ import {
   getExpenseCategoriesActive,
   getExpensesForDate,
   getPettyCashTotal,
-  getOpticalIncomeForDate,
   addExpense,
   deleteExpense,
 } from './actions';
@@ -91,7 +90,6 @@ export default function CashManagementPage() {
   const [activeTab, setActiveTab] = useState('summary');
   const [summary, setSummary] = useState({ transactions: [], byMode: {}, total: 0, count: 0 });
   const [revenueByDept, setRevenueByDept] = useState({});
-  const [opticalToday, setOpticalToday] = useState({ byMode: {}, total: 0 });
   const [reconRows, setReconRows] = useState([]);
   const [readiness, setReadiness] = useState(null);
   const [history, setHistory] = useState([]);
@@ -202,7 +200,7 @@ export default function CashManagementPage() {
     // does, so there's no reason to make them wait behind it.
     const [
       summaryData, revenueByDeptData, historyData,
-      openingData, openQueueData, unclosedPastDaysData, opticalTodayData,
+      openingData, openQueueData, unclosedPastDaysData,
     ] = await Promise.all([
       getTodayCollectionSummary(),
       getRevenueByDepartmentToday(),
@@ -210,7 +208,6 @@ export default function CashManagementPage() {
       getDayOpening(),
       getOpenQueueEntriesToday(),
       getUnclosedPastDays(),
-      getOpticalIncomeForDate(),
     ]);
     const readinessData = await getCloseDayReadiness(undefined, summaryData);
     // readiness.alreadyClosed is the same day_closings check
@@ -218,7 +215,6 @@ export default function CashManagementPage() {
     const isClosed = readinessData.alreadyClosed;
     setSummary(summaryData);
     setRevenueByDept(revenueByDeptData);
-    setOpticalToday(opticalTodayData);
     setReadiness(readinessData);
     setReconRows(readinessData.reconciliation); // already computed inside getCloseDayReadiness -- no need to fetch again
     setHistory(historyData);
@@ -473,31 +469,6 @@ export default function CashManagementPage() {
             })}
           </div>
 
-          {/* Separate from Collections by Department above -- Optical
-              Shop sales don't flow through invoices/payments (see
-              getOpticalIncomeForDate), so they'd never show up in that
-              department breakdown otherwise. Shown here so today's
-              optical cash is visible without waiting for the day to be
-              closed and the full Daily Report to become available. */}
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-sunglasses" style={{ color: 'var(--blue)' }}></i> Optical Shop Sales -- Today</div>
-            <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 8 }}>Not included in Total Collected above -- tracked separately (see Optical Shop module).</div>
-            {Object.keys(opticalToday.byMode).length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--g400)' }}>No optical sales collected yet today.</div>
-            ) : (
-              <>
-                {Object.entries(opticalToday.byMode).map(([mode, amt]) => (
-                  <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '3px 0' }}>
-                    <span>{mode}</span><span>{fmt(amt)}</span>
-                  </div>
-                ))}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700, padding: '6px 0 0', marginTop: 4, borderTop: '1px solid var(--g100)' }}>
-                  <span>Total</span><span style={{ color: 'var(--blue)' }}>{fmt(opticalToday.total)}</span>
-                </div>
-              </>
-            )}
-          </div>
-
           <div className="card">
             <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-receipt" style={{ color: 'var(--green)' }}></i> Transactions Today</div>
             <table className="tbl">
@@ -505,11 +476,15 @@ export default function CashManagementPage() {
               <tbody>
                 {summary.transactions.map((p) => {
                   const isNonCash = p.payment_type === 'advance_adjustment' || p.payment_type === 'credit_note';
+                  const displayName = p.patients ? formatPatientName(p.patients) : (p.opticalCustomerName || '--');
                   return (
                     <tr key={p.id} style={isNonCash ? { opacity: 0.65 } : undefined}>
-                      <td style={{ fontFamily: 'monospace' }}>{p.receipt_number}</td>
+                      <td style={{ fontFamily: 'monospace' }}>
+                        {p.receipt_number}
+                        {p.source === 'optical' && <span className="badge b-blue" style={{ fontSize: 9, marginLeft: 4 }}>Optical</span>}
+                      </td>
                       <td>{new Date(p.collected_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</td>
-                      <td>{formatPatientName(p.patients)}</td>
+                      <td>{displayName}</td>
                       <td>
                         {(p.payment_modes || []).map((m) => m.mode).join('+')}
                         {isNonCash && <span className="badge b-gray" style={{ fontSize: 9, marginLeft: 4 }}>{p.payment_type === 'credit_note' ? 'Credit note -- no cash' : 'Adjustment -- no new cash'}</span>}
