@@ -9,6 +9,8 @@ const TABS = [
   { href: '/optical/new', label: 'New Bill', icon: 'ti-file-plus' },
   { href: '/optical/collect', label: 'Collect Payment', icon: 'ti-cash' },
   { href: '/optical/advance', label: 'Advance', icon: 'ti-piggy-bank' },
+  { href: '/optical/credit-note', label: 'Credit Note', icon: 'ti-file-minus' },
+  { href: '/optical/refund', label: 'Refund', icon: 'ti-receipt-refund' },
   { href: '/optical/history', label: 'History', icon: 'ti-history' },
 ];
 

@@ -149,6 +149,16 @@ export default function OpticalHistoryTab() {
                 <i className="ti ti-cash"></i> Collect Payment
               </button>
             )}
+            {detail.sale.outstanding > 0 && detail.sale.status !== 'Cancelled' && (
+              <button className="btn btn-sm" onClick={() => router.push(`/optical/credit-note?saleId=${detail.sale.id}`)}>
+                <i className="ti ti-file-minus"></i> Credit Note
+              </button>
+            )}
+            {detail.sale.paid > 0 && (
+              <button className="btn btn-sm" onClick={() => router.push('/optical/refund')}>
+                <i className="ti ti-receipt-refund"></i> Refund
+              </button>
+            )}
             {detail.sale.status === 'Pending' && detail.sale.paid === 0 && !showCancel && (
               <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => setShowCancel(true)}><i className="ti ti-x"></i> Cancel Bill</button>
             )}

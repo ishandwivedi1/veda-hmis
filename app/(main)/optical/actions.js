@@ -4,8 +4,9 @@ import { createClient } from '@/lib/supabase-server';
 import { formatPatientName } from '@/lib/patientName';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { searchPatientsForInvoice } from '@/app/(main)/billing/actions';
+import { getApprovers } from '@/app/(main)/payments/actions';
 
-export { searchPatientsForInvoice };
+export { searchPatientsForInvoice, getApprovers };
 
 function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -250,4 +251,107 @@ export async function cancelOpticalSale(saleId, reason) {
   const { data, error } = await supabase.rpc('cancel_optical_sale', { p_sale_id: saleId, p_reason: reason.trim() });
   if (error) return { error: error.message };
   return { success: true, sale: data };
+}
+
+// ---------- Credit Note ----------
+// Writes off part or all of a bill's OUTSTANDING balance -- no cash
+// moves. Use when a bill's remaining balance is being waived, not when
+// money already collected needs to go back (that's a Refund).
+
+export async function createOpticalCreditNote({ saleId, amount, reason, approvedBy, remarks }) {
+  const amt = Number(amount);
+  if (!amt || amt <= 0) return { error: 'Enter a valid credit amount.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required.' };
+  if (!approvedBy) return { error: 'Select an approver.' };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('create_optical_credit_note', {
+    p_sale_id: saleId, p_amount: amt, p_reason: reason.trim(), p_approved_by: approvedBy, p_remarks: remarks || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true, creditNote: data };
+}
+
+export async function getOpticalCreditNoteRegister() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('optical_credit_notes')
+    .select('*, optical_sales(sale_number), patients(salutation, first_name, last_name), optical_customers(name), profiles!optical_credit_notes_approved_by_fkey(full_name)')
+    .order('created_at', { ascending: false })
+    .limit(50);
+  return (data || []).map((cn) => ({ ...cn, customerName: cn.patients ? formatPatientName(cn.patients) : cn.optical_customers?.name }));
+}
+
+// ---------- Refund ----------
+// Cash actually goes back to the customer -- either from an unused
+// advance balance, or against a specific bill payment already
+// collected. Both require the cash day to be open (real cash moves).
+
+export async function getOpticalPaymentsForCustomer({ patientId, opticalCustomerId }) {
+  const supabase = await createClient();
+  let q = supabase
+    .from('optical_payments')
+    .select('id, total_amount, collected_at, sale_id, optical_sales(sale_number)')
+    .eq('payment_type', 'sale_payment')
+    .order('collected_at', { ascending: false });
+  if (patientId) q = q.eq('patient_id', patientId);
+  else if (opticalCustomerId) q = q.eq('optical_customer_id', opticalCustomerId);
+  else return [];
+  const { data: payments } = await q;
+  const rows = payments || [];
+  if (rows.length === 0) return [];
+
+  const { data: refunds } = await supabase
+    .from('optical_payment_refunds')
+    .select('payment_id, amount')
+    .in('payment_id', rows.map((p) => p.id));
+  const refundedByPayment = {};
+  (refunds || []).forEach((r) => { refundedByPayment[r.payment_id] = (refundedByPayment[r.payment_id] || 0) + Number(r.amount); });
+
+  return rows.map((p) => {
+    const alreadyRefunded = refundedByPayment[p.id] || 0;
+    return { ...p, alreadyRefunded, refundable: Number(p.total_amount) - alreadyRefunded };
+  });
+}
+
+export async function refundOpticalAdvance({ patientId, opticalCustomerId, amount, reason, refundMode, approvedBy }) {
+  const dayOpenError = await requireDayOpen();
+  if (dayOpenError) return dayOpenError;
+
+  const amt = Number(amount);
+  if (!amt || amt <= 0) return { error: 'Enter a valid amount.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required.' };
+  if (!approvedBy) return { error: 'Select an approver.' };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('refund_optical_advance', {
+    p_patient_id: patientId || null, p_optical_customer_id: opticalCustomerId || null,
+    p_amount: amt, p_reason: reason.trim(), p_refund_mode: refundMode || null, p_approved_by: approvedBy,
+  });
+  if (error) return { error: error.message };
+  return { success: true, refund: data };
+}
+
+export async function refundOpticalPayment({ paymentId, amount, reason, refundMode, approvedBy }) {
+  const dayOpenError = await requireDayOpen();
+  if (dayOpenError) return dayOpenError;
+
+  const amt = Number(amount);
+  if (!amt || amt <= 0) return { error: 'Enter a valid amount.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required.' };
+  if (!approvedBy) return { error: 'Select an approver.' };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('refund_optical_payment', {
+    p_payment_id: paymentId, p_amount: amt, p_reason: reason.trim(), p_refund_mode: refundMode || null, p_approved_by: approvedBy,
+  });
+  if (error) return { error: error.message };
+  return { success: true, refund: data };
+}
+
+export async function getOpticalRefundRegister() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('optical_payment_refunds')
+    .select('*, optical_sales(sale_number), patients(salutation, first_name, last_name), optical_customers(name), profiles!optical_payment_refunds_approved_by_fkey(full_name)')
+    .order('refunded_at', { ascending: false })
+    .limit(50);
+  return (data || []).map((r) => ({ ...r, customerName: r.patients ? formatPatientName(r.patients) : r.optical_customers?.name }));
 }

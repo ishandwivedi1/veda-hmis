@@ -338,17 +338,18 @@ export async function getRevenueByDepartmentToday() {
       .gte('collected_at', startUTC)
       .lte('collected_at', endUTC)
       .in('payment_type', ['invoice_payment', 'advance', 'refund']),
-    // Optical sales/advances are real cash collected today too, just
-    // via a separate table (see app/(main)/optical) since walk-in
-    // customers often have no patient record. advance_adjustment is
-    // excluded -- that's an existing balance being applied, not new
-    // cash arriving today.
+    // Optical sales/advances are real cash collected today too, via a
+    // separate table (see app/(main)/optical) since walk-in customers
+    // often have no patient record. advance_adjustment is excluded --
+    // that's an existing balance being applied, not new cash arriving
+    // today. Refunds subtract from the same Optical bucket, same as
+    // how a hospital refund subtracts from its own department.
     supabase
       .from('optical_payments')
-      .select('total_amount')
+      .select('total_amount, payment_type')
       .gte('collected_at', startUTC)
       .lte('collected_at', endUTC)
-      .in('payment_type', ['sale_payment', 'advance']),
+      .in('payment_type', ['sale_payment', 'advance', 'refund']),
   ]);
 
   const invoicePaymentIds = (payments || []).filter((p) => p.payment_type === 'invoice_payment').map((p) => p.id);
@@ -399,7 +400,7 @@ export async function getRevenueByDepartmentToday() {
   });
 
   (opticalPayments || []).forEach((p) => {
-    byDept.Optical = (byDept.Optical || 0) + Number(p.total_amount);
+    byDept.Optical = (byDept.Optical || 0) + (p.payment_type === 'refund' ? -Number(p.total_amount) : Number(p.total_amount));
   });
 
   return byDept;
