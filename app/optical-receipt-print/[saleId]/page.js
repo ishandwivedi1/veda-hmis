@@ -27,24 +27,26 @@ export default async function OpticalReceiptPrintPage({ params }) {
         <PrintButton />
       </div>
       <div style={{ maxWidth: 650, margin: '0 auto', padding: 24, fontFamily: 'Arial, Helvetica, sans-serif', color: '#1a1a1a', fontSize: 13 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6 }}>
-          <tbody>
-            <tr>
-              <td style={{ width: 100, verticalAlign: 'top' }}>
-                {settings.logo_data_url && <img src={settings.logo_data_url} alt="" style={{ width: 88, height: 88, objectFit: 'contain' }} />}
-              </td>
-              <td style={{ verticalAlign: 'top' }}>
-                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '.3px', textDecoration: 'underline' }}>Veda Opticals</div>
-              </td>
-              <td style={{ textAlign: 'right', verticalAlign: 'top', fontSize: 10.5, lineHeight: 1.5 }}>
-                {settings.address_line1}<br />
-                {settings.address_line2}<br />
-                {settings.city_state_pin}<br />
-                {settings.phone && <>Tel: {settings.phone}</>}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {settings.logo_data_url && (
+              <div style={{ width: 62, height: 62, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img src={settings.logo_data_url} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+              </div>
+            )}
+            <div>
+              <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 30, fontWeight: 800, letterSpacing: '.5px', color: '#1a2b4a', lineHeight: 1 }}>Veda Opticals</div>
+              <div style={{ width: 46, height: 2.5, background: '#c9a24b', marginTop: 6 }} />
+            </div>
+          </div>
+          <div style={{ textAlign: 'right', fontSize: 10.5, lineHeight: 1.5, flexShrink: 0 }}>
+            {settings.address_line1}<br />
+            {settings.address_line2}<br />
+            {settings.city_state_pin}<br />
+            {settings.phone && <>Tel: {settings.phone}</>}
+          </div>
+        </div>
 
         <div style={{ textAlign: 'center', fontSize: 16, fontWeight: 700, borderTop: '1.5px solid #333', borderBottom: '1.5px solid #333', padding: '8px 0', margin: '10px 0 16px' }}>
           OPTICAL SHOP BILL
