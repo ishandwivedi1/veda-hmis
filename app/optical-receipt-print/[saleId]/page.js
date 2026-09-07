@@ -35,8 +35,6 @@ export default async function OpticalReceiptPrintPage({ params }) {
               </td>
               <td style={{ verticalAlign: 'top' }}>
                 <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '.3px', textDecoration: 'underline' }}>Veda Opticals</div>
-                <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}>{settings.unit_line || ''}</div>
-                {settings.regn_no && <div style={{ fontSize: 10, fontWeight: 700 }}>REGN NO : {settings.regn_no}</div>}
               </td>
               <td style={{ textAlign: 'right', verticalAlign: 'top', fontSize: 10.5, lineHeight: 1.5 }}>
                 {settings.address_line1}<br />
@@ -155,7 +153,17 @@ export default async function OpticalReceiptPrintPage({ params }) {
           </div>
         )}
 
-        <table style={{ width: '100%', marginTop: 50 }}>
+        <div style={{ marginTop: 20, paddingTop: 10, borderTop: '1px dashed #ccc' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.3px', color: '#555', marginBottom: 4 }}>Terms &amp; Conditions</div>
+          <ol style={{ fontSize: 9.5, color: '#555', lineHeight: 1.6, margin: 0, paddingLeft: 16 }}>
+            <li>Goods once sold will not be taken back or refunded; exchange only within 7 days with this original bill and in unused, original condition.</li>
+            <li>Frames and lenses carry the manufacturer&apos;s warranty only, where applicable -- no warranty against physical damage, scratches, or misuse.</li>
+            <li>Please verify power, fitting, and frame details at the time of delivery. No claims will be entertained once the eyewear has been used.</li>
+            <li>This bill must be produced for any exchange, warranty, or service claim.</li>
+          </ol>
+        </div>
+
+        <table style={{ width: '100%', marginTop: 30 }}>
           <tbody>
             <tr>
               <td style={{ fontSize: 12 }}>&nbsp;</td>
