@@ -219,7 +219,7 @@ export async function getPettyCashTotal(date) {
 }
 
 // Optical Shop sales/payments are recorded in their own tables (see
-// app/(main)/billing/optical), not through invoices/payments -- walk-in
+// app/(main)/optical), not through invoices/payments -- walk-in
 // optical customers frequently have no patient record at all, so they
 // can't flow through the invoice pipeline the way Consultation/Pharmacy/
 // Surgery revenue does. This reads actual money collected that day --

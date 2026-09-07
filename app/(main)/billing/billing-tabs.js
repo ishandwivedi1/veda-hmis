@@ -10,7 +10,6 @@ const TABS = [
   { href: '/billing/new', label: 'New Invoice', icon: 'ti-file-plus' },
   { href: '/billing/details', label: 'Invoice Details', icon: 'ti-search' },
   { href: '/billing/cancel', label: 'Invoice Modification', icon: 'ti-edit' },
-  { href: '/billing/optical', label: 'Optical Shop', icon: 'ti-glasses' },
   { href: '/billing/reports', label: 'Reports', icon: 'ti-file-report' },
 ];
 
@@ -31,7 +30,7 @@ export default function BillingTabs() {
     <>
       {!dayOpen && (
         <div className="msg-err" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <span><i className="ti ti-lock"></i> Today's cash day hasn't been opened -- Package Billing advance collection and Optical Shop sales will be blocked until it is. Plain invoicing without an advance still works.</span>
+          <span><i className="ti ti-lock"></i> Today's cash day hasn't been opened -- Package Billing advance collection will be blocked until it is. Plain invoicing without an advance still works.</span>
           <Link href="/cash-management" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>Open Day in Cash Management</Link>
         </div>
       )}

@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { href: '/camps', label: 'Camps', icon: 'ti-map-pin', group: 'Outreach' },
   // ── FINANCE ──
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', group: 'Finance' },
+  { href: '/optical/new', label: 'Optical Shop', icon: 'ti-glasses', group: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
   { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
   { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', group: 'Finance' },
@@ -80,6 +81,7 @@ const PAGE_TITLES = [
   { match: /^\/consultation/, title: 'Doctor Consultation' },
   { match: /^\/investigation/, title: 'Investigation' },
   { match: /^\/billing/, title: 'Billing' },
+  { match: /^\/optical/, title: 'Optical Shop' },
   { match: /^\/payments/, title: 'Payments' },
   { match: /^\/cash-management/, title: 'Daily Cash Management' },
   { match: /^\/pharmacy/, title: 'Pharmacy' },

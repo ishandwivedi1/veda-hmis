@@ -1,4 +1,4 @@
-import { getOpticalSaleDetail } from '@/app/(main)/billing/optical/actions';
+import { getOpticalSaleDetail } from '@/app/(main)/optical/actions';
 import { getHospitalSettings } from '@/app/print-templates/actions';
 import PrintButton from '../../invoice-print/[invoiceId]/print-button';
 
