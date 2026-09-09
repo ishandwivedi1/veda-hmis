@@ -61,7 +61,7 @@ export default function OpticalHistoryTab() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: detail ? '1.3fr 1fr' : '1fr', gap: 20 }}>
       <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-history" style={{ color: 'var(--blue)' }}></i> Optical Sales History</div>
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-history" style={{ color: 'var(--blue)' }}></i> Bills History</div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           <input className="fi" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ flex: 1 }} />

@@ -102,7 +102,7 @@ export default function OpticalPaymentsTab() {
 
   return (
     <div className="card">
-      <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-list-details" style={{ color: 'var(--blue)' }}></i> Payments</div>
+      <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-list-details" style={{ color: 'var(--blue)' }}></i> Optical Payments</div>
       {error && <div className="msg-err">{error}</div>}
       {successMsg && <div className="msg-info" style={{ background: 'var(--green-lt, #e3f5ec)', color: 'var(--green, #157a4f)', padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10 }}>{successMsg}</div>}
 
