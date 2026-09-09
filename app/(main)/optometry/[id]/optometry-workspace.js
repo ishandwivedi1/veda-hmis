@@ -972,11 +972,11 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                 <tr>
                   <th></th>
                   {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h) => (
-                    <th key={`re-${h}`} style={{ width: h === 'VA' ? (refTab === 'final' ? '6%' : '8%') : (refTab === 'final' ? '11%' : '14%'), padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
+                    <th key={`re-${h}`} style={{ width: h === 'VA' ? (refTab === 'final' ? '10%' : '8%') : (refTab === 'final' ? '10%' : '14%'), padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
                   ))}
                   <th style={{ width: 6, background: 'var(--g100)', padding: 0 }}></th>
                   {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h) => (
-                    <th key={`le-${h}`} style={{ width: h === 'VA' ? (refTab === 'final' ? '6%' : '8%') : (refTab === 'final' ? '11%' : '14%'), padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700 }}>{h}</th>
+                    <th key={`le-${h}`} style={{ width: h === 'VA' ? (refTab === 'final' ? '10%' : '8%') : (refTab === 'final' ? '10%' : '14%'), padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
