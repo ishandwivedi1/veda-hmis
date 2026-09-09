@@ -300,6 +300,48 @@ export async function deleteClinicalObservation(id, code) {
   return deleteMasterRecord(supabase, 'master_clinical_observations', id, code);
 }
 
+// ── PATIENT INSTRUCTION TEMPLATES (Clinical Master -- quick-pick
+// buttons in the doctor's Consultation > Patient Instructions box.
+// Each has a short button label and the full pre-typed text it fills
+// in, which the doctor can still edit before saving. ──
+export async function getPatientInstructionTemplates() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_patient_instructions').select('*').order('label');
+  return data || [];
+}
+export async function getActivePatientInstructionTemplates() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_patient_instructions').select('*').eq('status', 'Active').order('label');
+  return data || [];
+}
+export async function addPatientInstructionTemplate(values) {
+  const supabase = await createClient();
+  const label = normalizeName(values.label);
+  const body = (values.body || '').trim();
+  if (!body) return { error: 'Instruction text is required.' };
+  const code = await generateCategoryCode(supabase, 'master_patient_instructions', 'PIT');
+  const { error } = await supabase.from('master_patient_instructions').insert({ code, label, body, status: 'Active' });
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_patient_instructions', code, 'Create', `${label} created`);
+  return { success: true };
+}
+export async function updatePatientInstructionTemplate(id, oldValues, values) {
+  const supabase = await createClient();
+  const label = normalizeName(values.label);
+  const body = (values.body || '').trim();
+  if (!body) return { error: 'Instruction text is required.' };
+  const { error } = await supabase.from('master_patient_instructions').update({ label, body }).eq('id', id);
+  if (error) return { error: error.message };
+  if (oldValues.label !== label || oldValues.body !== body) {
+    await logMasterAudit(supabase, 'master_patient_instructions', oldValues.code, 'Edit', `${oldValues.label} updated`);
+  }
+  return { success: true };
+}
+export async function deletePatientInstructionTemplate(id, code) {
+  const supabase = await createClient();
+  return deleteMasterRecord(supabase, 'master_patient_instructions', id, code);
+}
+
 // ── HISTORY OPTIONS (Clinical Master -- chip options in the doctor's
 // Consultation History tab: Chief Complaint, Ocular/Medical/Family
 // History). Four categories in one table; code is unique per category

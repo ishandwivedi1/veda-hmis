@@ -37,7 +37,7 @@ import {
 import { openPopup } from '@/lib/popup';
 import { markForSurgery, markSameDaySurgicalEval, updateSurgicalCase, setDecision, addCaseProcedure, removeCaseProcedure } from '@/app/(main)/counselling/actions';
 import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
-import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries } from '@/app/(main)/master-data/actions';
+import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries, getActivePatientInstructionTemplates } from '@/app/(main)/master-data/actions';
 import ExaminationTab from './examination-tab';
 import OptometryWorkspace from '@/app/(main)/optometry/[id]/optometry-workspace';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
@@ -261,13 +261,15 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [investigationOptions, setInvestigationOptions] = useState([]);
   const [procedureOptions, setProcedureOptions] = useState([]);
   const [surgeryOptions, setSurgeryOptions] = useState([]);
+  const [instructionTemplates, setInstructionTemplates] = useState([]);
 
   useEffect(() => {
     (async () => {
-      const [dx, dr, sv, sg, dg] = await Promise.all([getDiagnosesMaster(), getDrugs(), getServices(), getSurgeries(), getDosageOptions()]);
+      const [dx, dr, sv, sg, dg, pit] = await Promise.all([getDiagnosesMaster(), getDrugs(), getServices(), getSurgeries(), getDosageOptions(), getActivePatientInstructionTemplates()]);
       setDiagnosisOptions(dx.filter((d) => d.status === 'Active'));
       setDrugOptions(dr.filter((d) => d.status === 'Active'));
       setDosageOptions(dg);
+      setInstructionTemplates(pit);
       // Biometry stays in Financial Masters for billing purposes only --
       // excluded here since clinical biometry has its own dedicated
       // workflow, now triggered from Counselling (M22) rather than here.
@@ -1477,6 +1479,21 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-notes" style={{ color: 'var(--g400)' }}></i> Patient Instructions</div>
+                {instructionTemplates.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                    {instructionTemplates.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        className="btn btn-sm"
+                        title={t.body}
+                        onClick={() => setPatientInstructions((prev) => (prev && prev.trim() ? `${prev}\n\n${t.body}` : t.body))}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <textarea className="fi fi-sm" rows={2} value={patientInstructions} onChange={(e) => setPatientInstructions(e.target.value)} placeholder="Instructions, precautions, diet, activity restrictions..." style={{ marginBottom: 8 }} />
                 <button className="btn btn-sm" onClick={handleSaveInstructions}>Save</button>
                 {instructionsSaved && <span style={{ fontSize: 11, color: 'var(--green)', marginLeft: 8 }}><i className="ti ti-check"></i> Saved</span>}

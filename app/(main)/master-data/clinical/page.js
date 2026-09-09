@@ -8,6 +8,7 @@ import {
   getSurgeries, addSurgery, updateSurgery, deleteSurgery,
   getIopMethods, addIopMethod, updateIopMethod, deleteIopMethod,
   getClinicalObservations, addClinicalObservation, updateClinicalObservation, deleteClinicalObservation,
+  getPatientInstructionTemplates, addPatientInstructionTemplate, updatePatientInstructionTemplate, deletePatientInstructionTemplate,
   getHistoryOptions, addHistoryOption, updateHistoryOption, deleteHistoryOption,
   getIolCatalog, addIolCatalogItem, updateIolCatalogItem, deleteIolCatalogItem,
   getSurgicalConsumablesMaster, addSurgicalConsumable, updateSurgicalConsumable, deleteSurgicalConsumable,
@@ -19,6 +20,7 @@ const TABS = [
   { key: 'diagnoses', label: 'Diagnoses' },
   { key: 'iopMethods', label: 'IOP Methods' },
   { key: 'observations', label: 'Clinical Observations' },
+  { key: 'patientInstructions', label: 'Patient Instructions' },
   { key: 'historyOptions', label: 'Patient History' },
   { key: 'iolCatalog', label: 'IOL Catalog' },
   { key: 'surgicalConsumables', label: 'Surgical Consumables' },
@@ -63,6 +65,7 @@ export default function ClinicalMastersPage() {
   const [surgeries, setSurgeries] = useState([]);
   const [iopMethods, setIopMethods] = useState([]);
   const [observations, setObservations] = useState([]);
+  const [patientInstructions, setPatientInstructions] = useState([]);
   const [historyOptions, setHistoryOptions] = useState([]);
   const [iolCatalog, setIolCatalog] = useState([]);
   const [surgicalConsumables, setSurgicalConsumables] = useState([]);
@@ -79,6 +82,7 @@ export default function ClinicalMastersPage() {
     setSurgeries(await getSurgeries());
     setIopMethods(await getIopMethods());
     setObservations(await getClinicalObservations());
+    setPatientInstructions(await getPatientInstructionTemplates());
     setHistoryOptions(await getHistoryOptions());
     setIolCatalog(await getIolCatalog());
     setSurgicalConsumables(await getSurgicalConsumablesMaster());
@@ -103,11 +107,14 @@ export default function ClinicalMastersPage() {
     if ((activeTab === 'surgeries' || activeTab === 'diagnoses') && !form.category) { setError('Category is required.'); return; }
     if (activeTab === 'iolCatalog') {
       if (!form.brand || !form.model || !form.category) { setError('Brand, model, and category are required.'); return; }
+    } else if (activeTab === 'patientInstructions') {
+      if (!form.label || !form.body) { setError('Both label and instruction text are required.'); return; }
     } else if (!form.name) { setError('Name is required.'); return; }
     let result;
     if (activeTab === 'surgeries') result = await addSurgery(form);
     else if (activeTab === 'iopMethods') result = await addIopMethod(form);
     else if (activeTab === 'observations') result = await addClinicalObservation(form);
+    else if (activeTab === 'patientInstructions') result = await addPatientInstructionTemplate(form);
     else if (activeTab === 'historyOptions') result = await addHistoryOption(form);
     else if (activeTab === 'iolCatalog') result = await addIolCatalogItem(form);
     else if (activeTab === 'surgicalConsumables') result = await addSurgicalConsumable(form);
@@ -123,6 +130,7 @@ export default function ClinicalMastersPage() {
     setEditingId(record.id);
     if (activeTab === 'surgeries' || activeTab === 'diagnoses') setEditForm({ name: record.name, category: record.category });
     else if (activeTab === 'iolCatalog') setEditForm({ brand: record.brand, model: record.model, category: record.category, origin: record.origin || '', price: record.price ?? '' });
+    else if (activeTab === 'patientInstructions') setEditForm({ label: record.label, body: record.body });
     else setEditForm({ name: record.name });
   }
   function cancelEdit() {
@@ -135,6 +143,7 @@ export default function ClinicalMastersPage() {
     if (activeTab === 'surgeries') result = await updateSurgery(record.id, record, editForm);
     else if (activeTab === 'iopMethods') result = await updateIopMethod(record.id, record, editForm);
     else if (activeTab === 'observations') result = await updateClinicalObservation(record.id, record, editForm);
+    else if (activeTab === 'patientInstructions') result = await updatePatientInstructionTemplate(record.id, record, editForm);
     else if (activeTab === 'historyOptions') result = await updateHistoryOption(record.id, record, editForm);
     else if (activeTab === 'iolCatalog') result = await updateIolCatalogItem(record.id, record, editForm);
     else if (activeTab === 'surgicalConsumables') result = await updateSurgicalConsumable(record.id, record, editForm);
@@ -145,13 +154,14 @@ export default function ClinicalMastersPage() {
   }
 
   async function handleDelete(record) {
-    const label = activeTab === 'iolCatalog' ? `${record.brand} -- ${record.model}` : record.name;
+    const label = activeTab === 'iolCatalog' ? `${record.brand} -- ${record.model}` : (activeTab === 'patientInstructions' ? record.label : record.name);
     if (!window.confirm(`Delete "${label}"? This cannot be undone. If it's in use elsewhere, deletion will be blocked and you should mark it Inactive instead.`)) return;
     setError('');
     let result;
     if (activeTab === 'surgeries') result = await deleteSurgery(record.id, record.code);
     else if (activeTab === 'iopMethods') result = await deleteIopMethod(record.id, record.code);
     else if (activeTab === 'observations') result = await deleteClinicalObservation(record.id, record.code);
+    else if (activeTab === 'patientInstructions') result = await deletePatientInstructionTemplate(record.id, record.code);
     else if (activeTab === 'historyOptions') result = await deleteHistoryOption(record.id, record.code);
     else if (activeTab === 'iolCatalog') result = await deleteIolCatalogItem(record.id, record.code);
     else if (activeTab === 'surgicalConsumables') result = await deleteSurgicalConsumable(record.id, record.code);
@@ -210,7 +220,7 @@ export default function ClinicalMastersPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">{TABS.find((t) => t.key === activeTab).label}</div>
-          {(activeTab === 'diagnoses' || activeTab === 'surgeries' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'historyOptions' || activeTab === 'iolCatalog' || activeTab === 'surgicalConsumables') && (
+          {(activeTab === 'diagnoses' || activeTab === 'surgeries' || activeTab === 'iopMethods' || activeTab === 'observations' || activeTab === 'patientInstructions' || activeTab === 'historyOptions' || activeTab === 'iolCatalog' || activeTab === 'surgicalConsumables') && (
             <button className="btn btn-primary btn-sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
               <i className="ti ti-plus"></i> Add New
             </button>
@@ -308,6 +318,54 @@ export default function ClinicalMastersPage() {
                 {observations.map((o) => renderSimpleRow(o, 'master_clinical_observations', false))}
                 {observations.length === 0 && (
                   <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No observations added yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {activeTab === 'patientInstructions' && (
+          <>
+            <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+              <i className="ti ti-info-circle"></i> Populates the quick-pick buttons in the doctor's Consultation &gt; Patient Instructions box. Clicking a button fills in the instruction text below, which the doctor can still edit before saving -- editing a template here doesn't change instructions already saved on a past visit.
+            </div>
+            {showAdd && (
+              <div style={{ border: '1.5px solid var(--blue-lt)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <input className="fi" placeholder="Button label (e.g. Dilation)" onChange={update('label')} style={{ marginBottom: 8 }} />
+                <textarea className="fi" rows={3} placeholder="Full instruction text to fill in..." onChange={update('body')} />
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={handleAdd}>Save</button>
+              </div>
+            )}
+            <table className="tbl">
+              <thead><tr><th>Code</th><th>Label</th><th>Instruction Text</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {patientInstructions.map((pi) => (
+                  editingId === pi.id ? (
+                    <tr key={pi.id} style={{ background: 'var(--g50)' }}>
+                      <td style={{ fontFamily: 'monospace' }}>{pi.code}</td>
+                      <td><input className="fi fi-sm" value={editForm.label} onChange={updateEdit('label')} /></td>
+                      <td><textarea className="fi fi-sm" rows={2} value={editForm.body} onChange={updateEdit('body')} /></td>
+                      <td><span className={`badge ${pi.status === 'Active' ? 'b-green' : 'b-gray'}`}>{pi.status}</span></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveEdit(pi)}>Save</button>
+                        <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={pi.id}>
+                      <td style={{ fontFamily: 'monospace' }}>{pi.code}</td>
+                      <td style={{ fontWeight: 600 }}>{pi.label}</td>
+                      <td style={{ fontSize: 12, color: 'var(--g600)', maxWidth: 400 }}>{pi.body}</td>
+                      <td><StatusToggle record={pi} table="master_patient_instructions" onUpdate={refresh} /></td>
+                      <td style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm" onClick={() => startEdit(pi)}><i className="ti ti-edit"></i></button>
+                        <button className="btn btn-sm" onClick={() => handleDelete(pi)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
+                      </td>
+                    </tr>
+                  )
+                ))}
+                {patientInstructions.length === 0 && (
+                  <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No instruction templates added yet.</td></tr>
                 )}
               </tbody>
             </table>
