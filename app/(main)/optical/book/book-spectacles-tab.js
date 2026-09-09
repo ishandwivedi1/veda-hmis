@@ -10,6 +10,8 @@ import {
   getOpticalAdvanceBalance,
   collectOpticalPayment,
   applyOpticalAdvanceAdjustment,
+  editOpticalSaleItems,
+  getOpticalSaleEditHistory,
 } from '../actions';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
@@ -431,6 +433,13 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
+  const [editing, setEditing] = useState(false);
+  const [editLines, setEditLines] = useState([]);
+  const [editDiscount, setEditDiscount] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editReason, setEditReason] = useState('');
+  const editNextTempId = useRef(1);
+
   useEffect(() => { load(); }, [saleId]);
 
   async function load() {
@@ -438,6 +447,42 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
     if (result.error) { setError(result.error); return; }
     setDetail(result);
     setModeRows([{ mode: 'Cash', amount: result.sale.outstanding > 0 ? String(result.sale.outstanding) : '' }]);
+  }
+
+  function startEditing() {
+    editNextTempId.current = 1;
+    setEditLines(detail.items.map((it) => ({ tempId: editNextTempId.current++, description: it.description, qty: it.qty, unit_price: it.unit_price })));
+    setEditDiscount(detail.sale.discount > 0 ? String(detail.sale.discount) : '');
+    setEditNotes(detail.sale.notes || '');
+    setEditReason('');
+    setError('');
+    setEditing(true);
+  }
+  function updateEditLine(tempId, field, value) {
+    setEditLines((prev) => prev.map((l) => (l.tempId === tempId ? { ...l, [field]: value } : l)));
+  }
+  function addEditLine() {
+    setEditLines((prev) => [...prev, { tempId: editNextTempId.current++, description: '', qty: 1, unit_price: '' }]);
+  }
+  function removeEditLine(tempId) {
+    setEditLines((prev) => (prev.length > 1 ? prev.filter((l) => l.tempId !== tempId) : prev));
+  }
+  const editGross = editLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_price) || 0), 0);
+  const editNet = Math.max(0, editGross - (Number(editDiscount) || 0));
+
+  async function saveEdit() {
+    setError('');
+    setSaving(true);
+    const result = await editOpticalSaleItems({
+      saleId, items: editLines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
+      discount: editDiscount, notes: editNotes, reason: editReason,
+    });
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setSuccessMsg('Order updated.');
+    setEditing(false);
+    load();
+    onChanged();
   }
 
   // Single mode (the common case) always matches the outstanding
@@ -507,6 +552,58 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
         <i className="ti ti-check"></i> {successMsg}
       </div>}
 
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 16, fontWeight: 700, color: 'var(--g900)' }}>Order Summary</div>
+        {!editing && detail.sale.status !== 'Cancelled' && (
+          <button className="btn btn-sm" onClick={startEditing}><i className="ti ti-edit"></i> Edit Order</button>
+        )}
+      </div>
+
+      {editing ? (
+        <div style={{ padding: 20, background: 'var(--amber-lt)', borderRadius: 'var(--r)' }}>
+          <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 14, fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
+            <i className="ti ti-edit"></i> Editing {detail.sale.sale_number}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--g600)', marginBottom: 14 }}>
+            The new total can't drop below what's already been paid or applied ({fmt(detail.sale.paid)}).
+          </div>
+
+          {editLines.map((l) => (
+            <div key={l.tempId} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input className="fi fi-sm" style={{ flex: 3, background: '#fff' }} value={l.description} onChange={(e) => updateEditLine(l.tempId, 'description', e.target.value)} placeholder="Item description" />
+              <input className="fi fi-sm" style={{ flex: 1, background: '#fff' }} type="number" min="1" value={l.qty} onChange={(e) => updateEditLine(l.tempId, 'qty', e.target.value)} placeholder="Qty" />
+              <input className="fi fi-sm" style={{ flex: 1, background: '#fff' }} type="number" min="0" value={l.unit_price} onChange={(e) => updateEditLine(l.tempId, 'unit_price', e.target.value)} placeholder="Price" />
+              <div style={{ flex: 1, alignSelf: 'center', fontSize: 13, textAlign: 'right' }}>{fmt((Number(l.qty) || 0) * (Number(l.unit_price) || 0))}</div>
+              <button className="btn btn-sm" onClick={() => removeEditLine(l.tempId)}><i className="ti ti-trash"></i></button>
+            </div>
+          ))}
+          <button className="btn btn-sm" onClick={addEditLine} style={{ marginBottom: 12, background: '#fff' }}><i className="ti ti-plus"></i> Add Item</button>
+
+          <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label className="flbl">Discount (\u20b9)</label>
+              <input className="fi fi-sm" style={{ background: '#fff' }} type="number" min="0" value={editDiscount} onChange={(e) => setEditDiscount(e.target.value)} placeholder="0" />
+            </div>
+            <div style={{ flex: 2 }}>
+              <label className="flbl">Notes</label>
+              <input className="fi fi-sm" style={{ background: '#fff' }} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Optional" />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '1px solid rgba(0,0,0,.08)', marginBottom: 12, fontSize: 15, fontWeight: 700 }}>
+            <span>New Order Total</span><span>{fmt(editNet)}</span>
+          </div>
+
+          <label className="flbl">Reason for this change (required)</label>
+          <input className="fi fi-sm" style={{ background: '#fff' }} value={editReason} onChange={(e) => setEditReason(e.target.value)} placeholder="e.g. corrected frame price, added lens coating" />
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <button className="btn btn-sm" onClick={() => setEditing(false)}>Cancel</button>
+            <button className="btn btn-sm btn-primary" disabled={saving} onClick={saveEdit}>{saving ? 'Saving...' : 'Save Changes'}</button>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Financial summary -- order total, what's already been paid or
           applied, and what's still due, at a glance. */}
       <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 18 }}>
@@ -602,6 +699,8 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
             <i className="ti ti-cash"></i> {saving ? 'Recording...' : 'Bill Patient & Close Episode'}
           </button>
         </div>
+      )}
+        </>
       )}
 
       <a href={`/optical-receipt-print/${saleId}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none', marginTop: 16, display: 'inline-block' }}>

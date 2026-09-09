@@ -253,6 +253,41 @@ export async function cancelOpticalSale(saleId, reason) {
   return { success: true, sale: data };
 }
 
+// ---------- Edit an ongoing order's items ----------
+// Not a hospital-invoice equivalent -- invoices can only be cancelled,
+// never edited. This exists specifically for Optical Shop's ongoing
+// orders, where a genuine item/price correction is common before the
+// order is fully paid. The new total can never drop below what's
+// already been paid or applied -- see edit_optical_sale_items.
+
+export async function editOpticalSaleItems({ saleId, items, discount, notes, reason }) {
+  const dayOpenError = await requireDayOpen();
+  if (dayOpenError) return dayOpenError;
+
+  if (!reason || !reason.trim()) return { error: 'A reason is required to edit this order.' };
+  const cleanItems = (items || [])
+    .map((i) => ({ description: (i.description || '').trim(), qty: Number(i.qty) || 1, unit_price: Number(i.unit_price) || 0 }))
+    .filter((i) => i.description && i.unit_price >= 0);
+  if (cleanItems.length === 0) return { error: 'Add at least one item with a description and price.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('edit_optical_sale_items', {
+    p_sale_id: saleId, p_items: cleanItems, p_discount: Number(discount) || 0, p_notes: notes || null, p_reason: reason.trim(),
+  });
+  if (error) return { error: error.message };
+  return { success: true, sale: data };
+}
+
+export async function getOpticalSaleEditHistory(saleId) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('optical_sale_edits')
+    .select('*, profiles(full_name)')
+    .eq('sale_id', saleId)
+    .order('edited_at', { ascending: false });
+  return data || [];
+}
+
 // ---------- Credit Note ----------
 // Writes off part or all of a bill's OUTSTANDING balance -- no cash
 // moves. Use when a bill's remaining balance is being waived, not when
