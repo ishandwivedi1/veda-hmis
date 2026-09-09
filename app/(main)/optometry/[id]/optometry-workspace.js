@@ -41,7 +41,7 @@ SPH_CYL_MAGNITUDES.push('20.25', '20.5', '20.75', '30.0');
 const AXIS_VALUES = [];
 for (let v = 0; v <= 180; v += 5) AXIS_VALUES.push(String(v));
 
-const REF_TYPES = { obj: 'Objective (Auto-Rx)', subj: 'Subjective', final: 'Final Rx' };
+const REF_TYPES = { obj: 'Objective (Auto-Rx)', subj: 'Subjective (No Dilatation)', subjd: 'Subjective (Dilated)', final: 'Final Rx' };
 
 function refKey(type, eye, distNear, metric) {
   return `ref_${type}_${eye}_${distNear}_${metric}`;
@@ -925,12 +925,21 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
             <div style={{ fontSize: 11, color: 'var(--g500)', flex: 1 }}>
-              {refTab === 'obj' ? 'Auto-refractometer values. Review before finalizing.' : refTab === 'subj' ? 'Values obtained during subjective refraction with trial lenses.' : 'Final accepted refraction used for prescription / optical order -- printouts only read from this tab.'}
+              {refTab === 'obj'
+                ? 'Auto-refractometer values. Review before finalizing.'
+                : refTab === 'subj'
+                ? 'Values obtained during subjective refraction with trial lenses, without dilatation.'
+                : refTab === 'subjd'
+                ? 'Values obtained during subjective refraction with trial lenses, after pupil dilatation (cycloplegic refraction).'
+                : 'Final accepted refraction used for prescription / optical order -- printouts only read from this tab.'}
             </div>
             {refTab === 'final' && !locked && (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button type="button" className="btn btn-sm" onClick={() => copyRefractionInto('subj', 'final')} title="Pull every Subjective value into Final Rx">
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-sm" onClick={() => copyRefractionInto('subj', 'final')} title="Pull every Subjective (No Dilatation) value into Final Rx">
                   <i className="ti ti-copy"></i> Copy from Subjective
+                </button>
+                <button type="button" className="btn btn-sm" onClick={() => copyRefractionInto('subjd', 'final')} title="Pull every Subjective (Dilated) value into Final Rx">
+                  <i className="ti ti-copy"></i> Copy from Subjective (Dilated)
                 </button>
                 <button type="button" className="btn btn-sm" onClick={() => copyRefractionInto('obj', 'final')} title="Pull every Objective (Auto-Rx) value into Final Rx">
                   <i className="ti ti-copy"></i> Copy from Objective
@@ -955,17 +964,19 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                   <th colSpan={refTab === 'final' ? 5 : 4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
                     OD (RE)
                   </th>
-                  <th colSpan={refTab === 'final' ? 5 : 4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700, borderLeft: '4px solid #fff' }}>
+                  <th style={{ width: 6, background: 'var(--g300)', padding: 0 }}></th>
+                  <th colSpan={refTab === 'final' ? 5 : 4} style={{ background: 'var(--g200)', color: 'var(--g800)', padding: '6px 10px', textAlign: 'center', fontWeight: 700 }}>
                     OS (LE)
                   </th>
                 </tr>
                 <tr>
                   <th></th>
                   {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h) => (
-                    <th key={`re-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
+                    <th key={`re-${h}`} style={{ width: h === 'VA' ? (refTab === 'final' ? '6%' : '8%') : (refTab === 'final' ? '11%' : '14%'), padding: '6px 8px', textAlign: 'left', color: 'var(--blue)', fontWeight: 700 }}>{h}</th>
                   ))}
-                  {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h, i) => (
-                    <th key={`le-${h}`} style={{ width: h === 'VA' ? '9%' : '14%', padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700, borderLeft: i === 0 ? '4px solid #fff' : undefined }}>{h}</th>
+                  <th style={{ width: 6, background: 'var(--g100)', padding: 0 }}></th>
+                  {(refTab === 'final' ? ['VA', 'SPH', 'CYL', 'AXIS', 'PRISM'] : ['VA', 'SPH', 'CYL', 'AXIS']).map((h) => (
+                    <th key={`le-${h}`} style={{ width: h === 'VA' ? (refTab === 'final' ? '6%' : '8%') : (refTab === 'final' ? '11%' : '14%'), padding: '6px 8px', textAlign: 'left', color: 'var(--teal)', fontWeight: 700 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -977,9 +988,10 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                     return (
                       <tr key="add" style={{ borderTop: '1px solid var(--g100)', background: 'var(--amber-lt, #fffbeb)' }}>
                         <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--amber, #b45309)' }}>NEAR ADD</td>
-                        {['re', 'le'].map((eye) => (
+                        {['re', 'le'].map((eye, eyeIdx) => (
                           <Fragment key={eye}>
-                            <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined, textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
+                            {eyeIdx === 1 && <td style={{ width: 6, background: 'var(--g100)', padding: 0 }}></td>}
+                            <td style={{ padding: '6px 6px', textAlign: 'center', fontSize: 11, color: 'var(--g300)' }}>--</td>
                             <td style={{ padding: '6px 6px' }}>
                               <PickerField
                                 disabled={locked || (eye === 'le' && leCopying)}
@@ -1001,9 +1013,10 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                   return (
                     <tr key={distNear} style={{ borderTop: '1px solid var(--g100)' }}>
                       <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--g700)', textTransform: 'capitalize' }}>{distNear === 'dist' ? 'Dist' : 'Near'}</td>
-                      {['re', 'le'].map((eye) => (
+                      {['re', 'le'].map((eye, eyeIdx) => (
                         <Fragment key={eye}>
-                          <td style={{ padding: '6px 6px', borderLeft: eye === 'le' ? '4px solid #fff' : undefined }}>
+                          {eyeIdx === 1 && <td style={{ width: 6, background: 'var(--g100)', padding: 0 }}></td>}
+                          <td style={{ padding: '6px 6px' }}>
                             {distNear === 'dist' ? (
                               <input className="fi fi-sm" list="va-dist-options" disabled={locked || (eye === 'le' && leCopying)} value={form[refKey(refTab, eye, distNear, 'va')]} onChange={(e) => setRef(refTab, eye, distNear, 'va', e.target.value)} placeholder="--" />
                             ) : (
@@ -1062,7 +1075,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
                       <i className="ti ti-info-circle"></i> Instructions
                     </button>
                   </td>
-                  <td colSpan={(refTab === 'final' ? 10 : 8) - 5} style={{ padding: '6px 6px' }}>
+                  <td colSpan={(refTab === 'final' ? 11 : 9) - 5} style={{ padding: '6px 6px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--g700)', cursor: locked ? 'default' : 'pointer' }}>
                       <input type="checkbox" disabled={locked} checked={!!form[`ref_${refTab}_copy_re_to_le`]} onChange={(e) => toggleCopyToLE(refTab, e.target.checked)} />
                       Copy RE Value to LE
