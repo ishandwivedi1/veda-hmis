@@ -453,3 +453,22 @@ export async function getOpticalPaymentEditHistory(paymentId) {
     .order('edited_at', { ascending: false });
   return data || [];
 }
+
+// For printing a single payment/advance receipt -- works whether or
+// not the payment is tied to a specific bill (a pure advance has no
+// sale yet). Used by both the standalone Advance tab (no bill exists
+// at collection time) and the Payments register.
+export async function getOpticalPaymentDetail(paymentId) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('optical_payments')
+    .select('*, optical_payment_modes(mode, amount), optical_sales(sale_number, net, paid), patients(salutation, first_name, last_name, mobile), optical_customers(name, mobile)')
+    .eq('id', paymentId)
+    .maybeSingle();
+  if (error || !data) return { error: error?.message || 'Payment not found' };
+  return {
+    payment: data,
+    displayName: data.patients ? formatPatientName(data.patients) : (data.optical_customers?.name || '--'),
+    displayMobile: data.patients?.mobile || data.optical_customers?.mobile,
+  };
+}

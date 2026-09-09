@@ -131,7 +131,10 @@ export default function OpticalPaymentsTab() {
                   <td><span style={{ color: TYPE_COLORS[p.payment_type], fontWeight: 600, fontSize: 12 }}>{p.typeLabel}</span></td>
                   <td style={{ fontSize: 12 }}>{(p.optical_payment_modes || []).map((m) => m.mode).join('+') || '--'}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(p.total_amount)}</td>
-                  <td>
+                  <td style={{ display: 'flex', gap: 6 }}>
+                    <a href={`/optical-payment-receipt-print/${p.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                      <i className="ti ti-printer"></i>
+                    </a>
                     {editingId === p.id ? (
                       <button className="btn btn-sm" onClick={cancelEdit}>Cancel</button>
                     ) : (

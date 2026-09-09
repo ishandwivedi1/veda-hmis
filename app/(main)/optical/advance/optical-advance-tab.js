@@ -31,6 +31,7 @@ export default function OpticalAdvanceTab() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [lastPayment, setLastPayment] = useState(null);
   const [recentAdvances, setRecentAdvances] = useState([]);
 
   useEffect(() => { refreshRecentAdvances(); }, []);
@@ -94,6 +95,7 @@ export default function OpticalAdvanceTab() {
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setSuccessMsg(`Advance recorded -- receipt ${result.payment.receipt_number}`);
+    setLastPayment(result.payment);
     const bal = await getOpticalAdvanceBalance({ patientId: selected?.type === 'patient' ? selected.id : null, opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null });
     setBalance(bal);
     setModeAmounts({ Cash: '' });
@@ -107,7 +109,16 @@ export default function OpticalAdvanceTab() {
       <div className="card">
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-piggy-bank" style={{ color: 'var(--blue)' }}></i> Collect Advance</div>
         {error && <div className="msg-err">{error}</div>}
-        {successMsg && <div className="msg-info" style={{ background: 'var(--green-lt, #e3f5ec)', color: 'var(--green, #157a4f)', padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10 }}>{successMsg}</div>}
+        {successMsg && (
+          <div className="msg-info" style={{ background: 'var(--green-lt, #e3f5ec)', color: 'var(--green, #157a4f)', padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span>{successMsg}</span>
+            {lastPayment && (
+              <a href={`/optical-payment-receipt-print/${lastPayment.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                <i className="ti ti-printer"></i> Print Receipt
+              </a>
+            )}
+          </div>
+        )}
 
         <label className="flbl">Customer</label>
         {!selected && !useNewWalkIn && (
@@ -195,14 +206,15 @@ export default function OpticalAdvanceTab() {
             <div style={{ fontSize: 12, color: 'var(--g400)' }}>No advances collected yet.</div>
           ) : (
             recentAdvances.map((a) => (
-              <div key={a.id} onClick={() => pick(a.customer)} style={{ padding: '8px 4px', cursor: 'pointer', borderBottom: '1px solid var(--g100)', fontSize: 12.5 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div key={a.id} style={{ padding: '8px 4px', borderBottom: '1px solid var(--g100)', fontSize: 12.5 }}>
+                <div onClick={() => pick(a.customer)} style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
                   <strong>{a.customer.name}</strong><span>{fmt(a.amount)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--g500)' }}>
                   <span>{a.receiptNumber}</span>
                   <span>{new Date(a.collectedAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })}</span>
                 </div>
+                <a href={`/optical-payment-receipt-print/${a.id}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue)' }}>Print</a>
               </div>
             ))
           )}

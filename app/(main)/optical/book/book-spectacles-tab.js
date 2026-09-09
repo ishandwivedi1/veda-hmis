@@ -342,14 +342,17 @@ function CollectAdvanceForNewOrder({ sale, onCollected }) {
     const result = await collectOpticalPayment({ saleId: sale.id, amount: amt, modes });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
-    setCollected({ amount: amt, receipt: result.payment.receipt_number });
+    setCollected({ amount: amt, receipt: result.payment.receipt_number, paymentId: result.payment.id });
   }
 
   if (collected) {
     return (
       <div style={{ background: 'var(--green-lt)', padding: '12px 16px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>
         <i className="ti ti-check"></i> Advance of {fmt(collected.amount)} collected -- receipt {collected.receipt}. {fmt(sale.net - collected.amount)} due on delivery.
-        <div>
+        <div style={{ display: 'flex', gap: 14, marginTop: 6, alignItems: 'center' }}>
+          <a href={`/optical-payment-receipt-print/${collected.paymentId}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 400 }}>
+            <i className="ti ti-printer"></i> Print Booking Receipt
+          </a>
           <span onClick={onCollected} style={{ fontSize: 12, color: 'var(--g500)', textDecoration: 'underline', cursor: 'pointer', fontWeight: 400 }}>Book another order</span>
         </div>
       </div>
