@@ -48,12 +48,19 @@ export default function BookSpectaclesTab() {
     setSearchResults([]);
     setSearchQuery('');
     setUseWalkIn(false);
-    await refreshCustomerData(r);
+    const list = await refreshCustomerData(r);
+    const ongoingCount = (list || []).filter((b) => b.status === 'Pending' || b.status === 'Partial').length;
+    setSection(ongoingCount > 0 ? 'ongoing' : 'new');
   }
 
+  // Refreshes bills/advance balance only -- never changes which
+  // section is showing. Called after every action (booking, collecting
+  // a balance, applying an advance, etc.) so the numbers stay current
+  // without yanking the user away from the section they're actively
+  // working in (e.g. straight from Confirm Order into Collect Advance).
   async function refreshCustomerData(customer) {
     const c = customer || selected;
-    if (!c) return;
+    if (!c) return [];
     setLoadingBills(true);
     const idArgs = { patientId: c.type === 'patient' ? c.id : null, opticalCustomerId: c.type === 'optical_customer' ? c.id : null };
     const [billsResult, balance] = await Promise.all([getOpticalSalesForCustomer(idArgs), getOpticalAdvanceBalance(idArgs)]);
@@ -61,8 +68,7 @@ export default function BookSpectaclesTab() {
     setBills(list);
     setAdvanceBalance(balance);
     setLoadingBills(false);
-    const ongoingCount = list.filter((b) => b.status === 'Pending' || b.status === 'Partial').length;
-    setSection(ongoingCount > 0 ? 'ongoing' : 'new');
+    return list;
   }
 
   function clearCustomer() {
