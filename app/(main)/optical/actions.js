@@ -355,3 +355,66 @@ export async function getOpticalRefundRegister() {
     .limit(50);
   return (data || []).map((r) => ({ ...r, customerName: r.patients ? formatPatientName(r.patients) : r.optical_customers?.name }));
 }
+
+// ---------- Payments register (view + clerical edit) ----------
+// "Payments" is a different view from "History": History lists BILLS
+// (optical_sales); this lists actual money-movement events
+// (optical_payments) -- sale payments, advances, refunds, credit
+// notes -- which a bill-centric view can't show on its own. Mirrors
+// the main Billing/Payments module's own Receipt register + clerical
+// edit for exactly the same reason.
+
+const PAYMENT_TYPE_LABELS = {
+  sale_payment: 'Sale Payment',
+  advance: 'Advance',
+  advance_adjustment: 'Advance Applied',
+  credit_note: 'Credit Note',
+  refund: 'Refund',
+};
+
+export async function getOpticalPaymentsRegister({ fromDate, toDate, query }) {
+  const supabase = await createClient();
+  let q = supabase
+    .from('optical_payments')
+    .select('*, optical_payment_modes(mode, amount), optical_sales(sale_number), patients(salutation, first_name, last_name), optical_customers(name)')
+    .order('collected_at', { ascending: false })
+    .limit(200);
+  if (fromDate) q = q.gte('collected_at', `${fromDate}T00:00:00+05:30`);
+  if (toDate) q = q.lte('collected_at', `${toDate}T23:59:59+05:30`);
+  if (query && query.trim()) q = q.or(`receipt_number.ilike.%${query.trim()}%,reference.ilike.%${query.trim()}%`);
+  const { data, error } = await q;
+  if (error) return { error: error.message, payments: [] };
+  const payments = (data || []).map((p) => ({
+    ...p,
+    typeLabel: PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type,
+    displayName: p.patients ? formatPatientName(p.patients) : (p.optical_customers?.name || '--'),
+  }));
+  return { payments };
+}
+
+export async function editOpticalPaymentClerical({ paymentId, modes, reference, remarks, reason, expectedModeCount }) {
+  const dayOpenError = await requireDayOpen();
+  if (dayOpenError) return dayOpenError;
+
+  if (!reason || !reason.trim()) return { error: 'A reason is required to edit a payment.' };
+  const clean = (modes || []).map((m) => ({ mode: m.mode, amount: Number(m.amount) || 0 })).filter((m) => m.amount > 0);
+  if (clean.length === 0) return { error: 'At least one payment mode with an amount is required.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('edit_optical_payment_clerical', {
+    p_payment_id: paymentId, p_modes: clean, p_reference: reference || null, p_remarks: remarks || null,
+    p_reason: reason.trim(), p_expected_mode_count: typeof expectedModeCount === 'number' ? expectedModeCount : null,
+  });
+  if (error) return { error: error.message };
+  return { success: true, payment: data };
+}
+
+export async function getOpticalPaymentEditHistory(paymentId) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('optical_payment_edits')
+    .select('*, profiles(full_name)')
+    .eq('payment_id', paymentId)
+    .order('edited_at', { ascending: false });
+  return data || [];
+}

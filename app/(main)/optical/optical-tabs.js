@@ -11,6 +11,7 @@ const TABS = [
   { href: '/optical/advance', label: 'Advance', icon: 'ti-piggy-bank' },
   { href: '/optical/credit-note', label: 'Credit Note', icon: 'ti-file-minus' },
   { href: '/optical/refund', label: 'Refund', icon: 'ti-receipt-refund' },
+  { href: '/optical/payments', label: 'Payments', icon: 'ti-list-details' },
   { href: '/optical/history', label: 'History', icon: 'ti-history' },
 ];
 
