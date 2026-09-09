@@ -172,36 +172,6 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
   const [recentItems, setRecentItems] = useState([]);
   const nextTempId = useRef(2);
 
-  const [collectNow, setCollectNow] = useState(false);
-  const [advanceAmount, setAdvanceAmount] = useState('');
-  const [modeRows, setModeRows] = useState([{ mode: 'Cash', amount: '' }]);
-
-  // Single mode (the common case) always matches the advance amount --
-  // no need to type the number twice. Only once a second mode is added
-  // (a real split) does each row need its own entered amount.
-  useEffect(() => {
-    setModeRows((rows) => (rows.length === 1 ? [{ ...rows[0], amount: advanceAmount }] : rows));
-  }, [advanceAmount]);
-
-  function updateModeRow(idx, field, value) {
-    setModeRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
-  }
-  function addModeRow() {
-    setModeRows((rows) => {
-      const cleared = rows.length === 1 ? [{ ...rows[0], amount: '' }] : rows;
-      const usedModes = new Set(cleared.map((r) => r.mode));
-      const nextMode = PAYMENT_MODES.find((m) => !usedModes.has(m)) || PAYMENT_MODES[0];
-      return [...cleared, { mode: nextMode, amount: '' }];
-    });
-  }
-  function removeModeRow(idx) {
-    setModeRows((rows) => {
-      const next = rows.filter((_, i) => i !== idx);
-      return next.length === 1 ? [{ ...next[0], amount: advanceAmount }] : next;
-    });
-  }
-  const modesTotal = modeRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
-
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState(null);
@@ -221,22 +191,9 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
   const gross = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_price) || 0), 0);
   const net = Math.max(0, gross - (Number(discount) || 0));
 
-  async function handleSubmit() {
+  async function handleConfirmOrder() {
     setError('');
     setSaving(true);
-
-    const advanceAmt = collectNow ? Number(advanceAmount) || 0 : 0;
-    if (collectNow && advanceAmt > 0 && Math.abs(modesTotal - advanceAmt) > 0.01) {
-      setError(`Payment mode split (${fmt(modesTotal)}) must add up to the advance amount (${fmt(advanceAmt)}).`);
-      setSaving(false);
-      return;
-    }
-    if (advanceAmt > net) {
-      setError(`Advance (${fmt(advanceAmt)}) can't exceed the order total (${fmt(net)}).`);
-      setSaving(false);
-      return;
-    }
-
     const saleResult = await createOpticalSale({
       patientId: selected.type === 'patient' ? selected.id : null,
       opticalCustomerId: selected.type === 'optical_customer' ? selected.id : null,
@@ -244,43 +201,33 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
       items: lines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
       discount, notes,
     });
-    if (saleResult.error) { setError(saleResult.error); setSaving(false); return; }
-
-    if (advanceAmt > 0) {
-      const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
-      const payResult = await collectOpticalPayment({ saleId: saleResult.sale.id, amount: advanceAmt, modes });
-      if (payResult.error) {
-        setError(`Order ${saleResult.sale.sale_number} was created, but collecting the advance failed: ${payResult.error}. You can collect it from Ongoing Orders instead.`);
-        setSaving(false);
-        onBooked();
-        return;
-      }
-    }
-
     setSaving(false);
-    setCreated({ ...saleResult.sale, advanceCollected: advanceAmt });
+    if (saleResult.error) { setError(saleResult.error); return; }
+    setCreated(saleResult.sale);
     setLines([{ tempId: nextTempId.current++, description: '', qty: 1, unit_price: '' }]);
     setDiscount('');
     setNotes('');
-    setCollectNow(false);
-    setAdvanceAmount('');
-    setModeRows([{ mode: 'Cash', amount: '' }]);
     onBooked();
+  }
+
+  function bookAnother() {
+    setCreated(null);
   }
 
   if (created) {
     return (
       <div className="card">
-        <div style={{ background: 'var(--green-lt, #e3f5ec)', border: '1px solid var(--green, #157a4f)', borderRadius: 8, padding: '16px 18px' }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--green, #157a4f)', marginBottom: 4 }}>
-            <i className="ti ti-check"></i> Order {created.sale_number} sent for fitting
+        <div style={{ background: 'var(--green-lt)', border: '1px solid var(--green)', borderRadius: 'var(--r)', padding: '16px 18px', marginBottom: 16 }}>
+          <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 16, fontWeight: 700, color: 'var(--green)', marginBottom: 4 }}>
+            <i className="ti ti-check"></i> Order {created.sale_number} confirmed -- sent for fitting
           </div>
-          <div style={{ fontSize: 13, color: 'var(--g600)' }}>
-            Total: {fmt(created.net)}{created.advanceCollected > 0 ? ` -- ${fmt(created.advanceCollected)} collected now, ${fmt(created.net - created.advanceCollected)} due on delivery.` : ' -- nothing collected yet.'}
-          </div>
+          <div style={{ fontSize: 13, color: 'var(--g600)' }}>Total: {fmt(created.net)} -- nothing collected yet.</div>
         </div>
-        <span onClick={() => setCreated(null)} style={{ fontSize: 12, color: 'var(--g500)', textDecoration: 'underline', cursor: 'pointer', display: 'inline-block', marginTop: 12 }}>
-          + Book another order
+
+        <CollectAdvanceForNewOrder sale={created} onCollected={bookAnother} />
+
+        <span onClick={bookAnother} style={{ fontSize: 12, color: 'var(--g500)', textDecoration: 'underline', cursor: 'pointer', display: 'inline-block', marginTop: 14 }}>
+          Skip advance, book another order
         </span>
       </div>
     );
@@ -337,41 +284,104 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
         <span style={{ fontSize: 16, fontWeight: 700 }}>Order Total: {fmt(net)}</span>
       </div>
 
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, margin: '10px 0', cursor: 'pointer' }}>
-        <input type="checkbox" checked={collectNow} onChange={(e) => { setCollectNow(e.target.checked); if (!e.target.checked) setAdvanceAmount(''); }} />
-        Collect an advance now
-      </label>
+      <button className="btn btn-primary" disabled={saving} onClick={handleConfirmOrder}>
+        <i className="ti ti-truck-delivery"></i> {saving ? 'Confirming...' : 'Confirm Order'}
+      </button>
+    </div>
+  );
+}
 
-      {collectNow && (
-        <div style={{ padding: 12, background: 'var(--g50, #f7f8fa)', borderRadius: 8, marginBottom: 14 }}>
-          <label className="flbl">Advance Amount (up to {fmt(net)} -- full payment)</label>
-          <input className="fi" type="number" min="0" max={net} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0" />
+// Shown right after an order is confirmed -- a separate, explicit step
+// (and its own button) for collecting an advance against that specific
+// order, rather than bundling it into the order-creation click.
+function CollectAdvanceForNewOrder({ sale, onCollected }) {
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [modeRows, setModeRows] = useState([{ mode: 'Cash', amount: '' }]);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [collected, setCollected] = useState(null);
 
-          <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s) -- split across multiple if needed</label>
-          {modeRows.map((row, idx) => (
-            <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-              <select className="fi fi-sm" value={row.mode} onChange={(e) => updateModeRow(idx, 'mode', e.target.value)} style={{ flex: 1 }}>
-                {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-              <input
-                className="fi fi-sm"
-                type="number"
-                value={row.amount}
-                onChange={(e) => updateModeRow(idx, 'amount', e.target.value)}
-                placeholder={modeRows.length === 1 ? 'Auto-filled from advance amount' : 'Amount'}
-                readOnly={modeRows.length === 1}
-                style={{ flex: 1, background: modeRows.length === 1 ? 'var(--g100)' : '#fff' }}
-              />
-              {modeRows.length > 1 && <button className="btn btn-sm" onClick={() => removeModeRow(idx)}>&times;</button>}
-            </div>
-          ))}
-          <button className="btn btn-sm" onClick={addModeRow} style={{ marginBottom: 6 }}><i className="ti ti-plus"></i> Add mode</button>
-          <div style={{ fontSize: 11.5, color: 'var(--g500)' }}>Mode split total: {fmt(modesTotal)}</div>
+  useEffect(() => {
+    setModeRows((rows) => (rows.length === 1 ? [{ ...rows[0], amount: advanceAmount }] : rows));
+  }, [advanceAmount]);
+
+  function updateModeRow(idx, field, value) {
+    setModeRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+  function addModeRow() {
+    setModeRows((rows) => {
+      const cleared = rows.length === 1 ? [{ ...rows[0], amount: '' }] : rows;
+      const usedModes = new Set(cleared.map((r) => r.mode));
+      const nextMode = PAYMENT_MODES.find((m) => !usedModes.has(m)) || PAYMENT_MODES[0];
+      return [...cleared, { mode: nextMode, amount: '' }];
+    });
+  }
+  function removeModeRow(idx) {
+    setModeRows((rows) => {
+      const next = rows.filter((_, i) => i !== idx);
+      return next.length === 1 ? [{ ...next[0], amount: advanceAmount }] : next;
+    });
+  }
+  const modesTotal = modeRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+
+  async function handleCollectAdvance() {
+    setError('');
+    const amt = Number(advanceAmount) || 0;
+    if (amt <= 0) { setError('Enter an amount to collect.'); return; }
+    if (amt > sale.net) { setError(`Advance (${fmt(amt)}) can't exceed the order total (${fmt(sale.net)}).`); return; }
+    if (Math.abs(modesTotal - amt) > 0.01) { setError(`Payment mode split (${fmt(modesTotal)}) must add up to the advance amount (${fmt(amt)}).`); return; }
+
+    setSaving(true);
+    const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
+    const result = await collectOpticalPayment({ saleId: sale.id, amount: amt, modes });
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setCollected({ amount: amt, receipt: result.payment.receipt_number });
+  }
+
+  if (collected) {
+    return (
+      <div style={{ background: 'var(--green-lt)', padding: '12px 16px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>
+        <i className="ti ti-check"></i> Advance of {fmt(collected.amount)} collected -- receipt {collected.receipt}. {fmt(sale.net - collected.amount)} due on delivery.
+        <div>
+          <span onClick={onCollected} style={{ fontSize: 12, color: 'var(--g500)', textDecoration: 'underline', cursor: 'pointer', fontWeight: 400 }}>Book another order</span>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      <button className="btn btn-primary" disabled={saving} onClick={handleSubmit}>
-        <i className="ti ti-truck-delivery"></i> {saving ? 'Sending...' : 'Send for Fitting'}
+  return (
+    <div style={{ padding: 16, background: 'var(--blue-lt)', borderRadius: 'var(--r)' }}>
+      <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 14, fontWeight: 700, color: 'var(--blue-dk)', marginBottom: 10 }}>
+        <i className="ti ti-piggy-bank"></i> Collect Advance for This Order
+      </div>
+      {error && <div className="msg-err" style={{ marginBottom: 10 }}>{error}</div>}
+
+      <label className="flbl">Advance Amount (up to {fmt(sale.net)} -- full payment)</label>
+      <input className="fi" style={{ background: '#fff' }} type="number" min="0" max={sale.net} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0" />
+
+      <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s) -- split across multiple if needed</label>
+      {modeRows.map((row, idx) => (
+        <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+          <select className="fi fi-sm" value={row.mode} onChange={(e) => updateModeRow(idx, 'mode', e.target.value)} style={{ flex: 1, background: '#fff' }}>
+            {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <input
+            className="fi fi-sm"
+            type="number"
+            value={row.amount}
+            onChange={(e) => updateModeRow(idx, 'amount', e.target.value)}
+            placeholder={modeRows.length === 1 ? 'Auto-filled from advance amount' : 'Amount'}
+            readOnly={modeRows.length === 1}
+            style={{ flex: 1, background: modeRows.length === 1 ? 'var(--g100)' : '#fff' }}
+          />
+          {modeRows.length > 1 && <button className="btn btn-sm" onClick={() => removeModeRow(idx)}>&times;</button>}
+        </div>
+      ))}
+      <button className="btn btn-sm" onClick={addModeRow} style={{ marginBottom: 10, background: '#fff' }}><i className="ti ti-plus"></i> Add mode</button>
+
+      <button className="btn btn-primary" disabled={saving || !advanceAmount} onClick={handleCollectAdvance}>
+        <i className="ti ti-piggy-bank"></i> {saving ? 'Collecting...' : 'Collect Advance'}
       </button>
     </div>
   );
@@ -606,6 +616,11 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
         <>
       {/* Financial summary -- order total, what's already been paid or
           applied, and what's still due, at a glance. */}
+      {detail.sale.discount > 0 && (
+        <div style={{ fontSize: 12.5, color: 'var(--g500)', marginBottom: 8 }}>
+          Gross: {fmt(detail.sale.gross)} -- Discount: {fmt(detail.sale.discount)}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 18 }}>
         <StatBlock label="Order Total" value={fmt(detail.sale.net)} />
         <StatBlock label="Paid / Applied So Far" value={fmt(detail.sale.paid)} color="var(--green)" />
