@@ -172,7 +172,33 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
 
   const [collectNow, setCollectNow] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState('');
-  const [modeAmounts, setModeAmounts] = useState({ Cash: '' });
+  const [modeRows, setModeRows] = useState([{ mode: 'Cash', amount: '' }]);
+
+  // Single mode (the common case) always matches the advance amount --
+  // no need to type the number twice. Only once a second mode is added
+  // (a real split) does each row need its own entered amount.
+  useEffect(() => {
+    setModeRows((rows) => (rows.length === 1 ? [{ ...rows[0], amount: advanceAmount }] : rows));
+  }, [advanceAmount]);
+
+  function updateModeRow(idx, field, value) {
+    setModeRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+  function addModeRow() {
+    setModeRows((rows) => {
+      const cleared = rows.length === 1 ? [{ ...rows[0], amount: '' }] : rows;
+      const usedModes = new Set(cleared.map((r) => r.mode));
+      const nextMode = PAYMENT_MODES.find((m) => !usedModes.has(m)) || PAYMENT_MODES[0];
+      return [...cleared, { mode: nextMode, amount: '' }];
+    });
+  }
+  function removeModeRow(idx) {
+    setModeRows((rows) => {
+      const next = rows.filter((_, i) => i !== idx);
+      return next.length === 1 ? [{ ...next[0], amount: advanceAmount }] : next;
+    });
+  }
+  const modesTotal = modeRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
 
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -192,15 +218,6 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
 
   const gross = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_price) || 0), 0);
   const net = Math.max(0, gross - (Number(discount) || 0));
-
-  function toggleMode(m) {
-    setModeAmounts((prev) => {
-      const next = { ...prev };
-      if (m in next) delete next[m]; else next[m] = '';
-      return next;
-    });
-  }
-  const modesTotal = Object.values(modeAmounts).reduce((s, v) => s + (Number(v) || 0), 0);
 
   async function handleSubmit() {
     setError('');
@@ -228,7 +245,7 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
     if (saleResult.error) { setError(saleResult.error); setSaving(false); return; }
 
     if (advanceAmt > 0) {
-      const modes = Object.entries(modeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
+      const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
       const payResult = await collectOpticalPayment({ saleId: saleResult.sale.id, amount: advanceAmt, modes });
       if (payResult.error) {
         setError(`Order ${saleResult.sale.sale_number} was created, but collecting the advance failed: ${payResult.error}. You can collect it from Ongoing Orders instead.`);
@@ -245,7 +262,7 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
     setNotes('');
     setCollectNow(false);
     setAdvanceAmount('');
-    setModeAmounts({ Cash: '' });
+    setModeRows([{ mode: 'Cash', amount: '' }]);
     onBooked();
   }
 
@@ -328,18 +345,25 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
           <label className="flbl">Advance Amount (up to {fmt(net)} -- full payment)</label>
           <input className="fi" type="number" min="0" max={net} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0" />
 
-          <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s)</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            {PAYMENT_MODES.map((m) => (
-              <button key={m} className={m in modeAmounts ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => toggleMode(m)}>{m}</button>
-            ))}
-          </div>
-          {Object.keys(modeAmounts).map((m) => (
-            <div key={m} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ width: 100, fontSize: 12.5 }}>{m}</span>
-              <input className="fi fi-sm" style={{ width: 140 }} type="number" value={modeAmounts[m]} onChange={(e) => setModeAmounts((prev) => ({ ...prev, [m]: e.target.value }))} />
+          <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s) -- split across multiple if needed</label>
+          {modeRows.map((row, idx) => (
+            <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+              <select className="fi fi-sm" value={row.mode} onChange={(e) => updateModeRow(idx, 'mode', e.target.value)} style={{ flex: 1 }}>
+                {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <input
+                className="fi fi-sm"
+                type="number"
+                value={row.amount}
+                onChange={(e) => updateModeRow(idx, 'amount', e.target.value)}
+                placeholder={modeRows.length === 1 ? 'Auto-filled from advance amount' : 'Amount'}
+                readOnly={modeRows.length === 1}
+                style={{ flex: 1, background: modeRows.length === 1 ? 'var(--g100)' : '#fff' }}
+              />
+              {modeRows.length > 1 && <button className="btn btn-sm" onClick={() => removeModeRow(idx)}>&times;</button>}
             </div>
           ))}
+          <button className="btn btn-sm" onClick={addModeRow} style={{ marginBottom: 6 }}><i className="ti ti-plus"></i> Add mode</button>
           <div style={{ fontSize: 11.5, color: 'var(--g500)' }}>Mode split total: {fmt(modesTotal)}</div>
         </div>
       )}
@@ -379,7 +403,7 @@ function OngoingOrdersSection({ bills, loading, advanceBalance, onChanged }) {
 
 function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
   const [detail, setDetail] = useState(null);
-  const [modeAmounts, setModeAmounts] = useState({ Cash: '' });
+  const [modeRows, setModeRows] = useState([{ mode: 'Cash', amount: '' }]);
   const [applyAdvanceAmt, setApplyAdvanceAmt] = useState('');
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
@@ -393,18 +417,34 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
     const result = await getOpticalSaleDetail(saleId);
     if (result.error) { setError(result.error); return; }
     setDetail(result);
-    setModeAmounts({ Cash: result.sale.outstanding > 0 ? String(result.sale.outstanding) : '' });
+    setModeRows([{ mode: 'Cash', amount: result.sale.outstanding > 0 ? String(result.sale.outstanding) : '' }]);
   }
 
-  const modesTotal = Object.values(modeAmounts).reduce((s, v) => s + (Number(v) || 0), 0);
+  // Single mode (the common case) always matches the outstanding
+  // balance -- no need to type the number twice. Only once a second
+  // mode is added (a real split) does each row need its own amount.
+  useEffect(() => {
+    if (detail) setModeRows((rows) => (rows.length === 1 ? [{ ...rows[0], amount: String(detail.sale.outstanding) }] : rows));
+  }, [detail?.sale.outstanding]);
 
-  function toggleMode(m) {
-    setModeAmounts((prev) => {
-      const next = { ...prev };
-      if (m in next) delete next[m]; else next[m] = '';
-      return next;
+  function updateModeRow(idx, field, value) {
+    setModeRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+  function addModeRow() {
+    setModeRows((rows) => {
+      const cleared = rows.length === 1 ? [{ ...rows[0], amount: '' }] : rows;
+      const usedModes = new Set(cleared.map((r) => r.mode));
+      const nextMode = PAYMENT_MODES.find((m) => !usedModes.has(m)) || PAYMENT_MODES[0];
+      return [...cleared, { mode: nextMode, amount: '' }];
     });
   }
+  function removeModeRow(idx) {
+    setModeRows((rows) => {
+      const next = rows.filter((_, i) => i !== idx);
+      return next.length === 1 && detail ? [{ ...next[0], amount: String(detail.sale.outstanding) }] : next;
+    });
+  }
+  const modesTotal = modeRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
 
   async function handleApplyAdvance() {
     setError('');
@@ -422,7 +462,7 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
   async function handleCollect() {
     setError('');
     setSaving(true);
-    const modes = Object.entries(modeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
+    const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
     const result = await collectOpticalPayment({ saleId, amount: detail.sale.outstanding, modes, reference, remarks });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
@@ -459,18 +499,25 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
             </div>
           )}
 
-          <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s) for the Remaining Balance ({fmt(detail.sale.outstanding)})</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            {PAYMENT_MODES.map((m) => (
-              <button key={m} className={m in modeAmounts ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => toggleMode(m)}>{m}</button>
-            ))}
-          </div>
-          {Object.keys(modeAmounts).map((m) => (
-            <div key={m} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ width: 100, fontSize: 12.5 }}>{m}</span>
-              <input className="fi fi-sm" style={{ width: 140 }} type="number" value={modeAmounts[m]} onChange={(e) => setModeAmounts((prev) => ({ ...prev, [m]: e.target.value }))} />
+          <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s) for the Remaining Balance ({fmt(detail.sale.outstanding)}) -- split across multiple if needed</label>
+          {modeRows.map((row, idx) => (
+            <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+              <select className="fi fi-sm" value={row.mode} onChange={(e) => updateModeRow(idx, 'mode', e.target.value)} style={{ flex: 1 }}>
+                {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <input
+                className="fi fi-sm"
+                type="number"
+                value={row.amount}
+                onChange={(e) => updateModeRow(idx, 'amount', e.target.value)}
+                placeholder={modeRows.length === 1 ? 'Auto-filled from outstanding' : 'Amount'}
+                readOnly={modeRows.length === 1}
+                style={{ flex: 1, background: modeRows.length === 1 ? 'var(--g100)' : '#fff' }}
+              />
+              {modeRows.length > 1 && <button className="btn btn-sm" onClick={() => removeModeRow(idx)}>&times;</button>}
             </div>
           ))}
+          <button className="btn btn-sm" onClick={addModeRow} style={{ marginBottom: 6 }}><i className="ti ti-plus"></i> Add mode</button>
           <div style={{ fontSize: 11.5, color: modesTotal === Number(detail.sale.outstanding) ? 'var(--g500)' : 'var(--red)', marginBottom: 10 }}>
             Mode split total: {fmt(modesTotal)} {modesTotal !== Number(detail.sale.outstanding) ? `(must equal ${fmt(detail.sale.outstanding)})` : ''}
           </div>
