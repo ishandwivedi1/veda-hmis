@@ -378,25 +378,45 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
 function OngoingOrdersSection({ bills, loading, advanceBalance, onChanged }) {
   const [expandedId, setExpandedId] = useState(bills.length === 1 ? bills[0].id : null);
 
-  if (loading) return <div className="card"><div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div></div>;
-  if (bills.length === 0) return <div className="card"><div style={{ fontSize: 12, color: 'var(--g400)' }}>No ongoing orders -- nothing awaiting payment for this customer.</div></div>;
+  if (loading) return <div className="card"><div style={{ fontSize: 13, color: 'var(--g400)' }}>Loading...</div></div>;
+  if (bills.length === 0) return <div className="card"><div style={{ fontSize: 13, color: 'var(--g400)' }}>No ongoing orders -- nothing awaiting payment for this customer.</div></div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {bills.map((b) => (
-        <div key={b.id} className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpandedId(expandedId === b.id ? null : b.id)}>
-            <span><strong>{b.sale_number}</strong> -- {fmtDate(b.sale_date)} -- Total {fmt(b.net)}</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ color: 'var(--red)', fontWeight: 600 }}>Due {fmt(b.outstanding)}</span>
-              <i className={`ti ti-chevron-${expandedId === b.id ? 'up' : 'down'}`}></i>
-            </span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {bills.map((b) => {
+        const isOpen = expandedId === b.id;
+        return (
+          <div key={b.id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '16px 20px', background: isOpen ? 'var(--g50)' : '#fff' }}
+              onClick={() => setExpandedId(isOpen ? null : b.id)}
+            >
+              <div>
+                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, color: 'var(--g900)' }}>{b.sale_number}</div>
+                <div style={{ fontSize: 12, color: 'var(--g500)', marginTop: 2 }}>Booked {fmtDate(b.sale_date)} -- Total {fmt(b.net)}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <span className="badge" style={{ background: 'var(--red-lt)', color: 'var(--red)', fontSize: 13, fontWeight: 700, padding: '6px 12px' }}>Due {fmt(b.outstanding)}</span>
+                <i className={`ti ti-chevron-${isOpen ? 'up' : 'down'}`} style={{ color: 'var(--g400)', fontSize: 18 }}></i>
+              </div>
+            </div>
+            {isOpen && (
+              <div style={{ padding: '0 20px 20px', borderTop: '1px solid var(--g100)' }}>
+                <BillAndCloseForm saleId={b.id} advanceBalance={advanceBalance} onChanged={onChanged} />
+              </div>
+            )}
           </div>
-          {expandedId === b.id && (
-            <BillAndCloseForm saleId={b.id} advanceBalance={advanceBalance} onChanged={onChanged} />
-          )}
-        </div>
-      ))}
+        );
+      })}
+    </div>
+  );
+}
+
+function StatBlock({ label, value, color }) {
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 21, fontWeight: 700, color: color || 'var(--g900)' }}>{value}</div>
     </div>
   );
 }
@@ -471,38 +491,91 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
     onChanged();
   }
 
-  if (!detail) return <div style={{ fontSize: 12, color: 'var(--g400)', marginTop: 10 }}>Loading...</div>;
+  if (!detail) return <div style={{ fontSize: 13, color: 'var(--g400)', padding: '16px 0' }}>Loading...</div>;
+
+  const paymentTypeLabel = (p) => {
+    if (p.payment_type === 'advance_adjustment') return 'Advance Applied';
+    if (p.payment_type === 'credit_note') return 'Credit Note';
+    if (p.payment_type === 'refund') return 'Refund';
+    return (p.optical_payment_modes || []).map((m) => m.mode).join(' + ') || 'Payment';
+  };
 
   return (
-    <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--g100)' }}>
-      {error && <div className="msg-err">{error}</div>}
-      {successMsg && <div className="msg-info" style={{ background: 'var(--green-lt, #e3f5ec)', color: 'var(--green, #157a4f)', padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10 }}>{successMsg}</div>}
+    <div style={{ paddingTop: 18 }}>
+      {error && <div className="msg-err" style={{ marginBottom: 14 }}>{error}</div>}
+      {successMsg && <div style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '10px 14px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, marginBottom: 14 }}>
+        <i className="ti ti-check"></i> {successMsg}
+      </div>}
 
-      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Items</div>
-      {detail.items.map((it) => (
-        <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', color: 'var(--g600)' }}>
-          <span>{it.description} x{it.qty}</span><span>{fmt(it.amount)}</span>
+      {/* Financial summary -- order total, what's already been paid or
+          applied, and what's still due, at a glance. */}
+      <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 18 }}>
+        <StatBlock label="Order Total" value={fmt(detail.sale.net)} />
+        <StatBlock label="Paid / Applied So Far" value={fmt(detail.sale.paid)} color="var(--green)" />
+        <StatBlock label="Balance Due" value={fmt(detail.sale.outstanding)} color={detail.sale.outstanding > 0 ? 'var(--red)' : 'var(--green)'} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 8 }}>Items Ordered</div>
+          <div style={{ border: '1px solid var(--g200)', borderRadius: 'var(--r-sm)', overflow: 'hidden' }}>
+            {detail.items.map((it, i) => (
+              <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '9px 12px', background: i % 2 ? 'var(--g50)' : '#fff' }}>
+                <span style={{ color: 'var(--g700)' }}>{it.description} {it.qty > 1 && <span style={{ color: 'var(--g400)' }}>x{it.qty}</span>}</span>
+                <span style={{ fontWeight: 600 }}>{fmt(it.amount)}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
+
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 8 }}>
+            Previous Payments &amp; Advance
+          </div>
+          {detail.payments.length === 0 ? (
+            <div style={{ border: '1px solid var(--g200)', borderRadius: 'var(--r-sm)', padding: '12px', fontSize: 12.5, color: 'var(--g400)' }}>
+              Nothing collected against this order yet.
+            </div>
+          ) : (
+            <div style={{ border: '1px solid var(--g200)', borderRadius: 'var(--r-sm)', overflow: 'hidden' }}>
+              {detail.payments.map((p, i) => (
+                <div key={p.id} style={{ padding: '9px 12px', background: i % 2 ? 'var(--g50)' : '#fff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ fontWeight: 600, color: 'var(--g700)' }}>{paymentTypeLabel(p)}</span>
+                    <span style={{ fontWeight: 700, color: 'var(--green)' }}>{fmt(p.total_amount)}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 1 }}>{p.receipt_number} -- {fmtDate(p.collected_at)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {detail.sale.outstanding <= 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--green)', marginTop: 10 }}>Fully paid.</div>
+        <div style={{ marginTop: 18, background: 'var(--green-lt)', color: 'var(--green)', padding: '12px 16px', borderRadius: 'var(--r)', fontSize: 13.5, fontWeight: 600 }}>
+          <i className="ti ti-circle-check"></i> Fully paid -- this episode is closed.
+        </div>
       ) : (
-        <>
+        <div style={{ marginTop: 20, padding: 20, background: 'var(--blue-lt)', borderRadius: 'var(--r)' }}>
+          <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 14, fontWeight: 700, color: 'var(--blue-dk)', marginBottom: 14 }}>
+            <i className="ti ti-cash"></i> Collect Remaining Balance -- {fmt(detail.sale.outstanding)}
+          </div>
+
           {advanceBalance > 0 && (
-            <div style={{ background: 'var(--blue-lt, #eef4fb)', padding: '8px 12px', borderRadius: 8, margin: '12px 0', fontSize: 12.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <span><i className="ti ti-piggy-bank"></i> Unused advance available: <strong>{fmt(advanceBalance)}</strong></span>
+            <div style={{ background: '#fff', padding: '10px 14px', borderRadius: 'var(--r-sm)', marginBottom: 14, fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <span><i className="ti ti-piggy-bank" style={{ color: 'var(--blue)' }}></i> Unused advance on file: <strong>{fmt(advanceBalance)}</strong></span>
               <div style={{ display: 'flex', gap: 6 }}>
-                <input className="fi" style={{ width: 100 }} type="number" value={applyAdvanceAmt} onChange={(e) => setApplyAdvanceAmt(e.target.value)} placeholder="Amount" />
+                <input className="fi fi-sm" style={{ width: 100 }} type="number" value={applyAdvanceAmt} onChange={(e) => setApplyAdvanceAmt(e.target.value)} placeholder="Amount" />
                 <button className="btn btn-sm" disabled={saving || !applyAdvanceAmt} onClick={handleApplyAdvance}>Apply</button>
               </div>
             </div>
           )}
 
-          <label className="flbl" style={{ marginTop: 10 }}>Payment Mode(s) for the Remaining Balance ({fmt(detail.sale.outstanding)}) -- split across multiple if needed</label>
+          <label className="flbl">Payment Mode(s) -- split across multiple if needed</label>
           {modeRows.map((row, idx) => (
             <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-              <select className="fi fi-sm" value={row.mode} onChange={(e) => updateModeRow(idx, 'mode', e.target.value)} style={{ flex: 1 }}>
+              <select className="fi fi-sm" value={row.mode} onChange={(e) => updateModeRow(idx, 'mode', e.target.value)} style={{ flex: 1, background: '#fff' }}>
                 {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
               <input
@@ -510,33 +583,34 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
                 type="number"
                 value={row.amount}
                 onChange={(e) => updateModeRow(idx, 'amount', e.target.value)}
-                placeholder={modeRows.length === 1 ? 'Auto-filled from outstanding' : 'Amount'}
+                placeholder={modeRows.length === 1 ? 'Auto-filled from balance due' : 'Amount'}
                 readOnly={modeRows.length === 1}
                 style={{ flex: 1, background: modeRows.length === 1 ? 'var(--g100)' : '#fff' }}
               />
               {modeRows.length > 1 && <button className="btn btn-sm" onClick={() => removeModeRow(idx)}>&times;</button>}
             </div>
           ))}
-          <button className="btn btn-sm" onClick={addModeRow} style={{ marginBottom: 6 }}><i className="ti ti-plus"></i> Add mode</button>
-          <div style={{ fontSize: 11.5, color: modesTotal === Number(detail.sale.outstanding) ? 'var(--g500)' : 'var(--red)', marginBottom: 10 }}>
-            Mode split total: {fmt(modesTotal)} {modesTotal !== Number(detail.sale.outstanding) ? `(must equal ${fmt(detail.sale.outstanding)})` : ''}
+          <button className="btn btn-sm" onClick={addModeRow} style={{ marginBottom: 8, background: '#fff' }}><i className="ti ti-plus"></i> Add mode</button>
+          <div style={{ fontSize: 12, fontWeight: 600, color: modesTotal === Number(detail.sale.outstanding) ? 'var(--green)' : 'var(--red)', marginBottom: 12 }}>
+            Split total: {fmt(modesTotal)} {modesTotal !== Number(detail.sale.outstanding) ? `-- must equal ${fmt(detail.sale.outstanding)}` : ''}
           </div>
-          <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
-            <input className="fi fi-sm" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Reference (optional)" style={{ flex: 1 }} />
-            <input className="fi fi-sm" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" style={{ flex: 1 }} />
+          <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+            <input className="fi fi-sm" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Reference (optional)" style={{ flex: 1, background: '#fff' }} />
+            <input className="fi fi-sm" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" style={{ flex: 1, background: '#fff' }} />
           </div>
           <button className="btn btn-primary" disabled={saving || modesTotal !== Number(detail.sale.outstanding)} onClick={handleCollect}>
             <i className="ti ti-cash"></i> {saving ? 'Recording...' : 'Bill Patient & Close Episode'}
           </button>
-        </>
+        </div>
       )}
 
-      <a href={`/optical-receipt-print/${saleId}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none', marginTop: 12, marginLeft: 8, display: 'inline-block' }}>
-        <i className="ti ti-printer"></i> Print
+      <a href={`/optical-receipt-print/${saleId}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none', marginTop: 16, display: 'inline-block' }}>
+        <i className="ti ti-printer"></i> Print Bill
       </a>
     </div>
   );
 }
+
 
 function PreviousOrdersSection({ bills, loading }) {
   if (loading) return <div className="card"><div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div></div>;
