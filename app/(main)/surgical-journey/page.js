@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getSurgicalCaseLists, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, recordManualReminder, getSurgicalTrackArrivalsToday } from './actions';
+import { getScheduledOT, getOTHistory } from '../ot-schedule/actions';
 
 const STAGE_LABEL = {
   'Pending Workup': 'Working Up',
@@ -15,6 +16,7 @@ const STAGE_BADGE = {
   'Ready for Scheduling': 'b-blue',
   Scheduled: 'b-green',
 };
+const STATUS_BADGE_OT = { Scheduled: 'b-blue', 'In Progress': 'b-amber' };
 
 function TabButton({ active, onClick, icon, label }) {
   return (
@@ -121,6 +123,8 @@ export default function SurgicalJourneyPage() {
   const [arrivedToday, setArrivedToday] = useState(new Set());
   const [dischargedToday, setDischargedToday] = useState([]);
   const [history, setHistory] = useState([]);
+  const [surgeriesToday, setSurgeriesToday] = useState([]);
+  const [loadingSurgeriesToday, setLoadingSurgeriesToday] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingDischargedToday, setLoadingDischargedToday] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -142,8 +146,22 @@ export default function SurgicalJourneyPage() {
     setHistory(await getCompletedSurgicalCases());
     setLoadingHistory(false);
   }, []);
+  const refreshSurgeriesToday = useCallback(async () => {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const [scheduled, otHistory] = await Promise.all([getScheduledOT(), getOTHistory()]);
+    // Same merge as OT Schedule's own "Today's OT List": getScheduledOT
+    // only returns status='Scheduled', so a case already in surgery
+    // (In Progress) has to be pulled in from OT History separately or
+    // it would vanish from today's view the moment it actually starts.
+    const rows = [
+      ...scheduled.filter((s) => s.scheduled_date === today),
+      ...otHistory.filter((h) => h.scheduled_date === today && h.status === 'In Progress'),
+    ].sort((a, b) => (a.scheduled_time || '').localeCompare(b.scheduled_time || ''));
+    setSurgeriesToday(rows);
+    setLoadingSurgeriesToday(false);
+  }, []);
 
-  useEffect(() => { refresh(); refreshDischargedToday(); refreshHistory(); }, [refresh, refreshDischargedToday, refreshHistory]);
+  useEffect(() => { refresh(); refreshDischargedToday(); refreshHistory(); refreshSurgeriesToday(); }, [refresh, refreshDischargedToday, refreshHistory, refreshSurgeriesToday]);
 
   // Whoever's physically here right now goes first -- that's who the
   // surgeon actually needs to see, not just the longest-overdue call.
@@ -164,7 +182,34 @@ export default function SurgicalJourneyPage() {
       </div>
 
       {activeTab === 'active' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, alignItems: 'start' }}>
+        <>
+          <div className="card" style={{ border: '2px solid var(--blue)', marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 10 }}>
+              <i className="ti ti-scalpel" style={{ color: 'var(--blue)' }}></i> Surgeries Today
+              <span className="badge b-blue" style={{ marginLeft: 8 }}>{surgeriesToday.length}</span>
+            </div>
+            {loadingSurgeriesToday && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Loading...</div>}
+            {!loadingSurgeriesToday && surgeriesToday.map((s) => (
+              <div key={s.id} onClick={() => router.push(`/surgical-journey/${s.surgical_case_id}`)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: s.status === 'In Progress' ? 'var(--amber)' : 'var(--blue)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                  {s.surgical_cases?.patients?.first_name?.charAt(0)}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{formatPatientName(s.surgical_cases?.patients)}</span>
+                  <span className={`badge ${STATUS_BADGE_OT[s.status] || 'b-gray'}`} style={{ marginLeft: 8, fontSize: 10 }}>{s.status}</span>
+                  <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 1 }}>
+                    {s.scheduled_time?.slice(0, 5) || '--'} -- {s.room || 'Room TBD'} -- {s.surgical_cases?.patients?.uhid} -- {s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye} -- Dr. {s.profiles?.full_name || '--'}
+                  </div>
+                </div>
+                <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
+              </div>
+            ))}
+            {!loadingSurgeriesToday && surgeriesToday.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>No surgeries on the OT list for today.</div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, alignItems: 'start' }}>
           <div className="card" style={{ borderColor: 'var(--amber)', marginBottom: 0 }}>
             <div className="card-title" style={{ marginBottom: 4 }}>
               <i className="ti ti-clock-pause" style={{ color: 'var(--amber)' }}></i> Awaiting Confirmation
@@ -255,7 +300,8 @@ export default function SurgicalJourneyPage() {
               <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 20 }}>Nobody discharged yet today.</div>
             )}
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       {activeTab === 'history' && (
