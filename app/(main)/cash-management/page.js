@@ -602,18 +602,32 @@ export default function CashManagementPage() {
 
   return (
     <div>
-      <div style={{ borderRadius: 12, padding: '14px 18px', marginBottom: 16, color: '#fff', background: closedToday ? 'linear-gradient(135deg,#303a42,#1c242b)' : opening ? 'linear-gradient(135deg,#166534,#157a4f)' : 'linear-gradient(135deg,#92400e,#a15c00)' }}>
+      <div style={{ borderRadius: 12, padding: '14px 18px', marginBottom: 16, color: '#fff', background: closedToday ? 'linear-gradient(135deg,#303a42,#1c242b)' : opening ? 'linear-gradient(135deg,#166534,#157a4f)' : (unclosedPastDays.length > 0 ? 'linear-gradient(135deg,#991b1b,#7f1d1d)' : 'linear-gradient(135deg,#92400e,#a15c00)') }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: closedToday ? '#97a0aa' : opening ? '#4ade80' : '#fbbf24', boxShadow: closedToday ? 'none' : `0 0 8px ${opening ? '#4ade80' : '#fbbf24'}` }}></div>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: closedToday ? '#97a0aa' : opening ? '#4ade80' : (unclosedPastDays.length > 0 ? '#f87171' : '#fbbf24'), boxShadow: closedToday ? 'none' : `0 0 8px ${opening ? '#4ade80' : (unclosedPastDays.length > 0 ? '#f87171' : '#fbbf24')}` }}></div>
           <div>
             <div style={{ fontWeight: 700 }}>
-              {closedToday ? `Closed at ${new Date(todayClosingInfo?.closing?.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : opening ? `Opened at ${new Date(opening.opened_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} by ${opening.profiles?.full_name || '--'}` : 'Day not opened yet'}
+              {closedToday
+                ? `Closed at ${new Date(todayClosingInfo?.closing?.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}`
+                : opening
+                  ? `Opened at ${new Date(opening.opened_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} by ${opening.profiles?.full_name || '--'}`
+                  : unclosedPastDays.length > 0
+                    ? `Can't open today -- ${unclosedPastDays[0]} was never closed`
+                    : 'Day not opened yet'}
             </div>
             <div style={{ fontSize: 12, opacity: .85 }}>{new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
           </div>
           <div style={{ marginLeft: 'auto', fontSize: 13 }}>{fmt(summary.total)} collected today ({summary.count} transactions)</div>
         </div>
-        {!opening && !closedToday && (
+        {!opening && !closedToday && unclosedPastDays.length > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.25)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5 }}><i className="ti ti-alert-triangle"></i> {unclosedPastDays.length} earlier day(s) were opened but never closed -- close {unclosedPastDays.length > 1 ? 'them' : 'it'} before today can be opened.</span>
+            <button className="btn" style={{ background: '#fff', color: '#991b1b', fontWeight: 700 }} onClick={() => setActiveTab('reconciliation')}>
+              <i className="ti ti-calendar-exclamation"></i> Go to Reconciliation & Close Day
+            </button>
+          </div>
+        )}
+        {!opening && !closedToday && unclosedPastDays.length === 0 && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.25)', display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div>
               <label style={{ fontSize: 10, opacity: .85, display: 'block', marginBottom: 3 }}>Opening cash balance (Rs.)</label>
