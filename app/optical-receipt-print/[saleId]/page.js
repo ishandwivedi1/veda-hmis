@@ -21,6 +21,14 @@ export default async function OpticalReceiptPrintPage({ params }) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#b3261e' }}>{error || 'Bill not found.'}</div>;
   }
 
+  // A booking isn't a bill until the customer has actually settled it
+  // in full -- billing happens at final payment, not at the moment of
+  // booking. Same underlying record and reference number throughout;
+  // only the document's framing changes once it's Paid.
+  const isSettled = sale.status === 'Paid';
+  const docTitle = isSettled ? 'OPTICAL SHOP BILL' : 'BOOKING RECEIPT';
+  const refLabel = isSettled ? 'Bill No' : 'Booking No';
+
   return (
     <div>
       <div className="no-print" style={{ textAlign: 'right', padding: '16px 24px 0' }}>
@@ -49,7 +57,7 @@ export default async function OpticalReceiptPrintPage({ params }) {
         </div>
 
         <div style={{ textAlign: 'center', fontSize: 16, fontWeight: 700, borderTop: '1.5px solid #333', borderBottom: '1.5px solid #333', padding: '8px 0', margin: '10px 0 16px' }}>
-          OPTICAL SHOP BILL
+          {docTitle}
         </div>
 
         <table style={{ width: '100%', border: '1.5px solid #333', borderCollapse: 'collapse', marginBottom: 16 }}>
@@ -64,7 +72,7 @@ export default async function OpticalReceiptPrintPage({ params }) {
               <td style={{ width: '50%', padding: '10px 14px', verticalAlign: 'top' }}>
                 <table style={{ width: '100%', fontSize: 12 }}>
                   <tbody>
-                    <tr><td style={{ width: 90, color: '#444' }}>Bill No</td><td>: <strong>{sale.sale_number}</strong></td></tr>
+                    <tr><td style={{ width: 90, color: '#444' }}>{refLabel}</td><td>: <strong>{sale.sale_number}</strong></td></tr>
                     <tr><td style={{ color: '#444' }}>Date</td><td>: <strong>{fmtDate(sale.created_at)}</strong></td></tr>
                     <tr><td style={{ color: '#444' }}>Status</td><td>: <strong>{sale.status}</strong></td></tr>
                   </tbody>
