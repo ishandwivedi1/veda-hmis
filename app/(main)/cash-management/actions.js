@@ -829,19 +829,24 @@ export async function getCashCounterForDate(date) {
   };
 }
 
-export async function recordClosingCash(amount) {
-  const dayOpenError = await requireDayOpen();
-  if (dayOpenError) return dayOpenError;
-  const lockStatus = await getReconciliationLockStatus();
+export async function recordClosingCash(amount, date) {
+  const targetDate = date || todayIST();
+  const supabase = await createClient();
+  // Same check requireDayOpen() does for "today", but generalized to
+  // any date so this can also run for a past unclosed day -- which by
+  // definition already has a day_openings row (that's what makes it
+  // eligible for the Close a Past Day flow), so this is really just a
+  // safety check, not a real-world blocker for that path.
+  const { data: openingRow } = await supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle();
+  if (!openingRow) return { error: `${targetDate} hasn't been opened -- can't record its Cash Counter.` };
+  const lockStatus = await getReconciliationLockStatus(targetDate);
   if (!lockStatus.locked) return { error: 'Complete and close Reconciliation (Step 1) first.' };
   const amt = Number(amount);
   if (isNaN(amt) || amt < 0) return { error: 'Enter a valid amount.' };
 
-  const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
-  const today = todayIST();
   const { error } = await supabase.from('cash_counter').upsert({
-    counter_date: today, closing_cash: amt, closing_recorded_by: userData?.user?.id || null, closing_recorded_at: new Date().toISOString(),
+    counter_date: targetDate, closing_cash: amt, closing_recorded_by: userData?.user?.id || null, closing_recorded_at: new Date().toISOString(),
   }, { onConflict: 'counter_date' });
   if (error) return { error: error.message };
   return { success: true };
@@ -849,18 +854,18 @@ export async function recordClosingCash(amount) {
 
 // Confirms Cash Counter for the day -- no manual amount needed, it's
 // the same computedHandover the UI already shows.
-export async function confirmCashCounter() {
-  const dayOpenError = await requireDayOpen();
-  if (dayOpenError) return dayOpenError;
+export async function confirmCashCounter(date) {
+  const targetDate = date || todayIST();
   const supabase = await createClient();
-  const today = todayIST();
+  const { data: openingRow } = await supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle();
+  if (!openingRow) return { error: `${targetDate} hasn't been opened -- can't confirm its Cash Counter.` };
 
-  const lockStatus = await getReconciliationLockStatus(today);
+  const lockStatus = await getReconciliationLockStatus(targetDate);
   if (!lockStatus.locked) return { error: 'Complete and close Reconciliation (Step 1) first.' };
 
   const [{ data: existing }, counterState] = await Promise.all([
-    supabase.from('cash_counter').select('closing_cash').eq('counter_date', today).maybeSingle(),
-    getCashCounterForDate(today),
+    supabase.from('cash_counter').select('closing_cash').eq('counter_date', targetDate).maybeSingle(),
+    getCashCounterForDate(targetDate),
   ]);
   if (!existing || existing.closing_cash === null) {
     return { error: 'Record the closing cash count first.' };
@@ -870,15 +875,15 @@ export async function confirmCashCounter() {
   const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('cash_counter').update({
     amount_handed_over: computedHandover, handed_over_by: userData?.user?.id || null, handed_over_at: new Date().toISOString(),
-  }).eq('counter_date', today);
+  }).eq('counter_date', targetDate);
   if (error) return { error: error.message };
   return { success: true };
 }
 
-export async function unlockCashCounter() {
+export async function unlockCashCounter(date) {
+  const targetDate = date || todayIST();
   const supabase = await createClient();
-  const today = todayIST();
-  const { error } = await supabase.from('cash_counter').delete().eq('counter_date', today);
+  const { error } = await supabase.from('cash_counter').delete().eq('counter_date', targetDate);
   if (error) return { error: error.message };
   return { success: true };
 }

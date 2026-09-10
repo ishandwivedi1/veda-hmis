@@ -298,6 +298,8 @@ export default function CashManagementPage() {
   const [pastReconApprover, setPastReconApprover] = useState('');
   const [pastCloseNotes, setPastCloseNotes] = useState('');
   const [pastLoading, setPastLoading] = useState(false);
+  const [pastCounter, setPastCounter] = useState(null);
+  const [pastClosingInput, setPastClosingInput] = useState('');
 
   const [reconEdits, setReconEdits] = useState({});
   const [reconApprover, setReconApprover] = useState('');
@@ -521,6 +523,7 @@ export default function CashManagementPage() {
     setClosingPastDate(date);
     setPastReconEdits({});
     setPastCloseNotes('');
+    setPastClosingInput('');
     // Fetched once per session and reused on every mode save below --
     // the underlying transactions for a past, already-finished day
     // never change mid-session, so there's no reason to re-run the
@@ -529,6 +532,40 @@ export default function CashManagementPage() {
     const summaryData = await getTodayCollectionSummary(date);
     setPastSummary(summaryData);
     setPastReconRows(await getReconciliationData(date, summaryData));
+    setPastCounter(await getCashCounterForDate(date));
+  }
+
+  async function refreshPastCounter() {
+    setPastCounter(await getCashCounterForDate(closingPastDate));
+  }
+
+  async function handleRecordPastClosing() {
+    setError('');
+    setPastLoading(true);
+    const result = await recordClosingCash(pastClosingInput, closingPastDate);
+    setPastLoading(false);
+    if (result.error) { setError(result.error); return; }
+    setPastClosingInput('');
+    refreshPastCounter();
+  }
+
+  async function handleConfirmPastCounter() {
+    setError('');
+    setPastLoading(true);
+    const result = await confirmCashCounter(closingPastDate);
+    setPastLoading(false);
+    if (result.error) { setError(result.error); return; }
+    refreshPastCounter();
+  }
+
+  async function handleUnlockPastCounter() {
+    setError('');
+    setPastLoading(true);
+    const result = await unlockCashCounter(closingPastDate);
+    setPastLoading(false);
+    if (result.error) { setError(result.error); return; }
+    setPastClosingInput('');
+    refreshPastCounter();
   }
 
   function updatePastReconField(mode, field, value) {
@@ -561,6 +598,7 @@ export default function CashManagementPage() {
     setError(''); setSuccess('');
     const allSaved = pastReconRows.every((r) => r.saved);
     if (!allSaved) { setError('Complete reconciliation for every payment mode before closing this day.'); return; }
+    if (pastCounter && pastCounter.amountHandedOver == null) { setError('Confirm Cash Counter (Step 2) for this date before closing it.'); return; }
     setPastLoading(true);
     const result = await closeDay(pastCloseNotes, closingPastDate);
     setPastLoading(false);
@@ -862,6 +900,7 @@ export default function CashManagementPage() {
                   <button className="btn btn-sm" onClick={() => setClosingPastDate(null)}>Back to list</button>
                 </div>
 
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 6 }}><span className="badge b-gray" style={{ marginRight: 6 }}>Step 1</span>Cash Reconciliation</div>
                 <div style={{ display: 'flex', padding: '8px 12px', background: 'var(--g50)', borderRadius: 8, marginBottom: 6, fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>
                   <span style={{ minWidth: 140 }}>Mode</span>
                   <span style={{ minWidth: 130, textAlign: 'right' }}>Expected</span>
@@ -905,9 +944,57 @@ export default function CashManagementPage() {
                 })}
                 {pastReconRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No collections recorded for this date -- nothing to reconcile.</div>}
 
-                <label className="flbl" style={{ marginTop: 14 }}>Closing notes</label>
+                {pastCounter && (
+                  <div style={{ marginTop: 20, padding: 14, background: 'var(--g50)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 10 }}><span className="badge b-gray" style={{ marginRight: 6 }}>Step 2</span>Cash Counter</div>
+
+                    {!pastReconRows.every((r) => r.saved) ? (
+                      <div style={{ fontSize: 12.5, color: 'var(--g500)' }}><i className="ti ti-lock" style={{ color: 'var(--g400)' }}></i> Save reconciliation for every mode above first.</div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', gap: 24, marginBottom: 14, flexWrap: 'wrap' }}>
+                          <div>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--g500)' }}>Opening</div>
+                            <div style={{ fontSize: 18, fontWeight: 700 }}>{pastCounter.openingCash != null ? fmt(pastCounter.openingCash) : '--'}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--g500)' }}>Closing (Retained)</div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--green)' }}>{pastCounter.closingCash != null ? fmt(pastCounter.closingCash) : '--'}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--g500)' }}>Handed Over</div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--purple)' }}>{pastCounter.amountHandedOver != null ? fmt(pastCounter.amountHandedOver) : (pastCounter.computedHandover != null ? fmt(pastCounter.computedHandover) : '--')}</div>
+                          </div>
+                        </div>
+
+                        {pastCounter.closingCash == null && (
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+                            <input className="fi" type="number" min="0" value={pastClosingInput} onChange={(e) => setPastClosingInput(e.target.value)} placeholder="Amount physically counted / retained" style={{ flex: 1 }} />
+                            <button className="btn btn-primary" disabled={pastLoading || !pastClosingInput} onClick={handleRecordPastClosing}>{pastLoading ? 'Saving...' : 'Record'}</button>
+                          </div>
+                        )}
+
+                        {pastCounter.closingCash != null && pastCounter.amountHandedOver == null && (
+                          <button className="btn btn-primary" disabled={pastLoading} onClick={handleConfirmPastCounter}>
+                            <i className="ti ti-lock"></i> {pastLoading ? 'Confirming...' : 'Confirm Cash Counter'}
+                          </button>
+                        )}
+
+                        {pastCounter.amountHandedOver != null && (
+                          <div style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '8px 12px', borderRadius: 'var(--r-sm)', fontSize: 12.5, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                            <span><i className="ti ti-check"></i> Confirmed -- {fmt(pastCounter.amountHandedOver)} handed over.</span>
+                            <button className="btn btn-sm" style={{ background: '#fff' }} onClick={handleUnlockPastCounter}><i className="ti ti-lock-open"></i> Unlock</button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginTop: 20, marginBottom: 6 }}><span className="badge b-gray" style={{ marginRight: 6 }}>Step 3</span>Close Day</div>
+                <label className="flbl">Closing notes</label>
                 <textarea className="fi" rows={2} style={{ marginBottom: 10 }} value={pastCloseNotes} onChange={(e) => setPastCloseNotes(e.target.value)} placeholder="e.g. Closed late -- internet outage on this date" />
-                <button className="btn btn-danger" onClick={handleClosePastDay} disabled={pastLoading || (pastReconRows.length > 0 && !pastReconRows.every((r) => r.saved))}>
+                <button className="btn btn-danger" onClick={handleClosePastDay} disabled={pastLoading || (pastReconRows.length > 0 && !pastReconRows.every((r) => r.saved)) || (pastCounter && pastCounter.amountHandedOver == null)}>
                   <i className="ti ti-lock"></i> {pastLoading ? 'Closing...' : `Close ${closingPastDate}`}
                 </button>
               </div>
