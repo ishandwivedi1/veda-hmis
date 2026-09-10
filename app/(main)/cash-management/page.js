@@ -152,6 +152,16 @@ function CashCounterTab({ onStatusChange }) {
     setLookupLoading(false);
   }
 
+  // Live preview while staff are still typing the Closing Cash count,
+  // before it's Recorded -- lets them see Cash Handed Over update as
+  // they adjust the figure, instead of only finding out after saving.
+  // Purely client-side math mirroring the server formula in
+  // getCashCounterForDate; nothing is persisted until Record is clicked.
+  const liveClosingCash = closingInput !== '' && !isNaN(Number(closingInput)) ? Number(closingInput) : null;
+  const livePreview = (today && today.closingCash == null && liveClosingCash != null)
+    ? Number(today.openingCash || 0) + Number(today.reconciledCashActual || 0) - liveClosingCash
+    : null;
+
   if (loading || !today) {
     return <div className="card"><div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading...</div></div>;
   }
@@ -177,14 +187,21 @@ function CashCounterTab({ onStatusChange }) {
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Closing Cash (Retained)</div>
-                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>{today.closingCash != null ? fmt(today.closingCash) : '--'}</div>
+                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>{today.closingCash != null ? fmt(today.closingCash) : (liveClosingCash != null ? fmt(liveClosingCash) : '--')}</div>
                 {today.closingRecordedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Counted by {today.closingRecordedBy}</div>}
+                {today.closingCash == null && liveClosingCash != null && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Not recorded yet</div>}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Cash Handed Over</div>
-                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{today.amountHandedOver != null ? fmt(today.amountHandedOver) : (today.computedHandover != null ? fmt(today.computedHandover) : '--')}</div>
+                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{today.amountHandedOver != null ? fmt(today.amountHandedOver) : (today.computedHandover != null ? fmt(today.computedHandover) : (livePreview != null ? fmt(livePreview) : '--'))}</div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>
-                  {today.handedOverBy ? `Handed over by ${today.handedOverBy}` : (today.closingCash != null ? `Opening ${fmt(today.openingCash || 0)} + Cash (Step 1, net of expenses) ${fmt(today.reconciledCashActual)} - Retained ${fmt(today.closingCash)}` : 'Record closing cash count below to compute')}
+                  {today.handedOverBy
+                    ? `Handed over by ${today.handedOverBy}`
+                    : today.closingCash != null
+                      ? `Opening ${fmt(today.openingCash || 0)} + Cash (Step 1, net of expenses) ${fmt(today.reconciledCashActual)} - Retained ${fmt(today.closingCash)}`
+                      : livePreview != null
+                        ? `Live estimate as you type -- Record to lock in the count`
+                        : 'Record closing cash count below to compute'}
                 </div>
               </div>
             </div>
