@@ -735,3 +735,94 @@ export async function requireDayOpen() {
   }
   return null;
 }
+
+// ---------- Cash Counter ----------
+// Opening cash is never duplicated here -- it's read live from
+// day_openings.opening_cash_balance, the single existing source of
+// truth. This table only stores the two genuinely new pieces: the
+// physical cash counted at close, and who handed it to whom.
+
+export async function getCashCounterForDate(date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const [{ data: opening }, { data: counter }] = await Promise.all([
+    supabase.from('day_openings').select('opening_cash_balance, opened_at, profiles(full_name)').eq('opening_date', targetDate).maybeSingle(),
+    supabase.from('cash_counter').select('*, closer:profiles!cash_counter_closing_recorded_by_fkey(full_name), handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name), receivedByProfile:profiles!cash_counter_received_by_fkey(full_name)')
+      .eq('counter_date', targetDate).maybeSingle(),
+  ]);
+  return {
+    date: targetDate,
+    openingCash: opening?.opening_cash_balance ?? null,
+    openedBy: opening?.profiles?.full_name || null,
+    closingCash: counter?.closing_cash ?? null,
+    closingRecordedBy: counter?.closer?.full_name || null,
+    closingRecordedAt: counter?.closing_recorded_at || null,
+    amountHandedOver: counter?.amount_handed_over ?? null,
+    handedOverBy: counter?.handedOverByProfile?.full_name || null,
+    receivedBy: counter?.receivedByProfile?.full_name || null,
+    handoverRemarks: counter?.handover_remarks || null,
+    handedOverAt: counter?.handed_over_at || null,
+  };
+}
+
+export async function recordClosingCash(amount) {
+  const dayOpenError = await requireDayOpen();
+  if (dayOpenError) return dayOpenError;
+  const amt = Number(amount);
+  if (isNaN(amt) || amt < 0) return { error: 'Enter a valid amount.' };
+
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const today = todayIST();
+  const { error } = await supabase.from('cash_counter').upsert({
+    counter_date: today, closing_cash: amt, closing_recorded_by: userData?.user?.id || null, closing_recorded_at: new Date().toISOString(),
+  }, { onConflict: 'counter_date' });
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function recordCashHandover({ amount, receivedBy, remarks }) {
+  const dayOpenError = await requireDayOpen();
+  if (dayOpenError) return dayOpenError;
+  const amt = Number(amount);
+  if (isNaN(amt) || amt <= 0) return { error: 'Enter a valid amount.' };
+  if (!receivedBy) return { error: 'Select who received the cash.' };
+
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const today = todayIST();
+  const { data: existing } = await supabase.from('cash_counter').select('closing_cash').eq('counter_date', today).maybeSingle();
+  if (!existing || existing.closing_cash === null) {
+    return { error: 'Record the closing cash count first, before handing it over.' };
+  }
+
+  const { error } = await supabase.from('cash_counter').update({
+    amount_handed_over: amt, handed_over_by: userData?.user?.id || null, received_by: receivedBy,
+    handover_remarks: remarks || null, handed_over_at: new Date().toISOString(),
+  }).eq('counter_date', today);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function getCashCounterHistory() {
+  const supabase = await createClient();
+  const { data: openings } = await supabase.from('day_openings').select('opening_date, opening_cash_balance').order('opening_date', { ascending: false }).limit(30);
+  const { data: counters } = await supabase.from('cash_counter')
+    .select('*, handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name), receivedByProfile:profiles!cash_counter_received_by_fkey(full_name)')
+    .order('counter_date', { ascending: false }).limit(30);
+  const counterByDate = {};
+  (counters || []).forEach((c) => { counterByDate[c.counter_date] = c; });
+
+  return (openings || []).map((o) => {
+    const c = counterByDate[o.opening_date];
+    return {
+      date: o.opening_date,
+      openingCash: o.opening_cash_balance,
+      closingCash: c?.closing_cash ?? null,
+      variance: c?.closing_cash != null ? Number(c.closing_cash) - Number(o.opening_cash_balance) : null,
+      amountHandedOver: c?.amount_handed_over ?? null,
+      handedOverBy: c?.handedOverByProfile?.full_name || null,
+      receivedBy: c?.receivedByProfile?.full_name || null,
+    };
+  });
+}

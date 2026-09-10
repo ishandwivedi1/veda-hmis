@@ -18,6 +18,10 @@ import {
   getExpenseCategoriesActive,
   getExpensesForDate,
   getPettyCashTotal,
+  getCashCounterForDate,
+  recordClosingCash,
+  recordCashHandover,
+  getCashCounterHistory,
   addExpense,
   deleteExpense,
 } from './actions';
@@ -30,7 +34,8 @@ import { openPrintPopup } from '@/lib/printPopup';
 
 const TABS = [
   { key: 'summary', label: "Today's Collection", icon: 'ti-chart-bar' },
-  { key: 'pettycash', label: 'Petty Cash', icon: 'ti-cash-banknote' },
+  { key: 'pettycash', label: 'Cash Expenses', icon: 'ti-cash-banknote' },
+  { key: 'cashcounter', label: 'Cash Counter', icon: 'ti-wallet' },
   { key: 'reconciliation', label: 'Reconciliation', icon: 'ti-calculator' },
   { key: 'close', label: 'Close Day', icon: 'ti-lock' },
   { key: 'report', label: 'Daily Report', icon: 'ti-file-text' },
@@ -83,6 +88,147 @@ function ModeBreakdownRows({ cat, emptyLabel, totalColor = 'var(--g800)', totalL
         </>
       )}
     </>
+  );
+}
+
+function CashCounterTab() {
+  const [today, setToday] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [approvers, setApprovers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [closingInput, setClosingInput] = useState('');
+  const [handoverAmount, setHandoverAmount] = useState('');
+  const [receivedBy, setReceivedBy] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const [t, h] = await Promise.all([getCashCounterForDate(), getCashCounterHistory()]);
+    setToday(t);
+    setHistory(h);
+    if (t.closingCash != null) setHandoverAmount(String(t.closingCash));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { refresh(); getApprovers().then(setApprovers); }, [refresh]);
+
+  async function handleRecordClosing() {
+    setError('');
+    setSaving(true);
+    const result = await recordClosingCash(closingInput);
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setClosingInput('');
+    refresh();
+  }
+
+  async function handleHandover() {
+    setError('');
+    setSaving(true);
+    const result = await recordCashHandover({ amount: handoverAmount, receivedBy, remarks });
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setRemarks('');
+    refresh();
+  }
+
+  if (loading || !today) {
+    return <div className="card"><div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading...</div></div>;
+  }
+
+  return (
+    <div>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 14 }}><i className="ti ti-wallet" style={{ color: 'var(--blue)' }}></i> Cash Counter -- Today</div>
+        {error && <div className="msg-err" style={{ marginBottom: 14 }}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 20 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Opening Cash</div>
+            <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700 }}>{today.openingCash != null ? fmt(today.openingCash) : '--'}</div>
+            {today.openedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Opened by {today.openedBy}</div>}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Closing Cash</div>
+            <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>{today.closingCash != null ? fmt(today.closingCash) : '--'}</div>
+            {today.closingRecordedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Counted by {today.closingRecordedBy}</div>}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Handed Over</div>
+            <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{today.amountHandedOver != null ? fmt(today.amountHandedOver) : '--'}</div>
+            {today.handedOverBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{today.handedOverBy} -&gt; {today.receivedBy}</div>}
+          </div>
+        </div>
+
+        {today.openingCash == null && (
+          <div style={{ fontSize: 12.5, color: 'var(--g500)' }}>Open today's cash day (Today's Collection tab) before recording the closing count.</div>
+        )}
+
+        {today.openingCash != null && today.closingCash == null && (
+          <div style={{ marginBottom: 20 }}>
+            <label className="flbl">Record Closing Cash Count</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="fi" type="number" min="0" value={closingInput} onChange={(e) => setClosingInput(e.target.value)} placeholder="Amount physically counted in the drawer" style={{ flex: 1 }} />
+              <button className="btn btn-primary" disabled={saving || !closingInput} onClick={handleRecordClosing}>{saving ? 'Saving...' : 'Record'}</button>
+            </div>
+          </div>
+        )}
+
+        {today.closingCash != null && today.amountHandedOver == null && (
+          <div>
+            <label className="flbl">Hand Over Cash</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input className="fi" type="number" min="0" value={handoverAmount} onChange={(e) => setHandoverAmount(e.target.value)} placeholder="Amount" style={{ flex: 1 }} />
+              <select className="fi" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} style={{ flex: 1 }}>
+                <option value="">Received by...</option>
+                {approvers.map((a) => <option key={a.id} value={a.id}>{a.full_name}{a.designation ? ` (${a.designation})` : ''}</option>)}
+              </select>
+            </div>
+            <input className="fi" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" style={{ marginBottom: 10 }} />
+            <button className="btn btn-primary" disabled={saving || !handoverAmount || !receivedBy} onClick={handleHandover}>{saving ? 'Saving...' : 'Confirm Handover'}</button>
+          </div>
+        )}
+
+        {today.amountHandedOver != null && (
+          <div style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '10px 14px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600 }}>
+            <i className="ti ti-check"></i> {fmt(today.amountHandedOver)} handed over by {today.handedOverBy} to {today.receivedBy}.
+            {today.handoverRemarks && <div style={{ fontWeight: 400, marginTop: 4 }}>{today.handoverRemarks}</div>}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-history"></i> Cash Counter History</div>
+        <table className="tbl">
+          <thead><tr><th>Date</th><th style={{ textAlign: 'right' }}>Opening</th><th style={{ textAlign: 'right' }}>Closing</th><th style={{ textAlign: 'right' }}>Net Change</th><th style={{ textAlign: 'right' }}>Handed Over</th><th>By</th><th>To</th></tr></thead>
+          <tbody>
+            {history.map((h) => (
+              <tr key={h.date}>
+                <td>{new Date(h.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                <td style={{ textAlign: 'right' }}>{fmt(h.openingCash)}</td>
+                <td style={{ textAlign: 'right' }}>{h.closingCash != null ? fmt(h.closingCash) : '--'}</td>
+                <td style={{ textAlign: 'right', color: 'var(--g600)' }}>
+                  {h.variance != null ? fmt(h.variance) : '--'}
+                </td>
+                <td style={{ textAlign: 'right', color: h.amountHandedOver != null && h.closingCash != null && h.amountHandedOver !== h.closingCash ? 'var(--red)' : 'var(--g800)' }}>
+                  {h.amountHandedOver != null ? fmt(h.amountHandedOver) : '--'}
+                  {h.amountHandedOver != null && h.closingCash != null && h.amountHandedOver !== h.closingCash && (
+                    <div style={{ fontSize: 10, fontWeight: 600 }}>Doesn't match closing count</div>
+                  )}
+                </td>
+                <td style={{ fontSize: 12 }}>{h.handedOverBy || '--'}</td>
+                <td style={{ fontSize: 12 }}>{h.receivedBy || '--'}</td>
+              </tr>
+            ))}
+            {history.length === 0 && (
+              <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No history yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -508,14 +654,14 @@ export default function CashManagementPage() {
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 16 }}>
             <div className="card" style={{ borderTop: '3px solid var(--red)' }}>
-              <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Today's Petty Cash Spend</div>
+              <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Today's Cash Expenses</div>
               <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt(pettyCashTotal)}</div>
               <div style={{ fontSize: 11, color: 'var(--g400)' }}>{todayExpenses.length} entries</div>
             </div>
             <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
               <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Net Cash Expected</div>
               <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmt((summary.byMode['Cash'] || 0) - pettyCashTotal)}</div>
-              <div style={{ fontSize: 11, color: 'var(--g400)' }}>Cash collected minus petty cash</div>
+              <div style={{ fontSize: 11, color: 'var(--g400)' }}>Cash collected minus cash expenses</div>
             </div>
           </div>
 
@@ -523,7 +669,7 @@ export default function CashManagementPage() {
             <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-alert-triangle"></i> Today's cash day hasn't been opened yet. Open it from the "Today's Collection" tab before recording expenses.</div>
           )}
           {closedToday && (
-            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-lock"></i> Today is already closed -- petty cash entries are locked. See the Daily Report tab.</div>
+            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-lock"></i> Today is already closed -- cash expense entries are locked. See the Daily Report tab.</div>
           )}
 
           {!closedToday && opening && (
@@ -600,13 +746,15 @@ export default function CashManagementPage() {
                   </Fragment>
                 ))}
                 {todayExpenses.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No petty cash expenses recorded today.</td></tr>
+                  <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No cash expenses recorded today.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
       )}
+
+      {activeTab === 'cashcounter' && <CashCounterTab />}
 
       {activeTab === 'reconciliation' && (
         <div className="card">
@@ -1097,7 +1245,7 @@ export default function CashManagementPage() {
                       </div>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outstanding</span><strong style={{ color: 'var(--amber)' }}>{fmt(report.closing.total_outstanding)}</strong></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Petty Cash Spent</span><strong style={{ color: 'var(--red)' }}>{fmt(report.closing.total_petty_cash_expenses)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cash Expenses</span><strong style={{ color: 'var(--red)' }}>{fmt(report.closing.total_petty_cash_expenses)}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoices</span><strong>{report.closing.total_invoices}</strong></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Visits</span><strong>{report.closing.total_visits}</strong></div>
                   </div>
@@ -1111,7 +1259,7 @@ export default function CashManagementPage() {
 
               {report.expenses.length > 0 && (
                 <div className="card" style={{ marginTop: 16 }}>
-                  <div className="card-title" style={{ marginBottom: 10 }}>Petty Cash Expenses</div>
+                  <div className="card-title" style={{ marginBottom: 10 }}>Cash Expenses</div>
                   <table className="tbl">
                     <thead><tr><th>Category</th><th>Remarks</th><th>Entered By</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
                     <tbody>
