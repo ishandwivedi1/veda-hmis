@@ -736,31 +736,85 @@ export async function requireDayOpen() {
   return null;
 }
 
-// ---------- Cash Counter ----------
-// Opening cash is never duplicated here -- it's read live from
-// day_openings.opening_cash_balance, the single existing source of
-// truth. This table only stores the two genuinely new pieces: the
-// physical cash counted at close, and who handed it to whom.
+// ---------- Reconciliation lock (Step 1 -- gates Cash Counter) ----------
+
+export async function getReconciliationLockStatus(date) {
+  const supabase = await createClient();
+  const targetDate = date || todayIST();
+  const { data } = await supabase.from('reconciliation_locks').select('*, profiles(full_name)').eq('lock_date', targetDate).maybeSingle();
+  return data ? { locked: true, lockedBy: data.profiles?.full_name || null, lockedAt: data.locked_at } : { locked: false, lockedBy: null, lockedAt: null };
+}
+
+export async function lockReconciliation() {
+  const dayOpenError = await requireDayOpen();
+  if (dayOpenError) return dayOpenError;
+  const supabase = await createClient();
+  const today = todayIST();
+
+  // Every mode with today's collection activity must already be
+  // reconciled (saved) before Step 1 can be marked complete -- same
+  // completeness idea close_day itself enforces for the whole day.
+  const [summary, pettyCashTotal, { data: saved }] = await Promise.all([
+    getTodayCollectionSummary(today),
+    getPettyCashTotal(today),
+    supabase.from('day_reconciliation').select('mode').eq('closing_date', today),
+  ]);
+  const modes = new Set(Object.keys(summary.byMode));
+  if (pettyCashTotal > 0) modes.add('Cash');
+  const savedModes = new Set((saved || []).map((r) => r.mode));
+  const missing = [...modes].filter((m) => !savedModes.has(m));
+  if (missing.length > 0) {
+    return { error: `Save reconciliation for ${missing.join(', ')} first.` };
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+  const { error } = await supabase.from('reconciliation_locks').upsert(
+    { lock_date: today, locked_by: userData?.user?.id || null }, { onConflict: 'lock_date' }
+  );
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+export async function unlockReconciliation() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const { error } = await supabase.from('reconciliation_locks').delete().eq('lock_date', today);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+// ---------- Cash Counter (Step 2) ----------
+// Opening cash is never duplicated -- read live from
+// day_openings.opening_cash_balance. Cash Handed Over is never typed
+// in either -- it's computed from Opening Cash + the reconciled Cash
+// mode's actual figure from Step 1 (that reconciled actual already has
+// today's cash expenses netted out, see getReconciliationData), so
+// the only two things anyone enters here are the closing count itself.
 
 export async function getCashCounterForDate(date) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
-  const [{ data: opening }, { data: counter }] = await Promise.all([
+  const [{ data: opening }, { data: counter }, lockStatus, { data: cashRecon }] = await Promise.all([
     supabase.from('day_openings').select('opening_cash_balance, opened_at, profiles(full_name)').eq('opening_date', targetDate).maybeSingle(),
-    supabase.from('cash_counter').select('*, closer:profiles!cash_counter_closing_recorded_by_fkey(full_name), handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name), receivedByProfile:profiles!cash_counter_received_by_fkey(full_name)')
+    supabase.from('cash_counter').select('*, closer:profiles!cash_counter_closing_recorded_by_fkey(full_name), handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
       .eq('counter_date', targetDate).maybeSingle(),
+    getReconciliationLockStatus(targetDate),
+    supabase.from('day_reconciliation').select('actual').eq('closing_date', targetDate).eq('mode', 'Cash').maybeSingle(),
   ]);
+  const openingCash = opening?.opening_cash_balance != null ? Number(opening.opening_cash_balance) : 0;
+  const reconciledCashActual = cashRecon?.actual != null ? Number(cashRecon.actual) : 0;
+
   return {
     date: targetDate,
     openingCash: opening?.opening_cash_balance ?? null,
     openedBy: opening?.profiles?.full_name || null,
+    reconciliationLocked: lockStatus.locked,
+    computedHandover: openingCash + reconciledCashActual,
     closingCash: counter?.closing_cash ?? null,
     closingRecordedBy: counter?.closer?.full_name || null,
     closingRecordedAt: counter?.closing_recorded_at || null,
     amountHandedOver: counter?.amount_handed_over ?? null,
     handedOverBy: counter?.handedOverByProfile?.full_name || null,
-    receivedBy: counter?.receivedByProfile?.full_name || null,
-    handoverRemarks: counter?.handover_remarks || null,
     handedOverAt: counter?.handed_over_at || null,
   };
 }
@@ -768,6 +822,8 @@ export async function getCashCounterForDate(date) {
 export async function recordClosingCash(amount) {
   const dayOpenError = await requireDayOpen();
   if (dayOpenError) return dayOpenError;
+  const lockStatus = await getReconciliationLockStatus();
+  if (!lockStatus.locked) return { error: 'Complete and close Reconciliation (Step 1) first.' };
   const amt = Number(amount);
   if (isNaN(amt) || amt < 0) return { error: 'Enter a valid amount.' };
 
@@ -781,35 +837,43 @@ export async function recordClosingCash(amount) {
   return { success: true };
 }
 
-export async function recordCashHandover({ amount, receivedBy, remarks }) {
+// Confirms Cash Counter for the day -- no manual amount needed, it's
+// the same computedHandover the UI already shows.
+export async function confirmCashCounter() {
   const dayOpenError = await requireDayOpen();
   if (dayOpenError) return dayOpenError;
-  const amt = Number(amount);
-  if (isNaN(amt) || amt <= 0) return { error: 'Enter a valid amount.' };
-  if (!receivedBy) return { error: 'Select who received the cash.' };
-
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
   const today = todayIST();
-  const { data: existing } = await supabase.from('cash_counter').select('closing_cash').eq('counter_date', today).maybeSingle();
-  if (!existing || existing.closing_cash === null) {
-    return { error: 'Record the closing cash count first, before handing it over.' };
-  }
 
+  const lockStatus = await getReconciliationLockStatus(today);
+  if (!lockStatus.locked) return { error: 'Complete and close Reconciliation (Step 1) first.' };
+
+  const [{ data: existing }, { data: opening }, { data: cashRecon }] = await Promise.all([
+    supabase.from('cash_counter').select('closing_cash').eq('counter_date', today).maybeSingle(),
+    supabase.from('day_openings').select('opening_cash_balance').eq('opening_date', today).maybeSingle(),
+    supabase.from('day_reconciliation').select('actual').eq('closing_date', today).eq('mode', 'Cash').maybeSingle(),
+  ]);
+  if (!existing || existing.closing_cash === null) {
+    return { error: 'Record the closing cash count first.' };
+  }
+  const computedHandover = (opening?.opening_cash_balance != null ? Number(opening.opening_cash_balance) : 0) + (cashRecon?.actual != null ? Number(cashRecon.actual) : 0);
+
+  const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('cash_counter').update({
-    amount_handed_over: amt, handed_over_by: userData?.user?.id || null, received_by: receivedBy,
-    handover_remarks: remarks || null, handed_over_at: new Date().toISOString(),
+    amount_handed_over: computedHandover, handed_over_by: userData?.user?.id || null, handed_over_at: new Date().toISOString(),
   }).eq('counter_date', today);
   if (error) return { error: error.message };
   return { success: true };
 }
 
-export async function getCashCounterHistory() {
+// Defaults to the last 2 days -- a specific older date can still be
+// looked up directly via getCashCounterForDate(date).
+export async function getCashCounterHistory(limit = 2) {
   const supabase = await createClient();
-  const { data: openings } = await supabase.from('day_openings').select('opening_date, opening_cash_balance').order('opening_date', { ascending: false }).limit(30);
+  const { data: openings } = await supabase.from('day_openings').select('opening_date, opening_cash_balance').order('opening_date', { ascending: false }).limit(limit);
   const { data: counters } = await supabase.from('cash_counter')
-    .select('*, handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name), receivedByProfile:profiles!cash_counter_received_by_fkey(full_name)')
-    .order('counter_date', { ascending: false }).limit(30);
+    .select('*, handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
+    .order('counter_date', { ascending: false }).limit(limit);
   const counterByDate = {};
   (counters || []).forEach((c) => { counterByDate[c.counter_date] = c; });
 
@@ -819,10 +883,8 @@ export async function getCashCounterHistory() {
       date: o.opening_date,
       openingCash: o.opening_cash_balance,
       closingCash: c?.closing_cash ?? null,
-      variance: c?.closing_cash != null ? Number(c.closing_cash) - Number(o.opening_cash_balance) : null,
       amountHandedOver: c?.amount_handed_over ?? null,
       handedOverBy: c?.handedOverByProfile?.full_name || null,
-      receivedBy: c?.receivedByProfile?.full_name || null,
     };
   });
 }

@@ -20,8 +20,11 @@ import {
   getPettyCashTotal,
   getCashCounterForDate,
   recordClosingCash,
-  recordCashHandover,
+  confirmCashCounter,
   getCashCounterHistory,
+  getReconciliationLockStatus,
+  lockReconciliation,
+  unlockReconciliation,
   addExpense,
   deleteExpense,
 } from './actions';
@@ -89,28 +92,28 @@ function ModeBreakdownRows({ cat, emptyLabel, totalColor = 'var(--g800)', totalL
   );
 }
 
-function CashCounterTab() {
+function CashCounterTab({ onStatusChange }) {
   const [today, setToday] = useState(null);
   const [history, setHistory] = useState([]);
-  const [approvers, setApprovers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [closingInput, setClosingInput] = useState('');
-  const [handoverAmount, setHandoverAmount] = useState('');
-  const [receivedBy, setReceivedBy] = useState('');
-  const [remarks, setRemarks] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const [lookupDate, setLookupDate] = useState('');
+  const [lookupResult, setLookupResult] = useState(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+
   const refresh = useCallback(async () => {
-    const [t, h] = await Promise.all([getCashCounterForDate(), getCashCounterHistory()]);
+    const [t, h] = await Promise.all([getCashCounterForDate(), getCashCounterHistory(2)]);
     setToday(t);
     setHistory(h);
-    if (t.closingCash != null) setHandoverAmount(String(t.closingCash));
     setLoading(false);
-  }, []);
+    onStatusChange?.(t.amountHandedOver != null);
+  }, [onStatusChange]);
 
-  useEffect(() => { refresh(); getApprovers().then(setApprovers); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh]);
 
   async function handleRecordClosing() {
     setError('');
@@ -122,14 +125,20 @@ function CashCounterTab() {
     refresh();
   }
 
-  async function handleHandover() {
+  async function handleConfirm() {
     setError('');
     setSaving(true);
-    const result = await recordCashHandover({ amount: handoverAmount, receivedBy, remarks });
+    const result = await confirmCashCounter();
     setSaving(false);
     if (result.error) { setError(result.error); return; }
-    setRemarks('');
     refresh();
+  }
+
+  async function handleLookup() {
+    if (!lookupDate) return;
+    setLookupLoading(true);
+    setLookupResult(await getCashCounterForDate(lookupDate));
+    setLookupLoading(false);
   }
 
   if (loading || !today) {
@@ -140,76 +149,68 @@ function CashCounterTab() {
     <div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title" style={{ marginBottom: 14 }}><span className="badge b-gray" style={{ marginRight: 8 }}>Step 2</span><i className="ti ti-wallet" style={{ color: 'var(--blue)' }}></i> Cash Counter -- Today</div>
-        {error && <div className="msg-err" style={{ marginBottom: 14 }}>{error}</div>}
 
-        <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 20 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Opening Cash</div>
-            <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700 }}>{today.openingCash != null ? fmt(today.openingCash) : '--'}</div>
-            {today.openedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Opened by {today.openedBy}</div>}
+        {!today.reconciliationLocked ? (
+          <div style={{ fontSize: 12.5, color: 'var(--g500)', padding: '4px 0' }}>
+            <i className="ti ti-lock" style={{ color: 'var(--g400)' }}></i> Close Reconciliation (Step 1) above first -- Cash Counter unlocks once that's done.
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Closing Cash</div>
-            <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>{today.closingCash != null ? fmt(today.closingCash) : '--'}</div>
-            {today.closingRecordedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Counted by {today.closingRecordedBy}</div>}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Handed Over</div>
-            <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{today.amountHandedOver != null ? fmt(today.amountHandedOver) : '--'}</div>
-            {today.handedOverBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{today.handedOverBy} -&gt; {today.receivedBy}</div>}
-          </div>
-        </div>
+        ) : (
+          <>
+            {error && <div className="msg-err" style={{ marginBottom: 14 }}>{error}</div>}
 
-        {today.openingCash == null && (
-          <div style={{ fontSize: 12.5, color: 'var(--g500)' }}>Open today's cash day (Today's Collection tab) before recording the closing count.</div>
-        )}
-
-        {today.openingCash != null && today.closingCash == null && (
-          <div style={{ marginBottom: 20 }}>
-            <label className="flbl">Record Closing Cash Count</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input className="fi" type="number" min="0" value={closingInput} onChange={(e) => setClosingInput(e.target.value)} placeholder="Amount physically counted in the drawer" style={{ flex: 1 }} />
-              <button className="btn btn-primary" disabled={saving || !closingInput} onClick={handleRecordClosing}>{saving ? 'Saving...' : 'Record'}</button>
+            <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 20 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Opening Cash</div>
+                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700 }}>{today.openingCash != null ? fmt(today.openingCash) : '--'}</div>
+                {today.openedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Opened by {today.openedBy}</div>}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Closing Cash</div>
+                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>{today.closingCash != null ? fmt(today.closingCash) : '--'}</div>
+                {today.closingRecordedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Counted by {today.closingRecordedBy}</div>}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Cash Handed Over</div>
+                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{fmt(today.amountHandedOver != null ? today.amountHandedOver : today.computedHandover)}</div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{today.handedOverBy ? `Handed over by ${today.handedOverBy}` : 'Auto-calculated: Opening + reconciled Cash'}</div>
+              </div>
             </div>
-          </div>
-        )}
 
-        {today.closingCash != null && today.amountHandedOver == null && (
-          <div>
-            <label className="flbl">Hand Over Cash</label>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <input className="fi" type="number" min="0" value={handoverAmount} onChange={(e) => setHandoverAmount(e.target.value)} placeholder="Amount" style={{ flex: 1 }} />
-              <select className="fi" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} style={{ flex: 1 }}>
-                <option value="">Received by...</option>
-                {approvers.map((a) => <option key={a.id} value={a.id}>{a.full_name}{a.designation ? ` (${a.designation})` : ''}</option>)}
-              </select>
-            </div>
-            <input className="fi" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" style={{ marginBottom: 10 }} />
-            <button className="btn btn-primary" disabled={saving || !handoverAmount || !receivedBy} onClick={handleHandover}>{saving ? 'Saving...' : 'Confirm Handover'}</button>
-          </div>
-        )}
+            {today.closingCash == null && (
+              <div style={{ marginBottom: 4 }}>
+                <label className="flbl">Record Closing Cash Count</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input className="fi" type="number" min="0" value={closingInput} onChange={(e) => setClosingInput(e.target.value)} placeholder="Amount physically counted in the drawer" style={{ flex: 1 }} />
+                  <button className="btn btn-primary" disabled={saving || !closingInput} onClick={handleRecordClosing}>{saving ? 'Saving...' : 'Record'}</button>
+                </div>
+              </div>
+            )}
 
-        {today.amountHandedOver != null && (
-          <div style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '10px 14px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600 }}>
-            <i className="ti ti-check"></i> {fmt(today.amountHandedOver)} handed over by {today.handedOverBy} to {today.receivedBy}.
-            {today.handoverRemarks && <div style={{ fontWeight: 400, marginTop: 4 }}>{today.handoverRemarks}</div>}
-          </div>
+            {today.closingCash != null && today.amountHandedOver == null && (
+              <button className="btn btn-primary" disabled={saving} onClick={handleConfirm}>
+                <i className="ti ti-lock"></i> {saving ? 'Confirming...' : 'Confirm & Close Cash Counter'}
+              </button>
+            )}
+
+            {today.amountHandedOver != null && (
+              <div style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '10px 14px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600 }}>
+                <i className="ti ti-check"></i> Cash Counter closed -- {fmt(today.amountHandedOver)} handed over by {today.handedOverBy}. Close Day (Step 3) is now unlocked below.
+              </div>
+            )}
+          </>
         )}
       </div>
 
       <div className="card">
-        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-history"></i> Cash Counter History</div>
+        <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-history"></i> Cash Counter History -- Last 2 Days</div>
         <table className="tbl">
-          <thead><tr><th>Date</th><th style={{ textAlign: 'right' }}>Opening</th><th style={{ textAlign: 'right' }}>Closing</th><th style={{ textAlign: 'right' }}>Net Change</th><th style={{ textAlign: 'right' }}>Handed Over</th><th>By</th><th>To</th></tr></thead>
+          <thead><tr><th>Date</th><th style={{ textAlign: 'right' }}>Opening</th><th style={{ textAlign: 'right' }}>Closing</th><th style={{ textAlign: 'right' }}>Handed Over</th><th>By</th></tr></thead>
           <tbody>
             {history.map((h) => (
               <tr key={h.date}>
                 <td>{new Date(h.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}</td>
                 <td style={{ textAlign: 'right' }}>{fmt(h.openingCash)}</td>
                 <td style={{ textAlign: 'right' }}>{h.closingCash != null ? fmt(h.closingCash) : '--'}</td>
-                <td style={{ textAlign: 'right', color: 'var(--g600)' }}>
-                  {h.variance != null ? fmt(h.variance) : '--'}
-                </td>
                 <td style={{ textAlign: 'right', color: h.amountHandedOver != null && h.closingCash != null && h.amountHandedOver !== h.closingCash ? 'var(--red)' : 'var(--g800)' }}>
                   {h.amountHandedOver != null ? fmt(h.amountHandedOver) : '--'}
                   {h.amountHandedOver != null && h.closingCash != null && h.amountHandedOver !== h.closingCash && (
@@ -217,14 +218,29 @@ function CashCounterTab() {
                   )}
                 </td>
                 <td style={{ fontSize: 12 }}>{h.handedOverBy || '--'}</td>
-                <td style={{ fontSize: 12 }}>{h.receivedBy || '--'}</td>
               </tr>
             ))}
             {history.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No history yet.</td></tr>
+              <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No history yet.</td></tr>
             )}
           </tbody>
         </table>
+
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--g100)' }}>
+          <label className="flbl">View another day</label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: lookupResult ? 10 : 0 }}>
+            <input className="fi" type="date" value={lookupDate} onChange={(e) => setLookupDate(e.target.value)} style={{ flex: 1 }} />
+            <button className="btn btn-sm" disabled={!lookupDate || lookupLoading} onClick={handleLookup}>{lookupLoading ? 'Loading...' : 'View'}</button>
+          </div>
+          {lookupResult && (
+            <div style={{ display: 'flex', gap: 20, fontSize: 13, padding: '8px 0' }}>
+              <span>Opening: <strong>{lookupResult.openingCash != null ? fmt(lookupResult.openingCash) : '--'}</strong></span>
+              <span>Closing: <strong>{lookupResult.closingCash != null ? fmt(lookupResult.closingCash) : '--'}</strong></span>
+              <span>Handed Over: <strong>{lookupResult.amountHandedOver != null ? fmt(lookupResult.amountHandedOver) : '--'}</strong></span>
+              {lookupResult.handedOverBy && <span style={{ color: 'var(--g500)' }}>by {lookupResult.handedOverBy}</span>}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -239,6 +255,8 @@ export default function CashManagementPage() {
   const [history, setHistory] = useState([]);
   const [approvers, setApprovers] = useState([]);
   const [closedToday, setClosedToday] = useState(false);
+  const [reconLock, setReconLock] = useState({ locked: false });
+  const [cashCounterConfirmed, setCashCounterConfirmed] = useState(false);
   const [opening, setOpening] = useState(null);
   const [openingBalance, setOpeningBalance] = useState('');
   const [openingRemarks, setOpeningRemarks] = useState('');
@@ -357,6 +375,9 @@ export default function CashManagementPage() {
     // readiness.alreadyClosed is the same day_closings check
     // isTodayClosed() used to make as a separate RPC round trip.
     const isClosed = readinessData.alreadyClosed;
+    const [lockStatus, counterStatus] = await Promise.all([getReconciliationLockStatus(), getCashCounterForDate()]);
+    setReconLock(lockStatus);
+    setCashCounterConfirmed(counterStatus.amountHandedOver != null);
     setSummary(summaryData);
     setRevenueByDept(revenueByDeptData);
     setReadiness(readinessData);
@@ -391,6 +412,7 @@ export default function CashManagementPage() {
     setReadiness(readinessData);
     setReconRows(readinessData.reconciliation);
     setClosedToday(readinessData.alreadyClosed);
+    setReconLock(await getReconciliationLockStatus());
   }, [summary, refresh]);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -419,6 +441,22 @@ export default function CashManagementPage() {
     const result = await saveReconciliation(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? reconApprover : null);
     if (result.error) { setError(result.error); return; }
     setSuccess(`${row.mode} reconciled.`);
+    refreshReconciliation();
+  }
+
+  async function handleLockReconciliation() {
+    setError(''); setSuccess('');
+    const result = await lockReconciliation();
+    if (result.error) { setError(result.error); return; }
+    setSuccess('Reconciliation closed for the day.');
+    refreshReconciliation();
+  }
+
+  async function handleUnlockReconciliation() {
+    setError(''); setSuccess('');
+    const result = await unlockReconciliation();
+    if (result.error) { setError(result.error); return; }
+    setSuccess('Reconciliation unlocked -- you can edit it again.');
     refreshReconciliation();
   }
 
@@ -755,14 +793,30 @@ export default function CashManagementPage() {
       {activeTab === 'reconciliation' && (
         <>
         <div className="card">
-          <div className="card-title" style={{ marginBottom: 4 }}><span className="badge b-gray" style={{ marginRight: 8 }}>Step 1</span><i className="ti ti-calculator" style={{ color: 'var(--amber)' }}></i> Cash Reconciliation</div>
+          <div className="card-title" style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span><span className="badge b-gray" style={{ marginRight: 8 }}>Step 1</span><i className="ti ti-calculator" style={{ color: 'var(--amber)' }}></i> Cash Reconciliation</span>
+            {!closedToday && (
+              reconLock.locked ? (
+                <button className="btn btn-sm" onClick={handleUnlockReconciliation}><i className="ti ti-lock-open"></i> Unlock</button>
+              ) : (
+                <button className="btn btn-sm btn-primary" onClick={handleLockReconciliation}><i className="ti ti-lock"></i> Close Reconciliation</button>
+              )
+            )}
+          </div>
           <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
             <i className="ti ti-info-circle"></i> Enter the actual counted amount for each mode. The system computes variance automatically -- a reason and supervisor approval are required whenever actual differs from expected.
           </div>
           {closedToday && (
             <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-lock"></i> Today is already closed -- reconciliation is read-only.</div>
           )}
+          {!closedToday && reconLock.locked && (
+            <div className="msg-info" style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
+              <i className="ti ti-circle-check"></i> Reconciliation closed{reconLock.lockedBy ? ` by ${reconLock.lockedBy}` : ''} -- Cash Counter (Step 2) is now unlocked below. Use Unlock above if you need to change anything here.
+            </div>
+          )}
 
+          {(() => { const reconciliationDisabled = closedToday || reconLock.locked; return (
+          <>
           <div style={{ display: 'flex', padding: '8px 12px', background: 'var(--g50)', borderRadius: 8, marginBottom: 6, fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>
             <span style={{ minWidth: 140 }}>Mode</span>
             <span style={{ minWidth: 130, textAlign: 'right' }}>Expected</span>
@@ -781,18 +835,18 @@ export default function CashManagementPage() {
                   <span style={{ minWidth: 140, fontWeight: 600, fontSize: 13 }}>{row.mode}</span>
                   <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>{fmt(row.expected)}</span>
                   <span style={{ flex: 1, textAlign: 'center' }}>
-                    <input type="number" className="fi fi-sm" style={{ maxWidth: 140, textAlign: 'right', display: 'inline-block' }} value={editedActual} disabled={closedToday}
+                    <input type="number" className="fi fi-sm" style={{ maxWidth: 140, textAlign: 'right', display: 'inline-block' }} value={editedActual} disabled={reconciliationDisabled}
                       onChange={(e) => updateReconField(row.mode, 'actual', e.target.value)} />
                   </span>
                   <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: hasVariance ? 'var(--red)' : 'var(--g400)' }}>
                     {hasVariance ? (variance > 0 ? '+' : '') + fmt(variance) : fmt(0)}
                   </span>
                   <span style={{ minWidth: 90, textAlign: 'right' }}>
-                    {!closedToday && <button className="btn btn-sm btn-primary" onClick={() => handleSaveRecon(row)}>Save</button>}
+                    {!reconciliationDisabled && <button className="btn btn-sm btn-primary" onClick={() => handleSaveRecon(row)}>Save</button>}
                     {row.saved && <span className="badge b-green" style={{ marginLeft: 6 }}>Saved</span>}
                   </span>
                 </div>
-                {hasVariance && !closedToday && (
+                {hasVariance && !reconciliationDisabled && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
                     <select className="fi fi-sm" value={reconEdits[row.mode]?.reason !== undefined ? reconEdits[row.mode].reason : row.reason} onChange={(e) => updateReconField(row.mode, 'reason', e.target.value)}>
                       <option value="">-- Variance reason --</option>
@@ -808,12 +862,20 @@ export default function CashManagementPage() {
             );
           })}
           {reconRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No collections yet today -- nothing to reconcile.</div>}
+          </>
+          ); })()}
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <CashCounterTab />
+          <CashCounterTab onStatusChange={(confirmed) => setCashCounterConfirmed(confirmed)} />
         </div>
 
+        {!cashCounterConfirmed ? (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-title" style={{ marginBottom: 4 }}><span className="badge b-gray" style={{ marginRight: 8 }}>Step 3</span><i className="ti ti-lock" style={{ color: 'var(--g400)' }}></i> Close Day</div>
+            <div style={{ fontSize: 12.5, color: 'var(--g500)' }}>Confirm Cash Counter (Step 2) above first.</div>
+          </div>
+        ) : (
         <div style={{ marginTop: 16 }}>
         {unclosedPastDays.length > 0 && (
           <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--red)' }}>
@@ -958,6 +1020,7 @@ export default function CashManagementPage() {
           )}
         </div>
         </div>
+        )}
         </>
       )}
 
