@@ -787,19 +787,20 @@ export async function unlockReconciliation() {
 // Opening cash is never duplicated -- read live from
 // day_openings.opening_cash_balance. Cash Handed Over is never typed
 // in either -- it's computed from Opening Cash + the reconciled Cash
-// mode's actual figure from Step 1 (that reconciled actual already has
-// today's cash expenses netted out, see getReconciliationData), so
-// the only two things anyone enters here are the closing count itself.
+// mode's actual figure from Step 1, minus today's Cash Expenses (paid
+// out of that same physical drawer) -- so the only two things anyone
+// enters here are the closing count itself.
 
 export async function getCashCounterForDate(date) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
-  const [{ data: opening }, { data: counter }, lockStatus, { data: cashRecon }] = await Promise.all([
+  const [{ data: opening }, { data: counter }, lockStatus, { data: cashRecon }, cashExpensesTotal] = await Promise.all([
     supabase.from('day_openings').select('opening_cash_balance, opened_at, profiles(full_name)').eq('opening_date', targetDate).maybeSingle(),
     supabase.from('cash_counter').select('*, closer:profiles!cash_counter_closing_recorded_by_fkey(full_name), handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
       .eq('counter_date', targetDate).maybeSingle(),
     getReconciliationLockStatus(targetDate),
     supabase.from('day_reconciliation').select('actual').eq('closing_date', targetDate).eq('mode', 'Cash').maybeSingle(),
+    getPettyCashTotal(targetDate),
   ]);
   const openingCash = opening?.opening_cash_balance != null ? Number(opening.opening_cash_balance) : 0;
   const reconciledCashActual = cashRecon?.actual != null ? Number(cashRecon.actual) : 0;
@@ -809,7 +810,9 @@ export async function getCashCounterForDate(date) {
     openingCash: opening?.opening_cash_balance ?? null,
     openedBy: opening?.profiles?.full_name || null,
     reconciliationLocked: lockStatus.locked,
-    computedHandover: openingCash + reconciledCashActual,
+    reconciledCashActual,
+    cashExpensesTotal,
+    computedHandover: openingCash + reconciledCashActual - cashExpensesTotal,
     closingCash: counter?.closing_cash ?? null,
     closingRecordedBy: counter?.closer?.full_name || null,
     closingRecordedAt: counter?.closing_recorded_at || null,
@@ -848,15 +851,14 @@ export async function confirmCashCounter() {
   const lockStatus = await getReconciliationLockStatus(today);
   if (!lockStatus.locked) return { error: 'Complete and close Reconciliation (Step 1) first.' };
 
-  const [{ data: existing }, { data: opening }, { data: cashRecon }] = await Promise.all([
+  const [{ data: existing }, counterState] = await Promise.all([
     supabase.from('cash_counter').select('closing_cash').eq('counter_date', today).maybeSingle(),
-    supabase.from('day_openings').select('opening_cash_balance').eq('opening_date', today).maybeSingle(),
-    supabase.from('day_reconciliation').select('actual').eq('closing_date', today).eq('mode', 'Cash').maybeSingle(),
+    getCashCounterForDate(today),
   ]);
   if (!existing || existing.closing_cash === null) {
     return { error: 'Record the closing cash count first.' };
   }
-  const computedHandover = (opening?.opening_cash_balance != null ? Number(opening.opening_cash_balance) : 0) + (cashRecon?.actual != null ? Number(cashRecon.actual) : 0);
+  const computedHandover = counterState.computedHandover;
 
   const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('cash_counter').update({

@@ -172,7 +172,9 @@ function CashCounterTab({ onStatusChange }) {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Cash Handed Over</div>
                 <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{fmt(today.amountHandedOver != null ? today.amountHandedOver : today.computedHandover)}</div>
-                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{today.handedOverBy ? `Handed over by ${today.handedOverBy}` : 'Auto-calculated: Opening + reconciled Cash'}</div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>
+                  {today.handedOverBy ? `Handed over by ${today.handedOverBy}` : `Opening ${fmt(today.openingCash || 0)} + Cash ${fmt(today.reconciledCashActual)} - Expenses ${fmt(today.cashExpensesTotal)}`}
+                </div>
               </div>
             </div>
 
@@ -795,12 +797,8 @@ export default function CashManagementPage() {
         <div className="card">
           <div className="card-title" style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span><span className="badge b-gray" style={{ marginRight: 8 }}>Step 1</span><i className="ti ti-calculator" style={{ color: 'var(--amber)' }}></i> Cash Reconciliation</span>
-            {!closedToday && (
-              reconLock.locked ? (
-                <button className="btn btn-sm" onClick={handleUnlockReconciliation}><i className="ti ti-lock-open"></i> Unlock</button>
-              ) : (
-                <button className="btn btn-sm btn-primary" onClick={handleLockReconciliation}><i className="ti ti-lock"></i> Close Reconciliation</button>
-              )
+            {!closedToday && reconLock.locked && (
+              <button className="btn btn-sm" onClick={handleUnlockReconciliation}><i className="ti ti-lock-open"></i> Unlock</button>
             )}
           </div>
           <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
@@ -862,6 +860,9 @@ export default function CashManagementPage() {
             );
           })}
           {reconRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No collections yet today -- nothing to reconcile.</div>}
+          {!closedToday && !reconLock.locked && (
+            <button className="btn btn-primary" style={{ marginTop: 14 }} onClick={handleLockReconciliation}><i className="ti ti-lock"></i> Close Reconciliation</button>
+          )}
           </>
           ); })()}
         </div>
