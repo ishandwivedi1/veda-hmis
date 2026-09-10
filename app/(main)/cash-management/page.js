@@ -35,9 +35,7 @@ import { openPrintPopup } from '@/lib/printPopup';
 const TABS = [
   { key: 'summary', label: "Today's Collection", icon: 'ti-chart-bar' },
   { key: 'pettycash', label: 'Cash Expenses', icon: 'ti-cash-banknote' },
-  { key: 'cashcounter', label: 'Cash Counter', icon: 'ti-wallet' },
-  { key: 'reconciliation', label: 'Reconciliation', icon: 'ti-calculator' },
-  { key: 'close', label: 'Close Day', icon: 'ti-lock' },
+  { key: 'reconciliation', label: 'Reconciliation & Close Day', icon: 'ti-calculator' },
   { key: 'report', label: 'Daily Report', icon: 'ti-file-text' },
   { key: 'history', label: 'History', icon: 'ti-history' },
 ];
@@ -141,7 +139,7 @@ function CashCounterTab() {
   return (
     <div>
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-title" style={{ marginBottom: 14 }}><i className="ti ti-wallet" style={{ color: 'var(--blue)' }}></i> Cash Counter -- Today</div>
+        <div className="card-title" style={{ marginBottom: 14 }}><span className="badge b-gray" style={{ marginRight: 8 }}>Step 2</span><i className="ti ti-wallet" style={{ color: 'var(--blue)' }}></i> Cash Counter -- Today</div>
         {error && <div className="msg-err" style={{ marginBottom: 14 }}>{error}</div>}
 
         <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 20 }}>
@@ -754,11 +752,10 @@ export default function CashManagementPage() {
         </div>
       )}
 
-      {activeTab === 'cashcounter' && <CashCounterTab />}
-
       {activeTab === 'reconciliation' && (
+        <>
         <div className="card">
-          <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-calculator" style={{ color: 'var(--amber)' }}></i> Cash Reconciliation</div>
+          <div className="card-title" style={{ marginBottom: 4 }}><span className="badge b-gray" style={{ marginRight: 8 }}>Step 1</span><i className="ti ti-calculator" style={{ color: 'var(--amber)' }}></i> Cash Reconciliation</div>
           <div className="msg-info" style={{ background: 'var(--blue-lt)', color: 'var(--blue)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
             <i className="ti ti-info-circle"></i> Enter the actual counted amount for each mode. The system computes variance automatically -- a reason and supervisor approval are required whenever actual differs from expected.
           </div>
@@ -812,10 +809,12 @@ export default function CashManagementPage() {
           })}
           {reconRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No collections yet today -- nothing to reconcile.</div>}
         </div>
-      )}
 
-      {activeTab === 'close' && (
-        <>
+        <div style={{ marginTop: 16 }}>
+          <CashCounterTab />
+        </div>
+
+        <div style={{ marginTop: 16 }}>
         {unclosedPastDays.length > 0 && (
           <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--red)' }}>
             <div className="card-title" style={{ marginBottom: 10 }}>
@@ -895,7 +894,7 @@ export default function CashManagementPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 20 }}>
           <div className="card">
-            <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-lock" style={{ color: 'var(--red)' }}></i> Close Day</div>
+            <div className="card-title" style={{ marginBottom: 10 }}><span className="badge b-gray" style={{ marginRight: 8 }}>Step 3</span><i className="ti ti-lock" style={{ color: 'var(--red)' }}></i> Close Day</div>
             {closedToday ? (
               <div className="msg-success"><i className="ti ti-circle-check"></i> Today is already closed. See the Daily Report tab.</div>
             ) : (
@@ -957,6 +956,7 @@ export default function CashManagementPage() {
               </div>
             </div>
           )}
+        </div>
         </div>
         </>
       )}
