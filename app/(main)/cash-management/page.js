@@ -176,15 +176,15 @@ function CashCounterTab({ onStatusChange }) {
                 {today.openedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Opened by {today.openedBy}</div>}
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Closing Cash</div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Closing Cash (Retained)</div>
                 <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>{today.closingCash != null ? fmt(today.closingCash) : '--'}</div>
                 {today.closingRecordedBy && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>Counted by {today.closingRecordedBy}</div>}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Cash Handed Over</div>
-                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{fmt(today.amountHandedOver != null ? today.amountHandedOver : today.computedHandover)}</div>
+                <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{today.amountHandedOver != null ? fmt(today.amountHandedOver) : (today.computedHandover != null ? fmt(today.computedHandover) : '--')}</div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>
-                  {today.handedOverBy ? `Handed over by ${today.handedOverBy}` : `Opening ${fmt(today.openingCash || 0)} + Cash ${fmt(today.reconciledCashActual)} - Expenses ${fmt(today.cashExpensesTotal)}`}
+                  {today.handedOverBy ? `Handed over by ${today.handedOverBy}` : (today.closingCash != null ? `Opening ${fmt(today.openingCash || 0)} + Cash ${fmt(today.reconciledCashActual)} - Expenses ${fmt(today.cashExpensesTotal)} - Retained ${fmt(today.closingCash)}` : 'Record closing cash count below to compute')}
                 </div>
               </div>
             </div>
@@ -218,19 +218,14 @@ function CashCounterTab({ onStatusChange }) {
       <div className="card">
         <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-history"></i> Cash Counter History -- Last 2 Days</div>
         <table className="tbl">
-          <thead><tr><th>Date</th><th style={{ textAlign: 'right' }}>Opening</th><th style={{ textAlign: 'right' }}>Closing</th><th style={{ textAlign: 'right' }}>Handed Over</th><th>By</th></tr></thead>
+          <thead><tr><th>Date</th><th style={{ textAlign: 'right' }}>Opening</th><th style={{ textAlign: 'right' }}>Closing (Retained)</th><th style={{ textAlign: 'right' }}>Handed Over</th><th>By</th></tr></thead>
           <tbody>
             {history.map((h) => (
               <tr key={h.date}>
                 <td>{new Date(h.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}</td>
                 <td style={{ textAlign: 'right' }}>{fmt(h.openingCash)}</td>
                 <td style={{ textAlign: 'right' }}>{h.closingCash != null ? fmt(h.closingCash) : '--'}</td>
-                <td style={{ textAlign: 'right', color: h.amountHandedOver != null && h.closingCash != null && h.amountHandedOver !== h.closingCash ? 'var(--red)' : 'var(--g800)' }}>
-                  {h.amountHandedOver != null ? fmt(h.amountHandedOver) : '--'}
-                  {h.amountHandedOver != null && h.closingCash != null && h.amountHandedOver !== h.closingCash && (
-                    <div style={{ fontSize: 10, fontWeight: 600 }}>Doesn't match closing count</div>
-                  )}
-                </td>
+                <td style={{ textAlign: 'right' }}>{h.amountHandedOver != null ? fmt(h.amountHandedOver) : '--'}</td>
                 <td style={{ fontSize: 12 }}>{h.handedOverBy || '--'}</td>
               </tr>
             ))}

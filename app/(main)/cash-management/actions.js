@@ -788,8 +788,9 @@ export async function unlockReconciliation() {
 // day_openings.opening_cash_balance. Cash Handed Over is never typed
 // in either -- it's computed from Opening Cash + the reconciled Cash
 // mode's actual figure from Step 1, minus today's Cash Expenses (paid
-// out of that same physical drawer) -- so the only two things anyone
-// enters here are the closing count itself.
+// out of that same physical drawer), minus the Closing Cash count
+// (the float retained by the cashier for the next day) -- so the only
+// thing anyone enters here is that closing/retained count itself.
 
 export async function getCashCounterForDate(date) {
   const supabase = await createClient();
@@ -804,6 +805,7 @@ export async function getCashCounterForDate(date) {
   ]);
   const openingCash = opening?.opening_cash_balance != null ? Number(opening.opening_cash_balance) : 0;
   const reconciledCashActual = cashRecon?.actual != null ? Number(cashRecon.actual) : 0;
+  const closingCashValue = counter?.closing_cash != null ? Number(counter.closing_cash) : null;
 
   return {
     date: targetDate,
@@ -812,7 +814,8 @@ export async function getCashCounterForDate(date) {
     reconciliationLocked: lockStatus.locked,
     reconciledCashActual,
     cashExpensesTotal,
-    computedHandover: openingCash + reconciledCashActual - cashExpensesTotal,
+    // Only computable once the closing/retained count is in -- null until then.
+    computedHandover: closingCashValue != null ? (openingCash + reconciledCashActual - cashExpensesTotal - closingCashValue) : null,
     closingCash: counter?.closing_cash ?? null,
     closingRecordedBy: counter?.closer?.full_name || null,
     closingRecordedAt: counter?.closing_recorded_at || null,
