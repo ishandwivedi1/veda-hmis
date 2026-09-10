@@ -224,10 +224,18 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
     return (
       <div className="card">
         <div style={{ background: 'var(--green-lt)', border: '1px solid var(--green)', borderRadius: 'var(--r)', padding: '16px 18px', marginBottom: 16 }}>
-          <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 16, fontWeight: 700, color: 'var(--green)', marginBottom: 4 }}>
-            <i className="ti ti-check"></i> Order {created.sale_number} confirmed -- sent for fitting
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--green)', marginBottom: 4 }}>
+                <i className="ti ti-check"></i> Order Confirmed -- Sent for Fitting
+              </div>
+              <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--g900)' }}>{created.sale_number}</div>
+              <div style={{ fontSize: 13, color: 'var(--g600)', marginTop: 2 }}>Total: {fmt(created.net)} -- nothing collected yet.</div>
+            </div>
+            <a href={`/optical-receipt-print/${created.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+              <i className="ti ti-printer"></i> Print Booking Receipt
+            </a>
           </div>
-          <div style={{ fontSize: 13, color: 'var(--g600)' }}>Total: {fmt(created.net)} -- nothing collected yet.</div>
         </div>
 
         <CollectAdvanceForNewOrder sale={created} onCollected={bookAnother} />
