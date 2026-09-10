@@ -868,6 +868,14 @@ export async function confirmCashCounter() {
   return { success: true };
 }
 
+export async function unlockCashCounter() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const { error } = await supabase.from('cash_counter').delete().eq('counter_date', today);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 // Defaults to the last 2 days -- a specific older date can still be
 // looked up directly via getCashCounterForDate(date).
 export async function getCashCounterHistory(limit = 2) {

@@ -21,6 +21,7 @@ import {
   getCashCounterForDate,
   recordClosingCash,
   confirmCashCounter,
+  unlockCashCounter,
   getCashCounterHistory,
   getReconciliationLockStatus,
   lockReconciliation,
@@ -134,6 +135,16 @@ function CashCounterTab({ onStatusChange }) {
     refresh();
   }
 
+  async function handleUnlockCounter() {
+    setError('');
+    setSaving(true);
+    const result = await unlockCashCounter();
+    setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setClosingInput('');
+    refresh();
+  }
+
   async function handleLookup() {
     if (!lookupDate) return;
     setLookupLoading(true);
@@ -195,8 +206,9 @@ function CashCounterTab({ onStatusChange }) {
             )}
 
             {today.amountHandedOver != null && (
-              <div style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '10px 14px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600 }}>
-                <i className="ti ti-check"></i> Cash Counter closed -- {fmt(today.amountHandedOver)} handed over by {today.handedOverBy}. Close Day (Step 3) is now unlocked below.
+              <div style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '10px 14px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span><i className="ti ti-check"></i> Cash Counter closed -- {fmt(today.amountHandedOver)} handed over by {today.handedOverBy}. Close Day (Step 3) is now unlocked below.</span>
+                <button className="btn btn-sm" style={{ background: '#fff' }} onClick={handleUnlockCounter}><i className="ti ti-lock-open"></i> Unlock</button>
               </div>
             )}
           </>
