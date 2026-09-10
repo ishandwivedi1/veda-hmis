@@ -1,6 +1,38 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 
+// --- Basic-Auth bot/scanner gate -------------------------------------
+// Runs FIRST, before any Supabase call, so anonymous bots/scanners get
+// blocked at the edge without costing you a Supabase round-trip or
+// counting as real app traffic. Set BASIC_AUTH_USER and
+// BASIC_AUTH_PASSWORD as Environment Variables in Vercel (Project ->
+// Settings -> Environment Variables) for Production (and Preview, if
+// you want training-veda-hmis covered too).
+function checkBasicAuth(request) {
+  const authHeader = request.headers.get('authorization');
+
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    return false;
+  }
+
+  const base64Credentials = authHeader.split(' ')[1];
+  const credentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
+  const [user, password] = credentials.split(':');
+
+  return (
+    user === process.env.BASIC_AUTH_USER &&
+    password === process.env.BASIC_AUTH_PASSWORD
+  );
+}
+
+function basicAuthChallenge() {
+  return new NextResponse('Authentication required', {
+    status: 401,
+    headers: { 'WWW-Authenticate': 'Basic realm="Veda HMIS"' },
+  });
+}
+// -----------------------------------------------------------------------
+
 // Must match AppShell.js's client-side timer. This is the real
 // enforcement -- the client-side timer only runs while a tab is open,
 // so it can't catch "closed the browser and came back 2 hours later"
@@ -14,6 +46,11 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const IDLE_CHECK_INTERVAL_MS = 2 * 60 * 1000;
 
 export async function middleware(request) {
+  // Gate everything behind Basic-Auth before touching Supabase at all.
+  if (!checkBasicAuth(request)) {
+    return basicAuthChallenge();
+  }
+
   let response = NextResponse.next({
     request: { headers: request.headers },
   });
@@ -89,4 +126,3 @@ export async function middleware(request) {
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
-
