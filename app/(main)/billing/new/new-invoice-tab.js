@@ -421,7 +421,12 @@ export default function NewInvoiceTab() {
       ...computed,
     }]);
 
-    setDept(''); setSelectedServiceCode(''); setQty(1); setRate(''); setGstPct('');
+    // Department stays selected -- staff almost always add several
+    // items from the same department in a row (e.g. multiple Pharmacy
+    // items), and re-picking it every single time was the friction
+    // being reported. Only the service and this item's own fields
+    // reset, since those are genuinely per-item.
+    setSelectedServiceCode(''); setQty(1); setRate(''); setGstPct('');
     setDiscType('none'); setDiscValue(''); setDiscReason('');
   }
 
