@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { isTodayOpen } from '@/app/(main)/cash-management/actions';
 
 const TABS = [
+  { href: '/optical/dashboard', label: 'Dashboard', icon: 'ti-layout-dashboard' },
   { href: '/optical/book', label: 'Book Spectacles', icon: 'ti-glasses' },
   { href: '/optical/new', label: 'New Bill', icon: 'ti-file-plus' },
   { href: '/optical/collect', label: 'Collect Payment', icon: 'ti-cash' },

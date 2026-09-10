@@ -472,3 +472,70 @@ export async function getOpticalPaymentDetail(paymentId) {
     displayMobile: data.patients?.mobile || data.optical_customers?.mobile,
   };
 }
+
+// ---------- Dashboard ----------
+// One aggregate call powering the shop-wide overview -- deliberately
+// separate from Book Spectacles (which is customer-centric): this is
+// "how is the whole shop doing", not "what does this one customer need".
+
+export async function getOpticalDashboardSummary() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const monthStart = `${today.slice(0, 7)}-01`;
+
+  const [
+    { data: todaySales },
+    { data: monthSales },
+    { data: outstandingRows },
+    { data: ledgerRows },
+    { data: todayPayments },
+    { data: recentPayments },
+  ] = await Promise.all([
+    supabase.from('optical_sales').select('net').eq('sale_date', today).neq('status', 'Cancelled'),
+    supabase.from('optical_sales').select('net').gte('sale_date', monthStart).lte('sale_date', today).neq('status', 'Cancelled'),
+    supabase.from('optical_sales').select(SALE_SELECT).in('status', ['Pending', 'Partial']).order('sale_date', { ascending: true }),
+    supabase.from('optical_customer_ledger').select('amount'),
+    supabase.from('optical_payments').select('total_amount, payment_type, optical_payment_modes(mode, amount)')
+      .in('payment_type', ['sale_payment', 'advance']).gte('collected_at', `${today}T00:00:00+05:30`).lte('collected_at', `${today}T23:59:59+05:30`),
+    supabase.from('optical_payments').select('id, receipt_number, payment_type, total_amount, collected_at, optical_sales(sale_number), patients(salutation, first_name, last_name), optical_customers(name)')
+      .order('collected_at', { ascending: false }).limit(15),
+  ]);
+
+  const outstandingBills = (outstandingRows || []).map(shapeSale);
+  const todayByMode = {};
+  let todayCollected = 0;
+  (todayPayments || []).forEach((p) => {
+    todayCollected += Number(p.total_amount) || 0;
+    (p.optical_payment_modes || []).forEach((m) => { todayByMode[m.mode] = (todayByMode[m.mode] || 0) + Number(m.amount); });
+  });
+
+  const nowIST = new Date();
+  const withAge = outstandingBills.map((b) => ({
+    ...b,
+    daysPending: Math.floor((nowIST - new Date(`${b.sale_date}T00:00:00+05:30`)) / 86400000),
+  })).sort((a, b) => b.daysPending - a.daysPending);
+
+  return {
+    today: {
+      salesCount: (todaySales || []).length,
+      salesValue: (todaySales || []).reduce((s, r) => s + Number(r.net), 0),
+      collected: todayCollected,
+      collectedByMode: todayByMode,
+    },
+    month: {
+      salesCount: (monthSales || []).length,
+      salesValue: (monthSales || []).reduce((s, r) => s + Number(r.net), 0),
+    },
+    outstanding: {
+      count: outstandingBills.length,
+      value: outstandingBills.reduce((s, b) => s + Number(b.outstanding), 0),
+      needsAttention: withAge.slice(0, 10),
+    },
+    advanceHeld: (ledgerRows || []).reduce((s, r) => s + Number(r.amount), 0),
+    recentActivity: (recentPayments || []).map((p) => ({
+      ...p,
+      displayName: p.patients ? formatPatientName(p.patients) : (p.optical_customers?.name || '--'),
+      typeLabel: PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type,
+    })),
+  };
+}

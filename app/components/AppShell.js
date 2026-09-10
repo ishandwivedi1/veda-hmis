@@ -25,7 +25,7 @@ const NAV_ITEMS = [
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', group: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
   { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
-  { href: '/optical/book', label: 'Optical Shop', icon: 'ti-sunglasses', group: 'Finance' },
+  { href: '/optical/dashboard', label: 'Optical Shop', icon: 'ti-sunglasses', group: 'Finance' },
   { href: '/payments/ledger', label: 'Ledger View', icon: 'ti-book', group: 'Finance' },
   { href: '/payments/credit-note', label: 'Credit Note', icon: 'ti-file-minus', group: 'Finance' },
   { href: '/payments/refund', label: 'Refund', icon: 'ti-rotate-clockwise', group: 'Finance' },
