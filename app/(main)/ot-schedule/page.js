@@ -125,61 +125,88 @@ function ScheduledOTTab() {
     refresh();
   }
 
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const todayRows = schedule.filter((s) => s.scheduled_date === today).sort((a, b) => (a.scheduled_time || '').localeCompare(b.scheduled_time || ''));
+  const upcomingRows = schedule.filter((s) => s.scheduled_date !== today);
+
+  function renderRow(s) {
+    return (
+      <Fragment key={s.id}>
+        <tr>
+          <td>{fmtDate(s.scheduled_date)}</td>
+          <td>{s.scheduled_time?.slice(0, 5) || '--'}</td>
+          <td>{s.room || '--'}</td>
+          <td>
+            {formatPatientName(s.surgical_cases?.patients)}
+            <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{s.surgical_cases?.patients?.uhid}</span>
+          </td>
+          <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
+          <td>{s.profiles?.full_name || '--'}</td>
+          <td>
+            <span className={`badge ${STATUS_BADGE[s.status] || 'b-gray'}`}>{s.status}</span>
+            {s.reschedule_count > 0 && <span style={{ fontSize: 10, color: 'var(--g400)', marginLeft: 4 }}>(rescheduled {s.reschedule_count}x)</span>}
+          </td>
+          <td>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button className="btn btn-sm" onClick={() => setReschedulingId(reschedulingId === s.id ? null : s.id)}>
+                <i className="ti ti-calendar-time"></i> Reschedule
+              </button>
+              <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id, `${formatPatientName(s.surgical_cases?.patients)}`)}>Complete</button>
+            </div>
+          </td>
+        </tr>
+        {reschedulingId === s.id && (
+          <tr>
+            <td colSpan={8} style={{ padding: 0, border: 'none' }}>
+              <RescheduleForm booking={s} onDone={(saved) => { setReschedulingId(null); if (saved) refresh(); }} />
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    );
+  }
+
+  if (loading) {
+    return <div className="card"><div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading...</div></div>;
+  }
+
   return (
-    <div className="card">
-      <div className="card-title" style={{ marginBottom: 10 }}>
-        <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> Patients Scheduled for Surgery
-        <span className="badge b-gray" style={{ marginLeft: 8 }}>{schedule.length}</span>
-      </div>
-
-      {loading && <div style={{ padding: 20, color: 'var(--g400)', fontSize: 13 }}>Loading...</div>}
-
-      {!loading && (
+    <div>
+      <div className="card" style={{ border: '2px solid var(--blue)', marginBottom: 16 }}>
+        <div className="card-title" style={{ marginBottom: 10 }}>
+          <i className="ti ti-calendar-event" style={{ color: 'var(--blue)' }}></i> Today's OT List
+          <span className="badge b-blue" style={{ marginLeft: 8 }}>{todayRows.length}</span>
+        </div>
         <table className="tbl">
           <thead>
             <tr><th>Date</th><th>Session</th><th>Room</th><th>Patient</th><th>Procedure</th><th>Surgeon</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
-            {schedule.map((s) => (
-              <Fragment key={s.id}>
-                <tr>
-                  <td>{fmtDate(s.scheduled_date)}</td>
-                  <td>{s.scheduled_time?.slice(0, 5) || '--'}</td>
-                  <td>{s.room || '--'}</td>
-                  <td>
-                    {formatPatientName(s.surgical_cases?.patients)}
-                    <br /><span style={{ fontSize: 11, color: 'var(--g400)' }}>{s.surgical_cases?.patients?.uhid}</span>
-                  </td>
-                  <td>{s.surgical_cases?.procedure_name} -- {s.surgical_cases?.eye}</td>
-                  <td>{s.profiles?.full_name || '--'}</td>
-                  <td>
-                    <span className={`badge ${STATUS_BADGE[s.status] || 'b-gray'}`}>{s.status}</span>
-                    {s.reschedule_count > 0 && <span style={{ fontSize: 10, color: 'var(--g400)', marginLeft: 4 }}>(rescheduled {s.reschedule_count}x)</span>}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn btn-sm" onClick={() => setReschedulingId(reschedulingId === s.id ? null : s.id)}>
-                        <i className="ti ti-calendar-time"></i> Reschedule
-                      </button>
-                      <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id, `${formatPatientName(s.surgical_cases?.patients)}`)}>Complete</button>
-                    </div>
-                  </td>
-                </tr>
-                {reschedulingId === s.id && (
-                  <tr>
-                    <td colSpan={8} style={{ padding: 0, border: 'none' }}>
-                      <RescheduleForm booking={s} onDone={(saved) => { setReschedulingId(null); if (saved) refresh(); }} />
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-            {schedule.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No surgeries scheduled.</td></tr>
+            {todayRows.map(renderRow)}
+            {todayRows.length === 0 && (
+              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No surgeries scheduled for today.</td></tr>
             )}
           </tbody>
         </table>
-      )}
+      </div>
+
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 10 }}>
+          <i className="ti ti-calendar" style={{ color: 'var(--g500)' }}></i> Upcoming Surgeries
+          <span className="badge b-gray" style={{ marginLeft: 8 }}>{upcomingRows.length}</span>
+        </div>
+        <table className="tbl">
+          <thead>
+            <tr><th>Date</th><th>Session</th><th>Room</th><th>Patient</th><th>Procedure</th><th>Surgeon</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {upcomingRows.map(renderRow)}
+            {upcomingRows.length === 0 && (
+              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No other surgeries scheduled.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
