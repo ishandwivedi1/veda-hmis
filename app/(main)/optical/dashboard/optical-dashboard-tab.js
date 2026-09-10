@@ -7,17 +7,6 @@ import { getOpticalDashboardSummary } from '../actions';
 function fmt(n) {
   return `\u20b9${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
-function fmtDateTime(iso) {
-  return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-}
-
-const TYPE_COLORS = {
-  sale_payment: 'var(--green)',
-  advance: 'var(--blue)',
-  advance_adjustment: 'var(--purple)',
-  credit_note: 'var(--amber)',
-  refund: 'var(--red)',
-};
 
 function KpiCard({ icon, label, value, sub, color, onClick }) {
   return (
@@ -98,58 +87,33 @@ export default function OpticalDashboardTab() {
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 20 }}>
-        <div className="card">
-          <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
-            <i className="ti ti-alert-triangle" style={{ color: 'var(--red)' }}></i> Needs Attention -- Oldest Outstanding Orders
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Across every customer, sorted by how long they've been waiting.</div>
-          {data.outstanding.needsAttention.length === 0 ? (
-            <div style={{ fontSize: 13, color: 'var(--g400)' }}>Nothing outstanding right now -- every order is settled.</div>
-          ) : (
-            data.outstanding.needsAttention.map((b) => (
-              <div
-                key={b.id}
-                onClick={() => router.push(`/optical/collect?saleId=${b.id}`)}
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
-              >
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{b.sale_number} <span style={{ fontWeight: 400, color: 'var(--g500)' }}>-- {b.displayName}</span></div>
-                  <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>{b.status}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--red)' }}>{fmt(b.outstanding)}</div>
-                  <span className="badge" style={{ background: b.daysPending > 7 ? 'var(--red-lt)' : 'var(--amber-lt)', color: b.daysPending > 7 ? 'var(--red)' : 'var(--amber)', fontSize: 10 }}>
-                    {b.daysPending}d pending
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
+      <div className="card">
+        <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
+          <i className="ti ti-clock" style={{ color: 'var(--red)' }}></i> Pending Orders
         </div>
-
-        <div className="card">
-          <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
-            <i className="ti ti-list-details" style={{ color: 'var(--blue)' }}></i> Recent Activity
-          </div>
-          {data.recentActivity.length === 0 ? (
-            <div style={{ fontSize: 13, color: 'var(--g400)' }}>No payments recorded yet.</div>
-          ) : (
-            data.recentActivity.map((p) => (
-              <div key={p.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                  <span style={{ fontWeight: 600 }}>{p.displayName}</span>
-                  <span style={{ fontWeight: 700, color: TYPE_COLORS[p.payment_type] }}>{fmt(p.total_amount)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--g400)' }}>
-                  <span>{p.typeLabel}{p.optical_sales ? ` -- ${p.optical_sales.sale_number}` : ''}</span>
-                  <span>{fmtDateTime(p.collected_at)}</span>
-                </div>
+        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Across every customer, sorted by how long they've been waiting.</div>
+        {data.outstanding.needsAttention.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--g400)' }}>Nothing outstanding right now -- every order is settled.</div>
+        ) : (
+          data.outstanding.needsAttention.map((b) => (
+            <div
+              key={b.id}
+              onClick={() => router.push(`/optical/collect?saleId=${b.id}`)}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{b.sale_number} <span style={{ fontWeight: 400, color: 'var(--g500)' }}>-- {b.displayName}</span></div>
+                <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>{b.status}</div>
               </div>
-            ))
-          )}
-          <button className="btn btn-sm" style={{ marginTop: 12 }} onClick={() => router.push('/optical/payments')}>View All Payments</button>
-        </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontWeight: 700, color: 'var(--red)' }}>{fmt(b.outstanding)}</div>
+                <span className="badge" style={{ background: b.daysPending > 7 ? 'var(--red-lt)' : 'var(--amber-lt)', color: b.daysPending > 7 ? 'var(--red)' : 'var(--amber)', fontSize: 10 }}>
+                  {b.daysPending}d pending
+                </span>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

@@ -489,7 +489,6 @@ export async function getOpticalDashboardSummary() {
     { data: outstandingRows },
     { data: ledgerRows },
     { data: todayPayments },
-    { data: recentPayments },
   ] = await Promise.all([
     supabase.from('optical_sales').select('net').eq('sale_date', today).neq('status', 'Cancelled'),
     supabase.from('optical_sales').select('net').gte('sale_date', monthStart).lte('sale_date', today).neq('status', 'Cancelled'),
@@ -497,8 +496,6 @@ export async function getOpticalDashboardSummary() {
     supabase.from('optical_customer_ledger').select('amount'),
     supabase.from('optical_payments').select('total_amount, payment_type, optical_payment_modes(mode, amount)')
       .in('payment_type', ['sale_payment', 'advance']).gte('collected_at', `${today}T00:00:00+05:30`).lte('collected_at', `${today}T23:59:59+05:30`),
-    supabase.from('optical_payments').select('id, receipt_number, payment_type, total_amount, collected_at, optical_sales(sale_number), patients(salutation, first_name, last_name), optical_customers(name)')
-      .order('collected_at', { ascending: false }).limit(15),
   ]);
 
   const outstandingBills = (outstandingRows || []).map(shapeSale);
@@ -532,10 +529,5 @@ export async function getOpticalDashboardSummary() {
       needsAttention: withAge.slice(0, 10),
     },
     advanceHeld: (ledgerRows || []).reduce((s, r) => s + Number(r.amount), 0),
-    recentActivity: (recentPayments || []).map((p) => ({
-      ...p,
-      displayName: p.patients ? formatPatientName(p.patients) : (p.optical_customers?.name || '--'),
-      typeLabel: PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type,
-    })),
   };
 }
