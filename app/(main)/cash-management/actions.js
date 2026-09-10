@@ -786,24 +786,29 @@ export async function unlockReconciliation() {
 // ---------- Cash Counter (Step 2) ----------
 // Opening cash is never duplicated -- read live from
 // day_openings.opening_cash_balance. Cash Handed Over is never typed
-// in either -- it's computed from Opening Cash + the reconciled Cash
-// mode's actual figure from Step 1, minus today's Cash Expenses (paid
-// out of that same physical drawer), minus the Closing Cash count
-// (the float retained by the cashier for the next day) -- so the only
-// thing anyone enters here is that closing/retained count itself.
+// in either -- it's computed from Opening Cash + Step 1's reconciled
+// Cash-mode actual (which is already net of today's Cash Expenses --
+// see getReconciliationData, don't subtract expenses again here),
+// minus the Closing Cash count (the float retained by the cashier for
+// the next day) -- so the only thing anyone enters here is that
+// closing/retained count itself.
 
 export async function getCashCounterForDate(date) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
-  const [{ data: opening }, { data: counter }, lockStatus, { data: cashRecon }, cashExpensesTotal] = await Promise.all([
+  const [{ data: opening }, { data: counter }, lockStatus, { data: cashRecon }] = await Promise.all([
     supabase.from('day_openings').select('opening_cash_balance, opened_at, profiles(full_name)').eq('opening_date', targetDate).maybeSingle(),
     supabase.from('cash_counter').select('*, closer:profiles!cash_counter_closing_recorded_by_fkey(full_name), handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
       .eq('counter_date', targetDate).maybeSingle(),
     getReconciliationLockStatus(targetDate),
     supabase.from('day_reconciliation').select('actual').eq('closing_date', targetDate).eq('mode', 'Cash').maybeSingle(),
-    getPettyCashTotal(targetDate),
   ]);
   const openingCash = opening?.opening_cash_balance != null ? Number(opening.opening_cash_balance) : 0;
+  // Step 1's saved Cash-mode "actual" is already net of today's Cash
+  // Expenses -- getReconciliationData computes that mode's `expected`
+  // as rawExpected - pettyCashTotal, and staff reconcile `actual`
+  // against that already-net figure. So expenses must NOT be
+  // subtracted again here, or they get deducted twice.
   const reconciledCashActual = cashRecon?.actual != null ? Number(cashRecon.actual) : 0;
   const closingCashValue = counter?.closing_cash != null ? Number(counter.closing_cash) : null;
 
@@ -813,9 +818,8 @@ export async function getCashCounterForDate(date) {
     openedBy: opening?.profiles?.full_name || null,
     reconciliationLocked: lockStatus.locked,
     reconciledCashActual,
-    cashExpensesTotal,
     // Only computable once the closing/retained count is in -- null until then.
-    computedHandover: closingCashValue != null ? (openingCash + reconciledCashActual - cashExpensesTotal - closingCashValue) : null,
+    computedHandover: closingCashValue != null ? (openingCash + reconciledCashActual - closingCashValue) : null,
     closingCash: counter?.closing_cash ?? null,
     closingRecordedBy: counter?.closer?.full_name || null,
     closingRecordedAt: counter?.closing_recorded_at || null,

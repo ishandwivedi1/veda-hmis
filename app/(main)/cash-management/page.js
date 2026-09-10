@@ -184,7 +184,7 @@ function CashCounterTab({ onStatusChange }) {
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Cash Handed Over</div>
                 <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>{today.amountHandedOver != null ? fmt(today.amountHandedOver) : (today.computedHandover != null ? fmt(today.computedHandover) : '--')}</div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>
-                  {today.handedOverBy ? `Handed over by ${today.handedOverBy}` : (today.closingCash != null ? `Opening ${fmt(today.openingCash || 0)} + Cash ${fmt(today.reconciledCashActual)} - Expenses ${fmt(today.cashExpensesTotal)} - Retained ${fmt(today.closingCash)}` : 'Record closing cash count below to compute')}
+                  {today.handedOverBy ? `Handed over by ${today.handedOverBy}` : (today.closingCash != null ? `Opening ${fmt(today.openingCash || 0)} + Cash (Step 1, net of expenses) ${fmt(today.reconciledCashActual)} - Retained ${fmt(today.closingCash)}` : 'Record closing cash count below to compute')}
                 </div>
               </div>
             </div>
