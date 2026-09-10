@@ -109,13 +109,23 @@ function RescheduleForm({ booking, onDone }) {
 
 function ScheduledOTTab() {
   const [schedule, setSchedule] = useState([]);
+  const [inProgressToday, setInProgressToday] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reschedulingId, setReschedulingId] = useState(null);
 
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
   const refresh = useCallback(async () => {
-    setSchedule(await getScheduledOT());
+    const [scheduled, history] = await Promise.all([getScheduledOT(), getOTHistory()]);
+    setSchedule(scheduled);
+    // getScheduledOT only returns status='Scheduled' -- a case that's
+    // actually in surgery right now has already moved to 'In Progress'
+    // and lives in OT History instead. Without pulling it in here too,
+    // it would vanish from "today's OT" entirely the moment it starts,
+    // which is exactly backwards from what staff need to see.
+    setInProgressToday(history.filter((h) => h.scheduled_date === today && h.status === 'In Progress'));
     setLoading(false);
-  }, []);
+  }, [today]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -125,11 +135,12 @@ function ScheduledOTTab() {
     refresh();
   }
 
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  const todayRows = schedule.filter((s) => s.scheduled_date === today).sort((a, b) => (a.scheduled_time || '').localeCompare(b.scheduled_time || ''));
+  const todayRows = [...schedule.filter((s) => s.scheduled_date === today), ...inProgressToday]
+    .sort((a, b) => (a.scheduled_time || '').localeCompare(b.scheduled_time || ''));
   const upcomingRows = schedule.filter((s) => s.scheduled_date !== today);
 
   function renderRow(s) {
+    const inSurgery = s.status === 'In Progress';
     return (
       <Fragment key={s.id}>
         <tr>
@@ -147,12 +158,18 @@ function ScheduledOTTab() {
             {s.reschedule_count > 0 && <span style={{ fontSize: 10, color: 'var(--g400)', marginLeft: 4 }}>(rescheduled {s.reschedule_count}x)</span>}
           </td>
           <td>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button className="btn btn-sm" onClick={() => setReschedulingId(reschedulingId === s.id ? null : s.id)}>
-                <i className="ti ti-calendar-time"></i> Reschedule
-              </button>
-              <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id, `${formatPatientName(s.surgical_cases?.patients)}`)}>Complete</button>
-            </div>
+            {inSurgery ? (
+              <a href="/ot-intraop" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                <i className="ti ti-activity"></i> Update in OT Intraoperative
+              </a>
+            ) : (
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button className="btn btn-sm" onClick={() => setReschedulingId(reschedulingId === s.id ? null : s.id)}>
+                  <i className="ti ti-calendar-time"></i> Reschedule
+                </button>
+                <button className="btn btn-sm" onClick={() => handleComplete(s.id, s.surgical_case_id, `${formatPatientName(s.surgical_cases?.patients)}`)}>Complete</button>
+              </div>
+            )}
           </td>
         </tr>
         {reschedulingId === s.id && (
