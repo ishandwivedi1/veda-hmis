@@ -1,35 +1,24 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 
-// --- Basic-Auth bot/scanner gate -------------------------------------
-// Runs FIRST, before any Supabase call, so anonymous bots/scanners get
-// blocked at the edge without costing you a Supabase round-trip or
-// counting as real app traffic. Set BASIC_AUTH_USER and
-// BASIC_AUTH_PASSWORD as Environment Variables in Vercel (Project ->
-// Settings -> Environment Variables) for Production (and Preview, if
-// you want training-veda-hmis covered too).
-function checkBasicAuth(request) {
-  const authHeader = request.headers.get('authorization');
+// --- Silent bot filter ------------------------------------------------
+// Blocks common scanner/crawler tools by their user-agent string.
+// Unlike Basic-Auth, this never prompts a real browser for a password --
+// genuine staff traffic (Chrome, Edge, Safari, mobile browsers) passes
+// straight through untouched. It only catches bots that identify
+// themselves honestly; it will not stop a bot deliberately spoofing a
+// normal browser user-agent (that's what Vercel Pro's firewall/BotID is
+// for). Still meaningfully reduces the casual scanner/crawler noise.
+const BLOCKED_UA_PATTERNS = [
+  /bot/i, /spider/i, /crawl/i, /scan/i, /curl/i, /wget/i,
+  /python-requests/i, /go-http-client/i, /libwww/i, /httpclient/i,
+  /nikto/i, /sqlmap/i, /nmap/i, /masscan/i, /zgrab/i, /censys/i, /shodan/i,
+];
 
-  if (!authHeader || !authHeader.startsWith('Basic ')) {
-    return false;
-  }
-
-  const base64Credentials = authHeader.split(' ')[1];
-  const credentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
-  const [user, password] = credentials.split(':');
-
-  return (
-    user === process.env.BASIC_AUTH_USER &&
-    password === process.env.BASIC_AUTH_PASSWORD
-  );
-}
-
-function basicAuthChallenge() {
-  return new NextResponse('Authentication required', {
-    status: 401,
-    headers: { 'WWW-Authenticate': 'Basic realm="Veda HMIS"' },
-  });
+function isBlockedBot(request) {
+  const ua = request.headers.get('user-agent') || '';
+  if (!ua) return true; // real browsers always send a user-agent
+  return BLOCKED_UA_PATTERNS.some((pattern) => pattern.test(ua));
 }
 // -----------------------------------------------------------------------
 
@@ -46,9 +35,10 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const IDLE_CHECK_INTERVAL_MS = 2 * 60 * 1000;
 
 export async function middleware(request) {
-  // Gate everything behind Basic-Auth before touching Supabase at all.
-  if (!checkBasicAuth(request)) {
-    return basicAuthChallenge();
+  // Silently drop known bot/scanner traffic before touching Supabase.
+  // No prompt, no visible response body -- just a 403.
+  if (isBlockedBot(request)) {
+    return new NextResponse(null, { status: 403 });
   }
 
   let response = NextResponse.next({
