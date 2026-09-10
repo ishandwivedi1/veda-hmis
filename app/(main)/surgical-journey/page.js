@@ -166,6 +166,13 @@ export default function SurgicalJourneyPage() {
   // Whoever's physically here right now goes first -- that's who the
   // surgeon actually needs to see, not just the longest-overdue call.
   const awaitingSorted = [...awaiting].sort((a, b) => (arrivedToday.has(b.patient_id) ? 1 : 0) - (arrivedToday.has(a.patient_id) ? 1 : 0));
+  // A case with an OT slot today already shows in Surgeries Today --
+  // showing it again here too, under a different badge system (stage
+  // vs. OT status), looked like two inconsistent records for the same
+  // patient rather than one. Active Cases now only covers everyone
+  // else still moving through the pipeline.
+  const todaySurgeryCaseIds = new Set(surgeriesToday.map((s) => s.surgical_case_id));
+  const activeCasesFiltered = cases.filter((c) => !todaySurgeryCaseIds.has(c.id));
 
   return (
     <div>
@@ -248,10 +255,10 @@ export default function SurgicalJourneyPage() {
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-title" style={{ marginBottom: 10 }}>
               <i className="ti ti-list-numbers" style={{ color: 'var(--indigo)' }}></i> Active Cases
-              <span className="badge b-gray" style={{ marginLeft: 8 }}>{cases.length}</span>
+              <span className="badge b-gray" style={{ marginLeft: 8 }}>{activeCasesFiltered.length}</span>
             </div>
             {loading && <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Loading...</div>}
-            {!loading && cases.map((c) => (
+            {!loading && activeCasesFiltered.map((c) => (
               <div key={c.id} onClick={() => router.push(`/surgical-journey/${c.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}>
                 <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--indigo)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
                   {c.patients?.first_name?.charAt(0)}
@@ -269,7 +276,7 @@ export default function SurgicalJourneyPage() {
                 <i className="ti ti-chevron-right" style={{ color: 'var(--g400)' }}></i>
               </div>
             ))}
-            {!loading && cases.length === 0 && (
+            {!loading && activeCasesFiltered.length === 0 && (
               <div style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>No active surgical cases right now.</div>
             )}
           </div>
