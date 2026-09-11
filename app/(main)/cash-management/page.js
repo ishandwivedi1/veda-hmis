@@ -133,8 +133,8 @@ function CashCounterTab({ onStatusChange }) {
   }
 
   return (
-    <div>
-      <div className="card" style={{ marginBottom: 16 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div className="card">
         <div className="card-title" style={{ marginBottom: 14 }}><span className="badge b-gray" style={{ marginRight: 8 }}>Step 2</span><i className="ti ti-wallet" style={{ color: 'var(--blue)' }}></i> Cash Counter -- Today</div>
 
         {!today.reconciliationLocked ? (
@@ -145,7 +145,7 @@ function CashCounterTab({ onStatusChange }) {
           <>
             {error && <div className="msg-err" style={{ marginBottom: 14 }}>{error}</div>}
 
-            <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 20 }}>
+            <div style={{ display: 'flex', gap: 24, padding: '16px 20px', background: 'var(--g50)', borderRadius: 'var(--r)', marginBottom: 20, flexWrap: 'wrap' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--g500)', marginBottom: 4 }}>Opening Cash</div>
                 <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700 }}>{today.openingCash != null ? fmt(today.openingCash) : '--'}</div>
