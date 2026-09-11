@@ -78,8 +78,8 @@ function modeBreakdown(txs, negate = false) {
 // DEPT_CATEGORY (or an invoice with no line items on file) falls into
 // 'Unclassified' instead of being silently dropped; unclassifiedDepts
 // lists exactly which raw dept strings triggered it, for review.
-// Optical has no advance-adjustment or credit-note equivalent, so
-// those two stay 0 for its row.
+// Optical has no advance-adjustment equivalent (advanceSettled always
+// 0 for its row), but does have its own credit note mechanism.
 function emptyBilledRow() {
   return { billed: 0, netCash: 0, netUPI: 0, advanceSettled: 0, creditNoteSettled: 0, outstanding: 0 };
 }
@@ -201,15 +201,18 @@ async function getBilledIncomeByCategory(supabase, date) {
     });
   });
 
-  // Optical has no line items to split across and no advance-
-  // adjustment/credit-note mechanism -- a flat row, straight from each
-  // sale's own net/paid plus its sale-linked payments/refunds.
+  // Optical has no line items to split across, and no advance-
+  // adjustment equivalent, but DOES have its own credit note mechanism
+  // (create_optical_credit_note) -- a flat row, straight from each
+  // sale's own net/paid plus its sale-linked payments/refunds/credit
+  // notes.
   const opticalSaleIds = (opticalSales || []).map((s) => s.id);
-  let opticalGrossModeBySale = {}, opticalRefundModeBySale = {};
+  let opticalGrossModeBySale = {}, opticalRefundModeBySale = {}, opticalCreditNoteBySale = {};
   if (opticalSaleIds.length > 0) {
-    const [{ data: opPayments }, { data: opRefunds }] = await Promise.all([
+    const [{ data: opPayments }, { data: opRefunds }, { data: opCreditNotes }] = await Promise.all([
       supabase.from('optical_payments').select('sale_id, total_amount, optical_payment_modes(mode, amount)').eq('payment_type', 'sale_payment').in('sale_id', opticalSaleIds),
       supabase.from('optical_payment_refunds').select('sale_id, amount, refund_mode').in('sale_id', opticalSaleIds),
+      supabase.from('optical_payments').select('sale_id, total_amount').eq('payment_type', 'credit_note').in('sale_id', opticalSaleIds),
     ]);
     (opPayments || []).forEach((p) => {
       if (!opticalGrossModeBySale[p.sale_id]) opticalGrossModeBySale[p.sale_id] = {};
@@ -223,11 +226,14 @@ async function getBilledIncomeByCategory(supabase, date) {
       const mode = r.refund_mode || 'Cash';
       opticalRefundModeBySale[r.sale_id][mode] = (opticalRefundModeBySale[r.sale_id][mode] || 0) + Number(r.amount);
     });
+    (opCreditNotes || []).forEach((c) => {
+      opticalCreditNoteBySale[c.sale_id] = (opticalCreditNoteBySale[c.sale_id] || 0) + Number(c.total_amount);
+    });
   }
   categories['Optical Shop Sales'] = emptyBilledRow();
   (opticalSales || []).forEach((s) => {
     const { netCash, netUPI } = netByMode(opticalGrossModeBySale[s.id], opticalRefundModeBySale[s.id]);
-    addRow('Optical Shop Sales', { billed: Number(s.net), outstanding: Number(s.net) - Number(s.paid), netCash, netUPI });
+    addRow('Optical Shop Sales', { billed: Number(s.net), outstanding: Number(s.net) - Number(s.paid), netCash, netUPI, creditNoteSettled: opticalCreditNoteBySale[s.id] || 0 });
   });
 
   return { categories, unclassifiedDepts: [...unclassifiedDepts] };
