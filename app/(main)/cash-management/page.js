@@ -1221,7 +1221,7 @@ export default function CashManagementPage() {
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-cash-banknote" style={{ color: 'var(--green)' }}></i> Payment Mode Summary</div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-                  Billed Items + Advances{report.refunds.total !== 0 ? ' - Refunds' : ''}, by mode -- the actual cash movement for the day.
+                  Billed Items (incl. Optical Sales) + Advances{report.refunds.total !== 0 ? ' - Refunds' : ''}, by mode -- the actual cash movement for the day.
                 </div>
                 {Object.keys(report.modeSummary.byMode).length === 0 ? (
                   <div style={{ fontSize: 12, color: 'var(--g400)' }}>No payments recorded today.</div>
@@ -1288,7 +1288,7 @@ export default function CashManagementPage() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
                 <div className="card">
                   <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigation Income</div>
                   <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 8 }}>Same figure as "Investigation charges" under OPD Income above -- restated here on its own.</div>
@@ -1302,31 +1302,26 @@ export default function CashManagementPage() {
                   <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery Income</div>
                   <ModeBreakdownRows cat={report.surgeryIncome} emptyLabel="No surgery collections today." totalColor="var(--red)" />
                 </div>
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-glasses" style={{ color: 'var(--blue)' }}></i> Optical Shop Sales</div>
+                  <ModeBreakdownRows cat={report.opticalIncome} emptyLabel="No optical sales today." totalColor="var(--blue)" />
+                </div>
               </div>
 
-              {/* OPTICAL SHOP -- recorded in its own table, not via
-                  invoices/payments (see getOpticalIncomeForDate), so it
-                  is shown here for visibility only. Deliberately NOT
-                  included in Payment Mode Summary, Income by Category,
-                  or the Reconciliation tab's expected-cash figure --
-                  count this cash separately until reconciliation is
-                  extended to cover it. */}
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-glasses" style={{ color: 'var(--blue)' }}></i> Optical Shop Sales</div>
-                <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 8 }}>Tracked separately from hospital billing -- not included in Payment Mode Summary or Income by Category above. Count this cash separately when reconciling the drawer.</div>
-                <ModeBreakdownRows cat={report.opticalIncome} emptyLabel="No optical sales today." totalColor="var(--blue)" />
-              </div>
 
               {/* INCOME BY CATEGORY -- TOTAL: OPD Income + Pharmacy +
-                  Surgery Income + Unclassified (Investigation Income is
-                  NOT added again here -- it's already inside OPD Income,
-                  see the note on that card). By construction this cash
-                  total always equals Billed Items above and the Total
-                  Collection KPI minus Advances -- nothing collected
-                  today is ever left out of some category. */}
+                  Surgery Income + Unclassified + Optical Shop Sales
+                  (Investigation Income is NOT added again here -- it's
+                  already inside OPD Income, see the note on that card).
+                  By construction this cash total always equals Billed
+                  Items above and the Total Collection KPI minus
+                  Advances -- nothing collected today (hospital or
+                  optical) is ever left out of some category. Optical
+                  has no advance-adjustment equivalent, so it only
+                  contributes to the base total, not the adjusted one. */}
               {(() => {
-                const catTotal = report.opdIncome.total + report.pharmacyIncome.total + report.surgeryIncome.total + report.unclassifiedIncome.total;
-                const catTotalWithAdj = report.opdIncome.totalWithAdjustment + report.pharmacyIncome.totalWithAdjustment + report.surgeryIncome.totalWithAdjustment + report.unclassifiedIncome.total;
+                const catTotal = report.opdIncome.total + report.pharmacyIncome.total + report.surgeryIncome.total + report.unclassifiedIncome.total + report.opticalIncome.total;
+                const catTotalWithAdj = report.opdIncome.totalWithAdjustment + report.pharmacyIncome.totalWithAdjustment + report.surgeryIncome.totalWithAdjustment + report.unclassifiedIncome.total + report.opticalIncome.total;
                 const catAdvanceAdjusted = catTotalWithAdj - catTotal;
                 return (
                   <div className="card" style={{ marginBottom: 16 }}>

@@ -589,21 +589,27 @@ function modeBreakdown(txs, negate = false) {
 
 export async function getDailyReport(date) {
   const supabase = await createClient();
-  const [{ data: closing }, { data: reconciliation }, expenses, collectionSummary, opticalIncome] = await Promise.all([
+  const [{ data: closing }, { data: reconciliation }, expenses, collectionSummary] = await Promise.all([
     supabase.from('day_closings').select('*, profiles(full_name)').eq('closing_date', date).maybeSingle(),
     supabase.from('day_reconciliation').select('*, profiles(full_name)').eq('closing_date', date),
     getExpensesForDate(date),
     // Same underlying query the Reconciliation tab uses, so the
     // report's numbers can never drift from what Front Office actually
     // reconciled against -- advance_adjustment/credit_note excluded
-    // (no real cash moved), refund netted negative.
+    // (no real cash moved), refund netted negative. Optical rows are
+    // already merged in here (see getTodayCollectionSummary).
     getTodayCollectionSummary(date),
-    // See getOpticalIncomeForDate -- shown as its own line below, never
-    // merged into billedTx/categories/modeSummary.
-    getOpticalIncomeForDate(date),
   ]);
 
+  // Hospital-only -- fed into getCategorizedIncome below, which needs
+  // payment_allocations/invoice_line_items to split each payment by
+  // dept. Optical has neither table (no invoice, no line items), so
+  // mixing its rows into this set would make every optical rupee fall
+  // through to "Unclassified" with a nonsense reason attached. Optical
+  // Sales is instead its own flat category further down.
   const billedTx = collectionSummary.transactions.filter((p) => p.payment_type === 'invoice_payment');
+  // 'sale_payment' only exists on optical_payments rows -- unambiguous.
+  const opticalSaleTx = collectionSummary.transactions.filter((p) => p.payment_type === 'sale_payment');
   const advanceTx = collectionSummary.transactions.filter((p) => p.payment_type === 'advance');
   const refundTx = collectionSummary.transactions.filter((p) => p.payment_type === 'refund');
   // Advance applied against an invoice today (e.g. a surgery invoiced
@@ -648,11 +654,18 @@ export async function getDailyReport(date) {
     totalWithAdjustment: opdConsultation.totalWithAdjustment + opdProcedure.totalWithAdjustment + opdInvestigation.totalWithAdjustment,
   };
   const unclassified = cat('Unclassified');
+  // Optical has no advance-adjustment equivalent (no invoice/advance-
+  // ledger table of its own) -- a flat category, no adjusted variant.
+  const opticalIncome = modeBreakdown(opticalSaleTx);
   const { previousDay: previousAdvanceAdjustedTotal, sameDay: sameDayAdvanceAdjustedTotal } = splitAdvanceAdjustmentByAge(advanceTx, adjustmentTx);
 
   return {
     closing, reconciliation: reconciliation || [], expenses,
-    billedItems: modeBreakdown(billedTx),
+    // "All categories" now includes Optical's billed sales alongside
+    // hospital invoice_payment -- kept as the one figure that Income by
+    // Category's total (below) and Payment Mode Summary's Grand Total
+    // both tie back to exactly.
+    billedItems: modeBreakdown([...billedTx, ...opticalSaleTx]),
     advances: modeBreakdown(advanceTx),
     refunds: modeBreakdown(refundTx, true),
     // Combined Cash/UPI/Card/Cheque/Bank Transfer totals across Billed
@@ -665,10 +678,12 @@ export async function getDailyReport(date) {
     surgeryIncome: withAdjustment(cat('Surgery Income'), adjTotal('Surgery Income')),
     unclassifiedIncome: unclassified,
     unclassifiedDepts,
-    // Separate revenue stream, not part of the invoice/payment pipeline
-    // -- see getOpticalIncomeForDate. Not included in modeSummary or any
-    // "Income by Category" total above, and not part of reconciliation's
-    // expected-cash figure; shown as its own card for visibility only.
+    // Optical Shop Sales -- now a full peer category alongside OPD/
+    // Pharmacy/Surgery/Unclassified, included in Income by Category's
+    // total, Billed Items (all categories), and Payment Mode Summary
+    // (via collectionSummary, which already folded it in). Optical's
+    // Advances/Refunds were always included in the Advances/Refunds
+    // cards above (payment_type is generic across both subsystems).
     opticalIncome,
     // Advance-adjustment activity that itself couldn't be categorized
     // (e.g. an invoice with no line items) -- tracked separately from

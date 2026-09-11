@@ -142,16 +142,17 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           <CategoryRow label="Investigation charges" cat={report.opdIncome.investigation} italic />
           <CategoryRow label="Pharmacy" cat={report.pharmacyIncome} bold />
           <CategoryRow label="Surgery Income" cat={report.surgeryIncome} bold />
+          <CategoryRow label="Optical Shop Sales" cat={report.opticalIncome} bold />
           {report.unclassifiedIncome.total !== 0 && (
             <CategoryRow label="Unclassified -- needs review" cat={report.unclassifiedIncome} bold />
           )}
           <CategoryRow
             label="TOTAL"
             cat={{
-              byMode: MODES.reduce((acc, m) => ({ ...acc, [m]: [report.opdIncome, report.pharmacyIncome, report.surgeryIncome, report.unclassifiedIncome].reduce((s, c) => s + (c.byMode[m] || 0), 0) }), {}),
-              total: report.opdIncome.total + report.pharmacyIncome.total + report.surgeryIncome.total + report.unclassifiedIncome.total,
+              byMode: MODES.reduce((acc, m) => ({ ...acc, [m]: [report.opdIncome, report.pharmacyIncome, report.surgeryIncome, report.unclassifiedIncome, report.opticalIncome].reduce((s, c) => s + (c.byMode[m] || 0), 0) }), {}),
+              total: report.opdIncome.total + report.pharmacyIncome.total + report.surgeryIncome.total + report.unclassifiedIncome.total + report.opticalIncome.total,
               advanceAdjusted: report.opdIncome.advanceAdjusted + report.pharmacyIncome.advanceAdjusted + report.surgeryIncome.advanceAdjusted,
-              totalWithAdjustment: report.opdIncome.totalWithAdjustment + report.pharmacyIncome.totalWithAdjustment + report.surgeryIncome.totalWithAdjustment + report.unclassifiedIncome.total,
+              totalWithAdjustment: report.opdIncome.totalWithAdjustment + report.pharmacyIncome.totalWithAdjustment + report.surgeryIncome.totalWithAdjustment + report.unclassifiedIncome.total + report.opticalIncome.total,
             }}
             bold
           />
@@ -160,7 +161,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
       <div style={{ fontSize: 10.5, color: '#666', marginBottom: 16 }}>
         Investigation Income equals the "Investigation charges" row above -- already included in OPD Income, not additional.
         "Via Advance" is revenue recognized today by applying an advance collected on an earlier day -- it involves no new cash movement today and is excluded from the Cash/UPI/Card columns and from Total Cash/UPI/Other above.
-        TOTAL = OPD Income + Pharmacy + Surgery Income (+ Unclassified, if any) -- equal to Billed Items in Payment Mode Summary above.
+        TOTAL = OPD Income + Pharmacy + Surgery Income + Optical Shop Sales (+ Unclassified, if any) -- equal to Billed Items in Payment Mode Summary above.
       </div>
 
       {(report.unclassifiedDepts.length > 0 || report.unclassifiedAdjustedDepts.length > 0) && (
