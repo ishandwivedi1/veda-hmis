@@ -173,16 +173,38 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
               <>
                 {rows.map((r) => <CategoryRow key={r.label} label={r.label} row={r.row} flag={r.flag} />)}
                 <CategoryRow label="Total Billed" row={total} bold />
+                {(() => {
+                  // Advances have no category/dept of their own, so
+                  // they only ever populate Net Cash/Net UPI. Grand
+                  // Total's Net Cash/Net UPI reproduces Payment Mode
+                  // Summary's Grand Total exactly (see getDailyReport).
+                  const advanceRows = [
+                    { label: 'Net Hospital Advance Collected', row: report.netHospitalAdvanceCollected },
+                    { label: 'Net Optical Advance Collected', row: report.netOpticalAdvanceCollected },
+                    { label: 'Previous Hospital Advance Refund', row: report.previousHospitalAdvanceRefund },
+                    { label: 'Previous Optical Advance Returned', row: report.previousOpticalAdvanceReturned },
+                  ];
+                  const asFullRow = (r) => ({ billed: 0, netCash: r.netCash, netUPI: r.netUPI, advanceSettled: 0, creditNoteSettled: 0, outstanding: 0 });
+                  const grandTotal = {
+                    billed: total.billed,
+                    netCash: total.netCash + advanceRows.reduce((s, r) => s + r.row.netCash, 0),
+                    netUPI: total.netUPI + advanceRows.reduce((s, r) => s + r.row.netUPI, 0),
+                    advanceSettled: total.advanceSettled, creditNoteSettled: total.creditNoteSettled, outstanding: total.outstanding,
+                  };
+                  return (
+                    <>
+                      {advanceRows.map((r) => <CategoryRow key={r.label} label={r.label} row={asFullRow(r.row)} />)}
+                      <CategoryRow label="Grand Total" row={grandTotal} bold />
+                    </>
+                  );
+                })()}
               </>
             );
           })()}
         </tbody>
       </table>
-      <div style={{ fontSize: 10.5, color: '#666', marginBottom: 4 }}>
-        Each row: Billed = Net Cash + Net UPI + Settled via Advance + Credit Notes + Outstanding. Net Cash/UPI are net of today's refunds against today's own invoices only. Total Billed = Total Billed Revenue in Day Totals below.
-      </div>
-      <div style={{ fontSize: 11, marginBottom: 16 }}>
-        <strong>Advances</strong> (category-agnostic, deposited before being tied to any bill): Collected <span style={{ color: '#6d28d9' }}>{fmt(report.advancesSummary.collected)}</span>, Refunds <span style={{ color: '#b3261e' }}>{fmt(report.advancesSummary.refunds)}</span>.
+      <div style={{ fontSize: 10.5, color: '#666', marginBottom: 16 }}>
+        Each row: Billed = Net Cash + Net UPI + Settled via Advance + Credit Notes + Outstanding. Net Cash/UPI are net of today's refunds against today's own invoices only. Total Billed = Total Billed Revenue in Day Totals below. Advances have no category of their own, so they only populate Net Cash/Net UPI -- Grand Total's Net Cash/Net UPI equals Payment Mode Summary's Grand Total above.
       </div>
 
       {report.unclassifiedDepts.length > 0 && (

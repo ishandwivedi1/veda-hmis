@@ -1308,13 +1308,51 @@ export default function CashManagementPage() {
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.creditNoteSettled)}</td>
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.outstanding)}</td>
                         </tr>
-                        <tr>
-                          <td style={{ fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Advances</td>
-                          <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
-                          <td colSpan={2} style={{ textAlign: 'right', fontWeight: 600, color: 'var(--purple)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Collected: {fmt(report.advancesSummary.collected)}</td>
-                          <td colSpan={2} style={{ textAlign: 'right', fontWeight: 600, color: 'var(--red)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Refunds: {fmt(report.advancesSummary.refunds)}</td>
-                          <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
-                        </tr>
+                        {(() => {
+                          // Advances have no category/dept of their own, so
+                          // they're not part of billedCategories above --
+                          // these four rows only ever populate Net Cash/Net
+                          // UPI. Grand Total's Net Cash/Net UPI reproduces
+                          // Payment Mode Summary's Grand Total exactly (see
+                          // getDailyReport) -- a live cross-check between
+                          // Table 1 and Table 2.
+                          const advanceRows = [
+                            { label: 'Net Hospital Advance Collected', row: report.netHospitalAdvanceCollected, color: 'var(--purple)' },
+                            { label: 'Net Optical Advance Collected', row: report.netOpticalAdvanceCollected, color: 'var(--purple)' },
+                            { label: 'Previous Hospital Advance Refund', row: report.previousHospitalAdvanceRefund, color: 'var(--red)' },
+                            { label: 'Previous Optical Advance Returned', row: report.previousOpticalAdvanceReturned, color: 'var(--red)' },
+                          ];
+                          const grandTotal = {
+                            billed: total.billed,
+                            netCash: total.netCash + advanceRows.reduce((s, r) => s + r.row.netCash, 0),
+                            netUPI: total.netUPI + advanceRows.reduce((s, r) => s + r.row.netUPI, 0),
+                            advanceSettled: total.advanceSettled, creditNoteSettled: total.creditNoteSettled, outstanding: total.outstanding,
+                          };
+                          return (
+                            <>
+                              {advanceRows.map((r, i) => (
+                                <tr key={r.label}>
+                                  <td style={{ fontWeight: 600, ...(i === 0 ? { paddingTop: 10, borderTop: '1.5px solid var(--g200)' } : {}) }}>{r.label}</td>
+                                  <td style={i === 0 ? { borderTop: '1.5px solid var(--g200)' } : undefined}></td>
+                                  <td style={{ textAlign: 'right', color: r.color, ...(i === 0 ? { borderTop: '1.5px solid var(--g200)' } : {}) }}>{fmt(r.row.netCash)}</td>
+                                  <td style={{ textAlign: 'right', color: r.color, ...(i === 0 ? { borderTop: '1.5px solid var(--g200)' } : {}) }}>{fmt(r.row.netUPI)}</td>
+                                  <td style={i === 0 ? { borderTop: '1.5px solid var(--g200)' } : undefined}></td>
+                                  <td style={i === 0 ? { borderTop: '1.5px solid var(--g200)' } : undefined}></td>
+                                  <td style={i === 0 ? { borderTop: '1.5px solid var(--g200)' } : undefined}></td>
+                                </tr>
+                              ))}
+                              <tr>
+                                <td style={{ fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Grand Total</td>
+                                <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--blue)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.billed)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.netCash)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.netUPI)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.advanceSettled)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.creditNoteSettled)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.outstanding)}</td>
+                              </tr>
+                            </>
+                          );
+                        })()}
                       </tbody>
                     </table>
                   );

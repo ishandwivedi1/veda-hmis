@@ -720,6 +720,45 @@ export async function getDailyReport(date) {
     (hospitalAdvanceTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) - hospitalAdvanceRefundAge.sameDay)
     + (opticalAdvanceTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) - opticalAdvanceRefundAge.sameDay);
 
+  // Same four figures, but split by Cash/UPI for Table 2's own Net
+  // Cash/Net UPI columns -- since the same-day/previous-day split
+  // above is itself an aggregate-amount approximation (the advance
+  // ledger has no dated queue to trace an exact mode from), the mode
+  // split is approximated the same way: apply the same-day fraction of
+  // the total refund uniformly across whichever modes that refund
+  // actually used.
+  function splitModeByFraction(byMode, sameDayFraction) {
+    const sameDay = {}, previousDay = {};
+    Object.entries(byMode).forEach(([mode, amt]) => {
+      sameDay[mode] = amt * sameDayFraction;
+      previousDay[mode] = amt * (1 - sameDayFraction);
+    });
+    return { sameDay, previousDay };
+  }
+  const hospitalAdvanceByMode = modeBreakdown(hospitalAdvanceTx).byMode;
+  const opticalAdvanceByMode = modeBreakdown(opticalAdvanceTx).byMode;
+  const hospitalAdvanceRefundByMode = modeBreakdown(advanceRefundTx).byMode;
+  const opticalAdvanceRefundByModeGross = modeBreakdown(opticalAdvanceRefundTx).byMode;
+  const hospitalAdvRefundTotal = advanceRefundTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
+  const opticalAdvRefundTotal = opticalAdvanceRefundTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
+  const { sameDay: hospRefundSameDayByMode, previousDay: hospRefundPreviousDayByMode } =
+    splitModeByFraction(hospitalAdvanceRefundByMode, hospitalAdvRefundTotal > 0 ? hospitalAdvanceRefundAge.sameDay / hospitalAdvRefundTotal : 0);
+  const { sameDay: optRefundSameDayByMode, previousDay: optRefundPreviousDayByMode } =
+    splitModeByFraction(opticalAdvanceRefundByModeGross, opticalAdvRefundTotal > 0 ? opticalAdvanceRefundAge.sameDay / opticalAdvRefundTotal : 0);
+
+  const netHospitalAdvanceCollected = {
+    netCash: (hospitalAdvanceByMode.Cash || 0) - (hospRefundSameDayByMode.Cash || 0),
+    netUPI: (hospitalAdvanceByMode.UPI || 0) - (hospRefundSameDayByMode.UPI || 0),
+  };
+  const netOpticalAdvanceCollected = {
+    netCash: (opticalAdvanceByMode.Cash || 0) - (optRefundSameDayByMode.Cash || 0),
+    netUPI: (opticalAdvanceByMode.UPI || 0) - (optRefundSameDayByMode.UPI || 0),
+  };
+  // Shown as negative -- a refund against an advance deposited on an
+  // earlier day, real cash out today that no other row above captures.
+  const previousHospitalAdvanceRefund = { netCash: -(hospRefundPreviousDayByMode.Cash || 0), netUPI: -(hospRefundPreviousDayByMode.UPI || 0) };
+  const previousOpticalAdvanceReturned = { netCash: -(optRefundPreviousDayByMode.Cash || 0), netUPI: -(optRefundPreviousDayByMode.UPI || 0) };
+
   const creditNotesTotal = creditNoteTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
 
   // Table 2 (Billed Income by Category) is pure billing-truth: the
@@ -760,13 +799,16 @@ export async function getDailyReport(date) {
       'Optical Shop Sales': catRow('Optical Shop Sales'),
       Unclassified: catRow('Unclassified'),
     },
-    advancesSummary: {
-      // Gross, matching Table 1's Hospital/Optical Advances rows.
-      collected: hospitalAdvanceTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) + opticalAdvanceTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0),
-      // Advance refunds only -- invoice/sale-linked refunds are
-      // already inside their category's row above, not here.
-      refunds: advanceRefundTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) + opticalAdvanceRefundTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0),
-    },
+    // Four rows below Total Billed -- Table 2's Net Cash/Net UPI
+    // columns, extended to advances (which have no category/dept of
+    // their own, hence not part of billedCategories above). Their sum,
+    // added to Total Billed's own Net Cash/Net UPI, reproduces Table
+    // 1's Payment Mode Summary Grand Total exactly -- see the Grand
+    // Total row in the UI.
+    netHospitalAdvanceCollected,
+    netOpticalAdvanceCollected,
+    previousHospitalAdvanceRefund,
+    previousOpticalAdvanceReturned,
     unclassifiedDepts,
     // ---- TABLE 3: Day Totals -- reconciles Table 1 and Table 2.
     // Total Collected (modeSummary.total above) should equal:
