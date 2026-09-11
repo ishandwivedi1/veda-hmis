@@ -612,7 +612,7 @@ export async function getDayClosingHistory() {
 
 export async function getDailyReport(date) {
   const supabase = await createClient();
-  const [{ data: closing }, { data: reconciliation }, expenses, collectionSummary] = await Promise.all([
+  const [{ data: closing }, { data: reconciliation }, expenses, collectionSummary, cashCounter] = await Promise.all([
     supabase.from('day_closings').select('*, profiles(full_name)').eq('closing_date', date).maybeSingle(),
     supabase.from('day_reconciliation').select('*, profiles(full_name)').eq('closing_date', date),
     getExpensesForDate(date),
@@ -622,6 +622,10 @@ export async function getDailyReport(date) {
     // (no real cash moved), refund netted negative. Optical rows are
     // already merged in here (see getTodayCollectionSummary).
     getTodayCollectionSummary(date),
+    // Cash Counter table -- Opening Cash and Cash Handed Over/retained,
+    // same source the live Step 2 tab uses, so a closed day's report
+    // shows exactly what was confirmed that day.
+    getCashCounterForDate(date),
   ]);
 
   // Hospital-only, real cash collected -- used for Table 1's "Payments
@@ -824,6 +828,17 @@ export async function getDailyReport(date) {
     // Total refunds today, kept only as a reference figure -- Table 1
     // already shows Hospital/Optical Refunds as their own rows.
     totalRefundsToday: refundTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0),
+    // ---- CASH COUNTER TABLE: Opening Cash, Cash Collected, Cash
+    // Expenses, Cash Handed Over -- same source as the live Step 2 tab.
+    cashCounter: {
+      openingCash: cashCounter.openingCash != null ? Number(cashCounter.openingCash) : 0,
+      // Gross cash collected today, before expenses -- Table 1's Cash
+      // column (Payments + Advances - Refunds, hospital + optical).
+      cashCollected: collectionSummary.byMode['Cash'] || 0,
+      cashExpenses: expenses.reduce((s, e) => s + Number(e.amount || 0), 0),
+      amountHandedOver: cashCounter.amountHandedOver,
+      closingCash: cashCounter.closingCash,
+    },
   };
 }
 

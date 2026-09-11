@@ -1364,79 +1364,6 @@ export default function CashManagementPage() {
                 )}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}>Reconciliation Summary</div>
-                  {report.reconciliation.map((r) => (
-                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
-                      <span>{r.mode}</span>
-                      <span style={{ fontWeight: 600, color: Math.abs(r.variance) > 0.01 ? 'var(--red)' : 'var(--green)' }}>
-                        {fmt(r.actual)}{Math.abs(r.variance) > 0.01 ? ` (var: ${r.variance > 0 ? '+' : ''}${fmt(r.variance)})` : ''}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}>Day Totals</div>
-                  {(() => {
-                    const advanceAdjustmentApplied = report.previousAdvanceAdjustedTotal + report.sameDayAdvanceAdjustedTotal;
-                    // Table 3 reconciles Table 1 (Payment Mode Summary,
-                    // actual cash) against Table 2/billing (Income by
-                    // Category, assumed correct as billed): Total
-                    // Revenue minus everything billed-today-but-not-
-                    // fresh-cash-today (Outstanding, Advance Adjustment
-                    // Applied, Credit Notes), plus fresh Advance
-                    // Collected, minus refunds against something from a
-                    // PREVIOUS day (today's own invoice/sale/advance
-                    // refunds are already excluded from Revenue/
-                    // Outstanding/Advance Collected respectively, so
-                    // only refunds against an EARLIER day's billing or
-                    // advance are cash out that isn't captured yet).
-                    const expectedCollected = report.closing.total_revenue - report.closing.total_outstanding - advanceAdjustmentApplied - report.creditNotesTotal + report.advanceCollectedNet - report.refundsAgainstPreviousInvoices - report.refundsAgainstPreviousAdvances;
-                    const ties = Math.abs(expectedCollected - report.modeSummary.total) < 0.01;
-                    return (
-                      <>
-                        <div style={{ fontSize: 13, lineHeight: 2 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Billed Revenue (incl. Optical)</span><strong>{fmt(report.closing.total_revenue)}</strong></div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outstanding</span><strong style={{ color: 'var(--amber)' }}>{fmt(report.closing.total_outstanding)}</strong></div>
-                          {advanceAdjustmentApplied > 0.001 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: 'var(--purple)' }}>Advance Adjustment Applied</span>
-                              <strong style={{ color: 'var(--purple)' }}>{fmt(advanceAdjustmentApplied)}</strong>
-                            </div>
-                          )}
-                          {report.creditNotesTotal > 0.001 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: 'var(--red)' }}>Credit Notes</span>
-                              <strong style={{ color: 'var(--red)' }}>{fmt(report.creditNotesTotal)}</strong>
-                            </div>
-                          )}
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Advance Collected</span><strong style={{ color: 'var(--purple)' }}>{fmt(report.advanceCollectedNet)}</strong></div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--red)' }}>Refunds against Previous Invoices</span>
-                            <strong style={{ color: 'var(--red)' }}>{fmt(report.refundsAgainstPreviousInvoices)}</strong>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--red)' }}>Refunds against Previous Advances</span>
-                            <strong style={{ color: 'var(--red)' }}>{fmt(report.refundsAgainstPreviousAdvances)}</strong>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--g200)', marginTop: 4, paddingTop: 4 }}>
-                            <span>Total Collected</span>
-                            <strong style={{ color: 'var(--green)' }} title="Equal to the Total Collection KPI card above">{fmt(report.modeSummary.total)}</strong>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cash Expenses</span><strong style={{ color: 'var(--red)' }}>{fmt(report.closing.total_petty_cash_expenses)}</strong></div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoices</span><strong>{report.closing.total_invoices}</strong></div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Visits</span><strong>{report.closing.total_visits}</strong></div>
-                        </div>
-                        <div style={{ fontSize: 10.5, color: ties ? 'var(--green)' : 'var(--red)', marginTop: 8, fontWeight: 600 }}>
-                          {ties ? <><i className="ti ti-check"></i> Revenue - Outstanding - Advance Adjustment - Credit Notes + Advance Collected - Refunds (previous invoices/advances) = Total Collected, ties out.</> : <><i className="ti ti-alert-triangle"></i> Expected {fmt(expectedCollected)} from the figures above, but Total Collected shows {fmt(report.modeSummary.total)} -- worth investigating.</>}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-
               {report.expenses.length > 0 && (
                 <div className="card" style={{ marginTop: 16 }}>
                   <div className="card-title" style={{ marginBottom: 10 }}>Cash Expenses</div>
@@ -1455,6 +1382,38 @@ export default function CashManagementPage() {
                   </table>
                 </div>
               )}
+
+              {/* CASH COUNTER -- same source as the live Step 2 tab, so
+                  a closed day's figures here match exactly what was
+                  confirmed that day. Cash Collected is gross (Table
+                  1's Cash column, before expenses); Cash Handed Over is
+                  the confirmed figure once Step 2 is done for this
+                  date, or "Pending" if it hasn't been confirmed yet. */}
+              <div className="card" style={{ marginTop: 16 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-wallet" style={{ color: 'var(--blue)' }}></i> Cash Counter</div>
+                <table className="tbl" style={{ fontSize: 13 }}>
+                  <tbody>
+                    <tr>
+                      <td>Opening Cash</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(report.cashCounter.openingCash)}</td>
+                    </tr>
+                    <tr>
+                      <td>Cash Collected</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--green)' }}>{fmt(report.cashCounter.cashCollected)}</td>
+                    </tr>
+                    <tr>
+                      <td>Cash Expenses</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--red)' }}>{fmt(report.cashCounter.cashExpenses)}</td>
+                    </tr>
+                    <tr style={{ background: 'var(--blue-lt, #eff6ff)' }}>
+                      <td style={{ fontWeight: 800 }}>Cash Handed Over</td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--blue)' }}>
+                        {report.cashCounter.amountHandedOver != null ? fmt(report.cashCounter.amountHandedOver) : <span style={{ color: 'var(--g400)', fontWeight: 600 }}>Pending</span>}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
         </div>

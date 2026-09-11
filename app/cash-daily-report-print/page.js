@@ -219,65 +219,6 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         </div>
       )}
 
-      {/* RECONCILIATION + DAY TOTALS */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 18 }}>
-        <tbody>
-          <tr>
-            <td style={{ verticalAlign: 'top', width: '50%', paddingRight: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Reconciliation Summary</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr><th style={thLeft}>Mode</th><th style={th}>Actual</th><th style={th}>Variance</th></tr></thead>
-                <tbody>
-                  {report.reconciliation.map((r) => (
-                    <tr key={r.id}>
-                      <td style={tdLeft}>{r.mode}</td>
-                      <td style={td}>{fmt(r.actual)}</td>
-                      <td style={{ ...td, color: Math.abs(r.variance) > 0.01 ? '#b3261e' : undefined }}>
-                        {Math.abs(r.variance) > 0.01 ? `${r.variance > 0 ? '+' : ''}${fmt(r.variance)}` : '--'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </td>
-            <td style={{ verticalAlign: 'top', width: '50%', paddingLeft: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Day Totals</div>
-              {(() => {
-                const advanceAdjustmentApplied = report.previousAdvanceAdjustedTotal + report.sameDayAdvanceAdjustedTotal;
-                const expectedCollected = report.closing.total_revenue - report.closing.total_outstanding - advanceAdjustmentApplied - report.creditNotesTotal + report.advanceCollectedNet - report.refundsAgainstPreviousInvoices - report.refundsAgainstPreviousAdvances;
-                const ties = Math.abs(expectedCollected - report.modeSummary.total) < 0.01;
-                return (
-                  <>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                      <tbody>
-                        <tr><td style={tdLeft}>Total Billed Revenue (incl. Optical)</td><td style={td}>{fmt(report.closing.total_revenue)}</td></tr>
-                        <tr><td style={tdLeft}>Outstanding</td><td style={td}>{fmt(report.closing.total_outstanding)}</td></tr>
-                        {advanceAdjustmentApplied > 0.001 && (
-                          <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Advance Adjustment Applied</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(advanceAdjustmentApplied)}</td></tr>
-                        )}
-                        {report.creditNotesTotal > 0.001 && (
-                          <tr><td style={{ ...tdLeft, color: '#b3261e' }}>Credit Notes</td><td style={{ ...td, color: '#b3261e' }}>{fmt(report.creditNotesTotal)}</td></tr>
-                        )}
-                        <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Advance Collected</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(report.advanceCollectedNet)}</td></tr>
-                        <tr><td style={{ ...tdLeft, color: '#b3261e' }}>Refunds against Previous Invoices</td><td style={{ ...td, color: '#b3261e' }}>{fmt(report.refundsAgainstPreviousInvoices)}</td></tr>
-                        <tr><td style={{ ...tdLeft, color: '#b3261e' }}>Refunds against Previous Advances</td><td style={{ ...td, color: '#b3261e' }}>{fmt(report.refundsAgainstPreviousAdvances)}</td></tr>
-                        <tr><td style={{ ...tdLeft, fontWeight: 700, borderTop: '1px solid #999' }}>Total Collected</td><td style={{ ...td, fontWeight: 700, borderTop: '1px solid #999' }}>{fmt(report.modeSummary.total)}</td></tr>
-                        <tr><td style={tdLeft}>Petty Cash Spent</td><td style={td}>{fmt(report.closing.total_petty_cash_expenses)}</td></tr>
-                        <tr><td style={tdLeft}>Invoices</td><td style={td}>{report.closing.total_invoices}</td></tr>
-                        <tr><td style={tdLeft}>Visits</td><td style={td}>{report.closing.total_visits}</td></tr>
-                      </tbody>
-                    </table>
-                    <div style={{ fontSize: 9.5, color: ties ? '#166534' : '#b3261e', marginTop: 4, fontWeight: 700 }}>
-                      {ties ? 'Revenue - Outstanding - Advance Adjustment - Credit Notes + Advance Collected - Refunds (previous invoices/advances) = Total Collected, ties out.' : `Expected ${fmt(expectedCollected)} from the figures above, but Total Collected shows ${fmt(report.modeSummary.total)} -- worth investigating.`}
-                    </div>
-                  </>
-                );
-              })()}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
       {/* PETTY CASH EXPENSES */}
       {report.expenses.length > 0 && (
         <>
@@ -299,6 +240,23 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           </table>
         </>
       )}
+
+      {/* CASH COUNTER -- same source as the live Step 2 tab, so a
+          closed day's figures here match exactly what was confirmed
+          that day. Cash Collected is gross (Table 1's Cash column,
+          before expenses). */}
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Cash Counter</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 18 }}>
+        <tbody>
+          <tr><td style={tdLeft}>Opening Cash</td><td style={{ ...td, fontWeight: 700 }}>{fmt(report.cashCounter.openingCash)}</td></tr>
+          <tr><td style={tdLeft}>Cash Collected</td><td style={{ ...td, fontWeight: 700, color: '#166534' }}>{fmt(report.cashCounter.cashCollected)}</td></tr>
+          <tr><td style={tdLeft}>Cash Expenses</td><td style={{ ...td, fontWeight: 700, color: '#b3261e' }}>{fmt(report.cashCounter.cashExpenses)}</td></tr>
+          <tr style={{ background: '#eff6ff' }}>
+            <td style={{ ...tdLeft, fontWeight: 800 }}>Cash Handed Over</td>
+            <td style={{ ...td, fontWeight: 800, color: '#1d4ed8' }}>{report.cashCounter.amountHandedOver != null ? fmt(report.cashCounter.amountHandedOver) : 'Pending'}</td>
+          </tr>
+        </tbody>
+      </table>
 
       <div style={{ marginTop: 30, textAlign: 'center', fontSize: 10.5, color: '#999' }}>
         This is a computer-generated report. Generated {new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}.
