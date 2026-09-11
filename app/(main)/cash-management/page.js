@@ -13,6 +13,7 @@ import {
   reopenDay,
   getDayOpening,
   openDay,
+  getSuggestedOpeningBalance,
   getRevenueByDepartmentToday,
   getUnclosedPastDays,
   getExpenseCategoriesActive,
@@ -258,6 +259,7 @@ export default function CashManagementPage() {
   const handleCashCounterStatusChange = useCallback((confirmed) => setCashCounterConfirmed(confirmed), []);
   const [opening, setOpening] = useState(null);
   const [openingBalance, setOpeningBalance] = useState('');
+  const [suggestedOpening, setSuggestedOpening] = useState(null);
   const [openingRemarks, setOpeningRemarks] = useState('');
   const [todayClosingInfo, setTodayClosingInfo] = useState(null);
   const [openQueueEntries, setOpenQueueEntries] = useState([]);
@@ -363,7 +365,7 @@ export default function CashManagementPage() {
     // does, so there's no reason to make them wait behind it.
     const [
       summaryData, revenueByDeptData, historyData,
-      openingData, openQueueData, unclosedPastDaysData,
+      openingData, openQueueData, unclosedPastDaysData, suggestedOpeningData,
     ] = await Promise.all([
       getTodayCollectionSummary(),
       getRevenueByDepartmentToday(),
@@ -371,6 +373,7 @@ export default function CashManagementPage() {
       getDayOpening(),
       getOpenQueueEntriesToday(),
       getUnclosedPastDays(),
+      getSuggestedOpeningBalance(),
     ]);
     const readinessData = await getCloseDayReadiness(undefined, summaryData);
     // readiness.alreadyClosed is the same day_closings check
@@ -386,6 +389,7 @@ export default function CashManagementPage() {
     setHistory(historyData);
     setClosedToday(isClosed);
     setOpening(openingData);
+    setSuggestedOpening(suggestedOpeningData);
     setOpenQueueEntries(openQueueData);
     setUnclosedPastDays(unclosedPastDaysData);
     if (isClosed) {
@@ -418,6 +422,15 @@ export default function CashManagementPage() {
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => { getApprovers().then(setApprovers); }, []);
+  // Pre-fill Opening Cash with the last recorded Closing Cash (retained)
+  // once, when the day hasn't been opened yet and the field is still
+  // untouched -- staff can still edit it if the drawer's float actually
+  // changed overnight. Never overwrites something they've already typed.
+  useEffect(() => {
+    if (!opening && suggestedOpening && openingBalance === '') {
+      setOpeningBalance(String(suggestedOpening.amount));
+    }
+  }, [opening, suggestedOpening, openingBalance]);
 
   function updateReconField(mode, field, value) {
     setReconEdits((prev) => ({ ...prev, [mode]: { ...prev[mode], [field]: value } }));
@@ -643,6 +656,9 @@ export default function CashManagementPage() {
             <div>
               <label style={{ fontSize: 10, opacity: .85, display: 'block', marginBottom: 3 }}>Opening cash balance (Rs.)</label>
               <input type="number" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} placeholder="0.00" style={{ padding: '6px 10px', borderRadius: 6, border: 'none', width: 140 }} />
+              {suggestedOpening && Number(openingBalance) === suggestedOpening.amount && (
+                <div style={{ fontSize: 9.5, opacity: .8, marginTop: 3 }}>Carried forward from {suggestedOpening.date}&apos;s retained cash -- edit if the drawer changed overnight.</div>
+              )}
             </div>
             <div style={{ flex: 1, minWidth: 160 }}>
               <label style={{ fontSize: 10, opacity: .85, display: 'block', marginBottom: 3 }}>Remarks</label>

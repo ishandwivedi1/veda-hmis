@@ -856,6 +856,22 @@ export async function getDayOpening() {
   return data;
 }
 
+// What today's Opening Cash should be, if the drawer's float is simply
+// carried forward day to day: the most recent PRIOR day's Closing Cash
+// (retained) from Cash Counter. Purely a suggestion for the Open Day
+// form to pre-fill -- staff can still override it if cash was actually
+// added to or removed from the drawer overnight. Looks at the most
+// recent cash_counter row with a closing_cash recorded, not
+// necessarily yesterday specifically (in case a day was skipped).
+export async function getSuggestedOpeningBalance() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const { data } = await supabase.from('cash_counter').select('counter_date, closing_cash')
+    .not('closing_cash', 'is', null).lt('counter_date', today)
+    .order('counter_date', { ascending: false }).limit(1).maybeSingle();
+  return data ? { date: data.counter_date, amount: Number(data.closing_cash) } : null;
+}
+
 export async function openDay(openingBalance, remarks) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('open_day', { p_date: null, p_opening_balance: openingBalance || 0, p_remarks: remarks || null });
