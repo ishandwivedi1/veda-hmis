@@ -192,24 +192,36 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
             </td>
             <td style={{ verticalAlign: 'top', width: '50%', paddingLeft: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Day Totals</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <tbody>
-                  <tr><td style={tdLeft}>Total Revenue (billed)</td><td style={td}>{fmt(report.closing.total_revenue)}</td></tr>
-                  <tr><td style={tdLeft}>Total Collected (= Total Collection above)</td><td style={td}>{fmt(report.modeSummary.total)}</td></tr>
-                  {report.previousAdvanceAdjustedTotal > 0.001 && (
-                    <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Previous Advance Adjustment</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(report.previousAdvanceAdjustedTotal)}</td></tr>
-                  )}
-                  <tr><td style={tdLeft}>Outstanding</td><td style={td}>{fmt(report.closing.total_outstanding)}</td></tr>
-                  <tr><td style={tdLeft}>Petty Cash Spent</td><td style={td}>{fmt(report.closing.total_petty_cash_expenses)}</td></tr>
-                  <tr><td style={tdLeft}>Invoices</td><td style={td}>{report.closing.total_invoices}</td></tr>
-                  <tr><td style={tdLeft}>Visits</td><td style={td}>{report.closing.total_visits}</td></tr>
-                </tbody>
-              </table>
-              {report.previousAdvanceAdjustedTotal > 0.001 && (
-                <div style={{ fontSize: 9.5, color: '#666', marginTop: 4 }}>
-                  Previous Advance Adjustment = revenue recognized today by applying an advance deposited on an earlier day -- no new cash today, already reflected in each category's "Via Advance" column above.
-                </div>
-              )}
+              {(() => {
+                const advanceAdjustmentApplied = report.previousAdvanceAdjustedTotal + report.sameDayAdvanceAdjustedTotal;
+                const refundsAgainstBilled = report.billedItems.refundedTotal || 0;
+                const expectedCollected = report.closing.total_revenue - report.closing.total_outstanding - advanceAdjustmentApplied - refundsAgainstBilled + report.advances.total;
+                const ties = Math.abs(expectedCollected - report.modeSummary.total) < 0.01;
+                return (
+                  <>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <tbody>
+                        <tr><td style={tdLeft}>Total Revenue (billed, incl. Optical)</td><td style={td}>{fmt(report.closing.total_revenue)}</td></tr>
+                        <tr><td style={tdLeft}>Outstanding</td><td style={td}>{fmt(report.closing.total_outstanding)}</td></tr>
+                        {advanceAdjustmentApplied > 0.001 && (
+                          <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Advance Adjustment Applied</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(advanceAdjustmentApplied)}</td></tr>
+                        )}
+                        {refundsAgainstBilled > 0.001 && (
+                          <tr><td style={{ ...tdLeft, color: '#b3261e' }}>Refunds against Billed Items</td><td style={{ ...td, color: '#b3261e' }}>{fmt(refundsAgainstBilled)}</td></tr>
+                        )}
+                        <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Advance Collected</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(report.advances.total)}</td></tr>
+                        <tr><td style={{ ...tdLeft, fontWeight: 700, borderTop: '1px solid #999' }}>Total Collected</td><td style={{ ...td, fontWeight: 700, borderTop: '1px solid #999' }}>{fmt(report.modeSummary.total)}</td></tr>
+                        <tr><td style={tdLeft}>Petty Cash Spent</td><td style={td}>{fmt(report.closing.total_petty_cash_expenses)}</td></tr>
+                        <tr><td style={tdLeft}>Invoices</td><td style={td}>{report.closing.total_invoices}</td></tr>
+                        <tr><td style={tdLeft}>Visits</td><td style={td}>{report.closing.total_visits}</td></tr>
+                      </tbody>
+                    </table>
+                    <div style={{ fontSize: 9.5, color: ties ? '#166534' : '#b3261e', marginTop: 4, fontWeight: 700 }}>
+                      {ties ? 'Revenue - Outstanding - Advance Adjustment - Refunds + Advance Collected = Total Collected, ties out.' : `Expected ${fmt(expectedCollected)} from Revenue/Outstanding/Advance figures, but Total Collected shows ${fmt(report.modeSummary.total)} -- worth investigating.`}
+                    </div>
+                  </>
+                );
+              })()}
             </td>
           </tr>
         </tbody>

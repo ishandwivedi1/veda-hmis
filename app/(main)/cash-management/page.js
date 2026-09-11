@@ -1427,28 +1427,54 @@ export default function CashManagementPage() {
                 </div>
                 <div className="card">
                   <div className="card-title" style={{ marginBottom: 10 }}>Day Totals</div>
-                  <div style={{ fontSize: 13, lineHeight: 2 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Revenue (billed)</span><strong>{fmt(report.closing.total_revenue)}</strong></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Total Collected</span>
-                      <strong style={{ color: 'var(--green)' }} title="Equal to the Total Collection KPI card above">{fmt(report.modeSummary.total)}</strong>
-                    </div>
-                    {report.previousAdvanceAdjustedTotal > 0.001 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--purple)' }}>Previous Advance Adjustment</span>
-                        <strong style={{ color: 'var(--purple)' }}>{fmt(report.previousAdvanceAdjustedTotal)}</strong>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outstanding</span><strong style={{ color: 'var(--amber)' }}>{fmt(report.closing.total_outstanding)}</strong></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cash Expenses</span><strong style={{ color: 'var(--red)' }}>{fmt(report.closing.total_petty_cash_expenses)}</strong></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoices</span><strong>{report.closing.total_invoices}</strong></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Visits</span><strong>{report.closing.total_visits}</strong></div>
-                  </div>
-                  {report.previousAdvanceAdjustedTotal > 0.001 && (
-                    <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 8 }}>
-                      Previous Advance Adjustment = revenue recognized today by applying an advance a patient deposited on an earlier day -- no new cash today, already reflected in each category's "Via Advance" line above.
-                    </div>
-                  )}
+                  {(() => {
+                    const advanceAdjustmentApplied = report.previousAdvanceAdjustedTotal + report.sameDayAdvanceAdjustedTotal;
+                    const refundsAgainstBilled = report.billedItems.refundedTotal || 0;
+                    // Total Revenue is accrual (today's bills, hospital +
+                    // optical, regardless of when paid); Total Collected is
+                    // real cash today. They reconcile once every difference
+                    // between the two is walked through explicitly: money
+                    // billed today but not yet paid (Outstanding), billed
+                    // today but settled from an advance rather than fresh
+                    // cash (Advance Adjustment Applied, whether that advance
+                    // came in today or earlier), and money billed today that
+                    // was later handed back (Refunds against Billed Items) --
+                    // then Advance Collected (fresh money in today, not yet
+                    // tied to any bill) is added back on top.
+                    const expectedCollected = report.closing.total_revenue - report.closing.total_outstanding - advanceAdjustmentApplied - refundsAgainstBilled + report.advances.total;
+                    const ties = Math.abs(expectedCollected - report.modeSummary.total) < 0.01;
+                    return (
+                      <>
+                        <div style={{ fontSize: 13, lineHeight: 2 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Revenue (billed, incl. Optical)</span><strong>{fmt(report.closing.total_revenue)}</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outstanding</span><strong style={{ color: 'var(--amber)' }}>{fmt(report.closing.total_outstanding)}</strong></div>
+                          {advanceAdjustmentApplied > 0.001 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: 'var(--purple)' }}>Advance Adjustment Applied</span>
+                              <strong style={{ color: 'var(--purple)' }}>{fmt(advanceAdjustmentApplied)}</strong>
+                            </div>
+                          )}
+                          {refundsAgainstBilled > 0.001 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: 'var(--red)' }}>Refunds against Billed Items</span>
+                              <strong style={{ color: 'var(--red)' }}>{fmt(refundsAgainstBilled)}</strong>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Advance Collected</span><strong style={{ color: 'var(--purple)' }}>{fmt(report.advances.total)}</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--g200)', marginTop: 4, paddingTop: 4 }}>
+                            <span>Total Collected</span>
+                            <strong style={{ color: 'var(--green)' }} title="Equal to the Total Collection KPI card above">{fmt(report.modeSummary.total)}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cash Expenses</span><strong style={{ color: 'var(--red)' }}>{fmt(report.closing.total_petty_cash_expenses)}</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoices</span><strong>{report.closing.total_invoices}</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Visits</span><strong>{report.closing.total_visits}</strong></div>
+                        </div>
+                        <div style={{ fontSize: 10.5, color: ties ? 'var(--green)' : 'var(--red)', marginTop: 8, fontWeight: 600 }}>
+                          {ties ? <><i className="ti ti-check"></i> Revenue - Outstanding - Advance Adjustment - Refunds + Advance Collected = Total Collected, ties out.</> : <><i className="ti ti-alert-triangle"></i> Expected {fmt(expectedCollected)} from Revenue/Outstanding/Advance figures above, but Total Collected shows {fmt(report.modeSummary.total)} -- worth investigating.</>}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 
