@@ -37,8 +37,12 @@ export default function OpticalAdvanceTab() {
   useEffect(() => { refreshRecentAdvances(); }, []);
 
   async function refreshRecentAdvances() {
-    const result = await getRecentOpticalAdvances();
-    setRecentAdvances(result.advances || []);
+    try {
+      const result = await getRecentOpticalAdvances();
+      setRecentAdvances(result.advances || []);
+    } catch (e) {
+      // Non-critical background refresh -- leave the existing list showing.
+    }
   }
 
   useEffect(() => {
@@ -53,8 +57,12 @@ export default function OpticalAdvanceTab() {
     setSearchResults([]);
     setSearchQuery('');
     setUseNewWalkIn(false);
-    const bal = await getOpticalAdvanceBalance({ patientId: r.type === 'patient' ? r.id : null, opticalCustomerId: r.type === 'optical_customer' ? r.id : null });
-    setBalance(bal);
+    try {
+      const bal = await getOpticalAdvanceBalance({ patientId: r.type === 'patient' ? r.id : null, opticalCustomerId: r.type === 'optical_customer' ? r.id : null });
+      setBalance(bal);
+    } catch (e) {
+      setBalance(0);
+    }
   }
 
   function clearCustomer() {
@@ -67,9 +75,13 @@ export default function OpticalAdvanceTab() {
 
   async function handleCreateWalkIn() {
     setError('');
-    const result = await createWalkInOpticalCustomer(newName, newMobile);
-    if (result.error) { setError(result.error); return; }
-    pick({ type: 'optical_customer', id: result.customer.id, name: result.customer.name, mobile: result.customer.mobile });
+    try {
+      const result = await createWalkInOpticalCustomer(newName, newMobile);
+      if (result.error) { setError(result.error); return; }
+      pick({ type: 'optical_customer', id: result.customer.id, name: result.customer.name, mobile: result.customer.mobile });
+    } catch (e) {
+      setError('Something went wrong adding this customer -- check your connection and try again.');
+    }
   }
 
   function updateModeAmount(m, val) { setModeAmounts((prev) => ({ ...prev, [m]: val })); }
@@ -86,22 +98,27 @@ export default function OpticalAdvanceTab() {
     setError('');
     setSuccessMsg('');
     setSaving(true);
-    const modes = Object.entries(modeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
-    const result = await collectOpticalAdvance({
-      patientId: selected?.type === 'patient' ? selected.id : null,
-      opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null,
-      amount: modesTotal, modes, reference, remarks,
-    });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setSuccessMsg(`Advance recorded -- receipt ${result.payment.receipt_number}`);
-    setLastPayment(result.payment);
-    const bal = await getOpticalAdvanceBalance({ patientId: selected?.type === 'patient' ? selected.id : null, opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null });
-    setBalance(bal);
-    setModeAmounts({ Cash: '' });
-    setReference('');
-    setRemarks('');
-    refreshRecentAdvances();
+    try {
+      const modes = Object.entries(modeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
+      const result = await collectOpticalAdvance({
+        patientId: selected?.type === 'patient' ? selected.id : null,
+        opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null,
+        amount: modesTotal, modes, reference, remarks,
+      });
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg(`Advance recorded -- receipt ${result.payment.receipt_number}`);
+      setLastPayment(result.payment);
+      const bal = await getOpticalAdvanceBalance({ patientId: selected?.type === 'patient' ? selected.id : null, opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null });
+      setBalance(bal);
+      setModeAmounts({ Cash: '' });
+      setReference('');
+      setRemarks('');
+      refreshRecentAdvances();
+    } catch (e) {
+      setError('Something went wrong recording the advance -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

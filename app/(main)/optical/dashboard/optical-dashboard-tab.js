@@ -29,16 +29,37 @@ export default function OpticalDashboardTab() {
   const router = useRouter();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => { load(); }, []);
+  // Wrapped in try/catch/finally -- previously an unexpected throw (a
+  // network blip, a timeout) from getOpticalDashboardSummary would skip
+  // setLoading(false) entirely, leaving this stuck on "Loading
+  // dashboard..." forever with no way out except a manual refresh. Every
+  // async handler in the Optical module had this same gap; fixing it
+  // module-wide alongside this one.
   async function load() {
     setLoading(true);
-    setData(await getOpticalDashboardSummary());
-    setLoading(false);
+    setLoadError('');
+    try {
+      setData(await getOpticalDashboardSummary());
+    } catch (e) {
+      setLoadError('Could not load the dashboard -- check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  if (loading || !data) {
+  if (loading) {
     return <div className="card"><div style={{ fontSize: 13, color: 'var(--g400)' }}>Loading dashboard...</div></div>;
+  }
+  if (loadError || !data) {
+    return (
+      <div className="card">
+        <div className="msg-err" style={{ marginBottom: 10 }}>{loadError || 'Could not load the dashboard.'}</div>
+        <button className="btn btn-sm" onClick={load}>Retry</button>
+      </div>
+    );
   }
 
   return (

@@ -48,10 +48,16 @@ export default function OpticalPaymentsTab() {
   async function runSearch() {
     setLoading(true);
     setError('');
-    const result = await getOpticalPaymentsRegister({ fromDate, toDate, query });
-    if (result.error) setError(result.error);
-    setPayments(result.payments || []);
-    setLoading(false);
+    try {
+      const result = await getOpticalPaymentsRegister({ fromDate, toDate, query });
+      if (result.error) setError(result.error);
+      setPayments(result.payments || []);
+    } catch (e) {
+      setError('Could not load payments -- check your connection and try again.');
+      setPayments([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function startEdit(p) {
@@ -64,7 +70,11 @@ export default function OpticalPaymentsTab() {
     setEditReference(p.reference || '');
     setEditRemarks(p.remarks || '');
     setEditReason('');
-    setEditHistory(await getOpticalPaymentEditHistory(p.id));
+    try {
+      setEditHistory(await getOpticalPaymentEditHistory(p.id));
+    } catch (e) {
+      setEditHistory([]);
+    }
   }
 
   function cancelEdit() {
@@ -86,16 +96,21 @@ export default function OpticalPaymentsTab() {
   async function saveEdit(p) {
     setError('');
     setSaving(true);
-    const modes = Object.entries(editModeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
-    const result = await editOpticalPaymentClerical({
-      paymentId: p.id, modes, reference: editReference, remarks: editRemarks, reason: editReason,
-      expectedModeCount: (p.optical_payment_modes || []).length,
-    });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setSuccessMsg(`${p.receipt_number} updated.`);
-    setEditingId(null);
-    runSearch();
+    try {
+      const modes = Object.entries(editModeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
+      const result = await editOpticalPaymentClerical({
+        paymentId: p.id, modes, reference: editReference, remarks: editRemarks, reason: editReason,
+        expectedModeCount: (p.optical_payment_modes || []).length,
+      });
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg(`${p.receipt_number} updated.`);
+      setEditingId(null);
+      runSearch();
+    } catch (e) {
+      setError('Something went wrong saving the correction -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const editModesTotal = Object.values(editModeAmounts).reduce((s, v) => s + (Number(v) || 0), 0);

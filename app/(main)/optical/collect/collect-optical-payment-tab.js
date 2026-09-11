@@ -48,8 +48,12 @@ export default function CollectOpticalPaymentTab() {
   }, [initialSaleId]);
 
   async function refreshPendingBills() {
-    const result = await getOutstandingOpticalBills();
-    setPendingBills(result.sales || []);
+    try {
+      const result = await getOutstandingOpticalBills();
+      setPendingBills(result.sales || []);
+    } catch (e) {
+      // Non-critical background refresh -- leave the existing list showing rather than blank it.
+    }
   }
 
   useEffect(() => {
@@ -61,30 +65,42 @@ export default function CollectOpticalPaymentTab() {
 
   async function loadSale(saleId) {
     setError('');
-    const result = await getOpticalSaleDetail(saleId);
-    if (result.error) { setError(result.error); return; }
-    setDetail(result);
-    setSaleResults([]);
-    setCustomerResults([]);
-    const balance = await getOpticalAdvanceBalance({ patientId: result.sale.patient_id, opticalCustomerId: result.sale.optical_customer_id });
-    setAdvanceBalance(balance);
-    setAmount(result.sale.outstanding > 0 ? String(result.sale.outstanding) : '');
-    setModeAmounts({ Cash: result.sale.outstanding > 0 ? String(result.sale.outstanding) : '' });
+    try {
+      const result = await getOpticalSaleDetail(saleId);
+      if (result.error) { setError(result.error); return; }
+      setDetail(result);
+      setSaleResults([]);
+      setCustomerResults([]);
+      const balance = await getOpticalAdvanceBalance({ patientId: result.sale.patient_id, opticalCustomerId: result.sale.optical_customer_id });
+      setAdvanceBalance(balance);
+      setAmount(result.sale.outstanding > 0 ? String(result.sale.outstanding) : '');
+      setModeAmounts({ Cash: result.sale.outstanding > 0 ? String(result.sale.outstanding) : '' });
+    } catch (e) {
+      setError('Could not load this bill -- check your connection and try again.');
+    }
   }
 
   async function handleBillSearch() {
     setError('');
-    const result = await findOpticalSaleByNumber(billQuery);
-    if (result.error) { setError(result.error); return; }
-    setSaleResults(result.sales);
+    try {
+      const result = await findOpticalSaleByNumber(billQuery);
+      if (result.error) { setError(result.error); return; }
+      setSaleResults(result.sales);
+    } catch (e) {
+      setError('Could not search -- check your connection and try again.');
+    }
   }
 
   async function pickCustomer(c) {
     setError('');
-    const result = await getOpticalSalesForCustomer({ patientId: c.type === 'patient' ? c.id : null, opticalCustomerId: c.type === 'optical_customer' ? c.id : null });
-    setSaleResults(result.sales || []);
-    setCustomerResults([]);
-    setCustomerQuery('');
+    try {
+      const result = await getOpticalSalesForCustomer({ patientId: c.type === 'patient' ? c.id : null, opticalCustomerId: c.type === 'optical_customer' ? c.id : null });
+      setSaleResults(result.sales || []);
+      setCustomerResults([]);
+      setCustomerQuery('');
+    } catch (e) {
+      setError('Could not load bills for this customer -- check your connection and try again.');
+    }
   }
 
   function updateModeAmount(m, val) {
@@ -105,30 +121,40 @@ export default function CollectOpticalPaymentTab() {
     setError('');
     setSuccessMsg('');
     setSaving(true);
-    const modes = Object.entries(modeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
-    const result = await collectOpticalPayment({ saleId: detail.sale.id, amount, modes, reference, remarks });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setSuccessMsg(`Payment recorded -- receipt ${result.payment.receipt_number}`);
-    loadSale(detail.sale.id);
-    refreshPendingBills();
-    setReference('');
-    setRemarks('');
+    try {
+      const modes = Object.entries(modeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
+      const result = await collectOpticalPayment({ saleId: detail.sale.id, amount, modes, reference, remarks });
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg(`Payment recorded -- receipt ${result.payment.receipt_number}`);
+      loadSale(detail.sale.id);
+      refreshPendingBills();
+      setReference('');
+      setRemarks('');
+    } catch (e) {
+      setError('Something went wrong recording the payment -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleApplyAdvance() {
     setError('');
     setSuccessMsg('');
     setSaving(true);
-    const result = await applyOpticalAdvanceAdjustment({
-      patientId: detail.sale.patient_id, opticalCustomerId: detail.sale.optical_customer_id, saleId: detail.sale.id, amount: applyAdvanceAmt,
-    });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setSuccessMsg('Advance applied against this bill.');
-    setApplyAdvanceAmt('');
-    loadSale(detail.sale.id);
-    refreshPendingBills();
+    try {
+      const result = await applyOpticalAdvanceAdjustment({
+        patientId: detail.sale.patient_id, opticalCustomerId: detail.sale.optical_customer_id, saleId: detail.sale.id, amount: applyAdvanceAmt,
+      });
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg('Advance applied against this bill.');
+      setApplyAdvanceAmt('');
+      loadSale(detail.sale.id);
+      refreshPendingBills();
+    } catch (e) {
+      setError('Something went wrong applying the advance -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

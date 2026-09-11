@@ -48,24 +48,36 @@ export default function OpticalCreditNoteTab() {
   }, [initialSaleId]);
 
   async function refreshRegister() {
-    setRegister(await getOpticalCreditNoteRegister());
+    try {
+      setRegister(await getOpticalCreditNoteRegister());
+    } catch (e) {
+      // Non-critical background refresh -- leave the existing list showing.
+    }
   }
 
   async function loadSale(saleId) {
     setError('');
-    const result = await getOpticalSaleDetail(saleId);
-    if (result.error) { setError(result.error); return; }
-    setDetail(result);
-    setSaleResults([]);
-    setCustomerResults([]);
-    setAmount(result.sale.outstanding > 0 ? String(result.sale.outstanding) : '');
+    try {
+      const result = await getOpticalSaleDetail(saleId);
+      if (result.error) { setError(result.error); return; }
+      setDetail(result);
+      setSaleResults([]);
+      setCustomerResults([]);
+      setAmount(result.sale.outstanding > 0 ? String(result.sale.outstanding) : '');
+    } catch (e) {
+      setError('Could not load this bill -- check your connection and try again.');
+    }
   }
 
   async function handleBillSearch() {
     setError('');
-    const result = await findOpticalSaleByNumber(billQuery);
-    if (result.error) { setError(result.error); return; }
-    setSaleResults(result.sales);
+    try {
+      const result = await findOpticalSaleByNumber(billQuery);
+      if (result.error) { setError(result.error); return; }
+      setSaleResults(result.sales);
+    } catch (e) {
+      setError('Could not search -- check your connection and try again.');
+    }
   }
 
   useEffect(() => {
@@ -76,25 +88,35 @@ export default function OpticalCreditNoteTab() {
   }, [customerQuery]);
 
   async function pickCustomer(c) {
-    const result = await getOpticalSalesForCustomer({ patientId: c.type === 'patient' ? c.id : null, opticalCustomerId: c.type === 'optical_customer' ? c.id : null });
-    setSaleResults(result.sales || []);
-    setCustomerResults([]);
-    setCustomerQuery('');
+    setError('');
+    try {
+      const result = await getOpticalSalesForCustomer({ patientId: c.type === 'patient' ? c.id : null, opticalCustomerId: c.type === 'optical_customer' ? c.id : null });
+      setSaleResults(result.sales || []);
+      setCustomerResults([]);
+      setCustomerQuery('');
+    } catch (e) {
+      setError('Could not load bills for this customer -- check your connection and try again.');
+    }
   }
 
   async function handleSubmit() {
     setError('');
     setSuccessMsg('');
     setSaving(true);
-    const result = await createOpticalCreditNote({ saleId: detail.sale.id, amount, reason, approvedBy, remarks });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setSuccessMsg(`Credit note ${result.creditNote.credit_note_number} issued.`);
-    setReason('');
-    setRemarks('');
-    setApprovedBy('');
-    loadSale(detail.sale.id);
-    refreshRegister();
+    try {
+      const result = await createOpticalCreditNote({ saleId: detail.sale.id, amount, reason, approvedBy, remarks });
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg(`Credit note ${result.creditNote.credit_note_number} issued.`);
+      setReason('');
+      setRemarks('');
+      setApprovedBy('');
+      loadSale(detail.sale.id);
+      refreshRegister();
+    } catch (e) {
+      setError('Something went wrong issuing the credit note -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

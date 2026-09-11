@@ -62,13 +62,22 @@ export default function BookSpectaclesTab() {
     const c = customer || selected;
     if (!c) return [];
     setLoadingBills(true);
-    const idArgs = { patientId: c.type === 'patient' ? c.id : null, opticalCustomerId: c.type === 'optical_customer' ? c.id : null };
-    const [billsResult, balance] = await Promise.all([getOpticalSalesForCustomer(idArgs), getOpticalAdvanceBalance(idArgs)]);
-    const list = billsResult.sales || [];
-    setBills(list);
-    setAdvanceBalance(balance);
-    setLoadingBills(false);
-    return list;
+    // try/finally -- an unhandled throw here (network blip, timeout) used
+    // to skip setLoadingBills(false) entirely, leaving Ongoing/Previous
+    // Orders stuck on "Loading..." with no way out but a manual refresh.
+    try {
+      const idArgs = { patientId: c.type === 'patient' ? c.id : null, opticalCustomerId: c.type === 'optical_customer' ? c.id : null };
+      const [billsResult, balance] = await Promise.all([getOpticalSalesForCustomer(idArgs), getOpticalAdvanceBalance(idArgs)]);
+      const list = billsResult.sales || [];
+      setBills(list);
+      setAdvanceBalance(balance);
+      return list;
+    } catch (e) {
+      setBills([]);
+      return [];
+    } finally {
+      setLoadingBills(false);
+    }
   }
 
   function clearCustomer() {
@@ -200,20 +209,25 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
   async function handleConfirmOrder() {
     setError('');
     setSaving(true);
-    const saleResult = await createOpticalSale({
-      patientId: selected.type === 'patient' ? selected.id : null,
-      opticalCustomerId: selected.type === 'optical_customer' ? selected.id : null,
-      customerName: walkInName, customerMobile: walkInMobile,
-      items: lines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
-      discount, notes,
-    });
-    setSaving(false);
-    if (saleResult.error) { setError(saleResult.error); return; }
-    setCreated(saleResult.sale);
-    setLines([{ tempId: nextTempId.current++, description: '', qty: 1, unit_price: '' }]);
-    setDiscount('');
-    setNotes('');
-    onBooked();
+    try {
+      const saleResult = await createOpticalSale({
+        patientId: selected.type === 'patient' ? selected.id : null,
+        opticalCustomerId: selected.type === 'optical_customer' ? selected.id : null,
+        customerName: walkInName, customerMobile: walkInMobile,
+        items: lines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
+        discount, notes,
+      });
+      if (saleResult.error) { setError(saleResult.error); return; }
+      setCreated(saleResult.sale);
+      setLines([{ tempId: nextTempId.current++, description: '', qty: 1, unit_price: '' }]);
+      setDiscount('');
+      setNotes('');
+      onBooked();
+    } catch (e) {
+      setError('Something went wrong confirming the order -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function bookAnother() {
@@ -346,11 +360,16 @@ function CollectAdvanceForNewOrder({ sale, onCollected }) {
     if (Math.abs(modesTotal - amt) > 0.01) { setError(`Payment mode split (${fmt(modesTotal)}) must add up to the advance amount (${fmt(amt)}).`); return; }
 
     setSaving(true);
-    const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
-    const result = await collectOpticalPayment({ saleId: sale.id, amount: amt, modes });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setCollected({ amount: amt, receipt: result.payment.receipt_number, paymentId: result.payment.id });
+    try {
+      const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
+      const result = await collectOpticalPayment({ saleId: sale.id, amount: amt, modes });
+      if (result.error) { setError(result.error); return; }
+      setCollected({ amount: amt, receipt: result.payment.receipt_number, paymentId: result.payment.id });
+    } catch (e) {
+      setError('Something went wrong collecting the advance -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (collected) {
@@ -469,11 +488,20 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
 
   useEffect(() => { load(); }, [saleId]);
 
+  // try/catch -- an unhandled throw from getOpticalSaleDetail (network
+  // blip, timeout) used to leave `detail` null forever with no error
+  // shown, and the render below falls back to "Loading..." whenever
+  // detail is null -- so this order would be stuck on "Loading..."
+  // permanently instead of surfacing a retryable error.
   async function load() {
-    const result = await getOpticalSaleDetail(saleId);
-    if (result.error) { setError(result.error); return; }
-    setDetail(result);
-    setModeRows([{ mode: 'Cash', amount: result.sale.outstanding > 0 ? String(result.sale.outstanding) : '' }]);
+    try {
+      const result = await getOpticalSaleDetail(saleId);
+      if (result.error) { setError(result.error); return; }
+      setDetail(result);
+      setModeRows([{ mode: 'Cash', amount: result.sale.outstanding > 0 ? String(result.sale.outstanding) : '' }]);
+    } catch (e) {
+      setError('Could not load this order -- check your connection and try again.');
+    }
   }
 
   function startEditing() {
@@ -500,16 +528,21 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
   async function saveEdit() {
     setError('');
     setSaving(true);
-    const result = await editOpticalSaleItems({
-      saleId, items: editLines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
-      discount: editDiscount, notes: editNotes, reason: editReason,
-    });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setSuccessMsg('Order updated.');
-    setEditing(false);
-    load();
-    onChanged();
+    try {
+      const result = await editOpticalSaleItems({
+        saleId, items: editLines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
+        discount: editDiscount, notes: editNotes, reason: editReason,
+      });
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg('Order updated.');
+      setEditing(false);
+      load();
+      onChanged();
+    } catch (e) {
+      setError('Something went wrong saving the changes -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   // Single mode (the common case) always matches the outstanding
@@ -541,29 +574,46 @@ function BillAndCloseForm({ saleId, advanceBalance, onChanged }) {
   async function handleApplyAdvance() {
     setError('');
     setSaving(true);
-    const result = await applyOpticalAdvanceAdjustment({
-      patientId: detail.sale.patient_id, opticalCustomerId: detail.sale.optical_customer_id, saleId, amount: applyAdvanceAmt,
-    });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setApplyAdvanceAmt('');
-    load();
-    onChanged();
+    try {
+      const result = await applyOpticalAdvanceAdjustment({
+        patientId: detail.sale.patient_id, opticalCustomerId: detail.sale.optical_customer_id, saleId, amount: applyAdvanceAmt,
+      });
+      if (result.error) { setError(result.error); return; }
+      setApplyAdvanceAmt('');
+      load();
+      onChanged();
+    } catch (e) {
+      setError('Something went wrong applying the advance -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleCollect() {
     setError('');
     setSaving(true);
-    const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
-    const result = await collectOpticalPayment({ saleId, amount: detail.sale.outstanding, modes, reference, remarks });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setSuccessMsg(`Payment recorded -- receipt ${result.payment.receipt_number}. Episode closed.`);
-    load();
-    onChanged();
+    try {
+      const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
+      const result = await collectOpticalPayment({ saleId, amount: detail.sale.outstanding, modes, reference, remarks });
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg(`Payment recorded -- receipt ${result.payment.receipt_number}. Episode closed.`);
+      load();
+      onChanged();
+    } catch (e) {
+      setError('Something went wrong recording the payment -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  if (!detail) return <div style={{ fontSize: 13, color: 'var(--g400)', padding: '16px 0' }}>Loading...</div>;
+  if (!detail) {
+    return error ? (
+      <div style={{ padding: '16px 0' }}>
+        <div className="msg-err" style={{ marginBottom: 10 }}>{error}</div>
+        <button className="btn btn-sm" onClick={load}>Retry</button>
+      </div>
+    ) : <div style={{ fontSize: 13, color: 'var(--g400)', padding: '16px 0' }}>Loading...</div>;
+  }
 
   const paymentTypeLabel = (p) => {
     if (p.payment_type === 'advance_adjustment') return 'Advance Applied';

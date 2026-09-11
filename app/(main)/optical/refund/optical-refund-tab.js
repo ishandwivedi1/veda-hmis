@@ -45,7 +45,11 @@ export default function OpticalRefundTab() {
   }, []);
 
   async function refreshRegister() {
-    setRegister(await getOpticalRefundRegister());
+    try {
+      setRegister(await getOpticalRefundRegister());
+    } catch (e) {
+      // Non-critical background refresh -- leave the existing list showing.
+    }
   }
 
   useEffect(() => {
@@ -61,10 +65,14 @@ export default function OpticalRefundTab() {
     setSearchQuery('');
     setRefundFor(null);
     setError('');
-    const idArgs = { patientId: r.type === 'patient' ? r.id : null, opticalCustomerId: r.type === 'optical_customer' ? r.id : null };
-    const [bal, pays] = await Promise.all([getOpticalAdvanceBalance(idArgs), getOpticalPaymentsForCustomer(idArgs)]);
-    setBalance(bal);
-    setPayments(pays.filter((p) => p.refundable > 0));
+    try {
+      const idArgs = { patientId: r.type === 'patient' ? r.id : null, opticalCustomerId: r.type === 'optical_customer' ? r.id : null };
+      const [bal, pays] = await Promise.all([getOpticalAdvanceBalance(idArgs), getOpticalPaymentsForCustomer(idArgs)]);
+      setBalance(bal);
+      setPayments(pays.filter((p) => p.refundable > 0));
+    } catch (e) {
+      setError('Could not load this customer\'s refundable balances -- check your connection and try again.');
+    }
   }
 
   function clearCustomer() {
@@ -91,22 +99,27 @@ export default function OpticalRefundTab() {
     setError('');
     setSuccessMsg('');
     setSaving(true);
-    let result;
-    if (refundFor.kind === 'advance') {
-      result = await refundOpticalAdvance({
-        patientId: selected.type === 'patient' ? selected.id : null,
-        opticalCustomerId: selected.type === 'optical_customer' ? selected.id : null,
-        amount, reason, refundMode, approvedBy,
-      });
-    } else {
-      result = await refundOpticalPayment({ paymentId: refundFor.payment.id, amount, reason, refundMode, approvedBy });
+    try {
+      let result;
+      if (refundFor.kind === 'advance') {
+        result = await refundOpticalAdvance({
+          patientId: selected.type === 'patient' ? selected.id : null,
+          opticalCustomerId: selected.type === 'optical_customer' ? selected.id : null,
+          amount, reason, refundMode, approvedBy,
+        });
+      } else {
+        result = await refundOpticalPayment({ paymentId: refundFor.payment.id, amount, reason, refundMode, approvedBy });
+      }
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg(`Refund ${result.refund.refund_number} recorded.`);
+      setRefundFor(null);
+      pick(selected);
+      refreshRegister();
+    } catch (e) {
+      setError('Something went wrong processing the refund -- check your connection and try again.');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setSuccessMsg(`Refund ${result.refund.refund_number} recorded.`);
-    setRefundFor(null);
-    pick(selected);
-    refreshRegister();
   }
 
   return (

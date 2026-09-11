@@ -32,27 +32,40 @@ export default function OpticalHistoryTab() {
 
   async function runSearch() {
     setLoading(true);
-    const result = await searchOpticalSaleHistory({ fromDate, toDate, status, query });
-    setSales(result.sales || []);
-    setLoading(false);
+    try {
+      const result = await searchOpticalSaleHistory({ fromDate, toDate, status, query });
+      setSales(result.sales || []);
+    } catch (e) {
+      setSales([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function openDetail(id) {
     setSelectedId(id);
     setShowCancel(false);
     setError('');
-    const result = await getOpticalSaleDetail(id);
-    if (result.error) { setError(result.error); return; }
-    setDetail(result);
+    try {
+      const result = await getOpticalSaleDetail(id);
+      if (result.error) { setError(result.error); return; }
+      setDetail(result);
+    } catch (e) {
+      setError('Could not load this bill -- check your connection and try again.');
+    }
   }
 
   async function handleCancel() {
-    const result = await cancelOpticalSale(selectedId, cancelReason);
-    if (result.error) { setError(result.error); return; }
-    setShowCancel(false);
-    setCancelReason('');
-    openDetail(selectedId);
-    runSearch();
+    try {
+      const result = await cancelOpticalSale(selectedId, cancelReason);
+      if (result.error) { setError(result.error); return; }
+      setShowCancel(false);
+      setCancelReason('');
+      openDetail(selectedId);
+      runSearch();
+    } catch (e) {
+      setError('Something went wrong cancelling this bill -- check your connection and try again.');
+    }
   }
 
   const totalNet = sales.filter((s) => s.status !== 'Cancelled').reduce((s, x) => s + Number(x.net), 0);

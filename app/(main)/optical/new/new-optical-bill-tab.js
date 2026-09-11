@@ -71,23 +71,28 @@ export default function NewOpticalBillTab() {
     setError('');
     setCreated(null);
     setSaving(true);
-    const result = await createOpticalSale({
-      patientId: selected?.type === 'patient' ? selected.id : null,
-      opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null,
-      customerName: useWalkIn ? walkInName : null,
-      customerMobile: useWalkIn ? walkInMobile : null,
-      items: lines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
-      discount,
-      notes,
-    });
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setCreated(result.sale);
-    clearCustomer();
-    setLines([{ tempId: nextTempId.current++, description: '', qty: 1, unit_price: '' }]);
-    setDiscount('');
-    setNotes('');
-    getRecentOpticalItemNames().then(setRecentItems);
+    try {
+      const result = await createOpticalSale({
+        patientId: selected?.type === 'patient' ? selected.id : null,
+        opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null,
+        customerName: useWalkIn ? walkInName : null,
+        customerMobile: useWalkIn ? walkInMobile : null,
+        items: lines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
+        discount,
+        notes,
+      });
+      if (result.error) { setError(result.error); return; }
+      setCreated(result.sale);
+      clearCustomer();
+      setLines([{ tempId: nextTempId.current++, description: '', qty: 1, unit_price: '' }]);
+      setDiscount('');
+      setNotes('');
+      getRecentOpticalItemNames().then(setRecentItems);
+    } catch (e) {
+      setError('Something went wrong creating the bill -- check your connection and try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
