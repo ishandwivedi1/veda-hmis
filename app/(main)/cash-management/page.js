@@ -283,6 +283,13 @@ export default function CashManagementPage() {
   const [closedToday, setClosedToday] = useState(false);
   const [reconLock, setReconLock] = useState({ locked: false });
   const [cashCounterConfirmed, setCashCounterConfirmed] = useState(false);
+  // Stable identity across every re-render of this (large, frequently
+  // re-rendering) component -- CashCounterTab's own refresh effect
+  // depends on this prop's reference, so an inline arrow here would
+  // give it a new identity on every keystroke anywhere on this page
+  // (report notes, past-day recon fields, etc.), re-triggering its
+  // Cash Counter fetch each time instead of only when status changes.
+  const handleCashCounterStatusChange = useCallback((confirmed) => setCashCounterConfirmed(confirmed), []);
   const [opening, setOpening] = useState(null);
   const [openingBalance, setOpeningBalance] = useState('');
   const [openingRemarks, setOpeningRemarks] = useState('');
@@ -1076,7 +1083,7 @@ export default function CashManagementPage() {
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <CashCounterTab onStatusChange={(confirmed) => setCashCounterConfirmed(confirmed)} />
+          <CashCounterTab onStatusChange={handleCashCounterStatusChange} />
         </div>
 
         {!cashCounterConfirmed ? (
