@@ -39,7 +39,11 @@ import { openPrintPopup } from '@/lib/printPopup';
 // Fixed column order for Payment Mode Summary's Type x Mode grid --
 // same order the printed report uses, so modes appear consistently
 // regardless of which ones a given day actually has amounts in.
-const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
+// Table 1's display columns -- Card/Cheque/Bank Transfer dropped per
+// explicit request; this hospital's payments are always Cash or UPI.
+// The KPI strip's "Total Other" card above stays dynamic (not tied to
+// this list), so it would still surface real money on any other mode.
+const MODES = ['Cash', 'UPI'];
 
 const TABS = [
   { key: 'summary', label: "Today's Collection", icon: 'ti-chart-bar' },

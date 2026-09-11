@@ -2,7 +2,10 @@ import ReportLetterhead from '@/app/components/ReportLetterhead';
 import PrintButton from '@/app/invoice-print/[invoiceId]/print-button';
 import { getDailyReport } from '@/app/(main)/cash-management/actions';
 
-const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
+// Table 1's display columns -- Card/Cheque/Bank Transfer dropped per
+// explicit request; this hospital's payments are always Cash or UPI.
+// totalOther above stays dynamic (not tied to this list).
+const MODES = ['Cash', 'UPI'];
 
 function fmt(n) {
   return `Rs.${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -42,7 +45,10 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#b3261e' }}>No closed day on record for {fmtDate(date)}.</div>;
   }
 
-  const totalOther = MODES.filter((m) => m !== 'Cash' && m !== 'UPI').reduce((s, m) => s + (report.modeSummary.byMode[m] || 0), 0);
+  // Dynamic, not tied to the MODES list below (Table 1's display
+  // columns) -- so this KPI never silently hides real money collected
+  // via a mode Table 1 no longer shows a column for.
+  const totalOther = Object.entries(report.modeSummary.byMode).filter(([m]) => m !== 'Cash' && m !== 'UPI').reduce((s, [, amt]) => s + amt, 0);
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: 24, fontFamily: 'Arial, Helvetica, sans-serif' }}>
