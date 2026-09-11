@@ -657,18 +657,28 @@ export async function getPackageForBilling(caseId) {
     .eq('package_billed', false)
     .not('package_id', 'is', null);
 
-  for (const proc of procedures || []) {
-    if (!proc.master_packages) continue;
-    const { data: procBreakup } = await supabase
+  // Batched -- one query for every additional procedure's breakup at
+  // once, not one package_line_items round trip per procedure in a
+  // sequential loop (same N+1 fix already applied to advance balances
+  // in getPendingPackageBilling above).
+  const procsWithPackage = (procedures || []).filter((p) => p.master_packages);
+  const procPackageIds = [...new Set(procsWithPackage.map((p) => p.package_id))];
+  const breakupByPackageId = {};
+  if (procPackageIds.length > 0) {
+    const { data: allProcBreakups } = await supabase
       .from('package_line_items')
-      .select('description, amount')
-      .eq('package_id', proc.package_id)
+      .select('package_id, description, amount')
+      .in('package_id', procPackageIds)
       .order('sort_order');
+    (allProcBreakups || []).forEach((b) => { (breakupByPackageId[b.package_id] ||= []).push(b); });
+  }
+
+  for (const proc of procsWithPackage) {
     items.push(shapePackageBillingItem({
       caseId: `proc:${proc.id}`, name: proc.master_packages.name, code: proc.master_packages.code, price: proc.master_packages.price,
       discount: proc.package_discount, surgeryName: proc.procedure_name, surgeryEye: proc.eye,
       surgeonId: sc.surgeon_id, surgeonName: sc.profiles?.full_name || null,
-      breakup: procBreakup, patient: sc.patients, visitId: sc.visit_id,
+      breakup: breakupByPackageId[proc.package_id], patient: sc.patients, visitId: sc.visit_id,
     }));
   }
 

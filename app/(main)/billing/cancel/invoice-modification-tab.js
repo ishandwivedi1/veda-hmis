@@ -92,33 +92,45 @@ export default function InvoiceModificationTab() {
   async function handleSearch() {
     if (!searchQuery.trim()) return;
     setVisitInvoices(null);
-    setResults(await searchInvoices(searchQuery.trim()));
+    try {
+      setResults(await searchInvoices(searchQuery.trim()));
+    } catch (e) {
+      setResults([]);
+    }
     setSearched(true);
   }
 
   async function openInvoice(inv) {
     setError(''); setInfo(''); setConfirmedMessage('');
-    const details = await getInvoiceById(inv.id);
-    if (details.error) { setError(details.error); return; }
-    setSelected(details.invoice);
-    setLineItems(details.lineItems);
-    // Snapshot which line items already existed when this modification
-    // session started -- these are locked (part of the original bill,
-    // exactly as filled in on New Invoice). Anything added from here on
-    // stays removable until the invoice is reopened fresh, at which
-    // point it becomes part of the locked original set.
-    setOriginalLineItemIds(new Set((details.lineItems || []).map((li) => li.id)));
-    setSurgeryName(details.invoice.manual_surgery_name || '');
-    setSurgeryEyeField(details.invoice.manual_surgery_eye || '');
-    setSurgeryDoctorId(details.invoice.manual_surgeon_id || '');
-    setShowCancelForm(false);
-    setCancelReason('');
+    try {
+      const details = await getInvoiceById(inv.id);
+      if (details.error) { setError(details.error); return; }
+      setSelected(details.invoice);
+      setLineItems(details.lineItems);
+      // Snapshot which line items already existed when this modification
+      // session started -- these are locked (part of the original bill,
+      // exactly as filled in on New Invoice). Anything added from here on
+      // stays removable until the invoice is reopened fresh, at which
+      // point it becomes part of the locked original set.
+      setOriginalLineItemIds(new Set((details.lineItems || []).map((li) => li.id)));
+      setSurgeryName(details.invoice.manual_surgery_name || '');
+      setSurgeryEyeField(details.invoice.manual_surgery_eye || '');
+      setSurgeryDoctorId(details.invoice.manual_surgeon_id || '');
+      setShowCancelForm(false);
+      setCancelReason('');
+    } catch (e) {
+      setError('Could not load this invoice -- check your connection and try again.');
+    }
   }
 
   async function refresh() {
-    const details = await getInvoiceById(selected.id);
-    setSelected(details.invoice);
-    setLineItems(details.lineItems);
+    try {
+      const details = await getInvoiceById(selected.id);
+      setSelected(details.invoice);
+      setLineItems(details.lineItems);
+    } catch (e) {
+      setError('Could not refresh this invoice -- check your connection and try again.');
+    }
   }
 
   function handleServiceChange(e) {
@@ -134,32 +146,45 @@ export default function InvoiceModificationTab() {
     if (!serviceCode) { setError('Select department and service.'); return; }
     if (discType !== 'none' && !discReason.trim()) { setError('A discount reason is required whenever a discount is applied.'); return; }
 
-    const result = await addLineItem(selected.id, serviceCode, parseInt(qty, 10) || 1, discType, parseFloat(discValue) || 0, discReason);
-    if (result.error) { setError(result.error); return; }
-    setDept(''); setServiceCode(''); setQty(1); setRate(''); setGstPct('');
-    setDiscType('none'); setDiscValue(''); setDiscReason('');
-    refresh();
+    try {
+      const result = await addLineItem(selected.id, serviceCode, parseInt(qty, 10) || 1, discType, parseFloat(discValue) || 0, discReason);
+      if (result.error) { setError(result.error); return; }
+      setDept(''); setServiceCode(''); setQty(1); setRate(''); setGstPct('');
+      setDiscType('none'); setDiscValue(''); setDiscReason('');
+      refresh();
+    } catch (e) {
+      setError('Something went wrong adding this line item -- check your connection and try again.');
+    }
   }
 
   async function confirmRemoveLine() {
     setError('');
     if (!removeReason.trim()) { setError('A reason is required to remove a line item from an existing invoice.'); return; }
-    const result = await removeLineItem(removeReasonFor, removeReason);
-    if (result.error) { setError(result.error); return; }
-    setRemoveReasonFor(null);
-    setRemoveReason('');
-    setInfo('Line item removed and logged.');
-    refresh();
+    try {
+      const result = await removeLineItem(removeReasonFor, removeReason);
+      if (result.error) { setError(result.error); return; }
+      setRemoveReasonFor(null);
+      setRemoveReason('');
+      setInfo('Line item removed and logged.');
+      refresh();
+    } catch (e) {
+      setError('Something went wrong removing this line item -- check your connection and try again.');
+    }
   }
 
   async function handleSaveSurgeryDetails() {
     setError(''); setInfo('');
     setSavingSurgery(true);
-    const result = await setManualSurgeryDetails(selected.id, surgeryName, surgeryEyeField, surgeryDoctorId);
-    setSavingSurgery(false);
-    if (result.error) { setError(result.error); return; }
-    setInfo('Surgery billing details saved.');
-    refresh();
+    try {
+      const result = await setManualSurgeryDetails(selected.id, surgeryName, surgeryEyeField, surgeryDoctorId);
+      if (result.error) { setError(result.error); return; }
+      setInfo('Surgery billing details saved.');
+      refresh();
+    } catch (e) {
+      setError('Something went wrong saving surgery details -- check your connection and try again.');
+    } finally {
+      setSavingSurgery(false);
+    }
   }
 
   function handleConfirmModification() {
@@ -172,13 +197,17 @@ export default function InvoiceModificationTab() {
   async function handleCancel() {
     setError('');
     if (!cancelReason.trim()) { setError('A cancellation reason is required.'); return; }
-    const result = await cancelInvoice(selected.id, cancelReason);
-    if (result.error) { setError(result.error); return; }
-    setInfo('Invoice cancelled and logged for audit.');
-    setShowCancelForm(false);
-    setCancelReason('');
-    refresh();
-    loadToday();
+    try {
+      const result = await cancelInvoice(selected.id, cancelReason);
+      if (result.error) { setError(result.error); return; }
+      setInfo('Invoice cancelled and logged for audit.');
+      setShowCancelForm(false);
+      setCancelReason('');
+      refresh();
+      loadToday();
+    } catch (e) {
+      setError('Something went wrong cancelling this invoice -- check your connection and try again.');
+    }
   }
 
   return (

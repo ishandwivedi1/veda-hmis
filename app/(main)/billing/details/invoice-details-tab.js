@@ -45,14 +45,23 @@ export default function InvoiceDetailsTab() {
     if (!selected) return;
     setWaStatus('sending');
     setWaMsg('');
-    const result = await resendInvoiceBillWhatsApp(selected.id);
-    if (result.error) { setWaStatus('error'); setWaMsg(result.error); return; }
-    if (result.warning) { setWaStatus('warning'); setWaMsg(result.warning); return; }
-    setWaStatus('sent');
+    try {
+      const result = await resendInvoiceBillWhatsApp(selected.id);
+      if (result.error) { setWaStatus('error'); setWaMsg(result.error); return; }
+      if (result.warning) { setWaStatus('warning'); setWaMsg(result.warning); return; }
+      setWaStatus('sent');
+    } catch (e) {
+      setWaStatus('error');
+      setWaMsg('Something went wrong sending the WhatsApp bill -- check your connection and try again.');
+    }
   }
 
   const runSearch = useCallback(async () => {
-    setInvoices(await searchInvoices(query, deptFilter, dateFrom, dateTo));
+    try {
+      setInvoices(await searchInvoices(query, deptFilter, dateFrom, dateTo));
+    } catch (e) {
+      setInvoices([]);
+    }
   }, [query, deptFilter, dateFrom, dateTo]);
 
   useEffect(() => { runSearch(); }, [runSearch]);
@@ -63,10 +72,14 @@ export default function InvoiceDetailsTab() {
     setError('');
     setWaStatus('');
     setWaMsg('');
-    const details = await getInvoiceById(inv.id);
-    if (details.error) { setError(details.error); return; }
-    setSelected(details.invoice);
-    setLineItems(details.lineItems);
+    try {
+      const details = await getInvoiceById(inv.id);
+      if (details.error) { setError(details.error); return; }
+      setSelected(details.invoice);
+      setLineItems(details.lineItems);
+    } catch (e) {
+      setError('Could not load this invoice -- check your connection and try again.');
+    }
   }
 
   // Deep-linked from elsewhere (e.g. Pharmacy History's "View

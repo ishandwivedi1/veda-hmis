@@ -348,15 +348,19 @@ export default function NewInvoiceTab() {
     setSearchResults([]);
     setSearchQuery('');
     setContextPatient(p);
-    const visits = await getVisitsForPatient(p.id);
-    setPatientVisits(visits);
-    const visit = visits[0] || null; // already sorted newest-first
-    setContextVisit(visit);
-    if (visit) {
-      const invResult = await getInvoicesForVisit(visit.id);
-      setExistingInvoices(invResult.invoices || []);
-    } else {
-      setExistingInvoices([]);
+    try {
+      const visits = await getVisitsForPatient(p.id);
+      setPatientVisits(visits);
+      const visit = visits[0] || null; // already sorted newest-first
+      setContextVisit(visit);
+      if (visit) {
+        const invResult = await getInvoicesForVisit(visit.id);
+        setExistingInvoices(invResult.invoices || []);
+      } else {
+        setExistingInvoices([]);
+      }
+    } catch (e) {
+      setError('Could not load this patient\'s visits -- check your connection and try again.');
     }
   }
 
@@ -364,10 +368,14 @@ export default function NewInvoiceTab() {
     setError('');
     setContextPatient(v.patients);
     setContextVisit(v);
-    const visits = await getVisitsForPatient(v.patients.id);
-    setPatientVisits(visits);
-    const invResult = await getInvoicesForVisit(v.id);
-    setExistingInvoices(invResult.invoices || []);
+    try {
+      const visits = await getVisitsForPatient(v.patients.id);
+      setPatientVisits(visits);
+      const invResult = await getInvoicesForVisit(v.id);
+      setExistingInvoices(invResult.invoices || []);
+    } catch (e) {
+      setError('Could not load this visit -- check your connection and try again.');
+    }
   }
 
   // Fired by the "Visit" dropdown once a patient is already selected --
@@ -383,8 +391,12 @@ export default function NewInvoiceTab() {
     const v = patientVisits.find((pv) => pv.id === visitId);
     setContextVisit(v || null);
     if (v) {
-      const invResult = await getInvoicesForVisit(v.id);
-      setExistingInvoices(invResult.invoices || []);
+      try {
+        const invResult = await getInvoicesForVisit(v.id);
+        setExistingInvoices(invResult.invoices || []);
+      } catch (e) {
+        setError('Could not load invoices for this visit -- check your connection and try again.');
+      }
     }
   }
 
@@ -440,62 +452,84 @@ export default function NewInvoiceTab() {
     setError('');
     if (draftLines.length === 0) { setError('Add at least one line item before saving.'); return null; }
     setSubmitting(true);
+    // try/catch/finally -- this had none at all. An unhandled throw
+    // anywhere in the sequence below (a network blip mid-way through
+    // adding line items, for instance) used to skip setSubmitting(false)
+    // entirely, leaving Finalize/Save Draft stuck on "Saving..."
+    // permanently with no error shown and no way out but a refresh --
+    // on the single most-used action in the whole Billing module.
+    try {
+      // purpose drives the "Department" shown in Billing Dashboard /
+      // Collections by Department -- it must reflect what's actually
+      // being billed, not always default to Consultation. Surgery takes
+      // priority if present (it's what also decides which print template
+      // renders), otherwise whichever department was billed first.
+      const deptsPresent = draftLines.map((l) => l.dept);
+      const purpose = deptsPresent.includes('Surgery') ? 'Surgery' : (deptsPresent[0] || DEFAULT_PURPOSE);
 
-    // purpose drives the "Department" shown in Billing Dashboard /
-    // Collections by Department -- it must reflect what's actually
-    // being billed, not always default to Consultation. Surgery takes
-    // priority if present (it's what also decides which print template
-    // renders), otherwise whichever department was billed first.
-    const deptsPresent = draftLines.map((l) => l.dept);
-    const purpose = deptsPresent.includes('Surgery') ? 'Surgery' : (deptsPresent[0] || DEFAULT_PURPOSE);
+      const created = await createInvoiceForVisit(contextPatient.id, contextVisit?.id || null, purpose);
+      if (created.error) { setError(created.error); return null; }
 
-    const created = await createInvoiceForVisit(contextPatient.id, contextVisit?.id || null, purpose);
-    if (created.error) { setSubmitting(false); setError(created.error); return null; }
-
-    for (const line of draftLines) {
-      const result = await addLineItem(created.invoice.id, line.serviceCode, line.qty, line.discType, line.discValue, line.discReason);
-      if (result.error) {
-        setSubmitting(false);
-        setError(`Invoice created, but failed adding ${line.serviceName}: ${result.error}. Finish it from Invoice Details.`);
-        return null;
+      // Deliberately sequential, NOT Promise.all -- add_invoice_line_item
+      // recomputes the invoice's running totals against the live row on
+      // each call, so concurrent calls against the same invoice risk a
+      // lost update. Line items are usually few (1-5), so this stays
+      // fast in practice; correctness matters more here than shaving a
+      // few hundred ms off an already-quick loop.
+      for (const line of draftLines) {
+        const result = await addLineItem(created.invoice.id, line.serviceCode, line.qty, line.discType, line.discValue, line.discReason);
+        if (result.error) {
+          setError(`Invoice created, but failed adding ${line.serviceName}: ${result.error}. Finish it from Invoice Details.`);
+          return null;
+        }
       }
+
+      const detailsPromise = getInvoiceById(created.invoice.id);
+
+      // These four categories touch four completely independent tables
+      // (investigation_orders/procedures/prescriptions/biometry_records),
+      // each only flipping its own billing_status by id -- nothing here
+      // shares mutable state the way invoice line items do, so unlike
+      // the loop above, running them together is safe and cuts what was
+      // up to 4 sequential round trips down to 1 parallel wave.
+      const billedInvOrderIds = draftLines.map((l) => l.sourceInvOrderId).filter(Boolean);
+      const billedProcIds = draftLines.map((l) => l.sourceProcId).filter(Boolean);
+      const billedRxIds = draftLines.map((l) => l.sourceRxId).filter(Boolean);
+      const billedBioIds = draftLines.map((l) => l.sourceBioId).filter(Boolean);
+      // Every surgery package line gets marked billed -- a surgery with
+      // additional procedures (see surgical_case_procedures) adds more
+      // than one sourcePkgCaseId line, each needing to flip out of the
+      // Pending Package Billing queue, not just the first one. Also
+      // independent per case -- safe alongside the four above.
+      const billedPkgCaseIds = [...new Set(draftLines.map((l) => l.sourcePkgCaseId).filter(Boolean))];
+
+      await Promise.all([
+        billedInvOrderIds.length > 0 ? markInvestigationOrdersBilled(billedInvOrderIds, created.invoice.id) : null,
+        billedProcIds.length > 0 ? markProceduresBilled(billedProcIds, created.invoice.id) : null,
+        billedRxIds.length > 0 ? markPrescriptionsBilled(billedRxIds) : null,
+        billedBioIds.length > 0 ? markBiometryBilled(billedBioIds, created.invoice.id) : null,
+        ...billedPkgCaseIds.map((pkgCaseId) => markPackageBilled(pkgCaseId, created.invoice.id)),
+      ]);
+
+      // Fields are always editable now (whether prefilled from a case via
+      // the automatic route, or entered by hand), so whatever's in the
+      // form at commit time is what should print -- save it whenever a
+      // Surgery line was actually added. dept has already been reset by
+      // now (cleared after each Add), so this checks the actual lines
+      // added rather than current form state.
+      const hasSurgeryLine = draftLines.some((l) => l.dept === 'Surgery');
+      if (hasSurgeryLine && surgeryName) {
+        await setManualSurgeryDetails(created.invoice.id, surgeryName, surgeryEyeField, surgeryDoctorId);
+      }
+
+      const details = await detailsPromise;
+      return details.invoice;
+    } catch (e) {
+      setError('Something went wrong saving the invoice -- check your connection and try again. If line items were already added, check Invoice Details before retrying.');
+      return null;
+    } finally {
+      setSubmitting(false);
     }
-
-    const details = await getInvoiceById(created.invoice.id);
-
-    const billedInvOrderIds = draftLines.map((l) => l.sourceInvOrderId).filter(Boolean);
-    if (billedInvOrderIds.length > 0) await markInvestigationOrdersBilled(billedInvOrderIds, created.invoice.id);
-    const billedProcIds = draftLines.map((l) => l.sourceProcId).filter(Boolean);
-    if (billedProcIds.length > 0) await markProceduresBilled(billedProcIds, created.invoice.id);
-
-    const billedRxIds = draftLines.map((l) => l.sourceRxId).filter(Boolean);
-    if (billedRxIds.length > 0) await markPrescriptionsBilled(billedRxIds);
-
-    const billedBioIds = draftLines.map((l) => l.sourceBioId).filter(Boolean);
-    if (billedBioIds.length > 0) await markBiometryBilled(billedBioIds, created.invoice.id);
-
-    // Every surgery package line gets marked billed -- a surgery with
-    // additional procedures (see surgical_case_procedures) adds more
-    // than one sourcePkgCaseId line, each needing to flip out of the
-    // Pending Package Billing queue, not just the first one.
-    const billedPkgCaseIds = [...new Set(draftLines.map((l) => l.sourcePkgCaseId).filter(Boolean))];
-    for (const pkgCaseId of billedPkgCaseIds) {
-      await markPackageBilled(pkgCaseId, created.invoice.id);
-    }
-
-    // Fields are always editable now (whether prefilled from a case via
-    // the automatic route, or entered by hand), so whatever's in the
-    // form at commit time is what should print -- save it whenever a
-    // Surgery line was actually added. dept has already been reset by
-    // now (cleared after each Add), so this checks the actual lines
-    // added rather than current form state.
-    const hasSurgeryLine = draftLines.some((l) => l.dept === 'Surgery');
-    if (hasSurgeryLine && surgeryName) {
-      await setManualSurgeryDetails(created.invoice.id, surgeryName, surgeryEyeField, surgeryDoctorId);
-    }
-
-    setSubmitting(false);
-    return details.invoice;
   }
 
   async function handleFinalize() {

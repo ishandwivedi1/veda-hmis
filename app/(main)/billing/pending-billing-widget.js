@@ -156,26 +156,34 @@ export default function PendingBillingWidget({ onCounts, bare = false, todayOnly
   // while only one tab's table is actually visible (see
   // visibleCategories below).
   const load = useCallback(async () => {
-    const [inv, proc, rx, bio] = await Promise.all([
-      getPendingInvestigationBilling({ includeBilled: true }),
-      getPendingProcedureBilling({ includeBilled: true }),
-      getPendingPrescriptionsForFrontOffice({ includeBilled: true }),
-      getPendingBiometryBilling({ includeBilled: true }),
-    ]);
-    setInvestigations(inv);
-    setProcedures(proc);
-    setPharmacy(rx);
-    setBiometry(bio);
-    setLoading(false);
+    try {
+      const [inv, proc, rx, bio] = await Promise.all([
+        getPendingInvestigationBilling({ includeBilled: true }),
+        getPendingProcedureBilling({ includeBilled: true }),
+        getPendingPrescriptionsForFrontOffice({ includeBilled: true }),
+        getPendingBiometryBilling({ includeBilled: true }),
+      ]);
+      setInvestigations(inv);
+      setProcedures(proc);
+      setPharmacy(rx);
+      setBiometry(bio);
+    } catch (e) {
+      // Leave whatever was already loaded showing rather than blank it.
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   async function withBusy(id, fn) {
     setBusyId(id);
-    await fn(id);
-    await load();
-    setBusyId(null);
+    try {
+      await fn(id);
+      await load();
+    } finally {
+      setBusyId(null);
+    }
   }
 
   const investigationsShown = todayOnly ? filterGroupsToToday(investigations) : investigations;
