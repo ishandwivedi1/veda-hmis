@@ -31,7 +31,7 @@ function CategoryRow({ label, row, bold, flag, blankExtras, highlight }) {
   const rowStyle = highlight ? { background: '#eff6ff' } : undefined;
   return (
     <tr style={rowStyle}>
-      <td style={{ ...tdLeft, ...style, fontWeight: highlight ? 800 : style.fontWeight }}>{label}</td>
+      <td style={{ ...tdLeft, ...style, fontWeight: highlight ? 800 : style.fontWeight, wordBreak: 'break-word' }}>{label}</td>
       <td style={{ ...td, ...style, color: '#1d4ed8', fontWeight: highlight ? 800 : style.fontWeight }}>{blankExtras ? '' : fmt(row.billed)}</td>
       <td style={{ ...td, ...style, fontWeight: highlight ? 800 : style.fontWeight }}>{fmt(row.netCash)}</td>
       <td style={{ ...td, ...style, fontWeight: highlight ? 800 : style.fontWeight }}>{fmt(row.netUPI)}</td>
@@ -146,7 +146,16 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           straight from invoice_line_items/optical_sales for what was
           actually invoiced today, regardless of collection status. */}
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Billed Income by Category</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6, tableLayout: 'fixed' }}>
+        <colgroup>
+          <col style={{ width: '24%' }} />
+          <col style={{ width: '12.67%' }} />
+          <col style={{ width: '12.67%' }} />
+          <col style={{ width: '12.67%' }} />
+          <col style={{ width: '12.67%' }} />
+          <col style={{ width: '12.67%' }} />
+          <col style={{ width: '12.67%' }} />
+        </colgroup>
         <thead>
           <tr>
             <th style={thLeft}>Category</th>
@@ -251,6 +260,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           <tr><td style={tdLeft}>Opening Cash</td><td style={{ ...td, fontWeight: 700 }}>{fmt(report.cashCounter.openingCash)}</td></tr>
           <tr><td style={tdLeft}>Cash Collected</td><td style={{ ...td, fontWeight: 700, color: '#166534' }}>{fmt(report.cashCounter.cashCollected)}</td></tr>
           <tr><td style={tdLeft}>Cash Expenses</td><td style={{ ...td, fontWeight: 700, color: '#b3261e' }}>{fmt(report.cashCounter.cashExpenses)}</td></tr>
+          <tr><td style={tdLeft}>Cash Retained</td><td style={{ ...td, fontWeight: 700, color: '#6d28d9' }}>{report.cashCounter.closingCash != null ? fmt(report.cashCounter.closingCash) : 'Pending'}</td></tr>
           <tr style={{ background: '#eff6ff' }}>
             <td style={{ ...tdLeft, fontWeight: 800 }}>Cash Handed Over</td>
             <td style={{ ...td, fontWeight: 800, color: '#1d4ed8' }}>{report.cashCounter.amountHandedOver != null ? fmt(report.cashCounter.amountHandedOver) : 'Pending'}</td>

@@ -1386,9 +1386,11 @@ export default function CashManagementPage() {
               {/* CASH COUNTER -- same source as the live Step 2 tab, so
                   a closed day's figures here match exactly what was
                   confirmed that day. Cash Collected is gross (Table
-                  1's Cash column, before expenses); Cash Handed Over is
-                  the confirmed figure once Step 2 is done for this
-                  date, or "Pending" if it hasn't been confirmed yet. */}
+                  1's Cash column, before expenses); Cash Retained is
+                  the closing/retained count from Step 2 (cash_counter.
+                  closing_cash); Cash Handed Over is the confirmed
+                  figure once Step 2 is done for this date, or
+                  "Pending" if it hasn't been confirmed yet. */}
               <div className="card" style={{ marginTop: 16 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-wallet" style={{ color: 'var(--blue)' }}></i> Cash Counter</div>
                 <table className="tbl" style={{ fontSize: 13 }}>
@@ -1404,6 +1406,12 @@ export default function CashManagementPage() {
                     <tr>
                       <td>Cash Expenses</td>
                       <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--red)' }}>{fmt(report.cashCounter.cashExpenses)}</td>
+                    </tr>
+                    <tr>
+                      <td>Cash Retained</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--purple)' }}>
+                        {report.cashCounter.closingCash != null ? fmt(report.cashCounter.closingCash) : <span style={{ color: 'var(--g400)', fontWeight: 600 }}>Pending</span>}
+                      </td>
                     </tr>
                     <tr style={{ background: 'var(--blue-lt, #eff6ff)' }}>
                       <td style={{ fontWeight: 800 }}>Cash Handed Over</td>
