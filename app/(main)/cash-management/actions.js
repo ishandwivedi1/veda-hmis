@@ -560,6 +560,22 @@ export async function saveReconciliation(mode, expected, actual, reason, approve
   return { success: true };
 }
 
+// Lightweight companion to getDailyReport() -- when a caller only needs
+// to know WHETHER and WHEN today was closed (e.g. Cash Management's
+// status banner, which shows nothing but "Closed at H:MM"), running the
+// full report -- payment_allocations joins, refund attribution by
+// invoice/sale, per-category breakdowns, three full tables' worth of
+// computation -- just to read one timestamp made it the single heaviest
+// call in the page's mount-time fetch burst, every time, on every visit,
+// for a hospital where the day is usually already closed by the time
+// anyone is back in this screen. A closed day's figures never change
+// retroactively, so there's nothing here that needs the full report.
+export async function getDayClosedAt(date) {
+  const supabase = await createClient();
+  const { data } = await supabase.from('day_closings').select('closed_at').eq('closing_date', date).maybeSingle();
+  return data;
+}
+
 export async function getCloseDayReadiness(date, precomputedSummary) {
   const supabase = await createClient();
   const targetDate = date || todayIST();

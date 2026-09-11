@@ -10,6 +10,7 @@ import {
   closeDay,
   getDayClosingHistory,
   getDailyReport,
+  getDayClosedAt,
   reopenDay,
   getDayOpening,
   openDay,
@@ -398,7 +399,10 @@ export default function CashManagementPage() {
     setUnclosedPastDays(unclosedPastDaysData);
     if (isClosed) {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-      setTodayClosingInfo(await getDailyReport(todayStr));
+      // getDayClosedAt(), not getDailyReport() -- this status banner only
+      // ever reads todayClosingInfo.closing.closed_at (see render below),
+      // so there's no reason to run the full report on every refresh.
+      setTodayClosingInfo({ closing: await getDayClosedAt(todayStr) });
     } else {
       setTodayClosingInfo(null);
     }
