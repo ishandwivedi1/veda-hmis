@@ -85,10 +85,9 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         </tbody>
       </table>
 
-      {/* PAYMENT MODE SUMMARY -- comes first: this is the pure "what
-          actually moved today" figure the four KPI cells above are
-          built from, so it reads as the source of truth before Income
-          by Category re-slices the same money by revenue type. */}
+      {/* PAYMENT MODE SUMMARY -- straight from Payments, six gross rows,
+          no netting or attribution logic. Grand Total is the only
+          derived figure (sum of all six, refund rows subtracted). */}
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Payment Mode Summary</div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 18 }}>
         <thead>
@@ -100,14 +99,34 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         </thead>
         <tbody>
           <tr>
-            <td style={tdLeft}>Billed Items, net of refunds ({report.billedItems.count})</td>
-            {MODES.map((m) => <td key={m} style={td}>{report.billedItems.byMode[m] ? fmt(report.billedItems.byMode[m]) : '--'}</td>)}
-            <td style={{ ...td, fontWeight: 700 }}>{fmt(report.billedItems.total)}</td>
+            <td style={tdLeft}>Payments against Hospital Billed Items ({report.hospitalBilledItems.count})</td>
+            {MODES.map((m) => <td key={m} style={td}>{report.hospitalBilledItems.byMode[m] ? fmt(report.hospitalBilledItems.byMode[m]) : '--'}</td>)}
+            <td style={{ ...td, fontWeight: 700 }}>{fmt(report.hospitalBilledItems.total)}</td>
           </tr>
           <tr>
-            <td style={tdLeft}>Advances, net of refunds ({report.advances.count})</td>
-            {MODES.map((m) => <td key={m} style={td}>{report.advances.byMode[m] ? fmt(report.advances.byMode[m]) : '--'}</td>)}
-            <td style={{ ...td, fontWeight: 700 }}>{fmt(report.advances.total)}</td>
+            <td style={tdLeft}>Payments Against Opticals ({report.opticalBilledItems.count})</td>
+            {MODES.map((m) => <td key={m} style={td}>{report.opticalBilledItems.byMode[m] ? fmt(report.opticalBilledItems.byMode[m]) : '--'}</td>)}
+            <td style={{ ...td, fontWeight: 700 }}>{fmt(report.opticalBilledItems.total)}</td>
+          </tr>
+          <tr>
+            <td style={tdLeft}>Hospital Advances ({report.hospitalAdvances.count})</td>
+            {MODES.map((m) => <td key={m} style={td}>{report.hospitalAdvances.byMode[m] ? fmt(report.hospitalAdvances.byMode[m]) : '--'}</td>)}
+            <td style={{ ...td, fontWeight: 700 }}>{fmt(report.hospitalAdvances.total)}</td>
+          </tr>
+          <tr>
+            <td style={tdLeft}>Optical Advances ({report.opticalAdvances.count})</td>
+            {MODES.map((m) => <td key={m} style={td}>{report.opticalAdvances.byMode[m] ? fmt(report.opticalAdvances.byMode[m]) : '--'}</td>)}
+            <td style={{ ...td, fontWeight: 700 }}>{fmt(report.opticalAdvances.total)}</td>
+          </tr>
+          <tr>
+            <td style={{ ...tdLeft, color: '#b3261e' }}>Hospital Refunds ({report.hospitalRefunds.count})</td>
+            {MODES.map((m) => <td key={m} style={{ ...td, color: '#b3261e' }}>{report.hospitalRefunds.byMode[m] ? fmt(report.hospitalRefunds.byMode[m]) : '--'}</td>)}
+            <td style={{ ...td, fontWeight: 700, color: '#b3261e' }}>{fmt(report.hospitalRefunds.total)}</td>
+          </tr>
+          <tr>
+            <td style={{ ...tdLeft, color: '#b3261e' }}>Optical Refunds ({report.opticalRefunds.count})</td>
+            {MODES.map((m) => <td key={m} style={{ ...td, color: '#b3261e' }}>{report.opticalRefunds.byMode[m] ? fmt(report.opticalRefunds.byMode[m]) : '--'}</td>)}
+            <td style={{ ...td, fontWeight: 700, color: '#b3261e' }}>{fmt(report.opticalRefunds.total)}</td>
           </tr>
           <tr>
             <td style={{ ...tdLeft, fontWeight: 700 }}>Grand Total (= Total Collection above)</td>
@@ -116,11 +135,6 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           </tr>
         </tbody>
       </table>
-      {report.totalRefundsToday !== 0 && (
-        <div style={{ fontSize: 10, color: '#666', marginTop: -2, marginBottom: 10 }}>
-          {fmt(report.totalRefundsToday)} in refunds today are already netted into Billed Items/Advances and their categories -- not a separate deduction.
-        </div>
-      )}
 
       {/* INCOME BY CATEGORY */}
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Income by Category</div>
@@ -159,7 +173,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
       <div style={{ fontSize: 10.5, color: '#666', marginBottom: 16 }}>
         Investigation Income equals the "Investigation charges" row above -- already included in OPD Income, not additional.
         "Via Advance" is revenue recognized today by applying an advance collected on an earlier day -- it involves no new cash movement today and is excluded from the Cash/UPI/Card columns and from Total Cash/UPI/Other above.
-        Every category above is net of its own refunds already. TOTAL = OPD Income + Pharmacy + Surgery Income + Optical Shop Sales (+ Unclassified, if any) -- equal to Billed Items in Payment Mode Summary above.
+        Billing-truth, gross (not adjusted for refunds -- see Payment Mode Summary and Day Totals for those). TOTAL = OPD Income + Pharmacy + Surgery Income + Optical Shop Sales (+ Unclassified, if any).
       </div>
 
       {(report.unclassifiedDepts.length > 0 || report.unclassifiedAdjustedDepts.length > 0) && (
@@ -194,22 +208,27 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Day Totals</div>
               {(() => {
                 const advanceAdjustmentApplied = report.previousAdvanceAdjustedTotal + report.sameDayAdvanceAdjustedTotal;
-                const refundsAgainstBilled = report.billedItems.refundedTotal || 0;
-                const expectedCollected = report.closing.total_revenue - report.closing.total_outstanding - advanceAdjustmentApplied - refundsAgainstBilled + report.advances.total;
+                const expectedCollected = report.closing.total_revenue - report.closing.total_outstanding - advanceAdjustmentApplied - report.creditNotesTotal + report.advanceCollectedNet - report.refundsAgainstPreviousInvoices - report.refundsAgainstPreviousAdvances;
                 const ties = Math.abs(expectedCollected - report.modeSummary.total) < 0.01;
                 return (
                   <>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <tbody>
-                        <tr><td style={tdLeft}>Total Revenue (billed, incl. Optical)</td><td style={td}>{fmt(report.closing.total_revenue)}</td></tr>
+                        <tr><td style={tdLeft}>Total Billed Revenue (incl. Optical)</td><td style={td}>{fmt(report.closing.total_revenue)}</td></tr>
                         <tr><td style={tdLeft}>Outstanding</td><td style={td}>{fmt(report.closing.total_outstanding)}</td></tr>
                         {advanceAdjustmentApplied > 0.001 && (
                           <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Advance Adjustment Applied</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(advanceAdjustmentApplied)}</td></tr>
                         )}
-                        {refundsAgainstBilled > 0.001 && (
-                          <tr><td style={{ ...tdLeft, color: '#b3261e' }}>Refunds against Billed Items</td><td style={{ ...td, color: '#b3261e' }}>{fmt(refundsAgainstBilled)}</td></tr>
+                        {report.creditNotesTotal > 0.001 && (
+                          <tr><td style={{ ...tdLeft, color: '#b3261e' }}>Credit Notes</td><td style={{ ...td, color: '#b3261e' }}>{fmt(report.creditNotesTotal)}</td></tr>
                         )}
-                        <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Advance Collected</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(report.advances.total)}</td></tr>
+                        <tr><td style={{ ...tdLeft, color: '#6d28d9' }}>Advance Collected</td><td style={{ ...td, color: '#6d28d9' }}>{fmt(report.advanceCollectedNet)}</td></tr>
+                        {report.refundsAgainstPreviousInvoices > 0.001 && (
+                          <tr><td style={{ ...tdLeft, color: '#b3261e' }}>Refunds against Previous Invoices</td><td style={{ ...td, color: '#b3261e' }}>{fmt(report.refundsAgainstPreviousInvoices)}</td></tr>
+                        )}
+                        {report.refundsAgainstPreviousAdvances > 0.001 && (
+                          <tr><td style={{ ...tdLeft, color: '#b3261e' }}>Refunds against Previous Advances</td><td style={{ ...td, color: '#b3261e' }}>{fmt(report.refundsAgainstPreviousAdvances)}</td></tr>
+                        )}
                         <tr><td style={{ ...tdLeft, fontWeight: 700, borderTop: '1px solid #999' }}>Total Collected</td><td style={{ ...td, fontWeight: 700, borderTop: '1px solid #999' }}>{fmt(report.modeSummary.total)}</td></tr>
                         <tr><td style={tdLeft}>Petty Cash Spent</td><td style={td}>{fmt(report.closing.total_petty_cash_expenses)}</td></tr>
                         <tr><td style={tdLeft}>Invoices</td><td style={td}>{report.closing.total_invoices}</td></tr>
@@ -217,7 +236,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
                       </tbody>
                     </table>
                     <div style={{ fontSize: 9.5, color: ties ? '#166534' : '#b3261e', marginTop: 4, fontWeight: 700 }}>
-                      {ties ? 'Revenue - Outstanding - Advance Adjustment - Refunds + Advance Collected = Total Collected, ties out.' : `Expected ${fmt(expectedCollected)} from Revenue/Outstanding/Advance figures, but Total Collected shows ${fmt(report.modeSummary.total)} -- worth investigating.`}
+                      {ties ? 'Revenue - Outstanding - Advance Adjustment - Credit Notes + Advance Collected - Refunds (previous invoices/advances) = Total Collected, ties out.' : `Expected ${fmt(expectedCollected)} from the figures above, but Total Collected shows ${fmt(report.modeSummary.total)} -- worth investigating.`}
                     </div>
                   </>
                 );

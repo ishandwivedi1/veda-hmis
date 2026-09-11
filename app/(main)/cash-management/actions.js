@@ -6,6 +6,13 @@ function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
+// IST calendar-date string for an arbitrary timestamp (not just "now")
+// -- e.g. an invoice's created_at, to check whether it was created on
+// the report's own date or an earlier one.
+function toISTDateStr(timestamp) {
+  return new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
 // A plain date string compared against a timestamptz column is
 // interpreted at UTC midnight by Postgres, not IST midnight -- that
 // mismatch is exactly what made the readiness check disagree with
@@ -51,28 +58,19 @@ function mergeByMode(...cats) {
   return merged;
 }
 
-// Subtracts a refund category's byMode/total from a base (billed)
-// category -- used so Income by Category shows what was actually kept
-// per category today, not gross billed with refunds invisible
-// elsewhere. Keeps the same { byMode, total } shape so it composes
-// with withAdjustment() same as before.
-function netCategory(base, refundCat) {
-  const byMode = { ...base.byMode };
-  Object.entries(refundCat.byMode || {}).forEach(([mode, amt]) => { byMode[mode] = (byMode[mode] || 0) - amt; });
-  return { byMode, total: base.total - (refundCat.total || 0) };
-}
-
-// Like modeBreakdown, but nets a set of refund transactions directly
-// against the positive set instead of returning them as a separate
-// negative bucket -- Billed Items/Advances should read as "what's
-// actually still kept" per mode, with refunds invisible as their own
-// line rather than shown and then subtracted a second time elsewhere.
-function modeBreakdownNet(positiveTxs, refundTxs) {
+// Splits a day's real cash-movement transactions into simple gross
+// mode totals -- Table 1 (Payment Mode Summary) rows are all this:
+// straight from Payments, no netting or attribution. negate flips the
+// sign (used for the Hospital/Optical Refunds rows, cash going out).
+function modeBreakdown(txs, negate = false) {
   const byMode = {};
-  positiveTxs.forEach((p) => { (p.payment_modes || []).forEach((m) => { byMode[m.mode] = (byMode[m.mode] || 0) + Number(m.amount); }); });
-  refundTxs.forEach((p) => { (p.payment_modes || []).forEach((m) => { byMode[m.mode] = (byMode[m.mode] || 0) - Number(m.amount); }); });
-  const total = positiveTxs.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) - refundTxs.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
-  return { byMode, total, count: positiveTxs.length, refundedCount: refundTxs.length, refundedTotal: refundTxs.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) };
+  txs.forEach((p) => {
+    (p.payment_modes || []).forEach((m) => {
+      byMode[m.mode] = (byMode[m.mode] || 0) + (negate ? -Number(m.amount) : Number(m.amount));
+    });
+  });
+  const total = txs.reduce((s, p) => s + (negate ? -Number(p.total_amount) : Number(p.total_amount)), 0);
+  return { byMode, total, count: txs.length };
 }
 
 // Re-slices a set of today's payment transactions (invoice_payment OR
@@ -203,30 +201,33 @@ async function getCategorizedIncome(supabase, txs, invoiceIdOverride) {
   return { categories, unclassifiedDepts: [...unclassifiedDepts] };
 }
 
-// Splits today's total advance-adjustment activity into "same-day"
-// (a patient paid an advance today and it was applied today too) vs
-// "previous-day" (the advance being drawn down was collected on an
-// earlier visit) -- per patient, treating today's own new advance as
-// consumed first, up to whichever is smaller: today's new advance for
-// that patient, or today's adjustment for that patient. This is a
-// conservative approximation (the advance ledger is a running balance,
-// not a dated queue of individual rupees, so there's no way to know
-// FOR CERTAIN which day's money got applied) -- but it never
-// overstates "previous day", since any ambiguous amount is attributed
-// to today's own advance first.
-function splitAdvanceAdjustmentByAge(advanceTx, adjustmentTx) {
-  function sumByPatient(txs) {
+// Splits today's total draw-down of a pooled advance balance (an
+// advance-adjustment applied to an invoice, OR an advance refund) into
+// "same-day" (a patient/customer deposited an advance today and it was
+// drawn down today too) vs "previous-day" (the balance being drawn
+// down was built up on an earlier visit) -- grouped by keyFn (patient
+// for hospital, patient-or-optical-customer for optical, since walk-in
+// optical customers often have no patient record), treating today's
+// own new deposit as consumed first, up to whichever is smaller:
+// today's new deposit for that person, or today's draw-down for that
+// person. This is a conservative approximation (the advance ledger is
+// a running balance, not a dated queue of individual rupees, so
+// there's no way to know FOR CERTAIN which day's money got drawn
+// down) -- but it never overstates "previous day", since any
+// ambiguous amount is attributed to today's own deposit first.
+function splitByAgeAgainstTodaysDeposit(depositTx, drawDownTx, keyFn = (p) => p.patient_id) {
+  function sumByKey(txs) {
     const m = {};
-    txs.forEach((p) => { m[p.patient_id] = (m[p.patient_id] || 0) + Number(p.total_amount || 0); });
+    txs.forEach((p) => { const k = keyFn(p); m[k] = (m[k] || 0) + Number(p.total_amount || 0); });
     return m;
   }
-  const advanceByPatient = sumByPatient(advanceTx);
-  const adjustedByPatient = sumByPatient(adjustmentTx);
+  const depositByKey = sumByKey(depositTx);
+  const drawDownByKey = sumByKey(drawDownTx);
   let previousDay = 0, sameDay = 0;
-  Object.entries(adjustedByPatient).forEach(([pid, adjustedAmt]) => {
-    const sameDayPortion = Math.min(advanceByPatient[pid] || 0, adjustedAmt);
+  Object.entries(drawDownByKey).forEach(([key, drawDownAmt]) => {
+    const sameDayPortion = Math.min(depositByKey[key] || 0, drawDownAmt);
     sameDay += sameDayPortion;
-    previousDay += adjustedAmt - sameDayPortion;
+    previousDay += drawDownAmt - sameDayPortion;
   });
   return { previousDay, sameDay };
 }
@@ -468,7 +469,7 @@ export async function getTodayCollectionSummary(date) {
     // cash while "expected" silently didn't.
     supabase
       .from('optical_payments')
-      .select('id, receipt_number, payment_type, total_amount, collected_at, optical_payment_modes(mode, amount), patients(first_name, salutation, last_name), optical_customers(name)')
+      .select('id, receipt_number, payment_type, total_amount, collected_at, patient_id, optical_customer_id, optical_payment_modes(mode, amount), patients(first_name, salutation, last_name), optical_customers(name)')
       .gte('collected_at', startUTC)
       .lte('collected_at', endUTC)
       .order('collected_at', { ascending: false }),
@@ -483,6 +484,8 @@ export async function getTodayCollectionSummary(date) {
     collected_at: p.collected_at,
     payment_modes: p.optical_payment_modes,
     patients: p.patients,
+    patient_id: p.patient_id,
+    optical_customer_id: p.optical_customer_id,
     opticalCustomerName: p.optical_customers?.name,
   }));
 
@@ -636,7 +639,10 @@ export async function getDailyReport(date) {
   // 'sale_payment' only exists on optical_payments rows -- unambiguous.
   const opticalSaleTx = collectionSummary.transactions.filter((p) => p.payment_type === 'sale_payment');
   const advanceTx = collectionSummary.transactions.filter((p) => p.payment_type === 'advance');
+  const hospitalAdvanceTx = advanceTx.filter((p) => p.source !== 'optical');
+  const opticalAdvanceTx = advanceTx.filter((p) => p.source === 'optical');
   const refundTx = collectionSummary.transactions.filter((p) => p.payment_type === 'refund');
+  const creditNoteTx = collectionSummary.transactions.filter((p) => p.payment_type === 'credit_note');
   // Advance applied against an invoice today (e.g. a surgery invoiced
   // today, paid from an advance collected on an earlier day) -- no new
   // cash moves, so this is correctly excluded from Billed Items/
@@ -650,13 +656,19 @@ export async function getDailyReport(date) {
   // how much more was recognized today via an advance applied today.
   const adjustmentTx = collectionSummary.transactions.filter((p) => p.payment_type === 'advance_adjustment');
 
-  // Every refund needs to be attributed back to either a specific
-  // invoice/sale (net it out of that category, same as if the billed
-  // amount had simply been lower) or the pooled Advance balance (net
-  // it out of Advances) -- refunds show up nowhere as their own line.
-  // payment_refunds/optical_payment_refunds carry that link;
-  // payment_allocations does NOT (a refund is never itself allocated
-  // to an invoice the way a payment is).
+  // Refunds are split two ways in this report: Payment Mode Summary
+  // (Table 1) just needs hospital-vs-optical, gross, as their own
+  // rows -- no further tracing needed. Day Totals (Table 3) needs
+  // more: whether each refund was against an invoice/sale/advance
+  // deposited TODAY or on an earlier day, since only a refund against
+  // something from a PREVIOUS day is real cash out that today's
+  // Revenue/Outstanding/Advance-Collected figures don't already
+  // account for. payment_refunds/optical_payment_refunds carry the
+  // invoice/sale link (payment_allocations does NOT -- a refund is
+  // never itself allocated to an invoice the way a payment is); the
+  // advance side has no such link at all (the advance balance is a
+  // pooled running total, not a dated queue), so that's approximated
+  // the same conservative same-day-first way as Advance Adjustment.
   const hospitalRefundTx = refundTx.filter((p) => p.source !== 'optical');
   const opticalRefundTx = refundTx.filter((p) => p.source === 'optical');
   const [{ data: refundLinks }, { data: opticalRefundLinks }] = await Promise.all([
@@ -672,36 +684,65 @@ export async function getDailyReport(date) {
   const saleIdByRefundPaymentId = {};
   (opticalRefundLinks || []).forEach((r) => { if (r.sale_id) saleIdByRefundPaymentId[r.refund_payment_id] = r.sale_id; });
 
-  // Anything without a resolvable invoice/sale link (a genuine advance
-  // refund, or an old/untraceable "duplicate payment" refund with no
-  // link at all) falls back to netting against Advances -- the safer
-  // default, since Advances is itself an uncategorized pooled figure.
   const invoiceRefundTx = hospitalRefundTx.filter((p) => invoiceIdByRefundPaymentId[p.id]);
   const advanceRefundTx = hospitalRefundTx.filter((p) => !invoiceIdByRefundPaymentId[p.id]);
   const opticalSaleRefundTx = opticalRefundTx.filter((p) => saleIdByRefundPaymentId[p.id.replace('optical-', '')]);
   const opticalAdvanceRefundTx = opticalRefundTx.filter((p) => !saleIdByRefundPaymentId[p.id.replace('optical-', '')]);
 
-  const invoiceIdOverrideForRefunds = {};
-  invoiceRefundTx.forEach((p) => { invoiceIdOverrideForRefunds[p.id] = invoiceIdByRefundPaymentId[p.id]; });
+  // For invoice/sale-linked refunds, look up when that invoice/sale
+  // was actually created -- a refund against something billed on a
+  // PREVIOUS day is real cash out today that Total Revenue/Outstanding
+  // (both scoped to today's own invoices/sales) never captures.
+  const refundedInvoiceIds = [...new Set(Object.values(invoiceIdByRefundPaymentId))];
+  const refundedSaleIds = [...new Set(Object.values(saleIdByRefundPaymentId))];
+  const [{ data: refundedInvoices }, { data: refundedSales }] = await Promise.all([
+    refundedInvoiceIds.length > 0 ? supabase.from('invoices').select('id, created_at').in('id', refundedInvoiceIds) : Promise.resolve({ data: [] }),
+    refundedSaleIds.length > 0 ? supabase.from('optical_sales').select('id, sale_date').in('id', refundedSaleIds) : Promise.resolve({ data: [] }),
+  ]);
+  const invoiceCreatedDate = {};
+  (refundedInvoices || []).forEach((i) => { invoiceCreatedDate[i.id] = toISTDateStr(i.created_at); });
+  const saleDate = {};
+  (refundedSales || []).forEach((s) => { saleDate[s.id] = s.sale_date; });
 
-  const [{ categories, unclassifiedDepts }, { categories: adjCategories, unclassifiedDepts: unclassifiedAdjustedDepts }, { categories: refundCategories }] = await Promise.all([
+  const refundsAgainstPreviousInvoices =
+    invoiceRefundTx.filter((p) => invoiceCreatedDate[invoiceIdByRefundPaymentId[p.id]] !== date).reduce((s, p) => s + (Number(p.total_amount) || 0), 0)
+    + opticalSaleRefundTx.filter((p) => saleDate[saleIdByRefundPaymentId[p.id.replace('optical-', '')]] !== date).reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
+
+  // Advance refunds have no invoice/sale to check the date of -- same
+  // same-day-first approximation used for Advance Adjustment Applied,
+  // computed separately per subsystem since hospital and optical each
+  // keep their own pooled advance balance. Optical customers often
+  // have no patient_id (walk-ins), hence the fallback key.
+  const opticalPersonKey = (p) => p.patient_id || p.optical_customer_id;
+  const hospitalAdvanceRefundAge = splitByAgeAgainstTodaysDeposit(hospitalAdvanceTx, advanceRefundTx);
+  const opticalAdvanceRefundAge = splitByAgeAgainstTodaysDeposit(opticalAdvanceTx, opticalAdvanceRefundTx, opticalPersonKey);
+  const refundsAgainstPreviousAdvances = hospitalAdvanceRefundAge.previousDay + opticalAdvanceRefundAge.previousDay;
+  // Advance Collected for Day Totals -- today's fresh deposits, net of
+  // whatever was refunded same-day (that money never really stuck
+  // around as an advance balance at all). A previous-day advance being
+  // refunded today does NOT reduce this -- it's accounted for by
+  // refundsAgainstPreviousAdvances instead, since today's deposit is
+  // untouched by it.
+  const advanceCollectedNet =
+    (hospitalAdvanceTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) - hospitalAdvanceRefundAge.sameDay)
+    + (opticalAdvanceTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) - opticalAdvanceRefundAge.sameDay);
+
+  const creditNotesTotal = creditNoteTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
+
+  // Income by Category (Table 2) is billing-truth: what was actually
+  // billed and collected against it, exactly as invoiced -- gross, no
+  // refund adjustments. Refunds live only in Payment Mode Summary
+  // (Table 1) as their own hospital/optical rows, and in Day Totals
+  // (Table 3) as part of the reconciliation walk.
+  const [{ categories, unclassifiedDepts }, { categories: adjCategories, unclassifiedDepts: unclassifiedAdjustedDepts }] = await Promise.all([
     getCategorizedIncome(supabase, billedTx),
     getCategorizedIncome(supabase, adjustmentTx),
-    getCategorizedIncome(supabase, invoiceRefundTx, invoiceIdOverrideForRefunds),
   ]);
   const cat = (name) => categories[name] || emptyCategory();
   const adjTotal = (name) => (adjCategories[name] || emptyCategory()).total;
-  const refundCat = (name) => refundCategories[name] || emptyCategory();
 
   function withAdjustment(base, adjustedTotal) {
     return { ...base, advanceAdjusted: adjustedTotal, totalWithAdjustment: base.total + adjustedTotal };
-  }
-  // Nets that category's own refunds out first, then adds today's
-  // advance-adjustment revenue on top -- so totalWithAdjustment is
-  // "kept from cash today, net of refunds, plus recognized via
-  // advance" rather than refunds and adjustments fighting each other.
-  function categoryNetOfRefunds(name) {
-    return withAdjustment(netCategory(cat(name), refundCat(name)), adjTotal(name));
   }
 
   // OPD Income is the roll-up of the three OPD-workflow categories --
@@ -711,9 +752,9 @@ export async function getDailyReport(date) {
   // since Front Office may want to see it without wading through the
   // OPD breakdown -- it is NOT additional money on top of OPD Income,
   // just the same investigation revenue shown a second way.
-  const opdConsultation = categoryNetOfRefunds('OPD Consultation charges');
-  const opdProcedure = categoryNetOfRefunds('Procedure charges');
-  const opdInvestigation = categoryNetOfRefunds('Investigation charges');
+  const opdConsultation = withAdjustment(cat('OPD Consultation charges'), adjTotal('OPD Consultation charges'));
+  const opdProcedure = withAdjustment(cat('Procedure charges'), adjTotal('Procedure charges'));
+  const opdInvestigation = withAdjustment(cat('Investigation charges'), adjTotal('Investigation charges'));
   const opdIncome = {
     consultation: opdConsultation, procedure: opdProcedure, investigation: opdInvestigation,
     byMode: mergeByMode(opdConsultation, opdProcedure, opdInvestigation),
@@ -721,60 +762,51 @@ export async function getDailyReport(date) {
     advanceAdjusted: opdConsultation.advanceAdjusted + opdProcedure.advanceAdjusted + opdInvestigation.advanceAdjusted,
     totalWithAdjustment: opdConsultation.totalWithAdjustment + opdProcedure.totalWithAdjustment + opdInvestigation.totalWithAdjustment,
   };
-  const unclassified = netCategory(cat('Unclassified'), refundCat('Unclassified'));
+  const unclassified = cat('Unclassified');
   // Optical has no advance-adjustment equivalent (no invoice/advance-
   // ledger table of its own) -- a flat category, no adjusted variant,
-  // netted against its own sale-linked refunds only.
-  const opticalIncome = modeBreakdownNet(opticalSaleTx, opticalSaleRefundTx);
-  const { previousDay: previousAdvanceAdjustedTotal, sameDay: sameDayAdvanceAdjustedTotal } = splitAdvanceAdjustmentByAge(advanceTx, adjustmentTx);
+  // gross (billing-truth), same as every other category in this table.
+  const opticalIncome = modeBreakdown(opticalSaleTx);
+  const { previousDay: previousAdvanceAdjustedTotal, sameDay: sameDayAdvanceAdjustedTotal } = splitByAgeAgainstTodaysDeposit(advanceTx, adjustmentTx);
 
   return {
     closing, reconciliation: reconciliation || [], expenses,
-    // Net of every refund traced back to a hospital invoice or an
-    // optical sale -- the "what's actually still kept" figure, with
-    // refunds invisible as their own line rather than shown and then
-    // subtracted a second time elsewhere. Ties out exactly with
-    // Income by Category's total below and Payment Mode Summary's
-    // Grand Total (once Advances is added and nothing else is left).
-    billedItems: modeBreakdownNet([...billedTx, ...opticalSaleTx], [...invoiceRefundTx, ...opticalSaleRefundTx]),
-    // Net of every refund that couldn't be traced to a specific
-    // invoice/sale -- a genuine advance refund, or an old untraceable
-    // one -- since Advances itself is an uncategorized pooled figure.
-    advances: modeBreakdownNet(advanceTx, [...advanceRefundTx, ...opticalAdvanceRefundTx]),
-    // Combined Cash/UPI/Card/Cheque/Bank Transfer totals across Billed
-    // + Advance, both already net of refunds -- the single "here's
-    // what actually moved, by mode, today" figure the report leads
-    // with. Equal to Billed Items + Advances above by construction.
+    // ---- TABLE 1: Payment Mode Summary -- six gross rows straight
+    // from Payments, no netting or attribution logic. Grand Total
+    // (modeSummary) is the only figure derived (sum of all six, with
+    // the two refund rows subtracted) -- the actual cash movement.
+    hospitalBilledItems: modeBreakdown(billedTx),
+    opticalBilledItems: modeBreakdown(opticalSaleTx),
+    hospitalAdvances: modeBreakdown(hospitalAdvanceTx),
+    opticalAdvances: modeBreakdown(opticalAdvanceTx),
+    hospitalRefunds: modeBreakdown(hospitalRefundTx, true),
+    opticalRefunds: modeBreakdown(opticalRefundTx, true),
     modeSummary: { byMode: collectionSummary.byMode, total: collectionSummary.total },
+    // ---- TABLE 2: Income by Category -- billing-truth, gross, exactly
+    // as invoiced. Assumed correct as the source of truth for what was
+    // billed; Table 3 reconciles it against Table 1's actual cash.
     opdIncome,
     investigationIncome: opdInvestigation,
-    pharmacyIncome: categoryNetOfRefunds('Pharmacy'),
-    surgeryIncome: categoryNetOfRefunds('Surgery Income'),
+    pharmacyIncome: withAdjustment(cat('Pharmacy'), adjTotal('Pharmacy')),
+    surgeryIncome: withAdjustment(cat('Surgery Income'), adjTotal('Surgery Income')),
     unclassifiedIncome: unclassified,
     unclassifiedDepts,
-    // Optical Shop Sales -- a full peer category alongside OPD/
-    // Pharmacy/Surgery/Unclassified, included in Income by Category's
-    // total, Billed Items (all categories), and Payment Mode Summary
-    // (via collectionSummary, which already folded it in), net of its
-    // own sale-linked refunds. Optical's Advances were always in the
-    // Advances card above (payment_type is generic across both
-    // subsystems), likewise now net of advance-linked refunds.
     opticalIncome,
-    // Advance-adjustment activity that itself couldn't be categorized
-    // (e.g. an invoice with no line items) -- tracked separately from
-    // unclassifiedIncome/unclassifiedDepts above since it's not part
-    // of the same billedItems total, and would misreport that
-    // reconciliation if merged in.
     unclassifiedAdjustedIncome: adjCategories.Unclassified || emptyCategory(),
     unclassifiedAdjustedDepts,
-    // "Previous Advance Adjustment" for Day Totals -- see
-    // splitAdvanceAdjustmentByAge for the same-day-first approximation.
+    // ---- TABLE 3: Day Totals -- reconciles Table 1 and Table 2.
+    // Total Collected (modeSummary.total above) should equal:
+    //   Total Revenue - Outstanding - Advance Adjustment Applied
+    //   - Credit Notes - Refunds against Previous Invoices
+    //   - Refunds against Previous Advances + Advance Collected
     previousAdvanceAdjustedTotal,
     sameDayAdvanceAdjustedTotal,
-    // Total refunds today, kept only as a one-line transparency figure
-    // (see the report UI) -- no longer a subtracted row of its own
-    // anywhere; every refund above has already been netted into
-    // whichever category/Billed-Items/Advances it belongs to.
+    creditNotesTotal,
+    advanceCollectedNet,
+    refundsAgainstPreviousInvoices,
+    refundsAgainstPreviousAdvances,
+    // Total refunds today, kept only as a reference figure -- Table 1
+    // already shows Hospital/Optical Refunds as their own rows.
     totalRefundsToday: refundTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0),
   };
 }
