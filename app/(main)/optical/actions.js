@@ -494,17 +494,26 @@ export async function getOpticalDashboardSummary() {
     supabase.from('optical_sales').select('net').gte('sale_date', monthStart).lte('sale_date', today).neq('status', 'Cancelled'),
     supabase.from('optical_sales').select(SALE_SELECT).in('status', ['Pending', 'Partial']).order('sale_date', { ascending: true }),
     supabase.from('optical_customer_ledger').select('amount'),
+    // 'refund' is included and netted below (not skipped) -- refund_optical_payment
+    // and refund_optical_advance both insert their own optical_payments row with
+    // payment_type='refund' and a positive total_amount, mirroring a sale_payment/
+    // advance row exactly. Dropping it from the .in() list (as before) meant a same-day
+    // refund was silently ignored instead of subtracted, overstating cash collected.
     supabase.from('optical_payments').select('total_amount, payment_type, optical_payment_modes(mode, amount)')
-      .in('payment_type', ['sale_payment', 'advance']).gte('collected_at', `${today}T00:00:00+05:30`).lte('collected_at', `${today}T23:59:59+05:30`),
+      .in('payment_type', ['sale_payment', 'advance', 'refund']).gte('collected_at', `${today}T00:00:00+05:30`).lte('collected_at', `${today}T23:59:59+05:30`),
   ]);
 
   const outstandingBills = (outstandingRows || []).map(shapeSale);
   const todayByMode = {};
   let todayCollected = 0;
   (todayPayments || []).forEach((p) => {
-    todayCollected += Number(p.total_amount) || 0;
-    (p.optical_payment_modes || []).forEach((m) => { todayByMode[m.mode] = (todayByMode[m.mode] || 0) + Number(m.amount); });
+    const sign = p.payment_type === 'refund' ? -1 : 1;
+    todayCollected += sign * (Number(p.total_amount) || 0);
+    (p.optical_payment_modes || []).forEach((m) => { todayByMode[m.mode] = (todayByMode[m.mode] || 0) + sign * Number(m.amount); });
   });
+  // Drop any mode that nets to exactly 0 (fully refunded within the same day) so the
+  // KPI sub-line doesn't show a stray "Cash \u20b90".
+  Object.keys(todayByMode).forEach((m) => { if (todayByMode[m] === 0) delete todayByMode[m]; });
 
   const nowIST = new Date();
   const withAge = outstandingBills.map((b) => ({
