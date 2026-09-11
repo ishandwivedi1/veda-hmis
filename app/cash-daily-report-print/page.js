@@ -21,18 +21,23 @@ const tdLeft = { ...td, textAlign: 'left' };
 
 // One row for a category -- Table 2 is billing-truth for account-book
 // entry: full billed value plus exactly how it was settled, split by
-// Cash/UPI (see getBilledIncomeByCategory).
-function CategoryRow({ label, row, bold, flag }) {
+// Cash/UPI (see getBilledIncomeByCategory). blankExtras leaves Billed/
+// Settled via Advance/Credit Notes/Outstanding empty rather than
+// showing Rs.0.00 -- used for the advance-only rows and Grand Total,
+// where those columns genuinely don't apply. highlight marks the
+// Total Billed row.
+function CategoryRow({ label, row, bold, flag, blankExtras, highlight }) {
   const style = { fontWeight: bold ? 700 : 400, color: flag ? '#b3261e' : undefined };
+  const rowStyle = highlight ? { background: '#eff6ff' } : undefined;
   return (
-    <tr>
-      <td style={{ ...tdLeft, ...style }}>{label}</td>
-      <td style={{ ...td, ...style, color: '#1d4ed8' }}>{fmt(row.billed)}</td>
-      <td style={{ ...td, ...style }}>{fmt(row.netCash)}</td>
-      <td style={{ ...td, ...style }}>{fmt(row.netUPI)}</td>
-      <td style={{ ...td, ...style, color: row.advanceSettled ? '#6d28d9' : style.color }}>{fmt(row.advanceSettled)}</td>
-      <td style={{ ...td, ...style, color: row.creditNoteSettled ? '#b3261e' : style.color }}>{fmt(row.creditNoteSettled)}</td>
-      <td style={{ ...td, ...style, color: row.outstanding ? '#92400e' : style.color }}>{fmt(row.outstanding)}</td>
+    <tr style={rowStyle}>
+      <td style={{ ...tdLeft, ...style, fontWeight: highlight ? 800 : style.fontWeight }}>{label}</td>
+      <td style={{ ...td, ...style, color: '#1d4ed8', fontWeight: highlight ? 800 : style.fontWeight }}>{blankExtras ? '' : fmt(row.billed)}</td>
+      <td style={{ ...td, ...style, fontWeight: highlight ? 800 : style.fontWeight }}>{fmt(row.netCash)}</td>
+      <td style={{ ...td, ...style, fontWeight: highlight ? 800 : style.fontWeight }}>{fmt(row.netUPI)}</td>
+      <td style={{ ...td, ...style, color: row.advanceSettled ? '#6d28d9' : style.color, fontWeight: highlight ? 800 : style.fontWeight }}>{blankExtras ? '' : fmt(row.advanceSettled)}</td>
+      <td style={{ ...td, ...style, color: row.creditNoteSettled ? '#b3261e' : style.color, fontWeight: highlight ? 800 : style.fontWeight }}>{blankExtras ? '' : fmt(row.creditNoteSettled)}</td>
+      <td style={{ ...td, ...style, color: row.outstanding ? '#92400e' : style.color, fontWeight: highlight ? 800 : style.fontWeight }}>{blankExtras ? '' : fmt(row.outstanding)}</td>
     </tr>
   );
 }
@@ -172,7 +177,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
             return (
               <>
                 {rows.map((r) => <CategoryRow key={r.label} label={r.label} row={r.row} flag={r.flag} />)}
-                <CategoryRow label="Total Billed" row={total} bold />
+                <CategoryRow label="Total Billed" row={total} highlight />
                 {(() => {
                   // Advances have no category/dept of their own, so
                   // they only ever populate Net Cash/Net UPI. Grand
@@ -193,8 +198,8 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
                   };
                   return (
                     <>
-                      {advanceRows.map((r) => <CategoryRow key={r.label} label={r.label} row={asFullRow(r.row)} />)}
-                      <CategoryRow label="Grand Total" row={grandTotal} bold />
+                      {advanceRows.map((r) => <CategoryRow key={r.label} label={r.label} row={asFullRow(r.row)} blankExtras />)}
+                      <CategoryRow label="Grand Total" row={grandTotal} bold blankExtras />
                     </>
                   );
                 })()}

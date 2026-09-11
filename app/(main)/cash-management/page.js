@@ -1299,14 +1299,14 @@ export default function CashManagementPage() {
                             <td style={{ textAlign: 'right', color: r.row.outstanding ? 'var(--amber)' : undefined }}>{fmt(r.row.outstanding)}</td>
                           </tr>
                         ))}
-                        <tr>
-                          <td style={{ fontWeight: 700 }}>Total Billed</td>
+                        <tr style={{ background: 'var(--blue-lt, #eff6ff)' }}>
+                          <td style={{ fontWeight: 800 }}>Total Billed</td>
                           <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--blue)' }}>{fmt(total.billed)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.netCash)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.netUPI)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.advanceSettled)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.creditNoteSettled)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.outstanding)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{fmt(total.netCash)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{fmt(total.netUPI)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{fmt(total.advanceSettled)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{fmt(total.creditNoteSettled)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{fmt(total.outstanding)}</td>
                         </tr>
                         {(() => {
                           // Advances have no category/dept of their own, so
@@ -1343,12 +1343,12 @@ export default function CashManagementPage() {
                               ))}
                               <tr>
                                 <td style={{ fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Grand Total</td>
-                                <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--blue)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.billed)}</td>
+                                <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
                                 <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.netCash)}</td>
                                 <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.netUPI)}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.advanceSettled)}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.creditNoteSettled)}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>{fmt(grandTotal.outstanding)}</td>
+                                <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
+                                <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
+                                <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
                               </tr>
                             </>
                           );
