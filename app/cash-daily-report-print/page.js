@@ -100,22 +100,15 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         </thead>
         <tbody>
           <tr>
-            <td style={tdLeft}>Billed Items ({report.billedItems.count})</td>
+            <td style={tdLeft}>Billed Items, net of refunds ({report.billedItems.count})</td>
             {MODES.map((m) => <td key={m} style={td}>{report.billedItems.byMode[m] ? fmt(report.billedItems.byMode[m]) : '--'}</td>)}
             <td style={{ ...td, fontWeight: 700 }}>{fmt(report.billedItems.total)}</td>
           </tr>
           <tr>
-            <td style={tdLeft}>Advances ({report.advances.count})</td>
+            <td style={tdLeft}>Advances, net of refunds ({report.advances.count})</td>
             {MODES.map((m) => <td key={m} style={td}>{report.advances.byMode[m] ? fmt(report.advances.byMode[m]) : '--'}</td>)}
             <td style={{ ...td, fontWeight: 700 }}>{fmt(report.advances.total)}</td>
           </tr>
-          {report.refunds.total !== 0 && (
-            <tr>
-              <td style={{ ...tdLeft, color: '#b3261e' }}>Refunds paid out</td>
-              {MODES.map((m) => <td key={m} style={{ ...td, color: '#b3261e' }}>{report.refunds.byMode[m] ? fmt(report.refunds.byMode[m]) : '--'}</td>)}
-              <td style={{ ...td, fontWeight: 700, color: '#b3261e' }}>{fmt(report.refunds.total)}</td>
-            </tr>
-          )}
           <tr>
             <td style={{ ...tdLeft, fontWeight: 700 }}>Grand Total (= Total Collection above)</td>
             {MODES.map((m) => <td key={m} style={{ ...td, fontWeight: 700 }}>{report.modeSummary.byMode[m] ? fmt(report.modeSummary.byMode[m]) : '--'}</td>)}
@@ -123,6 +116,11 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           </tr>
         </tbody>
       </table>
+      {report.totalRefundsToday !== 0 && (
+        <div style={{ fontSize: 10, color: '#666', marginTop: -2, marginBottom: 10 }}>
+          {fmt(report.totalRefundsToday)} in refunds today are already netted into Billed Items/Advances and their categories -- not a separate deduction.
+        </div>
+      )}
 
       {/* INCOME BY CATEGORY */}
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Income by Category</div>
@@ -161,7 +159,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
       <div style={{ fontSize: 10.5, color: '#666', marginBottom: 16 }}>
         Investigation Income equals the "Investigation charges" row above -- already included in OPD Income, not additional.
         "Via Advance" is revenue recognized today by applying an advance collected on an earlier day -- it involves no new cash movement today and is excluded from the Cash/UPI/Card columns and from Total Cash/UPI/Other above.
-        TOTAL = OPD Income + Pharmacy + Surgery Income + Optical Shop Sales (+ Unclassified, if any) -- equal to Billed Items in Payment Mode Summary above.
+        Every category above is net of its own refunds already. TOTAL = OPD Income + Pharmacy + Surgery Income + Optical Shop Sales (+ Unclassified, if any) -- equal to Billed Items in Payment Mode Summary above.
       </div>
 
       {(report.unclassifiedDepts.length > 0 || report.unclassifiedAdjustedDepts.length > 0) && (

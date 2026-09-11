@@ -1228,7 +1228,7 @@ export default function CashManagementPage() {
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-cash-banknote" style={{ color: 'var(--green)' }}></i> Payment Mode Summary</div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 8 }}>
-                  Billed Items (incl. Optical Sales) + Advances{report.refunds.total !== 0 ? ' - Refunds' : ''}, by mode -- the actual cash movement for the day.
+                  Billed Items (incl. Optical Sales) + Advances, both net of refunds, by mode -- the actual cash movement for the day.
                 </div>
                 {Object.keys(report.modeSummary.byMode).length === 0 ? (
                   <div style={{ fontSize: 12, color: 'var(--g400)' }}>No payments recorded today.</div>
@@ -1245,14 +1245,9 @@ export default function CashManagementPage() {
                     </div>
                   </>
                 )}
-                {report.refunds.total !== 0 && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--g200)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', marginBottom: 4 }}>Refunds paid out (already netted above)</div>
-                    {Object.entries(report.refunds.byMode).map(([mode, amt]) => (
-                      <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, color: 'var(--red)' }}>
-                        <span>{mode}</span><span>{fmt(amt)}</span>
-                      </div>
-                    ))}
+                {report.totalRefundsToday !== 0 && (
+                  <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--g200)' }}>
+                    {fmt(report.totalRefundsToday)} in refunds today are already netted into Billed Items/Advances and their categories above -- not a separate deduction.
                   </div>
                 )}
               </div>
@@ -1320,6 +1315,9 @@ export default function CashManagementPage() {
                   Surgery Income + Unclassified + Optical Shop Sales
                   (Investigation Income is NOT added again here -- it's
                   already inside OPD Income, see the note on that card).
+                  Every category above is already net of its own
+                  refunds (see categoryNetOfRefunds/netCategory in
+                  getDailyReport) -- no separate Refunds row anywhere.
                   By construction this cash total always equals Billed
                   Items above and the Total Collection KPI minus
                   Advances -- nothing collected today (hospital or
@@ -1378,7 +1376,7 @@ export default function CashManagementPage() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                 <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-receipt" style={{ color: 'var(--blue)' }}></i> Billed Items (all categories)</div>
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-receipt" style={{ color: 'var(--blue)' }}></i> Billed Items (all categories, net of refunds)</div>
                   {Object.keys(report.billedItems.byMode).length === 0 ? (
                     <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing collected against invoices today.</div>
                   ) : (
@@ -1396,7 +1394,7 @@ export default function CashManagementPage() {
                   )}
                 </div>
                 <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-piggy-bank" style={{ color: 'var(--purple)' }}></i> Advances</div>
+                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-piggy-bank" style={{ color: 'var(--purple)' }}></i> Advances (net of refunds)</div>
                   {Object.keys(report.advances.byMode).length === 0 ? (
                     <div style={{ fontSize: 12, color: 'var(--g400)' }}>No advances collected today.</div>
                   ) : (
