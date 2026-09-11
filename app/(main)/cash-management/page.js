@@ -1244,45 +1244,81 @@ export default function CashManagementPage() {
 
               {/* TABLE 2: BILLED INCOME BY CATEGORY -- pure billing-
                   truth, straight from invoice_line_items/optical_sales
-                  for what was actually invoiced today, regardless of
-                  collection status. An outstanding or partially-paid
-                  invoice/sale still counts its full net value -- no
-                  mode/cash dimension here at all (that's Table 1's
-                  job); Table 3 reconciles the two. */}
+                  for what was actually invoiced, regardless of
+                  collection status, plus a full settlement breakdown.
+                  Each row self-checks: Billed == Outstanding + Payment
+                  Collected + Settled via Advance + Credit Notes -
+                  Payment Refunds. Advances are category-agnostic
+                  (deposited before being tied to any bill), so they're
+                  the summary row at the bottom instead of a column on
+                  every category. */}
               <div className="card" style={{ marginBottom: 16, overflowX: 'auto' }}>
                 <div className="card-title" style={{ marginBottom: 4 }}>Billed Income by Category</div>
                 <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
-                  Full invoiced/sale value for today, by category -- not what's been collected against it (see Payment Mode Summary above for that).
+                  Full invoiced/sale value, by category, and how it's been settled -- not a mode/cash breakdown (see Payment Mode Summary above for that).
                 </div>
                 {(() => {
+                  const c = report.billedCategories;
                   const rows = [
-                    { label: 'OPD Consultation charges', amt: report.opdIncome.consultation },
-                    { label: 'Procedure charges', amt: report.opdIncome.procedure },
-                    { label: 'Investigation charges', amt: report.opdIncome.investigation },
-                    { label: 'Pharmacy', amt: report.pharmacyIncome },
-                    { label: 'Surgery Income', amt: report.surgeryIncome },
-                    { label: 'Optical Shop Sales', amt: report.opticalIncome },
+                    { label: 'OPD Consultation charges', row: c['OPD Consultation charges'] },
+                    { label: 'Procedure charges', row: c['Procedure charges'] },
+                    { label: 'Investigation charges', row: c['Investigation charges'] },
+                    { label: 'Pharmacy', row: c.Pharmacy },
+                    { label: 'Surgery Income', row: c['Surgery Income'] },
+                    { label: 'Optical Shop Sales', row: c['Optical Shop Sales'] },
                   ];
-                  if (report.unclassifiedIncome !== 0) rows.push({ label: 'Unclassified -- needs review', amt: report.unclassifiedIncome, flag: true });
-                  const total = rows.reduce((s, r) => s + r.amt, 0);
+                  if (c.Unclassified.billed !== 0) rows.push({ label: 'Unclassified -- needs review', row: c.Unclassified, flag: true });
+                  const total = rows.reduce((acc, r) => ({
+                    billed: acc.billed + r.row.billed, outstanding: acc.outstanding + r.row.outstanding, paymentCollected: acc.paymentCollected + r.row.paymentCollected,
+                    advanceSettled: acc.advanceSettled + r.row.advanceSettled, creditNoteSettled: acc.creditNoteSettled + r.row.creditNoteSettled, refunds: acc.refunds + r.row.refunds,
+                  }), { billed: 0, outstanding: 0, paymentCollected: 0, advanceSettled: 0, creditNoteSettled: 0, refunds: 0 });
                   return (
                     <table className="tbl" style={{ fontSize: 12.5 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: 'left' }}>Category</th>
+                          <th style={{ textAlign: 'right' }}>Billed</th>
+                          <th style={{ textAlign: 'right' }}>Outstanding</th>
+                          <th style={{ textAlign: 'right' }}>Payment Collected</th>
+                          <th style={{ textAlign: 'right' }}>Settled via Advance</th>
+                          <th style={{ textAlign: 'right' }}>Credit Notes</th>
+                          <th style={{ textAlign: 'right' }}>Payment Refunds</th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {rows.map((r) => (
                           <tr key={r.label}>
                             <td style={r.flag ? { color: 'var(--red)' } : undefined}>{r.flag && <i className="ti ti-alert-triangle"></i>} {r.label}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 600, color: r.flag ? 'var(--red)' : undefined }}>{fmt(r.amt)}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(r.row.billed)}</td>
+                            <td style={{ textAlign: 'right', color: r.row.outstanding ? 'var(--amber)' : undefined }}>{fmt(r.row.outstanding)}</td>
+                            <td style={{ textAlign: 'right' }}>{fmt(r.row.paymentCollected)}</td>
+                            <td style={{ textAlign: 'right', color: r.row.advanceSettled ? 'var(--purple)' : undefined }}>{fmt(r.row.advanceSettled)}</td>
+                            <td style={{ textAlign: 'right', color: r.row.creditNoteSettled ? 'var(--red)' : undefined }}>{fmt(r.row.creditNoteSettled)}</td>
+                            <td style={{ textAlign: 'right', color: r.row.refunds ? 'var(--red)' : undefined }}>{fmt(r.row.refunds)}</td>
                           </tr>
                         ))}
                         <tr>
                           <td style={{ fontWeight: 700 }}>Total Billed</td>
-                          <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--blue)' }}>{fmt(total)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--blue)' }}>{fmt(total.billed)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.outstanding)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.paymentCollected)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.advanceSettled)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.creditNoteSettled)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.refunds)}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Advances</td>
+                          <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
+                          <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
+                          <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
+                          <td colSpan={2} style={{ textAlign: 'right', fontWeight: 600, color: 'var(--purple)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Collected: {fmt(report.advancesSummary.collected)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--red)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Refunds: {fmt(report.advancesSummary.refunds)}</td>
                         </tr>
                       </tbody>
                     </table>
                   );
                 })()}
-                {report.unclassifiedIncome !== 0 && report.unclassifiedDepts.length > 0 && (
+                {report.billedCategories.Unclassified.billed !== 0 && report.unclassifiedDepts.length > 0 && (
                   <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 8 }}>
                     <i className="ti ti-alert-triangle"></i> Service dept{report.unclassifiedDepts.length > 1 ? 's' : ''} not mapped to a category: <strong>{report.unclassifiedDepts.join(', ')}</strong>. Check Financial Masters for a missing/unexpected department, or an invoice with no line items on file.
                   </div>

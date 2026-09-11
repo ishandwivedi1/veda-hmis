@@ -19,14 +19,19 @@ const thLeft = { ...th, textAlign: 'left' };
 const td = { border: '1px solid #999', padding: '6px 8px', textAlign: 'right', fontSize: 12 };
 const tdLeft = { ...td, textAlign: 'left' };
 
-// One row for a category -- Table 2 is pure billing-truth now (no
-// mode/cash dimension, no advance-adjustment distinction; see
-// getBilledIncomeByCategory), so just a label and its billed total.
-function CategoryRow({ label, amt, bold, flag }) {
+// One row for a category -- Table 2 is billing-truth: full billed
+// value plus a settlement breakdown (see getBilledIncomeByCategory).
+function CategoryRow({ label, row, bold, flag }) {
+  const style = { fontWeight: bold ? 700 : 400, color: flag ? '#b3261e' : undefined };
   return (
     <tr>
-      <td style={{ ...tdLeft, fontWeight: bold ? 700 : 400, color: flag ? '#b3261e' : undefined }}>{label}</td>
-      <td style={{ ...td, fontWeight: bold ? 700 : 400, color: flag ? '#b3261e' : undefined }}>{fmt(amt)}</td>
+      <td style={{ ...tdLeft, ...style }}>{label}</td>
+      <td style={{ ...td, ...style, color: '#1d4ed8' }}>{fmt(row.billed)}</td>
+      <td style={{ ...td, ...style, color: row.outstanding ? '#92400e' : style.color }}>{fmt(row.outstanding)}</td>
+      <td style={{ ...td, ...style }}>{fmt(row.paymentCollected)}</td>
+      <td style={{ ...td, ...style, color: row.advanceSettled ? '#6d28d9' : style.color }}>{fmt(row.advanceSettled)}</td>
+      <td style={{ ...td, ...style, color: row.creditNoteSettled ? '#b3261e' : style.color }}>{fmt(row.creditNoteSettled)}</td>
+      <td style={{ ...td, ...style, color: row.refunds ? '#b3261e' : style.color }}>{fmt(row.refunds)}</td>
     </tr>
   );
 }
@@ -139,28 +144,44 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         <thead>
           <tr>
             <th style={thLeft}>Category</th>
-            <th style={th}>Billed Amount</th>
+            <th style={th}>Billed</th>
+            <th style={th}>Outstanding</th>
+            <th style={th}>Payment Collected</th>
+            <th style={th}>Settled via Advance</th>
+            <th style={th}>Credit Notes</th>
+            <th style={th}>Payment Refunds</th>
           </tr>
         </thead>
         <tbody>
-          <CategoryRow label="OPD Consultation charges" amt={report.opdIncome.consultation} />
-          <CategoryRow label="Procedure charges" amt={report.opdIncome.procedure} />
-          <CategoryRow label="Investigation charges" amt={report.opdIncome.investigation} />
-          <CategoryRow label="Pharmacy" amt={report.pharmacyIncome} />
-          <CategoryRow label="Surgery Income" amt={report.surgeryIncome} />
-          <CategoryRow label="Optical Shop Sales" amt={report.opticalIncome} />
-          {report.unclassifiedIncome !== 0 && (
-            <CategoryRow label="Unclassified -- needs review" amt={report.unclassifiedIncome} flag />
-          )}
-          <CategoryRow
-            label="Total Billed"
-            amt={report.opdIncome.total + report.pharmacyIncome + report.surgeryIncome + report.unclassifiedIncome + report.opticalIncome}
-            bold
-          />
+          {(() => {
+            const c = report.billedCategories;
+            const rows = [
+              { label: 'OPD Consultation charges', row: c['OPD Consultation charges'] },
+              { label: 'Procedure charges', row: c['Procedure charges'] },
+              { label: 'Investigation charges', row: c['Investigation charges'] },
+              { label: 'Pharmacy', row: c.Pharmacy },
+              { label: 'Surgery Income', row: c['Surgery Income'] },
+              { label: 'Optical Shop Sales', row: c['Optical Shop Sales'] },
+            ];
+            if (c.Unclassified.billed !== 0) rows.push({ label: 'Unclassified -- needs review', row: c.Unclassified, flag: true });
+            const total = rows.reduce((acc, r) => ({
+              billed: acc.billed + r.row.billed, outstanding: acc.outstanding + r.row.outstanding, paymentCollected: acc.paymentCollected + r.row.paymentCollected,
+              advanceSettled: acc.advanceSettled + r.row.advanceSettled, creditNoteSettled: acc.creditNoteSettled + r.row.creditNoteSettled, refunds: acc.refunds + r.row.refunds,
+            }), { billed: 0, outstanding: 0, paymentCollected: 0, advanceSettled: 0, creditNoteSettled: 0, refunds: 0 });
+            return (
+              <>
+                {rows.map((r) => <CategoryRow key={r.label} label={r.label} row={r.row} flag={r.flag} />)}
+                <CategoryRow label="Total Billed" row={total} bold />
+              </>
+            );
+          })()}
         </tbody>
       </table>
-      <div style={{ fontSize: 10.5, color: '#666', marginBottom: 16 }}>
-        Full invoiced/sale value for today, by category -- not what's been collected against it (see Payment Mode Summary above and Day Totals below for that). Total Billed = OPD Consultation + Procedure + Investigation charges + Pharmacy + Surgery Income + Optical Shop Sales (+ Unclassified, if any) = Total Billed Revenue in Day Totals.
+      <div style={{ fontSize: 10.5, color: '#666', marginBottom: 4 }}>
+        Each row: Billed = Outstanding + Payment Collected + Settled via Advance + Credit Notes - Payment Refunds. Total Billed = Total Billed Revenue in Day Totals below.
+      </div>
+      <div style={{ fontSize: 11, marginBottom: 16 }}>
+        <strong>Advances</strong> (category-agnostic, deposited before being tied to any bill): Collected <span style={{ color: '#6d28d9' }}>{fmt(report.advancesSummary.collected)}</span>, Refunds <span style={{ color: '#b3261e' }}>{fmt(report.advancesSummary.refunds)}</span>.
       </div>
 
       {report.unclassifiedDepts.length > 0 && (

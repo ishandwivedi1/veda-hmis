@@ -64,59 +64,133 @@ function modeBreakdown(txs, negate = false) {
 // Table 2 (Billed Income by Category) is pure billing-truth: what was
 // actually invoiced today, by dept, regardless of how much of it has
 // been collected -- an outstanding/partially-paid invoice still
-// contributes its FULL net value here, unlike a payment-based total
-// which would only show what's been paid so far. Reads
-// invoice_line_items directly for invoices created today (excluding
-// Cancelled, same as Total Revenue) -- no payments/payment_allocations
-// involved at all, so there's no mode breakdown and no "via advance"
-// distinction to make; Table 1 already covers the cash/mode dimension
-// separately. A dept string not in DEPT_CATEGORY (or an invoice with
-// no line items on file) falls into 'Unclassified' instead of being
+// contributes its FULL net value here. Each category is a full
+// breakdown, not just a total: billed, outstanding, and every way the
+// billed amount has been (or hasn't been) settled -- fresh payment,
+// advance applied, credit note -- plus refunds against it. This is
+// deliberately live/cumulative from each invoice/sale's current net,
+// paid, and linked activity (not scoped to "happened today" the way
+// Table 1's rows are), so it stays internally exact even if e.g. a
+// refund against today's invoice happens on a later day:
+//   billed == outstanding + paymentCollected + advanceSettled
+//            + creditNoteSettled - refunds
+// always holds per category, by construction (net - paid == outstanding,
+// and paid is itself exactly paymentCollected + advanceSettled +
+// creditNoteSettled - refunds -- every rupee that ever changed an
+// invoice's paid field, gross, none of them netted against each other
+// first). A dept string not in DEPT_CATEGORY (or an invoice with no
+// line items on file) falls into 'Unclassified' instead of being
 // silently dropped; unclassifiedDepts lists exactly which raw dept
-// strings triggered it, for review.
+// strings triggered it, for review. Optical has no advance-adjustment
+// or credit-note equivalent, so those two stay 0 for its row.
+function emptyBilledRow() {
+  return { billed: 0, outstanding: 0, paymentCollected: 0, advanceSettled: 0, creditNoteSettled: 0, refunds: 0 };
+}
+
 async function getBilledIncomeByCategory(supabase, date) {
   const { startUTC, endUTC } = istDayBoundsUTC(date);
   const [{ data: invoices }, { data: opticalSales }] = await Promise.all([
-    supabase.from('invoices').select('id').neq('status', 'Cancelled').gte('created_at', startUTC).lte('created_at', endUTC),
-    // Optical Shop Sales is a flat category (optical has no per-dept
-    // line items) -- billed value straight from optical_sales.net for
-    // sales dated today, same exclusion of Cancelled as Total Revenue.
-    // An outstanding/partially-paid sale still counts its full net
-    // value here, same as a hospital invoice would.
-    supabase.from('optical_sales').select('net').eq('sale_date', date).neq('status', 'Cancelled'),
+    supabase.from('invoices').select('id, net, paid').neq('status', 'Cancelled').gte('created_at', startUTC).lte('created_at', endUTC),
+    supabase.from('optical_sales').select('id, net, paid').eq('sale_date', date).neq('status', 'Cancelled'),
   ]);
-  const invoiceIds = (invoices || []).map((i) => i.id);
+  const invoiceById = {};
+  (invoices || []).forEach((i) => { invoiceById[i.id] = i; });
+  const invoiceIds = Object.keys(invoiceById);
 
-  let lineItems = [];
-  if (invoiceIds.length > 0) {
-    const { data } = await supabase.from('invoice_line_items').select('invoice_id, dept, net').in('invoice_id', invoiceIds);
-    lineItems = data || [];
-  }
+  const [{ data: lineItems }, { data: allocations }, { data: refunds }] = await Promise.all([
+    invoiceIds.length > 0 ? supabase.from('invoice_line_items').select('invoice_id, dept, net').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
+    // Every way an invoice's `paid` ever moved up, by type -- fresh
+    // cash (invoice_payment), an existing advance applied
+    // (advance_adjustment), or a write-off (credit_note). Refunds are
+    // NOT in payment_allocations (see payment_refunds below instead).
+    invoiceIds.length > 0 ? supabase.from('payment_allocations').select('invoice_id, amount, payments(payment_type)').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
+    invoiceIds.length > 0 ? supabase.from('payment_refunds').select('invoice_id, amount').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
+  ]);
+
+  const invoiceDeptMap = {};
+  const invoicesWithLineItems = new Set();
+  (lineItems || []).forEach((li) => {
+    invoicesWithLineItems.add(li.invoice_id);
+    if (!invoiceDeptMap[li.invoice_id]) invoiceDeptMap[li.invoice_id] = { totalNet: 0, byDept: {} };
+    const entry = invoiceDeptMap[li.invoice_id];
+    entry.totalNet += Number(li.net);
+    const dept = li.dept || '(no dept set)';
+    entry.byDept[dept] = (entry.byDept[dept] || 0) + Number(li.net);
+  });
+
+  const grossPaymentByInvoice = {}, advanceSettledByInvoice = {}, creditNoteSettledByInvoice = {};
+  (allocations || []).forEach((a) => {
+    const type = a.payments?.payment_type;
+    const amt = Number(a.amount) || 0;
+    if (type === 'invoice_payment') grossPaymentByInvoice[a.invoice_id] = (grossPaymentByInvoice[a.invoice_id] || 0) + amt;
+    else if (type === 'advance_adjustment') advanceSettledByInvoice[a.invoice_id] = (advanceSettledByInvoice[a.invoice_id] || 0) + amt;
+    else if (type === 'credit_note') creditNoteSettledByInvoice[a.invoice_id] = (creditNoteSettledByInvoice[a.invoice_id] || 0) + amt;
+  });
+  const refundsByInvoice = {};
+  (refunds || []).forEach((r) => { if (r.invoice_id) refundsByInvoice[r.invoice_id] = (refundsByInvoice[r.invoice_id] || 0) + Number(r.amount); });
 
   const categories = {};
   const unclassifiedDepts = new Set();
-  const invoicesWithLineItems = new Set();
-  lineItems.forEach((li) => {
-    invoicesWithLineItems.add(li.invoice_id);
-    const category = DEPT_CATEGORY[li.dept];
-    if (!category) unclassifiedDepts.add(li.dept || '(no dept set)');
-    const finalCategory = category || 'Unclassified';
-    categories[finalCategory] = (categories[finalCategory] || 0) + Number(li.net);
-  });
-  // An invoice with no line items on file at all still has a net
-  // value that must show up somewhere, or the category total would
-  // silently fall short of Total Revenue.
-  const invoicesMissingLineItems = invoiceIds.filter((id) => !invoicesWithLineItems.has(id));
-  if (invoicesMissingLineItems.length > 0) {
-    const { data: missing } = await supabase.from('invoices').select('id, net').in('id', invoicesMissingLineItems);
-    (missing || []).forEach((i) => {
-      if (Number(i.net) === 0) return;
-      unclassifiedDepts.add('(no line items on file for this invoice)');
-      categories.Unclassified = (categories.Unclassified || 0) + Number(i.net);
-    });
+  function addRow(name, delta) {
+    if (!categories[name]) categories[name] = emptyBilledRow();
+    const row = categories[name];
+    row.billed += delta.billed || 0;
+    row.outstanding += delta.outstanding || 0;
+    row.paymentCollected += delta.paymentCollected || 0;
+    row.advanceSettled += delta.advanceSettled || 0;
+    row.creditNoteSettled += delta.creditNoteSettled || 0;
+    row.refunds += delta.refunds || 0;
   }
 
-  categories['Optical Shop Sales'] = (opticalSales || []).reduce((s, o) => s + Number(o.net), 0);
+  invoiceIds.forEach((id) => {
+    const inv = invoiceById[id];
+    const outstanding = Number(inv.net) - Number(inv.paid);
+    const grossPayment = grossPaymentByInvoice[id] || 0;
+    const advSettled = advanceSettledByInvoice[id] || 0;
+    const cnSettled = creditNoteSettledByInvoice[id] || 0;
+    const refunded = refundsByInvoice[id] || 0;
+    const entry = invoiceDeptMap[id];
+
+    if (!entry || entry.totalNet <= 0) {
+      unclassifiedDepts.add('(no line items on file for this invoice)');
+      addRow('Unclassified', { billed: Number(inv.net), outstanding, paymentCollected: grossPayment, advanceSettled: advSettled, creditNoteSettled: cnSettled, refunds: refunded });
+      return;
+    }
+    // Every figure for this invoice is prorated by each dept's share
+    // of its net -- consistent with treating a multi-dept invoice's
+    // payment/refund/write-off activity as spread proportionally
+    // across its line items, same technique used throughout this file.
+    Object.entries(entry.byDept).forEach(([dept, deptNet]) => {
+      const share = deptNet / entry.totalNet;
+      const category = DEPT_CATEGORY[dept];
+      if (!category) unclassifiedDepts.add(dept);
+      addRow(category || 'Unclassified', {
+        billed: deptNet, outstanding: outstanding * share, paymentCollected: grossPayment * share,
+        advanceSettled: advSettled * share, creditNoteSettled: cnSettled * share, refunds: refunded * share,
+      });
+    });
+  });
+
+  // Optical has no line items to split across and no advance-
+  // adjustment/credit-note mechanism -- a flat row, straight from each
+  // sale's own net/paid plus its sale-linked payments/refunds.
+  const opticalSaleIds = (opticalSales || []).map((s) => s.id);
+  let opticalGrossPaymentBySale = {}, opticalRefundsBySale = {};
+  if (opticalSaleIds.length > 0) {
+    const [{ data: opPayments }, { data: opRefunds }] = await Promise.all([
+      supabase.from('optical_payments').select('sale_id, total_amount').eq('payment_type', 'sale_payment').in('sale_id', opticalSaleIds),
+      supabase.from('optical_payment_refunds').select('sale_id, amount').in('sale_id', opticalSaleIds),
+    ]);
+    (opPayments || []).forEach((p) => { opticalGrossPaymentBySale[p.sale_id] = (opticalGrossPaymentBySale[p.sale_id] || 0) + Number(p.total_amount); });
+    (opRefunds || []).forEach((r) => { if (r.sale_id) opticalRefundsBySale[r.sale_id] = (opticalRefundsBySale[r.sale_id] || 0) + Number(r.amount); });
+  }
+  categories['Optical Shop Sales'] = emptyBilledRow();
+  (opticalSales || []).forEach((s) => {
+    addRow('Optical Shop Sales', {
+      billed: Number(s.net), outstanding: Number(s.net) - Number(s.paid),
+      paymentCollected: opticalGrossPaymentBySale[s.id] || 0, refunds: opticalRefundsBySale[s.id] || 0,
+    });
+  });
 
   return { categories, unclassifiedDepts: [...unclassifiedDepts] };
 }
@@ -611,24 +685,12 @@ export async function getDailyReport(date) {
   const creditNotesTotal = creditNoteTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
 
   // Table 2 (Billed Income by Category) is pure billing-truth: the
-  // full invoiced/sale value for today, by category, regardless of
-  // how much has actually been collected against it. An outstanding
-  // or partially-paid invoice/sale still contributes its complete net
-  // value here -- this is deliberately NOT payment-based (Table 1
-  // already covers actual cash by mode).
-  const { categories, unclassifiedDepts } = await getBilledIncomeByCategory(supabase, date);
-  const catTotal = (name) => categories[name] || 0;
-
-  // OPD Income is the roll-up of the three OPD-workflow categories --
-  // Investigation Income is then restated as its own standalone line
-  // too (same figure as the component above) since Front Office may
-  // want to see it without wading through the OPD breakdown -- it is
-  // NOT additional money on top of OPD Income, just the same
-  // investigation revenue shown a second way.
-  const opdConsultation = catTotal('OPD Consultation charges');
-  const opdProcedure = catTotal('Procedure charges');
-  const opdInvestigation = catTotal('Investigation charges');
-  const opdIncome = { consultation: opdConsultation, procedure: opdProcedure, investigation: opdInvestigation, total: opdConsultation + opdProcedure + opdInvestigation };
+  // full invoiced/sale value for today, by category, plus a full
+  // breakdown of how it's been settled (or not) -- this is deliberately
+  // NOT payment-mode-based (Table 1 already covers cash by mode).
+  const { categories: billedCategories, unclassifiedDepts } = await getBilledIncomeByCategory(supabase, date);
+  const emptyRow = () => ({ billed: 0, outstanding: 0, paymentCollected: 0, advanceSettled: 0, creditNoteSettled: 0, refunds: 0 });
+  const catRow = (name) => billedCategories[name] || emptyRow();
   const { previousDay: previousAdvanceAdjustedTotal, sameDay: sameDayAdvanceAdjustedTotal } = splitByAgeAgainstTodaysDeposit(advanceTx, adjustmentTx);
 
   return {
@@ -645,15 +707,29 @@ export async function getDailyReport(date) {
     opticalRefunds: modeBreakdown(opticalRefundTx, true),
     modeSummary: { byMode: collectionSummary.byMode, total: collectionSummary.total },
     // ---- TABLE 2: Billed Income by Category -- pure billing-truth, no
-    // mode/cash dimension at all (that's Table 1's job). Table 3
-    // reconciles this against Table 1's actual cash.
-    opdIncome,
-    investigationIncome: opdInvestigation,
-    pharmacyIncome: catTotal('Pharmacy'),
-    surgeryIncome: catTotal('Surgery Income'),
-    unclassifiedIncome: catTotal('Unclassified'),
+    // mode/cash dimension at all (that's Table 1's job). Each row is
+    // individually self-checking: billed == outstanding +
+    // paymentCollected + advanceSettled + creditNoteSettled - refunds.
+    // Advances themselves are category-agnostic (deposited before
+    // being tied to any bill), so they're a single summary row below
+    // rather than a column repeated on every category.
+    billedCategories: {
+      'OPD Consultation charges': catRow('OPD Consultation charges'),
+      'Procedure charges': catRow('Procedure charges'),
+      'Investigation charges': catRow('Investigation charges'),
+      Pharmacy: catRow('Pharmacy'),
+      'Surgery Income': catRow('Surgery Income'),
+      'Optical Shop Sales': catRow('Optical Shop Sales'),
+      Unclassified: catRow('Unclassified'),
+    },
+    advancesSummary: {
+      // Gross, matching Table 1's Hospital/Optical Advances rows.
+      collected: hospitalAdvanceTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) + opticalAdvanceTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0),
+      // Advance refunds only -- invoice/sale-linked refunds are
+      // already inside their category's row above, not here.
+      refunds: advanceRefundTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0) + opticalAdvanceRefundTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0),
+    },
     unclassifiedDepts,
-    opticalIncome: catTotal('Optical Shop Sales'),
     // ---- TABLE 3: Day Totals -- reconciles Table 1 and Table 2.
     // Total Collected (modeSummary.total above) should equal:
     //   Total Revenue - Outstanding - Advance Adjustment Applied
