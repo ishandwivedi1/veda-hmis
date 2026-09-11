@@ -1246,9 +1246,9 @@ export default function CashManagementPage() {
                   truth, straight from invoice_line_items/optical_sales
                   for what was actually invoiced, regardless of
                   collection status, plus a full settlement breakdown.
-                  Each row self-checks: Billed == Outstanding + Payment
-                  Collected + Settled via Advance + Credit Notes -
-                  Payment Refunds. Advances are category-agnostic
+                  Each row self-checks: Billed == Amount Collected +
+                  Settled via Advance + Credit Notes - Amount Refunded
+                  + Outstanding. Advances are category-agnostic
                   (deposited before being tied to any bill), so they're
                   the summary row at the bottom instead of a column on
                   every category. */}
@@ -1278,11 +1278,11 @@ export default function CashManagementPage() {
                         <tr>
                           <th style={{ textAlign: 'left' }}>Category</th>
                           <th style={{ textAlign: 'right' }}>Billed</th>
-                          <th style={{ textAlign: 'right' }}>Outstanding</th>
-                          <th style={{ textAlign: 'right' }}>Payment Collected</th>
+                          <th style={{ textAlign: 'right' }}>Amount Collected (Cash+UPI)</th>
                           <th style={{ textAlign: 'right' }}>Settled via Advance</th>
                           <th style={{ textAlign: 'right' }}>Credit Notes</th>
-                          <th style={{ textAlign: 'right' }}>Payment Refunds</th>
+                          <th style={{ textAlign: 'right' }}>Amount Refunded (Cash+UPI)</th>
+                          <th style={{ textAlign: 'right' }}>Outstanding</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1290,29 +1290,28 @@ export default function CashManagementPage() {
                           <tr key={r.label}>
                             <td style={r.flag ? { color: 'var(--red)' } : undefined}>{r.flag && <i className="ti ti-alert-triangle"></i>} {r.label}</td>
                             <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(r.row.billed)}</td>
-                            <td style={{ textAlign: 'right', color: r.row.outstanding ? 'var(--amber)' : undefined }}>{fmt(r.row.outstanding)}</td>
                             <td style={{ textAlign: 'right' }}>{fmt(r.row.paymentCollected)}</td>
                             <td style={{ textAlign: 'right', color: r.row.advanceSettled ? 'var(--purple)' : undefined }}>{fmt(r.row.advanceSettled)}</td>
                             <td style={{ textAlign: 'right', color: r.row.creditNoteSettled ? 'var(--red)' : undefined }}>{fmt(r.row.creditNoteSettled)}</td>
                             <td style={{ textAlign: 'right', color: r.row.refunds ? 'var(--red)' : undefined }}>{fmt(r.row.refunds)}</td>
+                            <td style={{ textAlign: 'right', color: r.row.outstanding ? 'var(--amber)' : undefined }}>{fmt(r.row.outstanding)}</td>
                           </tr>
                         ))}
                         <tr>
                           <td style={{ fontWeight: 700 }}>Total Billed</td>
                           <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--blue)' }}>{fmt(total.billed)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.outstanding)}</td>
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.paymentCollected)}</td>
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.advanceSettled)}</td>
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.creditNoteSettled)}</td>
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.refunds)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(total.outstanding)}</td>
                         </tr>
                         <tr>
                           <td style={{ fontWeight: 700, paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Advances</td>
                           <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
-                          <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
-                          <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
                           <td colSpan={2} style={{ textAlign: 'right', fontWeight: 600, color: 'var(--purple)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Collected: {fmt(report.advancesSummary.collected)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--red)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Refunds: {fmt(report.advancesSummary.refunds)}</td>
+                          <td style={{ borderTop: '1.5px solid var(--g200)' }}></td>
+                          <td colSpan={2} style={{ textAlign: 'right', fontWeight: 600, color: 'var(--red)', paddingTop: 10, borderTop: '1.5px solid var(--g200)' }}>Refunds: {fmt(report.advancesSummary.refunds)}</td>
                         </tr>
                       </tbody>
                     </table>

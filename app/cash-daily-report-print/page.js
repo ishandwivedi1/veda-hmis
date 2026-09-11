@@ -27,11 +27,11 @@ function CategoryRow({ label, row, bold, flag }) {
     <tr>
       <td style={{ ...tdLeft, ...style }}>{label}</td>
       <td style={{ ...td, ...style, color: '#1d4ed8' }}>{fmt(row.billed)}</td>
-      <td style={{ ...td, ...style, color: row.outstanding ? '#92400e' : style.color }}>{fmt(row.outstanding)}</td>
       <td style={{ ...td, ...style }}>{fmt(row.paymentCollected)}</td>
       <td style={{ ...td, ...style, color: row.advanceSettled ? '#6d28d9' : style.color }}>{fmt(row.advanceSettled)}</td>
       <td style={{ ...td, ...style, color: row.creditNoteSettled ? '#b3261e' : style.color }}>{fmt(row.creditNoteSettled)}</td>
       <td style={{ ...td, ...style, color: row.refunds ? '#b3261e' : style.color }}>{fmt(row.refunds)}</td>
+      <td style={{ ...td, ...style, color: row.outstanding ? '#92400e' : style.color }}>{fmt(row.outstanding)}</td>
     </tr>
   );
 }
@@ -145,11 +145,11 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           <tr>
             <th style={thLeft}>Category</th>
             <th style={th}>Billed</th>
-            <th style={th}>Outstanding</th>
-            <th style={th}>Payment Collected</th>
+            <th style={th}>Amount Collected (Cash+UPI)</th>
             <th style={th}>Settled via Advance</th>
             <th style={th}>Credit Notes</th>
-            <th style={th}>Payment Refunds</th>
+            <th style={th}>Amount Refunded (Cash+UPI)</th>
+            <th style={th}>Outstanding</th>
           </tr>
         </thead>
         <tbody>
@@ -178,7 +178,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         </tbody>
       </table>
       <div style={{ fontSize: 10.5, color: '#666', marginBottom: 4 }}>
-        Each row: Billed = Outstanding + Payment Collected + Settled via Advance + Credit Notes - Payment Refunds. Total Billed = Total Billed Revenue in Day Totals below.
+        Each row: Billed = Amount Collected + Settled via Advance + Credit Notes - Amount Refunded + Outstanding. Total Billed = Total Billed Revenue in Day Totals below.
       </div>
       <div style={{ fontSize: 11, marginBottom: 16 }}>
         <strong>Advances</strong> (category-agnostic, deposited before being tied to any bill): Collected <span style={{ color: '#6d28d9' }}>{fmt(report.advancesSummary.collected)}</span>, Refunds <span style={{ color: '#b3261e' }}>{fmt(report.advancesSummary.refunds)}</span>.
