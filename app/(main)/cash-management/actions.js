@@ -61,30 +61,27 @@ function modeBreakdown(txs, negate = false) {
   return { byMode, total, count: txs.length };
 }
 
-// Table 2 (Billed Income by Category) is pure billing-truth: what was
-// actually invoiced today, by dept, regardless of how much of it has
-// been collected -- an outstanding/partially-paid invoice still
-// contributes its FULL net value here. Each category is a full
-// breakdown, not just a total: billed, outstanding, and every way the
-// billed amount has been (or hasn't been) settled -- fresh payment,
-// advance applied, credit note -- plus refunds against it. This is
-// deliberately live/cumulative from each invoice/sale's current net,
-// paid, and linked activity (not scoped to "happened today" the way
-// Table 1's rows are), so it stays internally exact even if e.g. a
+// Table 2 (Billed Income by Category) is pure billing-truth for
+// account-book entry: what was invoiced, and exactly how it's been
+// settled -- fresh Cash, fresh UPI (net of today's refunds against
+// today's own invoices only -- a refund against an EARLIER invoice is
+// out of scope here entirely, since that invoice was never part of
+// this table's Billed figure to begin with), advance applied, or
+// written off via credit note -- plus what's still Outstanding. This
+// is deliberately live/cumulative from each invoice/sale's current
+// net, paid, and linked activity (not scoped to "happened today" the
+// way Table 1's rows are), so it stays internally exact even if a
 // refund against today's invoice happens on a later day:
-//   billed == outstanding + paymentCollected + advanceSettled
-//            + creditNoteSettled - refunds
-// always holds per category, by construction (net - paid == outstanding,
-// and paid is itself exactly paymentCollected + advanceSettled +
-// creditNoteSettled - refunds -- every rupee that ever changed an
-// invoice's paid field, gross, none of them netted against each other
-// first). A dept string not in DEPT_CATEGORY (or an invoice with no
-// line items on file) falls into 'Unclassified' instead of being
-// silently dropped; unclassifiedDepts lists exactly which raw dept
-// strings triggered it, for review. Optical has no advance-adjustment
-// or credit-note equivalent, so those two stay 0 for its row.
+//   billed == netCash + netUPI + advanceSettled + creditNoteSettled
+//            + outstanding
+// always holds per category, by construction. A dept string not in
+// DEPT_CATEGORY (or an invoice with no line items on file) falls into
+// 'Unclassified' instead of being silently dropped; unclassifiedDepts
+// lists exactly which raw dept strings triggered it, for review.
+// Optical has no advance-adjustment or credit-note equivalent, so
+// those two stay 0 for its row.
 function emptyBilledRow() {
-  return { billed: 0, outstanding: 0, paymentCollected: 0, advanceSettled: 0, creditNoteSettled: 0, refunds: 0 };
+  return { billed: 0, netCash: 0, netUPI: 0, advanceSettled: 0, creditNoteSettled: 0, outstanding: 0 };
 }
 
 async function getBilledIncomeByCategory(supabase, date) {
@@ -100,17 +97,21 @@ async function getBilledIncomeByCategory(supabase, date) {
   const [{ data: lineItems }, { data: allocations }, { data: refunds }] = await Promise.all([
     invoiceIds.length > 0 ? supabase.from('invoice_line_items').select('invoice_id, dept, net').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
     // Every way an invoice's `paid` ever moved up, by type -- fresh
-    // cash (invoice_payment), an existing advance applied
-    // (advance_adjustment), or a write-off (credit_note). Refunds are
-    // NOT in payment_allocations (see payment_refunds below instead).
-    invoiceIds.length > 0 ? supabase.from('payment_allocations').select('invoice_id, amount, payments(payment_type)').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
-    invoiceIds.length > 0 ? supabase.from('payment_refunds').select('invoice_id, amount').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
+    // cash/UPI (invoice_payment, with its own mode breakdown), an
+    // existing advance applied (advance_adjustment, no mode), or a
+    // write-off (credit_note, no mode). Refunds are NOT in
+    // payment_allocations (see payment_refunds below instead).
+    invoiceIds.length > 0 ? supabase.from('payment_allocations').select('invoice_id, amount, payments(payment_type, total_amount, payment_modes(mode, amount))').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
+    // refund_mode is the mode the refund itself went out on (set by
+    // refund_payment() onto the refund's own payment_modes row too) --
+    // used directly rather than joining back through the refund's own
+    // payment, since payment_refunds has two FKs to payments and this
+    // is simpler and already reliably populated.
+    invoiceIds.length > 0 ? supabase.from('payment_refunds').select('invoice_id, amount, refund_mode').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
   ]);
 
   const invoiceDeptMap = {};
-  const invoicesWithLineItems = new Set();
   (lineItems || []).forEach((li) => {
-    invoicesWithLineItems.add(li.invoice_id);
     if (!invoiceDeptMap[li.invoice_id]) invoiceDeptMap[li.invoice_id] = { totalNet: 0, byDept: {} };
     const entry = invoiceDeptMap[li.invoice_id];
     entry.totalNet += Number(li.net);
@@ -118,16 +119,34 @@ async function getBilledIncomeByCategory(supabase, date) {
     entry.byDept[dept] = (entry.byDept[dept] || 0) + Number(li.net);
   });
 
-  const grossPaymentByInvoice = {}, advanceSettledByInvoice = {}, creditNoteSettledByInvoice = {};
+  // Gross fresh-cash payment for this invoice, split by mode -- a
+  // payment can itself span Cash+UPI and be allocated across several
+  // invoices, so each invoice's share of each mode is the payment's
+  // mode amount times this allocation's share of the payment's total.
+  const grossPaymentModeByInvoice = {}, advanceSettledByInvoice = {}, creditNoteSettledByInvoice = {};
   (allocations || []).forEach((a) => {
     const type = a.payments?.payment_type;
     const amt = Number(a.amount) || 0;
-    if (type === 'invoice_payment') grossPaymentByInvoice[a.invoice_id] = (grossPaymentByInvoice[a.invoice_id] || 0) + amt;
-    else if (type === 'advance_adjustment') advanceSettledByInvoice[a.invoice_id] = (advanceSettledByInvoice[a.invoice_id] || 0) + amt;
-    else if (type === 'credit_note') creditNoteSettledByInvoice[a.invoice_id] = (creditNoteSettledByInvoice[a.invoice_id] || 0) + amt;
+    if (type === 'invoice_payment') {
+      const paymentTotal = Number(a.payments.total_amount) || 0;
+      const invShare = paymentTotal > 0 ? amt / paymentTotal : 0;
+      if (!grossPaymentModeByInvoice[a.invoice_id]) grossPaymentModeByInvoice[a.invoice_id] = {};
+      (a.payments.payment_modes || []).forEach((m) => {
+        grossPaymentModeByInvoice[a.invoice_id][m.mode] = (grossPaymentModeByInvoice[a.invoice_id][m.mode] || 0) + Number(m.amount) * invShare;
+      });
+    } else if (type === 'advance_adjustment') {
+      advanceSettledByInvoice[a.invoice_id] = (advanceSettledByInvoice[a.invoice_id] || 0) + amt;
+    } else if (type === 'credit_note') {
+      creditNoteSettledByInvoice[a.invoice_id] = (creditNoteSettledByInvoice[a.invoice_id] || 0) + amt;
+    }
   });
-  const refundsByInvoice = {};
-  (refunds || []).forEach((r) => { if (r.invoice_id) refundsByInvoice[r.invoice_id] = (refundsByInvoice[r.invoice_id] || 0) + Number(r.amount); });
+  const refundModeByInvoice = {};
+  (refunds || []).forEach((r) => {
+    if (!r.invoice_id) return;
+    if (!refundModeByInvoice[r.invoice_id]) refundModeByInvoice[r.invoice_id] = {};
+    const mode = r.refund_mode || 'Cash';
+    refundModeByInvoice[r.invoice_id][mode] = (refundModeByInvoice[r.invoice_id][mode] || 0) + Number(r.amount);
+  });
 
   const categories = {};
   const unclassifiedDepts = new Set();
@@ -135,25 +154,36 @@ async function getBilledIncomeByCategory(supabase, date) {
     if (!categories[name]) categories[name] = emptyBilledRow();
     const row = categories[name];
     row.billed += delta.billed || 0;
-    row.outstanding += delta.outstanding || 0;
-    row.paymentCollected += delta.paymentCollected || 0;
+    row.netCash += delta.netCash || 0;
+    row.netUPI += delta.netUPI || 0;
     row.advanceSettled += delta.advanceSettled || 0;
     row.creditNoteSettled += delta.creditNoteSettled || 0;
-    row.refunds += delta.refunds || 0;
+    row.outstanding += delta.outstanding || 0;
+  }
+  // Net = gross collected on that mode minus refunded on that mode,
+  // for THIS invoice only -- a refund is always linked to one specific
+  // invoice via payment_refunds.invoice_id, so there's no cross-invoice
+  // leakage to worry about; "not previous invoices" is automatic since
+  // this whole function only ever looks at today's invoiceIds.
+  function netByMode(grossModes, refundModes) {
+    const cash = (grossModes?.Cash || 0) - (refundModes?.Cash || 0);
+    const upi = (grossModes?.UPI || 0) - (refundModes?.UPI || 0);
+    return { netCash: cash, netUPI: upi };
   }
 
   invoiceIds.forEach((id) => {
     const inv = invoiceById[id];
     const outstanding = Number(inv.net) - Number(inv.paid);
-    const grossPayment = grossPaymentByInvoice[id] || 0;
+    const grossModes = grossPaymentModeByInvoice[id];
+    const refundModes = refundModeByInvoice[id];
+    const { netCash, netUPI } = netByMode(grossModes, refundModes);
     const advSettled = advanceSettledByInvoice[id] || 0;
     const cnSettled = creditNoteSettledByInvoice[id] || 0;
-    const refunded = refundsByInvoice[id] || 0;
     const entry = invoiceDeptMap[id];
 
     if (!entry || entry.totalNet <= 0) {
       unclassifiedDepts.add('(no line items on file for this invoice)');
-      addRow('Unclassified', { billed: Number(inv.net), outstanding, paymentCollected: grossPayment, advanceSettled: advSettled, creditNoteSettled: cnSettled, refunds: refunded });
+      addRow('Unclassified', { billed: Number(inv.net), outstanding, netCash, netUPI, advanceSettled: advSettled, creditNoteSettled: cnSettled });
       return;
     }
     // Every figure for this invoice is prorated by each dept's share
@@ -165,8 +195,8 @@ async function getBilledIncomeByCategory(supabase, date) {
       const category = DEPT_CATEGORY[dept];
       if (!category) unclassifiedDepts.add(dept);
       addRow(category || 'Unclassified', {
-        billed: deptNet, outstanding: outstanding * share, paymentCollected: grossPayment * share,
-        advanceSettled: advSettled * share, creditNoteSettled: cnSettled * share, refunds: refunded * share,
+        billed: deptNet, outstanding: outstanding * share, netCash: netCash * share, netUPI: netUPI * share,
+        advanceSettled: advSettled * share, creditNoteSettled: cnSettled * share,
       });
     });
   });
@@ -175,21 +205,29 @@ async function getBilledIncomeByCategory(supabase, date) {
   // adjustment/credit-note mechanism -- a flat row, straight from each
   // sale's own net/paid plus its sale-linked payments/refunds.
   const opticalSaleIds = (opticalSales || []).map((s) => s.id);
-  let opticalGrossPaymentBySale = {}, opticalRefundsBySale = {};
+  let opticalGrossModeBySale = {}, opticalRefundModeBySale = {};
   if (opticalSaleIds.length > 0) {
     const [{ data: opPayments }, { data: opRefunds }] = await Promise.all([
-      supabase.from('optical_payments').select('sale_id, total_amount').eq('payment_type', 'sale_payment').in('sale_id', opticalSaleIds),
-      supabase.from('optical_payment_refunds').select('sale_id, amount').in('sale_id', opticalSaleIds),
+      supabase.from('optical_payments').select('sale_id, total_amount, optical_payment_modes(mode, amount)').eq('payment_type', 'sale_payment').in('sale_id', opticalSaleIds),
+      supabase.from('optical_payment_refunds').select('sale_id, amount, refund_mode').in('sale_id', opticalSaleIds),
     ]);
-    (opPayments || []).forEach((p) => { opticalGrossPaymentBySale[p.sale_id] = (opticalGrossPaymentBySale[p.sale_id] || 0) + Number(p.total_amount); });
-    (opRefunds || []).forEach((r) => { if (r.sale_id) opticalRefundsBySale[r.sale_id] = (opticalRefundsBySale[r.sale_id] || 0) + Number(r.amount); });
+    (opPayments || []).forEach((p) => {
+      if (!opticalGrossModeBySale[p.sale_id]) opticalGrossModeBySale[p.sale_id] = {};
+      (p.optical_payment_modes || []).forEach((m) => {
+        opticalGrossModeBySale[p.sale_id][m.mode] = (opticalGrossModeBySale[p.sale_id][m.mode] || 0) + Number(m.amount);
+      });
+    });
+    (opRefunds || []).forEach((r) => {
+      if (!r.sale_id) return;
+      if (!opticalRefundModeBySale[r.sale_id]) opticalRefundModeBySale[r.sale_id] = {};
+      const mode = r.refund_mode || 'Cash';
+      opticalRefundModeBySale[r.sale_id][mode] = (opticalRefundModeBySale[r.sale_id][mode] || 0) + Number(r.amount);
+    });
   }
   categories['Optical Shop Sales'] = emptyBilledRow();
   (opticalSales || []).forEach((s) => {
-    addRow('Optical Shop Sales', {
-      billed: Number(s.net), outstanding: Number(s.net) - Number(s.paid),
-      paymentCollected: opticalGrossPaymentBySale[s.id] || 0, refunds: opticalRefundsBySale[s.id] || 0,
-    });
+    const { netCash, netUPI } = netByMode(opticalGrossModeBySale[s.id], opticalRefundModeBySale[s.id]);
+    addRow('Optical Shop Sales', { billed: Number(s.net), outstanding: Number(s.net) - Number(s.paid), netCash, netUPI });
   });
 
   return { categories, unclassifiedDepts: [...unclassifiedDepts] };
@@ -689,7 +727,7 @@ export async function getDailyReport(date) {
   // breakdown of how it's been settled (or not) -- this is deliberately
   // NOT payment-mode-based (Table 1 already covers cash by mode).
   const { categories: billedCategories, unclassifiedDepts } = await getBilledIncomeByCategory(supabase, date);
-  const emptyRow = () => ({ billed: 0, outstanding: 0, paymentCollected: 0, advanceSettled: 0, creditNoteSettled: 0, refunds: 0 });
+  const emptyRow = () => ({ billed: 0, netCash: 0, netUPI: 0, advanceSettled: 0, creditNoteSettled: 0, outstanding: 0 });
   const catRow = (name) => billedCategories[name] || emptyRow();
   const { previousDay: previousAdvanceAdjustedTotal, sameDay: sameDayAdvanceAdjustedTotal } = splitByAgeAgainstTodaysDeposit(advanceTx, adjustmentTx);
 

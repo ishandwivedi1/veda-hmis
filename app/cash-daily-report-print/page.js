@@ -19,18 +19,19 @@ const thLeft = { ...th, textAlign: 'left' };
 const td = { border: '1px solid #999', padding: '6px 8px', textAlign: 'right', fontSize: 12 };
 const tdLeft = { ...td, textAlign: 'left' };
 
-// One row for a category -- Table 2 is billing-truth: full billed
-// value plus a settlement breakdown (see getBilledIncomeByCategory).
+// One row for a category -- Table 2 is billing-truth for account-book
+// entry: full billed value plus exactly how it was settled, split by
+// Cash/UPI (see getBilledIncomeByCategory).
 function CategoryRow({ label, row, bold, flag }) {
   const style = { fontWeight: bold ? 700 : 400, color: flag ? '#b3261e' : undefined };
   return (
     <tr>
       <td style={{ ...tdLeft, ...style }}>{label}</td>
       <td style={{ ...td, ...style, color: '#1d4ed8' }}>{fmt(row.billed)}</td>
-      <td style={{ ...td, ...style }}>{fmt(row.paymentCollected)}</td>
+      <td style={{ ...td, ...style }}>{fmt(row.netCash)}</td>
+      <td style={{ ...td, ...style }}>{fmt(row.netUPI)}</td>
       <td style={{ ...td, ...style, color: row.advanceSettled ? '#6d28d9' : style.color }}>{fmt(row.advanceSettled)}</td>
       <td style={{ ...td, ...style, color: row.creditNoteSettled ? '#b3261e' : style.color }}>{fmt(row.creditNoteSettled)}</td>
-      <td style={{ ...td, ...style, color: row.refunds ? '#b3261e' : style.color }}>{fmt(row.refunds)}</td>
       <td style={{ ...td, ...style, color: row.outstanding ? '#92400e' : style.color }}>{fmt(row.outstanding)}</td>
     </tr>
   );
@@ -145,10 +146,10 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
           <tr>
             <th style={thLeft}>Category</th>
             <th style={th}>Billed</th>
-            <th style={th}>Amount Collected (Cash+UPI)</th>
+            <th style={th}>Net Cash Collected</th>
+            <th style={th}>Net UPI Collected</th>
             <th style={th}>Settled via Advance</th>
             <th style={th}>Credit Notes</th>
-            <th style={th}>Amount Refunded (Cash+UPI)</th>
             <th style={th}>Outstanding</th>
           </tr>
         </thead>
@@ -165,9 +166,9 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
             ];
             if (c.Unclassified.billed !== 0) rows.push({ label: 'Unclassified -- needs review', row: c.Unclassified, flag: true });
             const total = rows.reduce((acc, r) => ({
-              billed: acc.billed + r.row.billed, outstanding: acc.outstanding + r.row.outstanding, paymentCollected: acc.paymentCollected + r.row.paymentCollected,
-              advanceSettled: acc.advanceSettled + r.row.advanceSettled, creditNoteSettled: acc.creditNoteSettled + r.row.creditNoteSettled, refunds: acc.refunds + r.row.refunds,
-            }), { billed: 0, outstanding: 0, paymentCollected: 0, advanceSettled: 0, creditNoteSettled: 0, refunds: 0 });
+              billed: acc.billed + r.row.billed, netCash: acc.netCash + r.row.netCash, netUPI: acc.netUPI + r.row.netUPI,
+              advanceSettled: acc.advanceSettled + r.row.advanceSettled, creditNoteSettled: acc.creditNoteSettled + r.row.creditNoteSettled, outstanding: acc.outstanding + r.row.outstanding,
+            }), { billed: 0, netCash: 0, netUPI: 0, advanceSettled: 0, creditNoteSettled: 0, outstanding: 0 });
             return (
               <>
                 {rows.map((r) => <CategoryRow key={r.label} label={r.label} row={r.row} flag={r.flag} />)}
@@ -178,7 +179,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         </tbody>
       </table>
       <div style={{ fontSize: 10.5, color: '#666', marginBottom: 4 }}>
-        Each row: Billed = Amount Collected + Settled via Advance + Credit Notes - Amount Refunded + Outstanding. Total Billed = Total Billed Revenue in Day Totals below.
+        Each row: Billed = Net Cash + Net UPI + Settled via Advance + Credit Notes + Outstanding. Net Cash/UPI are net of today's refunds against today's own invoices only. Total Billed = Total Billed Revenue in Day Totals below.
       </div>
       <div style={{ fontSize: 11, marginBottom: 16 }}>
         <strong>Advances</strong> (category-agnostic, deposited before being tied to any bill): Collected <span style={{ color: '#6d28d9' }}>{fmt(report.advancesSummary.collected)}</span>, Refunds <span style={{ color: '#b3261e' }}>{fmt(report.advancesSummary.refunds)}</span>.
