@@ -35,7 +35,7 @@ function istDayBoundsUTC(dateStr) {
 // the Billing Dashboard's own Investigation Billing section. Anything
 // NOT in this map (a service added with an unexpected/custom dept
 // string) falls through to 'Unclassified' rather than being silently
-// dropped or mis-bucketed -- see getCategorizedIncome below.
+// dropped or mis-bucketed -- see getBilledIncomeByCategory below.
 const DEPT_CATEGORY = {
   Consultation: 'OPD Consultation charges',
   'OPD Procedure': 'Procedure charges',
@@ -45,18 +45,6 @@ const DEPT_CATEGORY = {
   Pharmacy: 'Pharmacy',
   Surgery: 'Surgery Income',
 };
-
-function emptyCategory() {
-  return { byMode: {}, total: 0 };
-}
-
-function mergeByMode(...cats) {
-  const merged = {};
-  cats.forEach((c) => {
-    Object.entries(c.byMode || {}).forEach(([mode, amt]) => { merged[mode] = (merged[mode] || 0) + amt; });
-  });
-  return merged;
-}
 
 // Splits a day's real cash-movement transactions into simple gross
 // mode totals -- Table 1 (Payment Mode Summary) rows are all this:
@@ -73,133 +61,66 @@ function modeBreakdown(txs, negate = false) {
   return { byMode, total, count: txs.length };
 }
 
-// Re-slices a set of today's payment transactions (invoice_payment OR
-// advance_adjustment -- see getDailyReport, which calls this twice) by
-// revenue category, with each category's own Cash/UPI/Card/Cheque/Bank
-// Transfer breakdown -- not just "how much was collected" but "how
-// much of THIS specific revenue type came in on THIS mode". (Advance
-// adjustments never carry a mode -- no new cash moved -- so their
-// byMode stays empty and only .total is populated for them.)
-//
-// This requires a proper 3-way proportional split, not a simple
-// lookup, because none of the three layers line up 1:1:
-//  - one payment/receipt can be split across multiple payment modes
-//  - one payment can be allocated across multiple invoices (payment_allocations)
-//  - one invoice can (rarely) contain line items from more than one
-//    dept (invoices.purpose is a single rolled-up label and doesn't
-//    reflect that)
-// So for every payment, its mode-split is distributed across its
-// invoice allocations by each allocation's share of the payment, and
-// each invoice's amount is further distributed across its line items'
-// depts by each dept's share of that invoice's net. Nothing is ever
-// dropped -- a dept string that isn't in DEPT_CATEGORY (or an invoice
-// with no line items on file at all) lands in 'Unclassified' instead,
-// and unclassifiedDepts lists exactly which raw dept strings triggered
-// it, so it can be flagged rather than silently missed.
-// invoiceIdOverride (optional): { payment_id: invoice_id } for
-// transactions that map straight to a single invoice and have no
-// payment_allocations row of their own -- e.g. a refund payment,
-// which payment_refunds links directly to the invoice it refunded
-// rather than through the usual allocations table. Treated as one
-// synthetic 100%-of-total allocation, so it flows through the exact
-// same per-invoice dept-split logic below as an ordinary payment.
-async function getCategorizedIncome(supabase, txs, invoiceIdOverride) {
-  if (txs.length === 0) return { categories: {}, unclassifiedDepts: [] };
+// Table 2 (Billed Income by Category) is pure billing-truth: what was
+// actually invoiced today, by dept, regardless of how much of it has
+// been collected -- an outstanding/partially-paid invoice still
+// contributes its FULL net value here, unlike a payment-based total
+// which would only show what's been paid so far. Reads
+// invoice_line_items directly for invoices created today (excluding
+// Cancelled, same as Total Revenue) -- no payments/payment_allocations
+// involved at all, so there's no mode breakdown and no "via advance"
+// distinction to make; Table 1 already covers the cash/mode dimension
+// separately. A dept string not in DEPT_CATEGORY (or an invoice with
+// no line items on file) falls into 'Unclassified' instead of being
+// silently dropped; unclassifiedDepts lists exactly which raw dept
+// strings triggered it, for review.
+async function getBilledIncomeByCategory(supabase, date) {
+  const { startUTC, endUTC } = istDayBoundsUTC(date);
+  const [{ data: invoices }, { data: opticalSales }] = await Promise.all([
+    supabase.from('invoices').select('id').neq('status', 'Cancelled').gte('created_at', startUTC).lte('created_at', endUTC),
+    // Optical Shop Sales is a flat category (optical has no per-dept
+    // line items) -- billed value straight from optical_sales.net for
+    // sales dated today, same exclusion of Cancelled as Total Revenue.
+    // An outstanding/partially-paid sale still counts its full net
+    // value here, same as a hospital invoice would.
+    supabase.from('optical_sales').select('net').eq('sale_date', date).neq('status', 'Cancelled'),
+  ]);
+  const invoiceIds = (invoices || []).map((i) => i.id);
 
-  const paymentIds = txs.map((p) => p.id);
-  const overriddenIds = new Set(invoiceIdOverride ? Object.keys(invoiceIdOverride) : []);
-  const idsNeedingLookup = paymentIds.filter((id) => !overriddenIds.has(id));
-  const { data: fetchedAllocations } = idsNeedingLookup.length > 0
-    ? await supabase.from('payment_allocations').select('payment_id, invoice_id, amount').in('payment_id', idsNeedingLookup)
-    : { data: [] };
-
-  const syntheticAllocations = [];
-  if (invoiceIdOverride) {
-    txs.forEach((p) => {
-      const invoiceId = invoiceIdOverride[p.id];
-      if (invoiceId) syntheticAllocations.push({ payment_id: p.id, invoice_id: invoiceId, amount: Number(p.total_amount) || 0 });
-    });
-  }
-  const allocations = [...(fetchedAllocations || []), ...syntheticAllocations];
-
-  const invoiceIds = [...new Set(allocations.map((a) => a.invoice_id))];
   let lineItems = [];
   if (invoiceIds.length > 0) {
     const { data } = await supabase.from('invoice_line_items').select('invoice_id, dept, net').in('invoice_id', invoiceIds);
     lineItems = data || [];
   }
 
-  const invoiceDeptMap = {};
-  lineItems.forEach((li) => {
-    if (!invoiceDeptMap[li.invoice_id]) invoiceDeptMap[li.invoice_id] = { totalNet: 0, byDept: {} };
-    const entry = invoiceDeptMap[li.invoice_id];
-    entry.totalNet += Number(li.net);
-    const dept = li.dept || '(no dept set)';
-    entry.byDept[dept] = (entry.byDept[dept] || 0) + Number(li.net);
-  });
-
-  const allocByPayment = {};
-  allocations.forEach((a) => { (allocByPayment[a.payment_id] ||= []).push(a); });
-
   const categories = {};
   const unclassifiedDepts = new Set();
-  // Total and mode-split are tracked separately now, not derived from
-  // each other -- advance-adjustment transactions (see below) never
-  // get a payment_modes row at all, so a total that only accumulated
-  // inside the mode loop would silently stay zero for them.
-  function addTotal(category, amt) {
-    if (amt === 0) return;
-    if (!categories[category]) categories[category] = emptyCategory();
-    categories[category].total += amt;
-  }
-  function addMode(category, mode, amt) {
-    if (amt === 0) return;
-    if (!categories[category]) categories[category] = emptyCategory();
-    categories[category].byMode[mode] = (categories[category].byMode[mode] || 0) + amt;
+  const invoicesWithLineItems = new Set();
+  lineItems.forEach((li) => {
+    invoicesWithLineItems.add(li.invoice_id);
+    const category = DEPT_CATEGORY[li.dept];
+    if (!category) unclassifiedDepts.add(li.dept || '(no dept set)');
+    const finalCategory = category || 'Unclassified';
+    categories[finalCategory] = (categories[finalCategory] || 0) + Number(li.net);
+  });
+  // An invoice with no line items on file at all still has a net
+  // value that must show up somewhere, or the category total would
+  // silently fall short of Total Revenue.
+  const invoicesMissingLineItems = invoiceIds.filter((id) => !invoicesWithLineItems.has(id));
+  if (invoicesMissingLineItems.length > 0) {
+    const { data: missing } = await supabase.from('invoices').select('id, net').in('id', invoicesMissingLineItems);
+    (missing || []).forEach((i) => {
+      if (Number(i.net) === 0) return;
+      unclassifiedDepts.add('(no line items on file for this invoice)');
+      categories.Unclassified = (categories.Unclassified || 0) + Number(i.net);
+    });
   }
 
-  txs.forEach((p) => {
-    const total = Number(p.total_amount) || 0;
-    if (total <= 0) return;
-    const allocs = allocByPayment[p.id] || [];
-    const modes = p.payment_modes || [];
-    let allocatedShare = 0;
-    allocs.forEach((a) => {
-      const allocAmt = Number(a.amount);
-      const invShare = allocAmt / total;
-      allocatedShare += invShare;
-      const invEntry = invoiceDeptMap[a.invoice_id];
-      if (!invEntry || invEntry.totalNet <= 0) {
-        unclassifiedDepts.add('(no line items on file for this invoice)');
-        addTotal('Unclassified', allocAmt);
-        modes.forEach((m) => addMode('Unclassified', m.mode, Number(m.amount) * invShare));
-        return;
-      }
-      Object.entries(invEntry.byDept).forEach(([dept, deptNet]) => {
-        const deptShare = deptNet / invEntry.totalNet;
-        const category = DEPT_CATEGORY[dept];
-        if (!category) unclassifiedDepts.add(dept);
-        const finalCategory = category || 'Unclassified';
-        addTotal(finalCategory, allocAmt * deptShare);
-        modes.forEach((m) => addMode(finalCategory, m.mode, Number(m.amount) * invShare * deptShare));
-      });
-    });
-    // collect_payment() auto-credits any amount beyond the selected
-    // invoices' outstanding total to the patient's advance -- but the
-    // receipt itself stays payment_type 'invoice_payment' and its
-    // payment_allocations rows only cover the invoiced portion. Without
-    // this, that leftover share would just be dropped from every
-    // category's total instead of showing up anywhere.
-    const leftoverShare = 1 - allocatedShare;
-    if (leftoverShare > 0.001) {
-      unclassifiedDepts.add('(overpayment auto-credited to patient advance)');
-      addTotal('Unclassified', total * leftoverShare);
-      modes.forEach((m) => addMode('Unclassified', m.mode, Number(m.amount) * leftoverShare));
-    }
-  });
+  categories['Optical Shop Sales'] = (opticalSales || []).reduce((s, o) => s + Number(o.net), 0);
 
   return { categories, unclassifiedDepts: [...unclassifiedDepts] };
 }
+
 
 // Splits today's total draw-down of a pooled advance balance (an
 // advance-adjustment applied to an invoice, OR an advance refund) into
@@ -258,44 +179,6 @@ export async function getPettyCashTotal(date) {
   const targetDate = date || todayIST();
   const { data } = await supabase.from('petty_cash_expenses').select('amount').eq('expense_date', targetDate);
   return (data || []).reduce((sum, r) => sum + Number(r.amount), 0);
-}
-
-// Optical Shop sales/payments are recorded in their own tables (see
-// app/(main)/optical), not through invoices/payments -- walk-in
-// optical customers frequently have no patient record at all, so they
-// can't flow through the invoice pipeline the way Consultation/Pharmacy/
-// Surgery revenue does. This reads actual money collected that day --
-// sale payments and advances (real cash movement), excluding
-// advance_adjustment (an existing balance being applied, no new cash) --
-// and returns the same { byMode, total } shape the rest of this file
-// uses, so it can be shown in the Daily Report as its own line.
-//
-// Deliberately kept OUT of getTodayCollectionSummary/getCategorizedIncome
-// and out of getReconciliationData's expected-cash math -- those have
-// several careful invariants (Payment Mode Summary == Billed Items +
-// Advances - Refunds; Income by Category total == Billed Items) that a
-// second, unrelated cash stream would silently break. Optical income is
-// shown for visibility only; the cash it represents should be counted
-// and reconciled by Front Office as a separate, manual add-on for now.
-export async function getOpticalIncomeForDate(date) {
-  const supabase = await createClient();
-  const { startUTC, endUTC } = istDayBoundsUTC(date);
-  const { data: payments } = await supabase
-    .from('optical_payments')
-    .select('id, total_amount, payment_type, optical_payment_modes(mode, amount)')
-    .in('payment_type', ['sale_payment', 'advance'])
-    .gte('collected_at', startUTC)
-    .lte('collected_at', endUTC);
-
-  const byMode = {};
-  let total = 0;
-  (payments || []).forEach((p) => {
-    total += Number(p.total_amount) || 0;
-    (p.optical_payment_modes || []).forEach((m) => {
-      byMode[m.mode] = (byMode[m.mode] || 0) + (Number(m.amount) || 0);
-    });
-  });
-  return { byMode, total };
 }
 
 export async function addExpense(categoryId, amount, paidTo, note) {
@@ -629,12 +512,10 @@ export async function getDailyReport(date) {
     getTodayCollectionSummary(date),
   ]);
 
-  // Hospital-only -- fed into getCategorizedIncome below, which needs
-  // payment_allocations/invoice_line_items to split each payment by
-  // dept. Optical has neither table (no invoice, no line items), so
-  // mixing its rows into this set would make every optical rupee fall
-  // through to "Unclassified" with a nonsense reason attached. Optical
-  // Sales is instead its own flat category further down.
+  // Hospital-only, real cash collected -- used for Table 1's "Payments
+  // against Hospital Billed Items" row. Table 2 (billed value,
+  // regardless of collection status) is computed separately below via
+  // getBilledIncomeByCategory, straight from invoice_line_items.
   const billedTx = collectionSummary.transactions.filter((p) => p.payment_type === 'invoice_payment');
   // 'sale_payment' only exists on optical_payments rows -- unambiguous.
   const opticalSaleTx = collectionSummary.transactions.filter((p) => p.payment_type === 'sale_payment');
@@ -729,44 +610,25 @@ export async function getDailyReport(date) {
 
   const creditNotesTotal = creditNoteTx.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
 
-  // Income by Category (Table 2) is billing-truth: what was actually
-  // billed and collected against it, exactly as invoiced -- gross, no
-  // refund adjustments. Refunds live only in Payment Mode Summary
-  // (Table 1) as their own hospital/optical rows, and in Day Totals
-  // (Table 3) as part of the reconciliation walk.
-  const [{ categories, unclassifiedDepts }, { categories: adjCategories, unclassifiedDepts: unclassifiedAdjustedDepts }] = await Promise.all([
-    getCategorizedIncome(supabase, billedTx),
-    getCategorizedIncome(supabase, adjustmentTx),
-  ]);
-  const cat = (name) => categories[name] || emptyCategory();
-  const adjTotal = (name) => (adjCategories[name] || emptyCategory()).total;
-
-  function withAdjustment(base, adjustedTotal) {
-    return { ...base, advanceAdjusted: adjustedTotal, totalWithAdjustment: base.total + adjustedTotal };
-  }
+  // Table 2 (Billed Income by Category) is pure billing-truth: the
+  // full invoiced/sale value for today, by category, regardless of
+  // how much has actually been collected against it. An outstanding
+  // or partially-paid invoice/sale still contributes its complete net
+  // value here -- this is deliberately NOT payment-based (Table 1
+  // already covers actual cash by mode).
+  const { categories, unclassifiedDepts } = await getBilledIncomeByCategory(supabase, date);
+  const catTotal = (name) => categories[name] || 0;
 
   // OPD Income is the roll-up of the three OPD-workflow categories --
-  // shown as its own headline total/mode-split, with each component
-  // broken out underneath. Investigation Income is then restated as
-  // its own standalone line too (same figure as the component above)
-  // since Front Office may want to see it without wading through the
-  // OPD breakdown -- it is NOT additional money on top of OPD Income,
-  // just the same investigation revenue shown a second way.
-  const opdConsultation = withAdjustment(cat('OPD Consultation charges'), adjTotal('OPD Consultation charges'));
-  const opdProcedure = withAdjustment(cat('Procedure charges'), adjTotal('Procedure charges'));
-  const opdInvestigation = withAdjustment(cat('Investigation charges'), adjTotal('Investigation charges'));
-  const opdIncome = {
-    consultation: opdConsultation, procedure: opdProcedure, investigation: opdInvestigation,
-    byMode: mergeByMode(opdConsultation, opdProcedure, opdInvestigation),
-    total: opdConsultation.total + opdProcedure.total + opdInvestigation.total,
-    advanceAdjusted: opdConsultation.advanceAdjusted + opdProcedure.advanceAdjusted + opdInvestigation.advanceAdjusted,
-    totalWithAdjustment: opdConsultation.totalWithAdjustment + opdProcedure.totalWithAdjustment + opdInvestigation.totalWithAdjustment,
-  };
-  const unclassified = cat('Unclassified');
-  // Optical has no advance-adjustment equivalent (no invoice/advance-
-  // ledger table of its own) -- a flat category, no adjusted variant,
-  // gross (billing-truth), same as every other category in this table.
-  const opticalIncome = modeBreakdown(opticalSaleTx);
+  // Investigation Income is then restated as its own standalone line
+  // too (same figure as the component above) since Front Office may
+  // want to see it without wading through the OPD breakdown -- it is
+  // NOT additional money on top of OPD Income, just the same
+  // investigation revenue shown a second way.
+  const opdConsultation = catTotal('OPD Consultation charges');
+  const opdProcedure = catTotal('Procedure charges');
+  const opdInvestigation = catTotal('Investigation charges');
+  const opdIncome = { consultation: opdConsultation, procedure: opdProcedure, investigation: opdInvestigation, total: opdConsultation + opdProcedure + opdInvestigation };
   const { previousDay: previousAdvanceAdjustedTotal, sameDay: sameDayAdvanceAdjustedTotal } = splitByAgeAgainstTodaysDeposit(advanceTx, adjustmentTx);
 
   return {
@@ -782,18 +644,16 @@ export async function getDailyReport(date) {
     hospitalRefunds: modeBreakdown(hospitalRefundTx, true),
     opticalRefunds: modeBreakdown(opticalRefundTx, true),
     modeSummary: { byMode: collectionSummary.byMode, total: collectionSummary.total },
-    // ---- TABLE 2: Income by Category -- billing-truth, gross, exactly
-    // as invoiced. Assumed correct as the source of truth for what was
-    // billed; Table 3 reconciles it against Table 1's actual cash.
+    // ---- TABLE 2: Billed Income by Category -- pure billing-truth, no
+    // mode/cash dimension at all (that's Table 1's job). Table 3
+    // reconciles this against Table 1's actual cash.
     opdIncome,
     investigationIncome: opdInvestigation,
-    pharmacyIncome: withAdjustment(cat('Pharmacy'), adjTotal('Pharmacy')),
-    surgeryIncome: withAdjustment(cat('Surgery Income'), adjTotal('Surgery Income')),
-    unclassifiedIncome: unclassified,
+    pharmacyIncome: catTotal('Pharmacy'),
+    surgeryIncome: catTotal('Surgery Income'),
+    unclassifiedIncome: catTotal('Unclassified'),
     unclassifiedDepts,
-    opticalIncome,
-    unclassifiedAdjustedIncome: adjCategories.Unclassified || emptyCategory(),
-    unclassifiedAdjustedDepts,
+    opticalIncome: catTotal('Optical Shop Sales'),
     // ---- TABLE 3: Day Totals -- reconciles Table 1 and Table 2.
     // Total Collected (modeSummary.total above) should equal:
     //   Total Revenue - Outstanding - Advance Adjustment Applied

@@ -16,25 +16,14 @@ const thLeft = { ...th, textAlign: 'left' };
 const td = { border: '1px solid #999', padding: '6px 8px', textAlign: 'right', fontSize: 12 };
 const tdLeft = { ...td, textAlign: 'left' };
 
-// One row for a category, in the same 5-mode column order every time,
-// plus a Via Advance column and a Total column -- consistent columns
-// regardless of which modes an individual category actually used, so
-// the printed table reads as a clean grid rather than ragged per-row
-// columns. italic+indent marks a row as a constituent of the bold
-// parent above it (OPD Income's three components), so the roll-up
-// structure reads clearly on a printed page without needing color.
-function CategoryRow({ label, cat, bold, italic }) {
-  const style = {
-    ...(bold ? { fontWeight: 700 } : {}),
-    ...(italic ? { fontStyle: 'italic', fontWeight: 400, color: '#444' } : {}),
-  };
-  const labelStyle = italic ? { ...tdLeft, ...style, paddingLeft: 36 } : { ...tdLeft, ...style };
+// One row for a category -- Table 2 is pure billing-truth now (no
+// mode/cash dimension, no advance-adjustment distinction; see
+// getBilledIncomeByCategory), so just a label and its billed total.
+function CategoryRow({ label, amt, bold, flag }) {
   return (
     <tr>
-      <td style={labelStyle}>{label}</td>
-      {MODES.map((m) => <td key={m} style={{ ...td, ...style }}>{cat.byMode[m] ? fmt(cat.byMode[m]) : '--'}</td>)}
-      <td style={{ ...td, ...style, color: italic ? style.color : (cat.advanceAdjusted > 0.001 ? '#6d28d9' : undefined) }}>{cat.advanceAdjusted > 0.001 ? fmt(cat.advanceAdjusted) : '--'}</td>
-      <td style={{ ...td, ...style, fontWeight: bold ? 700 : (italic ? 400 : 700) }}>{fmt(cat.totalWithAdjustment ?? cat.total)}</td>
+      <td style={{ ...tdLeft, fontWeight: bold ? 700 : 400, color: flag ? '#b3261e' : undefined }}>{label}</td>
+      <td style={{ ...td, fontWeight: bold ? 700 : 400, color: flag ? '#b3261e' : undefined }}>{fmt(amt)}</td>
     </tr>
   );
 }
@@ -104,7 +93,7 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
             <td style={{ ...td, fontWeight: 700 }}>{fmt(report.hospitalBilledItems.total)}</td>
           </tr>
           <tr>
-            <td style={tdLeft}>Payments Against Opticals ({report.opticalBilledItems.count})</td>
+            <td style={tdLeft}>Payments Against Billed Optical Items ({report.opticalBilledItems.count})</td>
             {MODES.map((m) => <td key={m} style={td}>{report.opticalBilledItems.byMode[m] ? fmt(report.opticalBilledItems.byMode[m]) : '--'}</td>)}
             <td style={{ ...td, fontWeight: 700 }}>{fmt(report.opticalBilledItems.total)}</td>
           </tr>
@@ -136,50 +125,42 @@ export default async function CashDailyReportPrintPage({ searchParams }) {
         </tbody>
       </table>
 
-      {/* INCOME BY CATEGORY */}
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Income by Category</div>
+      {/* TABLE 2: BILLED INCOME BY CATEGORY -- pure billing-truth,
+          straight from invoice_line_items/optical_sales for what was
+          actually invoiced today, regardless of collection status. */}
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Billed Income by Category</div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6 }}>
         <thead>
           <tr>
             <th style={thLeft}>Category</th>
-            {MODES.map((m) => <th key={m} style={th}>{m}</th>)}
-            <th style={th}>Via Advance</th>
-            <th style={th}>Total</th>
+            <th style={th}>Billed Amount</th>
           </tr>
         </thead>
         <tbody>
-          <CategoryRow label="OPD Income" cat={report.opdIncome} bold />
-          <CategoryRow label="OPD Consultation charges" cat={report.opdIncome.consultation} italic />
-          <CategoryRow label="Procedure charges" cat={report.opdIncome.procedure} italic />
-          <CategoryRow label="Investigation charges" cat={report.opdIncome.investigation} italic />
-          <CategoryRow label="Pharmacy" cat={report.pharmacyIncome} bold />
-          <CategoryRow label="Surgery Income" cat={report.surgeryIncome} bold />
-          <CategoryRow label="Optical Shop Sales" cat={report.opticalIncome} bold />
-          {report.unclassifiedIncome.total !== 0 && (
-            <CategoryRow label="Unclassified -- needs review" cat={report.unclassifiedIncome} bold />
+          <CategoryRow label="OPD Consultation charges" amt={report.opdIncome.consultation} />
+          <CategoryRow label="Procedure charges" amt={report.opdIncome.procedure} />
+          <CategoryRow label="Investigation charges" amt={report.opdIncome.investigation} />
+          <CategoryRow label="Pharmacy" amt={report.pharmacyIncome} />
+          <CategoryRow label="Surgery Income" amt={report.surgeryIncome} />
+          <CategoryRow label="Optical Shop Sales" amt={report.opticalIncome} />
+          {report.unclassifiedIncome !== 0 && (
+            <CategoryRow label="Unclassified -- needs review" amt={report.unclassifiedIncome} flag />
           )}
           <CategoryRow
-            label="TOTAL"
-            cat={{
-              byMode: MODES.reduce((acc, m) => ({ ...acc, [m]: [report.opdIncome, report.pharmacyIncome, report.surgeryIncome, report.unclassifiedIncome, report.opticalIncome].reduce((s, c) => s + (c.byMode[m] || 0), 0) }), {}),
-              total: report.opdIncome.total + report.pharmacyIncome.total + report.surgeryIncome.total + report.unclassifiedIncome.total + report.opticalIncome.total,
-              advanceAdjusted: report.opdIncome.advanceAdjusted + report.pharmacyIncome.advanceAdjusted + report.surgeryIncome.advanceAdjusted,
-              totalWithAdjustment: report.opdIncome.totalWithAdjustment + report.pharmacyIncome.totalWithAdjustment + report.surgeryIncome.totalWithAdjustment + report.unclassifiedIncome.total + report.opticalIncome.total,
-            }}
+            label="Total Billed"
+            amt={report.opdIncome.total + report.pharmacyIncome + report.surgeryIncome + report.unclassifiedIncome + report.opticalIncome}
             bold
           />
         </tbody>
       </table>
       <div style={{ fontSize: 10.5, color: '#666', marginBottom: 16 }}>
-        Investigation Income equals the "Investigation charges" row above -- already included in OPD Income, not additional.
-        "Via Advance" is revenue recognized today by applying an advance collected on an earlier day -- it involves no new cash movement today and is excluded from the Cash/UPI/Card columns and from Total Cash/UPI/Other above.
-        Billing-truth, gross (not adjusted for refunds -- see Payment Mode Summary and Day Totals for those). TOTAL = OPD Income + Pharmacy + Surgery Income + Optical Shop Sales (+ Unclassified, if any).
+        Full invoiced/sale value for today, by category -- not what's been collected against it (see Payment Mode Summary above and Day Totals below for that). Total Billed = OPD Consultation + Procedure + Investigation charges + Pharmacy + Surgery Income + Optical Shop Sales (+ Unclassified, if any) = Total Billed Revenue in Day Totals.
       </div>
 
-      {(report.unclassifiedDepts.length > 0 || report.unclassifiedAdjustedDepts.length > 0) && (
+      {report.unclassifiedDepts.length > 0 && (
         <div style={{ border: '1px solid #b3261e', padding: 10, marginBottom: 16, fontSize: 11 }}>
           <strong style={{ color: '#b3261e' }}>Flagged for review:</strong>{' '}
-          {[...report.unclassifiedDepts, ...report.unclassifiedAdjustedDepts].join(', ')}
+          {report.unclassifiedDepts.join(', ')}
         </div>
       )}
 

@@ -55,49 +55,6 @@ function fmt(n) {
   return `Rs.${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-// Compact "mode -> amount" list + total, reused for every income
-// category in the Daily Report (OPD's three components, Investigation,
-// Pharmacy, Surgery) so the same Cash/UPI/Card/Cheque/Bank Transfer
-// demarcation appears identically everywhere instead of being
-// hand-rolled per section. If cat carries advanceAdjusted (money
-// recognized today via an advance applied today, e.g. a surgery
-// invoiced today but paid from an advance collected on an earlier
-// day), that's shown as its own line -- deliberately separate from the
-// Cash/UPI/etc rows above, since it's not new cash today -- plus a
-// combined total underneath.
-function ModeBreakdownRows({ cat, emptyLabel, totalColor = 'var(--g800)', totalLabel = 'Total' }) {
-  const hasAdjustment = !!cat.advanceAdjusted && Math.abs(cat.advanceAdjusted) > 0.001;
-  if (Object.keys(cat.byMode).length === 0 && !hasAdjustment) {
-    return <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>{emptyLabel}</div>;
-  }
-  return (
-    <>
-      {Object.keys(cat.byMode).length === 0 && (
-        <div style={{ fontSize: 11.5, color: 'var(--g400)', padding: '4px 0' }}>No cash collected today.</div>
-      )}
-      {Object.entries(cat.byMode).map(([mode, amt]) => (
-        <div key={mode} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12.5 }}>
-          <span style={{ color: 'var(--g500)' }}>{mode}</span><span>{fmt(amt)}</span>
-        </div>
-      ))}
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 0', marginTop: 2, borderTop: '1px solid var(--g100)', fontSize: 13, fontWeight: 700 }}>
-        <span>{totalLabel}{hasAdjustment ? ' (cash today)' : ''}</span><span style={{ color: totalColor }}>{fmt(cat.total)}</span>
-      </div>
-      {hasAdjustment && (
-        <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12.5 }}>
-            <span style={{ color: 'var(--purple)' }}><i className="ti ti-piggy-bank"></i> Via Advance (adjusted today)</span>
-            <span style={{ color: 'var(--purple)' }}>{fmt(cat.advanceAdjusted)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 0', marginTop: 2, borderTop: '1px solid var(--g200)', fontSize: 13, fontWeight: 800 }}>
-            <span>Total revenue (cash + advance)</span><span style={{ color: totalColor }}>{fmt(cat.totalWithAdjustment)}</span>
-          </div>
-        </>
-      )}
-    </>
-  );
-}
-
 function CashCounterTab({ onStatusChange }) {
   const [today, setToday] = useState(null);
   const [history, setHistory] = useState([]);
@@ -1243,7 +1200,7 @@ export default function CashManagementPage() {
                   const modesPresent = MODES.filter((m) => report.modeSummary.byMode[m]);
                   const rows = [
                     { label: 'Payments against Hospital Billed Items', cat: report.hospitalBilledItems },
-                    { label: 'Payments Against Opticals', cat: report.opticalBilledItems },
+                    { label: 'Payments Against Billed Optical Items', cat: report.opticalBilledItems },
                     { label: 'Hospital Advances', cat: report.hospitalAdvances },
                     { label: 'Optical Advances', cat: report.opticalAdvances },
                     { label: 'Hospital Refunds', cat: report.hospitalRefunds, negative: true },
@@ -1281,127 +1238,52 @@ export default function CashManagementPage() {
                 })()}
               </div>
 
-              {/* INCOME BREAKDOWN -- OPD Income rolls up its three
-                  components (each shown with its own mode split
-                  underneath); Investigation Income is then restated as
-                  its own line since it's a revenue type Front Office
-                  tracks on its own, not extra money on top of OPD
-                  Income. Pharmacy and Surgery stand alone. Anything
-                  that couldn't be matched to a known category lands in
-                  Unclassified and gets flagged below, rather than
-                  silently vanishing from the report. */}
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-building-hospital" style={{ color: 'var(--blue)' }}></i> OPD Income</div>
-                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>Consultation + Procedure + Investigation charges billed and collected today.</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0 10px', marginBottom: 10, borderBottom: '1.5px solid var(--g200)' }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>Total, all modes{report.opdIncome.advanceAdjusted > 0.001 ? ' (cash today)' : ''}</span>
-                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--blue)' }}>{fmt(report.opdIncome.total)}</span>
+              {/* TABLE 2: BILLED INCOME BY CATEGORY -- pure billing-
+                  truth, straight from invoice_line_items/optical_sales
+                  for what was actually invoiced today, regardless of
+                  collection status. An outstanding or partially-paid
+                  invoice/sale still counts its full net value -- no
+                  mode/cash dimension here at all (that's Table 1's
+                  job); Table 3 reconciles the two. */}
+              <div className="card" style={{ marginBottom: 16, overflowX: 'auto' }}>
+                <div className="card-title" style={{ marginBottom: 4 }}>Billed Income by Category</div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', marginBottom: 10 }}>
+                  Full invoiced/sale value for today, by category -- not what's been collected against it (see Payment Mode Summary above for that).
                 </div>
-                {report.opdIncome.advanceAdjusted > 0.001 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 0 10px', marginBottom: 10, marginTop: -6, borderBottom: '1.5px solid var(--g200)' }}>
-                    <span style={{ fontSize: 12, color: 'var(--purple)' }}><i className="ti ti-piggy-bank"></i> + Via Advance (adjusted today)</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--purple)' }}>{fmt(report.opdIncome.advanceAdjusted)} -- total {fmt(report.opdIncome.totalWithAdjustment)}</span>
+                {(() => {
+                  const rows = [
+                    { label: 'OPD Consultation charges', amt: report.opdIncome.consultation },
+                    { label: 'Procedure charges', amt: report.opdIncome.procedure },
+                    { label: 'Investigation charges', amt: report.opdIncome.investigation },
+                    { label: 'Pharmacy', amt: report.pharmacyIncome },
+                    { label: 'Surgery Income', amt: report.surgeryIncome },
+                    { label: 'Optical Shop Sales', amt: report.opticalIncome },
+                  ];
+                  if (report.unclassifiedIncome !== 0) rows.push({ label: 'Unclassified -- needs review', amt: report.unclassifiedIncome, flag: true });
+                  const total = rows.reduce((s, r) => s + r.amt, 0);
+                  return (
+                    <table className="tbl" style={{ fontSize: 12.5 }}>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr key={r.label}>
+                            <td style={r.flag ? { color: 'var(--red)' } : undefined}>{r.flag && <i className="ti ti-alert-triangle"></i>} {r.label}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 600, color: r.flag ? 'var(--red)' : undefined }}>{fmt(r.amt)}</td>
+                          </tr>
+                        ))}
+                        <tr>
+                          <td style={{ fontWeight: 700 }}>Total Billed</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--blue)' }}>{fmt(total)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  );
+                })()}
+                {report.unclassifiedIncome !== 0 && report.unclassifiedDepts.length > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 8 }}>
+                    <i className="ti ti-alert-triangle"></i> Service dept{report.unclassifiedDepts.length > 1 ? 's' : ''} not mapped to a category: <strong>{report.unclassifiedDepts.join(', ')}</strong>. Check Financial Masters for a missing/unexpected department, or an invoice with no line items on file.
                   </div>
                 )}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', marginBottom: 4 }}>OPD Consultation charges</div>
-                    <ModeBreakdownRows cat={report.opdIncome.consultation} emptyLabel="None today." totalColor="var(--blue)" />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', marginBottom: 4 }}>Procedure charges</div>
-                    <ModeBreakdownRows cat={report.opdIncome.procedure} emptyLabel="None today." totalColor="var(--blue)" />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', marginBottom: 4 }}>Investigation charges</div>
-                    <ModeBreakdownRows cat={report.opdIncome.investigation} emptyLabel="None today." totalColor="var(--blue)" />
-                  </div>
-                </div>
               </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
-                <div className="card">
-                  <div className="card-title" style={{ marginBottom: 4 }}><i className="ti ti-flask" style={{ color: 'var(--teal)' }}></i> Investigation Income</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--g400)', marginBottom: 8 }}>Same figure as "Investigation charges" under OPD Income above -- restated here on its own.</div>
-                  <ModeBreakdownRows cat={report.investigationIncome} emptyLabel="None today." totalColor="var(--teal)" />
-                </div>
-                <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i> Pharmacy</div>
-                  <ModeBreakdownRows cat={report.pharmacyIncome} emptyLabel="No pharmacy collections today." totalColor="var(--purple)" />
-                </div>
-                <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-scalpel" style={{ color: 'var(--red)' }}></i> Surgery Income</div>
-                  <ModeBreakdownRows cat={report.surgeryIncome} emptyLabel="No surgery collections today." totalColor="var(--red)" />
-                </div>
-                <div className="card">
-                  <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-glasses" style={{ color: 'var(--blue)' }}></i> Optical Shop Sales</div>
-                  <ModeBreakdownRows cat={report.opticalIncome} emptyLabel="No optical sales today." totalColor="var(--blue)" />
-                </div>
-              </div>
-
-
-              {/* INCOME BY CATEGORY -- TOTAL: OPD Income + Pharmacy +
-                  Surgery Income + Unclassified + Optical Shop Sales
-                  (Investigation Income is NOT added again here -- it's
-                  already inside OPD Income, see the note on that card).
-                  Every category above is already net of its own
-                  refunds (see categoryNetOfRefunds/netCategory in
-                  getDailyReport) -- no separate Refunds row anywhere.
-                  By construction this cash total always equals Billed
-                  Items above and the Total Collection KPI minus
-                  Advances -- nothing collected today (hospital or
-                  optical) is ever left out of some category. Optical
-                  has no advance-adjustment equivalent, so it only
-                  contributes to the base total, not the adjusted one. */}
-              {(() => {
-                const catTotal = report.opdIncome.total + report.pharmacyIncome.total + report.surgeryIncome.total + report.unclassifiedIncome.total + report.opticalIncome.total;
-                const catTotalWithAdj = report.opdIncome.totalWithAdjustment + report.pharmacyIncome.totalWithAdjustment + report.surgeryIncome.totalWithAdjustment + report.unclassifiedIncome.total + report.opticalIncome.total;
-                const catAdvanceAdjusted = catTotalWithAdj - catTotal;
-                return (
-                  <div className="card" style={{ marginBottom: 16 }}>
-                    <div className="card-title" style={{ marginBottom: 4 }}>Income by Category -- Total</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13, fontWeight: 700 }}>
-                      <span>Cash + UPI + Other today</span><span style={{ color: 'var(--blue)' }}>{fmt(catTotal)}</span>
-                    </div>
-                    {catAdvanceAdjusted > 0.001 && (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12.5, color: 'var(--purple)' }}>
-                          <span><i className="ti ti-piggy-bank"></i> + Via Advance (adjusted today)</span><span>{fmt(catAdvanceAdjusted)}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 0', marginTop: 2, borderTop: '1px solid var(--g200)', fontSize: 14, fontWeight: 800 }}>
-                          <span>Total revenue, all categories</span><span style={{ color: 'var(--blue)' }}>{fmt(catTotalWithAdj)}</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {report.unclassifiedIncome.total !== 0 && (
-                <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--red)', background: 'var(--red-lt)' }}>
-                  <div className="card-title" style={{ marginBottom: 4, color: 'var(--red)' }}>
-                    <i className="ti ti-alert-triangle"></i> Unclassified Income -- needs review
-                  </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--g600)', marginBottom: 8 }}>
-                    {fmt(report.unclassifiedIncome.total)} collected today didn't match a known revenue category
-                    {report.unclassifiedDepts.length > 0 && <> -- service dept{report.unclassifiedDepts.length > 1 ? 's' : ''}: <strong>{report.unclassifiedDepts.join(', ')}</strong></>}.
-                    Check Financial Masters for services with an unexpected or missing department, or an invoice with missing line items.
-                  </div>
-                  <ModeBreakdownRows cat={report.unclassifiedIncome} emptyLabel="" totalColor="var(--red)" />
-                </div>
-              )}
-
-              {report.unclassifiedAdjustedIncome.total !== 0 && (
-                <div className="card" style={{ marginBottom: 16, border: '1.5px solid var(--red)', background: 'var(--red-lt)' }}>
-                  <div className="card-title" style={{ marginBottom: 4, color: 'var(--red)' }}>
-                    <i className="ti ti-alert-triangle"></i> Unclassified Advance Adjustment -- needs review
-                  </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--g600)' }}>
-                    {fmt(report.unclassifiedAdjustedIncome.total)} was applied from advance against an invoice today, but didn't match a known revenue category
-                    {report.unclassifiedAdjustedDepts.length > 0 && <> -- service dept{report.unclassifiedAdjustedDepts.length > 1 ? 's' : ''}: <strong>{report.unclassifiedAdjustedDepts.join(', ')}</strong></>}.
-                  </div>
-                </div>
-              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div className="card">
