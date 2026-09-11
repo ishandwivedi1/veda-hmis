@@ -1451,18 +1451,14 @@ export default function CashManagementPage() {
                             </div>
                           )}
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Advance Collected</span><strong style={{ color: 'var(--purple)' }}>{fmt(report.advanceCollectedNet)}</strong></div>
-                          {report.refundsAgainstPreviousInvoices > 0.001 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: 'var(--red)' }}>Refunds against Previous Invoices</span>
-                              <strong style={{ color: 'var(--red)' }}>{fmt(report.refundsAgainstPreviousInvoices)}</strong>
-                            </div>
-                          )}
-                          {report.refundsAgainstPreviousAdvances > 0.001 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: 'var(--red)' }}>Refunds against Previous Advances</span>
-                              <strong style={{ color: 'var(--red)' }}>{fmt(report.refundsAgainstPreviousAdvances)}</strong>
-                            </div>
-                          )}
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--red)' }}>Refunds against Previous Invoices</span>
+                            <strong style={{ color: 'var(--red)' }}>{fmt(report.refundsAgainstPreviousInvoices)}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--red)' }}>Refunds against Previous Advances</span>
+                            <strong style={{ color: 'var(--red)' }}>{fmt(report.refundsAgainstPreviousAdvances)}</strong>
+                          </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--g200)', marginTop: 4, paddingTop: 4 }}>
                             <span>Total Collected</span>
                             <strong style={{ color: 'var(--green)' }} title="Equal to the Total Collection KPI card above">{fmt(report.modeSummary.total)}</strong>
