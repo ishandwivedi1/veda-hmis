@@ -879,6 +879,31 @@ export async function openDay(openingBalance, remarks) {
   return { opening: data };
 }
 
+// Corrects Opening Cash after Open Day, for the rare case it was
+// entered wrong (e.g. forgetting to carry forward the previous day's
+// retained cash -- see getSuggestedOpeningBalance). Blocked once Cash
+// Counter (Step 2) has already been confirmed for that date, since its
+// confirmed Cash Handed Over is a frozen snapshot computed from the
+// opening balance at that time -- changing the opening balance
+// afterwards would silently make that confirmed figure wrong without
+// anyone noticing. Unlock Cash Counter first if it needs correcting
+// too, then this, then re-confirm.
+export async function updateOpeningBalance(newBalance, date) {
+  const targetDate = date || todayIST();
+  const supabase = await createClient();
+  const amt = Number(newBalance);
+  if (isNaN(amt) || amt < 0) return { error: 'Enter a valid amount.' };
+
+  const { data: counter } = await supabase.from('cash_counter').select('amount_handed_over').eq('counter_date', targetDate).maybeSingle();
+  if (counter?.amount_handed_over != null) {
+    return { error: `Cash Counter for ${targetDate} is already confirmed -- unlock it first (Step 2), then edit Opening Cash, then re-confirm.` };
+  }
+
+  const { error } = await supabase.from('day_openings').update({ opening_cash_balance: amt }).eq('opening_date', targetDate);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
 export async function isTodayClosed() {
   const supabase = await createClient();
   const today = todayIST();
