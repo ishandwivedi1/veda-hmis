@@ -116,8 +116,11 @@ async function getBilledIncomeByCategory(supabase, date) {
     // refund_payment() onto the refund's own payment_modes row too) --
     // used directly rather than joining back through the refund's own
     // payment, since payment_refunds has two FKs to payments and this
-    // is simpler and already reliably populated.
-    invoiceIds.length > 0 ? supabase.from('payment_refunds').select('invoice_id, amount, refund_mode').in('invoice_id', invoiceIds) : Promise.resolve({ data: [] }),
+    // is simpler and already reliably populated. Cancelled refunds
+    // excluded -- their effect on invoices.paid was already reversed
+    // at the source (see cancelPaymentRefund), so counting them here
+    // too would double-subtract them from this category's net cash/UPI.
+    invoiceIds.length > 0 ? supabase.from('payment_refunds').select('invoice_id, amount, refund_mode').in('invoice_id', invoiceIds).is('cancelled_at', null) : Promise.resolve({ data: [] }),
   ]);
 
   const invoiceDeptMap = {};
@@ -221,7 +224,9 @@ async function getBilledIncomeByCategory(supabase, date) {
   if (opticalSaleIds.length > 0) {
     const [{ data: opPayments }, { data: opRefunds }, { data: opCreditNotes }] = await Promise.all([
       supabase.from('optical_payments').select('sale_id, total_amount, optical_payment_modes(mode, amount)').eq('payment_type', 'sale_payment').in('sale_id', opticalSaleIds),
-      supabase.from('optical_payment_refunds').select('sale_id, amount, refund_mode').in('sale_id', opticalSaleIds),
+      // Cancelled refunds excluded -- same reasoning as the hospital
+      // payment_refunds query above.
+      supabase.from('optical_payment_refunds').select('sale_id, amount, refund_mode').in('sale_id', opticalSaleIds).is('cancelled_at', null),
       supabase.from('optical_payments').select('sale_id, total_amount').eq('payment_type', 'credit_note').in('sale_id', opticalSaleIds),
     ]);
     (opPayments || []).forEach((p) => {
@@ -399,7 +404,7 @@ export async function getRevenueByDepartmentToday() {
     // how a hospital refund subtracts from its own department.
     supabase
       .from('optical_payments')
-      .select('total_amount, payment_type')
+      .select('id, total_amount, payment_type')
       .gte('collected_at', startUTC)
       .lte('collected_at', endUTC)
       .in('payment_type', ['sale_payment', 'advance', 'refund']),
@@ -407,15 +412,28 @@ export async function getRevenueByDepartmentToday() {
 
   const invoicePaymentIds = (payments || []).filter((p) => p.payment_type === 'invoice_payment').map((p) => p.id);
   const refundIds = (payments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
+  const opticalRefundIds = (opticalPayments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
 
-  const [{ data: allocations }, { data: refunds }] = await Promise.all([
+  const [{ data: allocations }, { data: refunds }, { data: cancelledHospitalRefunds }, { data: cancelledOpticalRefunds }] = await Promise.all([
     invoicePaymentIds.length > 0
       ? supabase.from('payment_allocations').select('payment_id, amount, invoices(purpose)').in('payment_id', invoicePaymentIds)
       : Promise.resolve({ data: [] }),
     refundIds.length > 0
       ? supabase.from('payment_refunds').select('refund_payment_id, invoices(purpose)').in('refund_payment_id', refundIds)
       : Promise.resolve({ data: [] }),
+    // Cancelled refunds excluded from the subtraction below -- same
+    // reasoning as getTodayCollectionSummary: their effect was already
+    // reversed at the source, so subtracting them here too double-counts
+    // a refund that no longer applies.
+    refundIds.length > 0
+      ? supabase.from('payment_refunds').select('refund_payment_id').in('refund_payment_id', refundIds).not('cancelled_at', 'is', null)
+      : Promise.resolve({ data: [] }),
+    opticalRefundIds.length > 0
+      ? supabase.from('optical_payment_refunds').select('refund_payment_id').in('refund_payment_id', opticalRefundIds).not('cancelled_at', 'is', null)
+      : Promise.resolve({ data: [] }),
   ]);
+  const cancelledHospitalRefundIds = new Set((cancelledHospitalRefunds || []).map((r) => r.refund_payment_id));
+  const cancelledOpticalRefundIds = new Set((cancelledOpticalRefunds || []).map((r) => r.refund_payment_id));
 
   let allocationsByPayment = {};
   (allocations || []).forEach((a) => {
@@ -448,11 +466,13 @@ export async function getRevenueByDepartmentToday() {
       return;
     }
     // refund
+    if (cancelledHospitalRefundIds.has(p.id)) return;
     const dept = refundInfoByPayment[p.id]?.invoices?.purpose || 'Advance';
     byDept[dept] = (byDept[dept] || 0) - Number(p.total_amount);
   });
 
   (opticalPayments || []).forEach((p) => {
+    if (p.payment_type === 'refund' && cancelledOpticalRefundIds.has(p.id)) return;
     byDept.Optical = (byDept.Optical || 0) + (p.payment_type === 'refund' ? -Number(p.total_amount) : Number(p.total_amount));
   });
 
@@ -500,7 +520,35 @@ export async function getTodayCollectionSummary(date) {
     opticalCustomerName: p.optical_customers?.name,
   }));
 
-  const rows = [...(payments || []), ...opticalRows].sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
+  let rows = [...(payments || []), ...opticalRows].sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
+
+  // A cancelled refund (see cancelOpticalRefund/cancelPaymentRefund)
+  // had its financial effect fully reversed at the source
+  // (sale.paid/invoice.paid added back) -- it must not still be
+  // subtracted here too, or every live figure downstream of this
+  // function (today's Cash/UPI totals, Reconciliation's Expected
+  // amount, the Daily Report's three tables) keeps double-counting a
+  // refund that no longer applies. Excluded entirely rather than kept
+  // at zero, since for "what actually moved today" purposes a
+  // cancelled refund is exactly as if it never happened -- the
+  // permanent record of it having existed and been reversed lives on
+  // the bill print and payment registers instead, not here.
+  const refundIds = rows.filter((p) => p.payment_type === 'refund').map((p) => p.id);
+  const hospitalRefundIds = refundIds.filter((id) => !String(id).startsWith('optical-'));
+  const opticalRefundIds = refundIds.filter((id) => String(id).startsWith('optical-')).map((id) => id.replace('optical-', ''));
+  const [{ data: cancelledHospital }, { data: cancelledOptical }] = await Promise.all([
+    hospitalRefundIds.length > 0
+      ? supabase.from('payment_refunds').select('refund_payment_id').in('refund_payment_id', hospitalRefundIds).not('cancelled_at', 'is', null)
+      : Promise.resolve({ data: [] }),
+    opticalRefundIds.length > 0
+      ? supabase.from('optical_payment_refunds').select('refund_payment_id').in('refund_payment_id', opticalRefundIds).not('cancelled_at', 'is', null)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const cancelledIds = new Set([
+    ...(cancelledHospital || []).map((r) => r.refund_payment_id),
+    ...(cancelledOptical || []).map((r) => `optical-${r.refund_payment_id}`),
+  ]);
+  rows = rows.filter((p) => !cancelledIds.has(p.id));
 
   const isRefund = (p) => p.payment_type === 'refund';
   // advance_adjustment and credit_note both insert a payments row dated

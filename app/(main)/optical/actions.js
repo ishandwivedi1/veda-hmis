@@ -615,14 +615,27 @@ export async function getOpticalDashboardSummary() {
     // payment_type='refund' and a positive total_amount, mirroring a sale_payment/
     // advance row exactly. Dropping it from the .in() list (as before) meant a same-day
     // refund was silently ignored instead of subtracted, overstating cash collected.
-    supabase.from('optical_payments').select('total_amount, payment_type, optical_payment_modes(mode, amount)')
+    supabase.from('optical_payments').select('id, total_amount, payment_type, optical_payment_modes(mode, amount)')
       .in('payment_type', ['sale_payment', 'advance', 'refund']).gte('collected_at', `${today}T00:00:00+05:30`).lte('collected_at', `${today}T23:59:59+05:30`),
   ]);
 
   const outstandingBills = (outstandingRows || []).map(shapeSale);
+
+  // A cancelled refund (cancelOpticalRefund) already had its effect
+  // reversed at the source -- subtracting it here too would double
+  // count it and understate today's collected total. Excluded the
+  // same way getTodayCollectionSummary is (see cash-management/actions.js).
+  const todayRefundIds = (todayPayments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
+  let cancelledRefundIds = new Set();
+  if (todayRefundIds.length > 0) {
+    const { data: cancelledRefunds } = await supabase
+      .from('optical_payment_refunds').select('refund_payment_id').in('refund_payment_id', todayRefundIds).not('cancelled_at', 'is', null);
+    cancelledRefundIds = new Set((cancelledRefunds || []).map((r) => r.refund_payment_id));
+  }
+
   const todayByMode = {};
   let todayCollected = 0;
-  (todayPayments || []).forEach((p) => {
+  (todayPayments || []).filter((p) => !cancelledRefundIds.has(p.id)).forEach((p) => {
     const sign = p.payment_type === 'refund' ? -1 : 1;
     todayCollected += sign * (Number(p.total_amount) || 0);
     (p.optical_payment_modes || []).forEach((m) => { todayByMode[m.mode] = (todayByMode[m.mode] || 0) + sign * Number(m.amount); });
