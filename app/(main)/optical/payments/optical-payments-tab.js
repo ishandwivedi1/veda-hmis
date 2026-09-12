@@ -4,8 +4,10 @@ import { useState, useEffect, Fragment } from 'react';
 import {
   getOpticalPaymentsRegister,
   editOpticalPaymentClerical,
+  correctOpticalPaymentAmount,
   getOpticalPaymentEditHistory,
 } from '../actions';
+import { getMyDesignation } from '@/app/(main)/users/actions';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 const TYPE_COLORS = {
@@ -42,8 +44,12 @@ export default function OpticalPaymentsTab() {
   const [editHistory, setEditHistory] = useState([]);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [correctAmount, setCorrectAmount] = useState('');
+  const [correctReason, setCorrectReason] = useState('');
+  const [correcting, setCorrecting] = useState(false);
 
-  useEffect(() => { runSearch(); }, []);
+  useEffect(() => { runSearch(); getMyDesignation().then((d) => setIsAdmin(d === 'Administrator')); }, []);
 
   async function runSearch() {
     setLoading(true);
@@ -70,6 +76,8 @@ export default function OpticalPaymentsTab() {
     setEditReference(p.reference || '');
     setEditRemarks(p.remarks || '');
     setEditReason('');
+    setCorrectAmount('');
+    setCorrectReason('');
     try {
       setEditHistory(await getOpticalPaymentEditHistory(p.id));
     } catch (e) {
@@ -114,6 +122,22 @@ export default function OpticalPaymentsTab() {
   }
 
   const editModesTotal = Object.values(editModeAmounts).reduce((s, v) => s + (Number(v) || 0), 0);
+
+  async function handleCorrectAmount(p) {
+    setError('');
+    setCorrecting(true);
+    try {
+      const result = await correctOpticalPaymentAmount({ paymentId: p.id, newAmount: correctAmount, reason: correctReason });
+      if (result.error) { setError(result.error); return; }
+      setSuccessMsg(`${p.receipt_number} corrected to ${fmt(correctAmount)}.`);
+      setEditingId(null);
+      runSearch();
+    } catch (e) {
+      setError('Something went wrong correcting the amount -- check your connection and try again.');
+    } finally {
+      setCorrecting(false);
+    }
+  }
 
   return (
     <div className="card">
@@ -184,12 +208,39 @@ export default function OpticalPaymentsTab() {
                       <input className="fi fi-sm" value={editReason} onChange={(e) => setEditReason(e.target.value)} placeholder="Reason for this correction (required)" style={{ marginBottom: 10 }} />
                       <button className="btn btn-sm btn-primary" disabled={saving} onClick={() => saveEdit(p)}>{saving ? 'Saving...' : 'Save Correction'}</button>
 
+                      {isAdmin && p.payment_type !== 'refund' && (
+                        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed var(--g300)' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber, #b45309)', textTransform: 'uppercase', marginBottom: 6 }}>
+                            <i className="ti ti-alert-triangle"></i> Correct Amount (Administrator only)
+                          </div>
+                          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}>
+                            For a genuinely over-recorded amount (a typo) -- not a real refund. Reduces this payment, its mode split, and the bill's outstanding balance directly. Corrected amount must be less than {fmt(p.total_amount)}.
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                            <input
+                              className="fi fi-sm" type="number" style={{ maxWidth: 160 }}
+                              placeholder={`New amount (was ${fmt(p.total_amount)})`}
+                              value={correctAmount} onChange={(e) => setCorrectAmount(e.target.value)}
+                            />
+                            <input
+                              className="fi fi-sm" style={{ flex: 1, minWidth: 200 }}
+                              placeholder="Reason for correcting the amount (required)"
+                              value={correctReason} onChange={(e) => setCorrectReason(e.target.value)}
+                            />
+                          </div>
+                          <button className="btn btn-sm" style={{ background: 'var(--amber, #b45309)', color: '#fff', border: 'none' }} disabled={correcting} onClick={() => handleCorrectAmount(p)}>
+                            {correcting ? 'Correcting...' : 'Correct Amount'}
+                          </button>
+                        </div>
+                      )}
+
                       {editHistory.length > 0 && (
                         <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--g200)' }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', marginBottom: 6 }}>Edit History</div>
                           {editHistory.map((h) => (
                             <div key={h.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '3px 0' }}>
-                              {fmtDateTime(h.edited_at)} -- {h.profiles?.full_name || 'Unknown'} -- {h.reason}
+                              {fmtDateTime(h.edited_at)} -- {h.profiles?.full_name || 'Unknown'}
+                              {h.old_amount != null ? <> -- <strong style={{ color: 'var(--amber, #b45309)' }}>Amount corrected {fmt(h.old_amount)} to {fmt(h.new_amount)}</strong></> : ''} -- {h.reason}
                             </div>
                           ))}
                         </div>

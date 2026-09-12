@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { searchReceipts, editPaymentClerical, getPaymentEditHistory, resendPaymentReceiptWhatsApp, getReceiptById } from '../actions';
+import { searchReceipts, editPaymentClerical, correctPaymentAmount, getPaymentEditHistory, resendPaymentReceiptWhatsApp, getReceiptById } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
+import { getMyDesignation } from '@/app/(main)/users/actions';
 
 const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 const TYPE_BADGE = { invoice_payment: 'b-blue', advance: 'b-purple', advance_adjustment: 'b-amber', credit_note: 'b-teal' };
@@ -53,6 +54,12 @@ export default function ReceiptTab() {
   const savingRef = useRef(false);
   const [waStatus, setWaStatus] = useState({}); // { [receiptId]: 'sending'|'sent'|'warning'|'error' }
   const [waMsg, setWaMsg] = useState({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [correctAmount, setCorrectAmount] = useState('');
+  const [correctReason, setCorrectReason] = useState('');
+  const [correcting, setCorrecting] = useState(false);
+
+  useEffect(() => { getMyDesignation().then((d) => setIsAdmin(d === 'Administrator')); }, []);
 
   async function handleSendWhatsApp(receiptId) {
     setWaStatus((s) => ({ ...s, [receiptId]: 'sending' }));
@@ -102,6 +109,8 @@ export default function ReceiptTab() {
     setEditReference(fresh.payment.reference || '');
     setEditRemarks(fresh.payment.remarks || '');
     setEditReason('');
+    setCorrectAmount('');
+    setCorrectReason('');
     setEditHistory(history);
   }
 
@@ -143,6 +152,22 @@ export default function ReceiptTab() {
     setSuccess(`${receipt.receipt_number} updated.`);
     setEditingId(null);
     runSearch();
+  }
+
+  async function handleCorrectAmount(receipt) {
+    setError(''); setSuccess('');
+    setCorrecting(true);
+    try {
+      const result = await correctPaymentAmount({ paymentId: receipt.id, newAmount: correctAmount, reason: correctReason });
+      if (result.error) { setError(result.error); return; }
+      setSuccess(`${receipt.receipt_number} corrected to Rs.${Number(correctAmount).toFixed(2)}.`);
+      setEditingId(null);
+      runSearch();
+    } catch (e) {
+      setError('Something went wrong correcting the amount -- check your connection and try again.');
+    } finally {
+      setCorrecting(false);
+    }
   }
 
   return (
@@ -272,12 +297,39 @@ export default function ReceiptTab() {
                       </div>
                       </>}
 
+                      {isAdmin && r.payment_type !== 'refund' && !loadingEdit && (
+                        <div style={{ marginTop: 6, marginBottom: 14, paddingTop: 12, borderTop: '1px dashed var(--g300)' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber, #b45309)', textTransform: 'uppercase', marginBottom: 6 }}>
+                            <i className="ti ti-alert-triangle"></i> Correct Amount (Administrator only)
+                          </div>
+                          <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}>
+                            For a genuinely over-recorded amount (a typo) -- not a real refund. Reduces this payment, every invoice it was allocated against, and the outstanding balance directly. Corrected amount must be less than Rs.{r.total_amount}.
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                            <input
+                              className="fi" style={{ maxWidth: 160 }} type="number"
+                              placeholder={`New amount (was Rs.${r.total_amount})`}
+                              value={correctAmount} onChange={(e) => setCorrectAmount(e.target.value)}
+                            />
+                            <input
+                              className="fi" style={{ flex: 1, minWidth: 200 }}
+                              placeholder="Reason for correcting the amount (required)"
+                              value={correctReason} onChange={(e) => setCorrectReason(e.target.value)}
+                            />
+                          </div>
+                          <button className="btn btn-sm" style={{ background: 'var(--amber, #b45309)', color: '#fff', border: 'none' }} disabled={correcting} onClick={() => handleCorrectAmount(r)}>
+                            {correcting ? 'Correcting...' : 'Correct Amount'}
+                          </button>
+                        </div>
+                      )}
+
                       {!loadingEdit && editHistory.length > 0 && (
                         <div>
                           <label className="flbl" style={{ marginBottom: 6 }}>Edit history</label>
                           {editHistory.map((h) => (
                             <div key={h.id} style={{ fontSize: 11, color: 'var(--g500)', padding: '4px 0', borderBottom: '1px solid var(--g200)' }}>
-                              {new Date(h.edited_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} -- {h.profiles?.full_name || 'Staff'} -- {h.reason}
+                              {new Date(h.edited_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} -- {h.profiles?.full_name || 'Staff'}
+                              {h.old_amount != null ? <> -- <strong style={{ color: 'var(--amber, #b45309)' }}>Amount corrected Rs.{h.old_amount} to Rs.{h.new_amount}</strong></> : ''} -- {h.reason}
                             </div>
                           ))}
                         </div>

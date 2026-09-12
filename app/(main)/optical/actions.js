@@ -6,6 +6,7 @@ import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { searchPatientsForInvoice } from '@/app/(main)/billing/actions';
 import { getApprovers } from '@/app/(main)/payments/actions';
 import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
+import { requireAdministrator } from '@/lib/adminGuard';
 
 export { searchPatientsForInvoice, getApprovers };
 
@@ -466,6 +467,30 @@ export async function editOpticalPaymentClerical({ paymentId, modes, reference, 
   const { data, error } = await supabase.rpc('edit_optical_payment_clerical', {
     p_payment_id: paymentId, p_modes: clean, p_reference: reference || null, p_remarks: remarks || null,
     p_reason: reason.trim(), p_expected_mode_count: typeof expectedModeCount === 'number' ? expectedModeCount : null,
+  });
+  if (error) return { error: error.message };
+  return { success: true, payment: data };
+}
+
+// Administrator-only correction for a genuinely over-recorded amount
+// (a typo, not a real refund) -- e.g. Rs.1400 was keyed in when only
+// Rs.900 was actually received. Reduces the payment (and its mode
+// split, and the sale's own paid/outstanding) directly, fully logged
+// in optical_payment_edits with the old and new amount -- as opposed
+// to Refund, which is for money that was genuinely handed back.
+// Correcting a live invoice is meaningfully different from
+// backdating (a new fact becoming known), which is why this needs its
+// own Administrator gate rather than reusing resolveBackdatedCollection.
+export async function correctOpticalPaymentAmount({ paymentId, newAmount, reason }) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: 'Only an Administrator can correct a payment amount.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required to correct a payment amount.' };
+  const amt = Number(newAmount);
+  if (!amt || amt <= 0) return { error: 'Enter a valid corrected amount.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('correct_optical_payment_amount', {
+    p_payment_id: paymentId, p_new_amount: amt, p_reason: reason.trim(),
   });
   if (error) return { error: error.message };
   return { success: true, payment: data };

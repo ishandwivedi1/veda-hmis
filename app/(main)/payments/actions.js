@@ -9,6 +9,7 @@ import { sendAdvanceReceiptWhatsApp, sendPaymentReceiptWhatsApp, formatDateOnlyI
 import { generateReceiptPdfBuffer } from '@/lib/pdf-generator';
 import { logJourneyEvent } from '@/lib/journey-events';
 import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
+import { requireAdministrator } from '@/lib/adminGuard';
 
 // Everything the Payments Dashboard needs, fetched in parallel -- one
 // round trip per query, not sequential, since this loads on every visit
@@ -201,6 +202,27 @@ export async function editPaymentClerical(paymentId, modes, reference, remarks, 
   });
   if (error) return { error: error.message };
   return { success: true };
+}
+
+// Administrator-only correction for a genuinely over-recorded amount --
+// see optical's correctOpticalPaymentAmount for the full reasoning.
+// Reduces the payment, its mode split, every invoice it was allocated
+// against (proportionally, since one payment can span several
+// invoices), and any advance-ledger credit it produced -- fully logged
+// in payment_edits with the old and new amount.
+export async function correctPaymentAmount({ paymentId, newAmount, reason }) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: 'Only an Administrator can correct a payment amount.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required to correct a payment amount.' };
+  const amt = Number(newAmount);
+  if (!amt || amt <= 0) return { error: 'Enter a valid corrected amount.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('correct_payment_amount', {
+    p_payment_id: paymentId, p_new_amount: amt, p_reason: reason.trim(),
+  });
+  if (error) return { error: error.message };
+  return { success: true, payment: data };
 }
 
 export async function getPaymentEditHistory(paymentId) {
