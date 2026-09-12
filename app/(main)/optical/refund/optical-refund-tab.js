@@ -9,7 +9,9 @@ import {
   refundOpticalAdvance,
   refundOpticalPayment,
   getOpticalRefundRegister,
+  cancelOpticalRefund,
 } from '../actions';
+import { getMyDesignation } from '@/app/(main)/users/actions';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 
@@ -35,6 +37,10 @@ export default function OpticalRefundTab() {
   const [approvers, setApprovers] = useState([]);
 
   const [register, setRegister] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [cancelingId, setCancelingId] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelSaving, setCancelSaving] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
@@ -42,6 +48,7 @@ export default function OpticalRefundTab() {
   useEffect(() => {
     getApprovers().then(setApprovers);
     refreshRegister();
+    getMyDesignation().then((d) => setIsAdmin(d === 'Administrator'));
   }, []);
 
   async function refreshRegister() {
@@ -49,6 +56,21 @@ export default function OpticalRefundTab() {
       setRegister(await getOpticalRefundRegister());
     } catch (e) {
       // Non-critical background refresh -- leave the existing list showing.
+    }
+  }
+
+  async function handleCancelRefund(r) {
+    setCancelSaving(true);
+    try {
+      const result = await cancelOpticalRefund({ refundId: r.id, reason: cancelReason });
+      if (result.error) { setError(result.error); return; }
+      setCancelingId(null);
+      setCancelReason('');
+      refreshRegister();
+    } catch (e) {
+      setError('Something went wrong cancelling this refund -- check your connection and try again.');
+    } finally {
+      setCancelSaving(false);
     }
   }
 
@@ -216,6 +238,29 @@ export default function OpticalRefundTab() {
               </div>
               <div style={{ color: 'var(--g500)' }}>{r.customerName} -- {r.optical_sales?.sale_number || 'Advance'} -- {fmtDateTime(r.refunded_at)}</div>
               <div style={{ color: 'var(--g400)', fontSize: 11 }}>{r.reason}</div>
+              {r.cancelled_at ? (
+                <div style={{ color: 'var(--red)', fontSize: 11, fontWeight: 600, marginTop: 4 }}>
+                  <i className="ti ti-ban"></i> Cancelled -- {r.cancellation_reason}
+                </div>
+              ) : isAdmin && (
+                cancelingId === r.id ? (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                    <input
+                      className="fi fi-sm" style={{ flex: 1, minWidth: 160 }}
+                      placeholder="Reason for cancelling this refund (required)"
+                      value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}
+                    />
+                    <button className="btn btn-sm" style={{ background: 'var(--red)', color: '#fff', border: 'none' }} disabled={cancelSaving} onClick={() => handleCancelRefund(r)}>
+                      {cancelSaving ? 'Cancelling...' : 'Confirm'}
+                    </button>
+                    <button className="btn btn-sm" onClick={() => { setCancelingId(null); setCancelReason(''); }}>Back</button>
+                  </div>
+                ) : (
+                  <button className="btn btn-sm" style={{ marginTop: 6, color: 'var(--amber, #b45309)' }} onClick={() => setCancelingId(r.id)}>
+                    <i className="ti ti-ban"></i> Cancel Refund (Administrator only)
+                  </button>
+                )
+              )}
             </div>
           ))
         )}

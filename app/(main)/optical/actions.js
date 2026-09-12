@@ -115,7 +115,30 @@ export async function getOpticalSaleDetail(saleId) {
     supabase.from('optical_sale_items').select('*').eq('sale_id', saleId).order('created_at', { ascending: true }),
     supabase.from('optical_payments').select('*, optical_payment_modes(*)').eq('sale_id', saleId).order('collected_at', { ascending: true }),
   ]);
-  return { sale: shapeSale(sale), items: items || [], payments: payments || [] };
+
+  // A refund's cancellation status lives on optical_payment_refunds
+  // (keyed by refund_payment_id), not on the optical_payments row
+  // itself -- cancelling a refund never touches or hides the original
+  // receipt, it's flagged here so the bill can show "(Cancelled)"
+  // next to it instead of silently including or excluding the amount.
+  const refundPaymentIds = (payments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
+  let cancelledByRefundPaymentId = {};
+  if (refundPaymentIds.length > 0) {
+    const { data: refundRows } = await supabase
+      .from('optical_payment_refunds')
+      .select('refund_payment_id, cancelled_at, cancellation_reason')
+      .in('refund_payment_id', refundPaymentIds);
+    (refundRows || []).forEach((r) => {
+      if (r.cancelled_at) cancelledByRefundPaymentId[r.refund_payment_id] = r.cancellation_reason;
+    });
+  }
+  const paymentsWithCancellation = (payments || []).map((p) => (
+    cancelledByRefundPaymentId[p.id] !== undefined
+      ? { ...p, cancelledRefundReason: cancelledByRefundPaymentId[p.id] }
+      : p
+  ));
+
+  return { sale: shapeSale(sale), items: items || [], payments: paymentsWithCancellation };
 }
 
 // Browsable default list for the Collect Payment tab's sidebar -- every
@@ -417,6 +440,28 @@ export async function getOpticalRefundRegister() {
     .order('refunded_at', { ascending: false })
     .limit(50);
   return (data || []).map((r) => ({ ...r, customerName: r.patients ? formatPatientName(r.patients) : r.optical_customers?.name }));
+}
+
+// Administrator-only -- for a refund that turns out to have been
+// unnecessary (e.g. the "corrected" amount was actually right all
+// along, discovered only after the refund was already issued). Never
+// deletes the refund row -- same immutability principle as everything
+// else this session -- just flags it cancelled and reverses its
+// effect on the sale's paid/outstanding. The original refund-type
+// optical_payments row (the receipt) is untouched; getOpticalSaleDetail
+// and the bill print both need to check cancelled_at on this table to
+// know to flag that receipt as cancelled rather than hide it.
+export async function cancelOpticalRefund({ refundId, reason }) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: 'Only an Administrator can cancel a refund.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required to cancel a refund.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('cancel_optical_refund', {
+    p_refund_id: refundId, p_reason: reason.trim(),
+  });
+  if (error) return { error: error.message };
+  return { success: true, refund: data };
 }
 
 // ---------- Payments register (view + clerical edit) ----------

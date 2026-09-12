@@ -286,6 +286,22 @@ export async function getRefundRegister() {
   return data || [];
 }
 
+// Administrator-only -- see optical's cancelOpticalRefund for the full
+// reasoning. Never deletes the refund row -- flags it cancelled and
+// reverses its effect on the invoice's paid/outstanding.
+export async function cancelPaymentRefund({ refundId, reason }) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: 'Only an Administrator can cancel a refund.' };
+  if (!reason || !reason.trim()) return { error: 'A reason is required to cancel a refund.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('cancel_payment_refund', {
+    p_refund_id: refundId, p_reason: reason.trim(),
+  });
+  if (error) return { error: error.message };
+  return { success: true, refund: data };
+}
+
 export async function searchPatientsForPayment(q) {
   if (!q) return [];
   const supabase = await createClient();

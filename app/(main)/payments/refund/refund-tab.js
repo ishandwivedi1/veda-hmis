@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, refundPayment, refundAdvance, getRefundRegister, getTodaysVisits } from '../actions';
+import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, refundPayment, refundAdvance, getRefundRegister, cancelPaymentRefund, getTodaysVisits } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
+import { getMyDesignation } from '@/app/(main)/users/actions';
 
 const REASONS = ['Excess payment', 'Cancelled service', 'Duplicate payment', 'Service not rendered', 'Patient request -- approved', 'Other approved reason'];
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -28,15 +29,37 @@ export default function RefundTab() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [todaysVisits, setTodaysVisits] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [cancelingId, setCancelingId] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelSaving, setCancelSaving] = useState(false);
+  const [cancelError, setCancelError] = useState('');
 
   useEffect(() => {
     getApprovers().then(setApprovers);
     refreshRegister();
     getTodaysVisits().then(setTodaysVisits);
+    getMyDesignation().then((d) => setIsAdmin(d === 'Administrator'));
   }, []);
 
   async function refreshRegister() {
     setRegister(await getRefundRegister());
+  }
+
+  async function handleCancelRefund(r) {
+    setCancelError('');
+    setCancelSaving(true);
+    try {
+      const result = await cancelPaymentRefund({ refundId: r.id, reason: cancelReason });
+      if (result.error) { setCancelError(result.error); return; }
+      setCancelingId(null);
+      setCancelReason('');
+      refreshRegister();
+    } catch (e) {
+      setCancelError('Something went wrong cancelling this refund -- check your connection and try again.');
+    } finally {
+      setCancelSaving(false);
+    }
   }
 
   async function handleSearch() {
@@ -256,8 +279,9 @@ export default function RefundTab() {
           <i className="ti ti-history" style={{ color: 'var(--amber)' }}></i> Refund Register
         </div>
         <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+          {cancelError && <div className="msg-err">{cancelError}</div>}
           <table className="tbl">
-            <thead><tr><th>Patient</th><th>Invoice</th><th>Amount</th><th>Mode</th><th>Reason</th><th>Approved By</th></tr></thead>
+            <thead><tr><th>Patient</th><th>Invoice</th><th>Amount</th><th>Mode</th><th>Reason</th><th>Approved By</th><th></th></tr></thead>
             <tbody>
               {register.map((r) => (
                 <tr key={r.id}>
@@ -267,10 +291,27 @@ export default function RefundTab() {
                   <td style={{ fontSize: 11 }}>{r.refund_mode || '--'}</td>
                   <td style={{ fontSize: 11 }}>{r.reason}</td>
                   <td style={{ fontSize: 11 }}>{r.profiles?.full_name || '--'}</td>
+                  <td style={{ fontSize: 11 }}>
+                    {r.cancelled_at ? (
+                      <span style={{ color: 'var(--red)', fontWeight: 600 }}><i className="ti ti-ban"></i> Cancelled -- {r.cancellation_reason}</span>
+                    ) : isAdmin && (
+                      cancelingId === r.id ? (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <input className="fi fi-sm" style={{ width: 140 }} placeholder="Reason (required)" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+                          <button className="btn btn-sm" style={{ background: 'var(--red)', color: '#fff', border: 'none' }} disabled={cancelSaving} onClick={() => handleCancelRefund(r)}>{cancelSaving ? '...' : 'OK'}</button>
+                          <button className="btn btn-sm" onClick={() => { setCancelingId(null); setCancelReason(''); }}>x</button>
+                        </div>
+                      ) : (
+                        <button className="btn btn-sm" style={{ color: 'var(--amber, #b45309)' }} onClick={() => setCancelingId(r.id)}>
+                          <i className="ti ti-ban"></i> Cancel (Admin)
+                        </button>
+                      )
+                    )}
+                  </td>
                 </tr>
               ))}
               {register.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No refunds processed yet.</td></tr>
+                <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No refunds processed yet.</td></tr>
               )}
             </tbody>
           </table>
