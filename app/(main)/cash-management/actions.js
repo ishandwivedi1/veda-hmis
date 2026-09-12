@@ -966,19 +966,31 @@ export async function getReconciliationLockStatus(date) {
   return data ? { locked: true, lockedBy: data.profiles?.full_name || null, lockedAt: data.locked_at } : { locked: false, lockedBy: null, lockedAt: null };
 }
 
-export async function lockReconciliation() {
-  const dayOpenError = await requireDayOpen();
-  if (dayOpenError) return dayOpenError;
+// date optional -- defaults to today. Generalized the same way
+// recordClosingCash/confirmCashCounter/closeDay already are, so the
+// Close a Past Day flow can lock a backdated day's reconciliation too.
+// Before this, lockReconciliation() always used todayIST() regardless
+// of what date the caller was actually working on -- if a day's lock
+// was ever removed (via unlockReconciliation, same bug) before it
+// rolled into "yesterday", there was no way to lock it again: Cash
+// Counter (recordClosingCash/confirmCashCounter) requires the lock for
+// that specific date, but nothing could ever set it for a past date,
+// permanently stranding that day at Step 2 with no path to Close Day.
+export async function lockReconciliation(date) {
+  const targetDate = date || todayIST();
   const supabase = await createClient();
-  const today = todayIST();
+  // Same generalized check recordClosingCash/confirmCashCounter use
+  // instead of requireDayOpen() (which only ever asks about today).
+  const { data: openingRow } = await supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle();
+  if (!openingRow) return { error: `${targetDate} hasn't been opened -- can't lock its reconciliation.` };
 
-  // Every mode with today's collection activity must already be
+  // Every mode with that day's collection activity must already be
   // reconciled (saved) before Step 1 can be marked complete -- same
   // completeness idea close_day itself enforces for the whole day.
   const [summary, pettyCashTotal, { data: saved }] = await Promise.all([
-    getTodayCollectionSummary(today),
-    getPettyCashTotal(today),
-    supabase.from('day_reconciliation').select('mode').eq('closing_date', today),
+    getTodayCollectionSummary(targetDate),
+    getPettyCashTotal(targetDate),
+    supabase.from('day_reconciliation').select('mode').eq('closing_date', targetDate),
   ]);
   const modes = new Set(Object.keys(summary.byMode));
   if (pettyCashTotal > 0) modes.add('Cash');
@@ -990,16 +1002,16 @@ export async function lockReconciliation() {
 
   const { data: userData } = await supabase.auth.getUser();
   const { error } = await supabase.from('reconciliation_locks').upsert(
-    { lock_date: today, locked_by: userData?.user?.id || null }, { onConflict: 'lock_date' }
+    { lock_date: targetDate, locked_by: userData?.user?.id || null }, { onConflict: 'lock_date' }
   );
   if (error) return { error: error.message };
   return { success: true };
 }
 
-export async function unlockReconciliation() {
+export async function unlockReconciliation(date) {
+  const targetDate = date || todayIST();
   const supabase = await createClient();
-  const today = todayIST();
-  const { error } = await supabase.from('reconciliation_locks').delete().eq('lock_date', today);
+  const { error } = await supabase.from('reconciliation_locks').delete().eq('lock_date', targetDate);
   if (error) return { error: error.message };
   return { success: true };
 }

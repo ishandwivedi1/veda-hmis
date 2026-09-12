@@ -294,6 +294,10 @@ export default function CashManagementClient({ initialData }) {
   const [pastLoading, setPastLoading] = useState(false);
   const [pastCounter, setPastCounter] = useState(null);
   const [pastClosingInput, setPastClosingInput] = useState('');
+  // Mirrors reconLock above, but for the specific backdated date this
+  // flow is closing -- see lockReconciliation()'s comment for why this
+  // couldn't be tracked at all before (there was no dated lock to read).
+  const [pastReconLock, setPastReconLock] = useState({ locked: false });
 
   const [reconEdits, setReconEdits] = useState({});
   const [reconApprover, setReconApprover] = useState('');
@@ -541,6 +545,27 @@ export default function CashManagementClient({ initialData }) {
     setPastSummary(summaryData);
     setPastReconRows(await getReconciliationData(date, summaryData));
     setPastCounter(await getCashCounterForDate(date));
+    setPastReconLock(await getReconciliationLockStatus(date));
+  }
+
+  async function refreshPastReconciliation() {
+    setPastReconRows(await getReconciliationData(closingPastDate, pastSummary));
+    setPastReconLock(await getReconciliationLockStatus(closingPastDate));
+  }
+
+  async function handleLockPastReconciliation() {
+    setError(''); setSuccess('');
+    const result = await lockReconciliation(closingPastDate);
+    if (result.error) { setError(result.error); return; }
+    setSuccess(`Reconciliation closed for ${closingPastDate}.`);
+    refreshPastReconciliation();
+  }
+
+  async function handleUnlockPastReconciliation() {
+    setError(''); setSuccess('');
+    const result = await unlockReconciliation(closingPastDate);
+    if (result.error) { setError(result.error); return; }
+    refreshPastReconciliation();
   }
 
   async function refreshPastCounter() {
@@ -936,7 +961,17 @@ export default function CashManagementClient({ initialData }) {
                   <button className="btn btn-sm" onClick={() => setClosingPastDate(null)}>Back to list</button>
                 </div>
 
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 6 }}><span className="badge b-gray" style={{ marginRight: 6 }}>Step 1</span>Cash Reconciliation</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}><span className="badge b-gray" style={{ marginRight: 6 }}>Step 1</span>Cash Reconciliation</div>
+                  {pastReconLock.locked && (
+                    <button className="btn btn-sm" onClick={handleUnlockPastReconciliation}><i className="ti ti-lock-open"></i> Unlock</button>
+                  )}
+                </div>
+                {pastReconLock.locked && (
+                  <div className="msg-info" style={{ background: 'var(--green-lt)', color: 'var(--green)', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 10 }}>
+                    <i className="ti ti-circle-check"></i> Reconciliation closed{pastReconLock.lockedBy ? ` by ${pastReconLock.lockedBy}` : ''} for {closingPastDate} -- Cash Counter (Step 2) is now unlocked below. Use Unlock above if you need to change anything here.
+                  </div>
+                )}
                 <div style={{ display: 'flex', padding: '8px 12px', background: 'var(--g50)', borderRadius: 8, marginBottom: 6, fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase' }}>
                   <span style={{ minWidth: 140 }}>Mode</span>
                   <span style={{ minWidth: 130, textAlign: 'right' }}>Expected</span>
@@ -954,18 +989,18 @@ export default function CashManagementClient({ initialData }) {
                         <span style={{ minWidth: 140, fontWeight: 600, fontSize: 13 }}>{row.mode}</span>
                         <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>{fmt(row.expected)}</span>
                         <span style={{ flex: 1, textAlign: 'center' }}>
-                          <input type="number" className="fi fi-sm" style={{ maxWidth: 140, textAlign: 'right', display: 'inline-block' }} value={editedActual}
+                          <input type="number" className="fi fi-sm" style={{ maxWidth: 140, textAlign: 'right', display: 'inline-block' }} value={editedActual} disabled={pastReconLock.locked}
                             onChange={(e) => updatePastReconField(row.mode, 'actual', e.target.value)} />
                         </span>
                         <span style={{ minWidth: 130, textAlign: 'right', fontWeight: 700, color: hasVariance ? 'var(--red)' : 'var(--g400)' }}>
                           {hasVariance ? (variance > 0 ? '+' : '') + fmt(variance) : fmt(0)}
                         </span>
                         <span style={{ minWidth: 90, textAlign: 'right' }}>
-                          <button className="btn btn-sm btn-primary" onClick={() => handleSavePastRecon(row)}>Save</button>
+                          {!pastReconLock.locked && <button className="btn btn-sm btn-primary" onClick={() => handleSavePastRecon(row)}>Save</button>}
                           {row.saved && <span className="badge b-green" style={{ marginLeft: 6 }}>Saved</span>}
                         </span>
                       </div>
-                      {hasVariance && (
+                      {hasVariance && !pastReconLock.locked && (
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                           <input className="fi fi-sm" placeholder="Variance reason" value={pastReconEdits[row.mode]?.reason !== undefined ? pastReconEdits[row.mode].reason : row.reason}
                             onChange={(e) => updatePastReconField(row.mode, 'reason', e.target.value)} />
@@ -979,13 +1014,16 @@ export default function CashManagementClient({ initialData }) {
                   );
                 })}
                 {pastReconRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--g400)' }}>No collections recorded for this date -- nothing to reconcile.</div>}
+                {!pastReconLock.locked && pastReconRows.length > 0 && (
+                  <button className="btn btn-primary" style={{ marginTop: 8, marginBottom: 14 }} onClick={handleLockPastReconciliation}><i className="ti ti-lock"></i> Close Reconciliation</button>
+                )}
 
                 {pastCounter && (
                   <div style={{ marginTop: 20, padding: 14, background: 'var(--g50)', borderRadius: 8 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', marginBottom: 10 }}><span className="badge b-gray" style={{ marginRight: 6 }}>Step 2</span>Cash Counter</div>
 
-                    {!pastReconRows.every((r) => r.saved) ? (
-                      <div style={{ fontSize: 12.5, color: 'var(--g500)' }}><i className="ti ti-lock" style={{ color: 'var(--g400)' }}></i> Save reconciliation for every mode above first.</div>
+                    {!pastReconLock.locked ? (
+                      <div style={{ fontSize: 12.5, color: 'var(--g500)' }}><i className="ti ti-lock" style={{ color: 'var(--g400)' }}></i> Close Reconciliation (Step 1) above first.</div>
                     ) : (
                       <>
                         <div style={{ display: 'flex', gap: 24, marginBottom: 14, flexWrap: 'wrap' }}>
