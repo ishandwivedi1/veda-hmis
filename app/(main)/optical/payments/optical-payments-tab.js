@@ -162,14 +162,19 @@ export default function OpticalPaymentsTab() {
           <tbody>
             {payments.map((p) => (
               <Fragment key={p.id}>
-                <tr>
+                <tr style={p.cancelledRefundReason !== undefined ? { opacity: 0.6 } : undefined}>
                   <td style={{ fontFamily: 'monospace' }}>{p.receipt_number}</td>
                   <td style={{ fontSize: 12 }}>{fmtDateTime(p.collected_at)}</td>
                   <td>{p.optical_sales?.sale_number || '--'}</td>
                   <td>{p.displayName}</td>
-                  <td><span style={{ color: TYPE_COLORS[p.payment_type], fontWeight: 600, fontSize: 12 }}>{p.typeLabel}</span></td>
+                  <td>
+                    <span style={{ color: TYPE_COLORS[p.payment_type], fontWeight: 600, fontSize: 12, textDecoration: p.cancelledRefundReason !== undefined ? 'line-through' : 'none' }}>{p.typeLabel}</span>
+                    {p.cancelledRefundReason !== undefined && (
+                      <div style={{ fontSize: 10, color: 'var(--red)', fontWeight: 700 }}>CANCELLED -- {p.cancelledRefundReason}</div>
+                    )}
+                  </td>
                   <td style={{ fontSize: 12 }}>{(p.optical_payment_modes || []).map((m) => m.mode).join('+') || '--'}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(p.total_amount)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, textDecoration: p.cancelledRefundReason !== undefined ? 'line-through' : 'none' }}>{fmt(p.total_amount)}</td>
                   <td style={{ display: 'flex', gap: 6 }}>
                     <a href={`/optical-payment-receipt-print/${p.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>
                       <i className="ti ti-printer"></i>

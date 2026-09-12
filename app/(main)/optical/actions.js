@@ -492,10 +492,29 @@ export async function getOpticalPaymentsRegister({ fromDate, toDate, query }) {
   if (query && query.trim()) q = q.or(`receipt_number.ilike.%${query.trim()}%,reference.ilike.%${query.trim()}%`);
   const { data, error } = await q;
   if (error) return { error: error.message, payments: [] };
+
+  // Same lookup as getOpticalSaleDetail -- a refund's cancellation
+  // status lives on optical_payment_refunds, not on this row itself,
+  // so without this join a cancelled refund looked completely
+  // unchanged in this register even though its financial effect had
+  // already been reversed.
+  const refundPaymentIds = (data || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
+  let cancelledByRefundPaymentId = {};
+  if (refundPaymentIds.length > 0) {
+    const { data: refundRows } = await supabase
+      .from('optical_payment_refunds')
+      .select('refund_payment_id, cancelled_at, cancellation_reason')
+      .in('refund_payment_id', refundPaymentIds);
+    (refundRows || []).forEach((r) => {
+      if (r.cancelled_at) cancelledByRefundPaymentId[r.refund_payment_id] = r.cancellation_reason;
+    });
+  }
+
   const payments = (data || []).map((p) => ({
     ...p,
     typeLabel: PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type,
     displayName: p.patients ? formatPatientName(p.patients) : (p.optical_customers?.name || '--'),
+    cancelledRefundReason: cancelledByRefundPaymentId[p.id],
   }));
   return { payments };
 }

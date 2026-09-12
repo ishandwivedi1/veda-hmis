@@ -212,14 +212,19 @@ export default function ReceiptTab() {
           <tbody>
             {sortedReceipts.map((r) => (
               <Fragment key={r.id}>
-                <tr>
+                <tr style={r.cancelledRefundReason !== undefined ? { opacity: 0.6 } : undefined}>
                   <td style={{ fontFamily: 'monospace', color: 'var(--blue)' }}>{r.receipt_number}</td>
                   <td>{new Date(r.collected_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                   <td style={{ fontWeight: 600 }}>{formatPatientName(r.patients)}</td>
                   <td style={{ fontSize: 11 }}>{(r.payment_allocations || []).map((a) => a.invoices?.invoice_number).filter(Boolean).join(', ') || '--'}</td>
                   <td style={{ fontSize: 11 }}>{(r.payment_modes || []).map((m) => `${m.mode} Rs.${m.amount}`).join(', ')}</td>
-                  <td style={{ fontWeight: 600 }}>Rs.{r.total_amount}</td>
-                  <td><span className={`badge ${TYPE_BADGE[r.payment_type] || 'b-gray'}`}>{TYPE_LABEL[r.payment_type] || r.payment_type || 'Payment'}</span></td>
+                  <td style={{ fontWeight: 600, textDecoration: r.cancelledRefundReason !== undefined ? 'line-through' : 'none' }}>Rs.{r.total_amount}</td>
+                  <td>
+                    <span className={`badge ${TYPE_BADGE[r.payment_type] || 'b-gray'}`} style={{ textDecoration: r.cancelledRefundReason !== undefined ? 'line-through' : 'none' }}>{TYPE_LABEL[r.payment_type] || r.payment_type || 'Payment'}</span>
+                    {r.cancelledRefundReason !== undefined && (
+                      <div style={{ fontSize: 10, color: 'var(--red)', fontWeight: 700, marginTop: 2 }}>CANCELLED -- {r.cancelledRefundReason}</div>
+                    )}
+                  </td>
                   <td style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button className="btn btn-sm" onClick={() => openPrintPopup(`/receipt-print/${r.id}`)}>
                       <i className="ti ti-printer"></i>

@@ -478,8 +478,26 @@ export async function searchReceipts(query, modeFilter, dateFrom, dateTo) {
   const { data: receipts } = await q;
   if (!receipts) return [];
 
-  if (!modeFilter) return receipts;
-  return receipts.filter((r) => (r.payment_modes || []).some((m) => m.mode === modeFilter));
+  // Same lookup as the optical side -- a refund's cancellation status
+  // lives on payment_refunds (keyed by refund_payment_id), not on this
+  // row, so without this a cancelled refund looked completely
+  // unchanged in this register even though its effect on the
+  // invoice's paid/outstanding had already been reversed.
+  const refundPaymentIds = receipts.filter((p) => p.payment_type === 'refund').map((p) => p.id);
+  let cancelledByRefundPaymentId = {};
+  if (refundPaymentIds.length > 0) {
+    const { data: refundRows } = await supabase
+      .from('payment_refunds')
+      .select('refund_payment_id, cancelled_at, cancellation_reason')
+      .in('refund_payment_id', refundPaymentIds);
+    (refundRows || []).forEach((r) => {
+      if (r.cancelled_at) cancelledByRefundPaymentId[r.refund_payment_id] = r.cancellation_reason;
+    });
+  }
+  const withCancellation = receipts.map((r) => ({ ...r, cancelledRefundReason: cancelledByRefundPaymentId[r.id] }));
+
+  if (!modeFilter) return withCancellation;
+  return withCancellation.filter((r) => (r.payment_modes || []).some((m) => m.mode === modeFilter));
 }
 
 export async function getReceiptById(paymentId) {
