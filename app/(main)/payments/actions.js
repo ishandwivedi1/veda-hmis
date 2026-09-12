@@ -8,6 +8,7 @@ import { sendInvoiceBill } from '@/app/(main)/billing/actions';
 import { sendAdvanceReceiptWhatsApp, sendPaymentReceiptWhatsApp, formatDateOnlyIST } from '@/lib/whatsapp';
 import { generateReceiptPdfBuffer } from '@/lib/pdf-generator';
 import { logJourneyEvent } from '@/lib/journey-events';
+import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
 
 // Everything the Payments Dashboard needs, fetched in parallel -- one
 // round trip per query, not sequential, since this loads on every visit
@@ -293,9 +294,13 @@ export async function getAdvanceBalance(patientId) {
   return data || 0;
 }
 
-export async function collectAdvance(patientId, advanceType, amount, modes, reference, remarks) {
-  const blocked = await requireDayOpen();
-  if (blocked) return blocked;
+export async function collectAdvance(patientId, advanceType, amount, modes, reference, remarks, backdateTo, backdateReason) {
+  const backdate = await resolveBackdatedCollection({ backdateTo, reason: backdateReason });
+  if (backdate.error) return { error: backdate.error };
+  if (!backdate.collectedAt) {
+    const blocked = await requireDayOpen();
+    if (blocked) return blocked;
+  }
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('collect_advance', {
     p_patient_id: patientId,
@@ -304,8 +309,15 @@ export async function collectAdvance(patientId, advanceType, amount, modes, refe
     p_modes: modes,
     p_reference: reference || null,
     p_remarks: remarks || null,
+    p_collected_at: backdate.collectedAt,
   });
   if (error) return { error: error.message };
+  if (backdate.collectedAt) {
+    await logBackdatedEntry({
+      module: 'hospital_advance', entryTable: 'payments', entryId: data.id,
+      backdatedTo: backdate.collectedAt, reason: backdateReason, adminId: backdate.adminId, amount,
+    });
+  }
 
   // Auto-send WhatsApp confirmation for advance payments only (regular
   // invoice payments are not auto-sent -- only via the manual Receipt
@@ -699,9 +711,13 @@ export async function getPaymentReport(reportId, fromDate, toDate) {
   return { title: 'Report', headers: [], rows: [], total: null };
 }
 
-export async function collectPayment(patientId, invoiceIds, amount, modes, reference, remarks) {
-  const blocked = await requireDayOpen();
-  if (blocked) return blocked;
+export async function collectPayment(patientId, invoiceIds, amount, modes, reference, remarks, backdateTo, backdateReason) {
+  const backdate = await resolveBackdatedCollection({ backdateTo, reason: backdateReason });
+  if (backdate.error) return { error: backdate.error };
+  if (!backdate.collectedAt) {
+    const blocked = await requireDayOpen();
+    if (blocked) return blocked;
+  }
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('collect_payment', {
     p_patient_id: patientId,
@@ -710,8 +726,15 @@ export async function collectPayment(patientId, invoiceIds, amount, modes, refer
     p_modes: modes,
     p_reference: reference || null,
     p_remarks: remarks || null,
+    p_collected_at: backdate.collectedAt,
   });
   if (error) return { error: error.message };
+  if (backdate.collectedAt) {
+    await logBackdatedEntry({
+      module: 'hospital_payment', entryTable: 'payments', entryId: data.id,
+      backdatedTo: backdate.collectedAt, reason: backdateReason, adminId: backdate.adminId, amount,
+    });
+  }
 
   // Log a journey event for whichever visit(s) this payment was
   // against -- one payment can span invoices from the same visit

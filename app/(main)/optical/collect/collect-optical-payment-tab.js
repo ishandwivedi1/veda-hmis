@@ -12,6 +12,7 @@ import {
   applyOpticalAdvanceAdjustment,
   getOutstandingOpticalBills,
 } from '../actions';
+import BackdateControl from '@/app/components/BackdateControl';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 
@@ -37,6 +38,7 @@ export default function CollectOpticalPaymentTab() {
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
   const [applyAdvanceAmt, setApplyAdvanceAmt] = useState('');
+  const [backdate, setBackdate] = useState({ backdateTo: '', backdateReason: '' });
 
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -123,13 +125,17 @@ export default function CollectOpticalPaymentTab() {
     setSaving(true);
     try {
       const modes = Object.entries(modeAmounts).filter(([, v]) => Number(v) > 0).map(([m, v]) => ({ mode: m, amount: v }));
-      const result = await collectOpticalPayment({ saleId: detail.sale.id, amount, modes, reference, remarks });
+      const result = await collectOpticalPayment({
+        saleId: detail.sale.id, amount, modes, reference, remarks,
+        backdateTo: backdate.backdateTo || null, backdateReason: backdate.backdateReason,
+      });
       if (result.error) { setError(result.error); return; }
       setSuccessMsg(`Payment recorded -- receipt ${result.payment.receipt_number}`);
       loadSale(detail.sale.id);
       refreshPendingBills();
       setReference('');
       setRemarks('');
+      setBackdate({ backdateTo: '', backdateReason: '' });
     } catch (e) {
       setError('Something went wrong recording the payment -- check your connection and try again.');
     } finally {
@@ -217,7 +223,9 @@ export default function CollectOpticalPaymentTab() {
                 <input className="fi" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" />
               </div>
 
-              <button className="btn btn-primary" disabled={saving} onClick={handleCollect}>
+              <BackdateControl value={backdate} onChange={setBackdate} />
+
+              <button className="btn btn-primary" style={{ marginTop: 10 }} disabled={saving} onClick={handleCollect}>
                 <i className="ti ti-cash"></i> {saving ? 'Recording...' : 'Collect Payment'}
               </button>
             </>

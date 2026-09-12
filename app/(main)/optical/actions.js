@@ -5,6 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { searchPatientsForInvoice } from '@/app/(main)/billing/actions';
 import { getApprovers } from '@/app/(main)/payments/actions';
+import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
 
 export { searchPatientsForInvoice, getApprovers };
 
@@ -175,9 +176,17 @@ export async function searchOpticalSaleHistory({ fromDate, toDate, status, query
 
 // ---------- Collect Payment ----------
 
-export async function collectOpticalPayment({ saleId, amount, modes, reference, remarks }) {
-  const dayOpenError = await requireDayOpen();
-  if (dayOpenError) return dayOpenError;
+export async function collectOpticalPayment({ saleId, amount, modes, reference, remarks, backdateTo, backdateReason }) {
+  // Backdating (Administrator only, mandatory reason, target day must
+  // not already be closed) replaces the normal today-only day-open
+  // check entirely -- requireDayOpen() only ever asks about today,
+  // which is the wrong question when posting to a specific past date.
+  const backdate = await resolveBackdatedCollection({ backdateTo, reason: backdateReason });
+  if (backdate.error) return { error: backdate.error };
+  if (!backdate.collectedAt) {
+    const dayOpenError = await requireDayOpen();
+    if (dayOpenError) return dayOpenError;
+  }
 
   const amt = Number(amount);
   if (!amt || amt <= 0) return { error: 'Enter a valid amount.' };
@@ -187,8 +196,15 @@ export async function collectOpticalPayment({ saleId, amount, modes, reference, 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('collect_optical_payment', {
     p_sale_id: saleId, p_amount: amt, p_modes: cleanModes, p_reference: reference || null, p_remarks: remarks || null,
+    p_collected_at: backdate.collectedAt,
   });
   if (error) return { error: error.message };
+  if (backdate.collectedAt) {
+    await logBackdatedEntry({
+      module: 'optical_payment', entryTable: 'optical_payments', entryId: data.id,
+      backdatedTo: backdate.collectedAt, reason: backdateReason, adminId: backdate.adminId, amount: amt,
+    });
+  }
   return { success: true, payment: data };
 }
 
@@ -210,9 +226,13 @@ export async function createWalkInOpticalCustomer(name, mobile) {
   return { success: true, customer: data };
 }
 
-export async function collectOpticalAdvance({ patientId, opticalCustomerId, amount, modes, reference, remarks }) {
-  const dayOpenError = await requireDayOpen();
-  if (dayOpenError) return dayOpenError;
+export async function collectOpticalAdvance({ patientId, opticalCustomerId, amount, modes, reference, remarks, backdateTo, backdateReason }) {
+  const backdate = await resolveBackdatedCollection({ backdateTo, reason: backdateReason });
+  if (backdate.error) return { error: backdate.error };
+  if (!backdate.collectedAt) {
+    const dayOpenError = await requireDayOpen();
+    if (dayOpenError) return dayOpenError;
+  }
 
   if (!patientId && !opticalCustomerId) return { error: 'Select a patient or customer.' };
   const amt = Number(amount);
@@ -224,8 +244,15 @@ export async function collectOpticalAdvance({ patientId, opticalCustomerId, amou
   const { data, error } = await supabase.rpc('collect_optical_advance', {
     p_patient_id: patientId || null, p_optical_customer_id: opticalCustomerId || null,
     p_amount: amt, p_modes: cleanModes, p_reference: reference || null, p_remarks: remarks || null,
+    p_collected_at: backdate.collectedAt,
   });
   if (error) return { error: error.message };
+  if (backdate.collectedAt) {
+    await logBackdatedEntry({
+      module: 'optical_advance', entryTable: 'optical_payments', entryId: data.id,
+      backdatedTo: backdate.collectedAt, reason: backdateReason, adminId: backdate.adminId, amount: amt,
+    });
+  }
   return { success: true, payment: data };
 }
 

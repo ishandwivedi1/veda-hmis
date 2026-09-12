@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { searchPatientsForPayment, getOutstandingInvoices, collectPayment, getAdvanceBalance, getPatientById, getAllUnpaidInvoices, applyAdjustment } from '../actions';
+import BackdateControl from '@/app/components/BackdateControl';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 const STATUS_BADGE = { Partial: 'b-amber', Pending: 'b-red' };
@@ -22,6 +23,7 @@ export default function CollectPaymentTab() {
   const [modeRows, setModeRows] = useState([{ mode: 'Cash', amount: '' }]);
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [backdate, setBackdate] = useState({ backdateTo: '', backdateReason: '' });
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -211,17 +213,25 @@ export default function CollectPaymentTab() {
     }
 
     setLoading(true);
-    const modesPayload = modeRows.filter((m) => parseFloat(m.amount) > 0).map((m) => ({ mode: m.mode, amount: parseFloat(m.amount) }));
-    const result = await collectPayment(selectedPatient.id, selectedInvoiceIds, amt, modesPayload, reference, remarks);
-    setLoading(false);
-
-    if (result.error) { setError(result.error); return; }
-    // Anything collected beyond the selected invoices' outstanding
-    // total was automatically credited to advance -- surface that so
-    // it's not a silent surprise.
-    const overpaid = amt - totalSelectedOutstanding;
-    setOverpaidAmount(overpaid > 0.01 ? overpaid : 0);
-    setReceipt(result.payment);
+    try {
+      const modesPayload = modeRows.filter((m) => parseFloat(m.amount) > 0).map((m) => ({ mode: m.mode, amount: parseFloat(m.amount) }));
+      const result = await collectPayment(
+        selectedPatient.id, selectedInvoiceIds, amt, modesPayload, reference, remarks,
+        backdate.backdateTo || null, backdate.backdateReason,
+      );
+      if (result.error) { setError(result.error); return; }
+      // Anything collected beyond the selected invoices' outstanding
+      // total was automatically credited to advance -- surface that so
+      // it's not a silent surprise.
+      const overpaid = amt - totalSelectedOutstanding;
+      setOverpaidAmount(overpaid > 0.01 ? overpaid : 0);
+      setReceipt(result.payment);
+      setBackdate({ backdateTo: '', backdateReason: '' });
+    } catch (e) {
+      setError('Something went wrong recording the payment -- check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Collecting from a specific invoice means this was reached via a
@@ -416,7 +426,9 @@ export default function CollectPaymentTab() {
               <input className="fi" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional..." />
             </div>
 
-            <button className="btn btn-green" onClick={handleCollect} disabled={loading}>
+            <BackdateControl value={backdate} onChange={setBackdate} />
+
+            <button className="btn btn-green" style={{ marginTop: 10 }} onClick={handleCollect} disabled={loading}>
               <i className="ti ti-circle-check"></i> {loading ? 'Finalizing...' : 'Finalize Payment'}
             </button>
           </div>

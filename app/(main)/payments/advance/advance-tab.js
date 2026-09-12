@@ -5,6 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { searchPatientsForPayment, getAdvanceBalance, collectAdvance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits, getPatientById } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
+import BackdateControl from '@/app/components/BackdateControl';
 
 const ADVANCE_TYPES = ['Surgery Advance', 'General Advance', 'Package Advance', 'Other'];
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -36,6 +37,7 @@ export default function AdvanceTab() {
   }, [amount]);
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [backdate, setBackdate] = useState({ backdateTo: '', backdateReason: '' });
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -130,13 +132,21 @@ export default function AdvanceTab() {
     }
 
     setLoading(true);
-    const modesPayload = modeRows.filter((m) => parseFloat(m.amount) > 0).map((m) => ({ mode: m.mode, amount: parseFloat(m.amount) }));
-    const result = await collectAdvance(selectedPatient.id, advanceType, amt, modesPayload, reference, remarks);
-    setLoading(false);
-
-    if (result.error) { setError(result.error); return; }
-    setSuccess(result.payment);
-    refreshSidebar();
+    try {
+      const modesPayload = modeRows.filter((m) => parseFloat(m.amount) > 0).map((m) => ({ mode: m.mode, amount: parseFloat(m.amount) }));
+      const result = await collectAdvance(
+        selectedPatient.id, advanceType, amt, modesPayload, reference, remarks,
+        backdate.backdateTo || null, backdate.backdateReason,
+      );
+      if (result.error) { setError(result.error); return; }
+      setSuccess(result.payment);
+      setBackdate({ backdateTo: '', backdateReason: '' });
+      refreshSidebar();
+    } catch (e) {
+      setError('Something went wrong recording the advance -- check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Collecting via a returnTo link (e.g. from OT Dashboard) means the
@@ -268,7 +278,9 @@ export default function AdvanceTab() {
               <input className="fi" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="e.g. Surgery scheduled 30 Jun..." />
             </div>
 
-            <button className="btn btn-green" onClick={handleCollect} disabled={loading}>
+            <BackdateControl value={backdate} onChange={setBackdate} />
+
+            <button className="btn btn-green" style={{ marginTop: 10 }} onClick={handleCollect} disabled={loading}>
               <i className="ti ti-circle-check"></i> {loading ? 'Collecting...' : 'Collect advance'}
             </button>
           </div>

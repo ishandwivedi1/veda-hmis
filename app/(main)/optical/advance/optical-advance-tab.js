@@ -8,6 +8,7 @@ import {
   collectOpticalAdvance,
   getRecentOpticalAdvances,
 } from '../actions';
+import BackdateControl from '@/app/components/BackdateControl';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 
@@ -25,6 +26,7 @@ export default function OpticalAdvanceTab() {
 
   const [balance, setBalance] = useState(0);
   const [modeAmounts, setModeAmounts] = useState({ Cash: '' });
+  const [backdate, setBackdate] = useState({ backdateTo: '', backdateReason: '' });
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
 
@@ -104,6 +106,7 @@ export default function OpticalAdvanceTab() {
         patientId: selected?.type === 'patient' ? selected.id : null,
         opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null,
         amount: modesTotal, modes, reference, remarks,
+        backdateTo: backdate.backdateTo || null, backdateReason: backdate.backdateReason,
       });
       if (result.error) { setError(result.error); return; }
       setSuccessMsg(`Advance recorded -- receipt ${result.payment.receipt_number}`);
@@ -113,6 +116,7 @@ export default function OpticalAdvanceTab() {
       setModeAmounts({ Cash: '' });
       setReference('');
       setRemarks('');
+      setBackdate({ backdateTo: '', backdateReason: '' });
       refreshRecentAdvances();
     } catch (e) {
       setError('Something went wrong recording the advance -- check your connection and try again.');
@@ -200,7 +204,9 @@ export default function OpticalAdvanceTab() {
               <input className="fi" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="What's this advance for? (optional)" />
             </div>
 
-            <button className="btn btn-primary" disabled={saving || modesTotal <= 0} onClick={handleCollect}>
+            <BackdateControl value={backdate} onChange={setBackdate} />
+
+            <button className="btn btn-primary" style={{ marginTop: 10 }} disabled={saving || modesTotal <= 0} onClick={handleCollect}>
               <i className="ti ti-piggy-bank"></i> {saving ? 'Recording...' : 'Collect Advance'}
             </button>
           </>
