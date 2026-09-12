@@ -1,4 +1,5 @@
 import { getOpticalSaleDetail } from '@/app/(main)/optical/actions';
+import { getLatestGlassesPrescription } from '@/app/(main)/optometry/actions';
 import { getHospitalSettings } from '@/app/print-templates/actions';
 import PrintButton from '../../invoice-print/[invoiceId]/print-button';
 
@@ -20,6 +21,13 @@ export default async function OpticalReceiptPrintPage({ params }) {
   if (error || !sale) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#b3261e' }}>{error || 'Bill not found.'}</div>;
   }
+
+  // Walk-in optical customers (no patient_id) have no optometry record
+  // to pull a prescription from -- prescriptionRx stays null for them,
+  // same as it would for a patient with no completed refraction on
+  // file. Fetched after confirming the sale exists so an invalid
+  // saleId doesn't cost an extra query.
+  const prescriptionRx = sale.patient_id ? await getLatestGlassesPrescription(sale.patient_id) : null;
 
   // A booking isn't a bill until the customer has actually settled it
   // in full -- billing happens at final payment, not at the moment of
@@ -81,6 +89,57 @@ export default async function OpticalReceiptPrintPage({ params }) {
             </tr>
           </tbody>
         </table>
+
+        {prescriptionRx && (
+          <table style={{ width: '100%', border: '1.5px solid #333', borderCollapse: 'collapse', marginBottom: 16 }}>
+            <tbody>
+              <tr>
+                <td colSpan={8} style={{ background: '#e9edf2', padding: '5px 10px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.3px', borderBottom: '1px solid #999' }}>
+                  Prescription (Final Refraction -- {fmtDate(prescriptionRx.completed_at)})
+                </td>
+              </tr>
+              <tr style={{ fontSize: 10, color: '#444' }}>
+                <td style={{ padding: '4px 10px' }}></td>
+                <td colSpan={3} style={{ padding: '4px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>DISTANCE</td>
+                <td colSpan={3} style={{ padding: '4px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>NEAR</td>
+                <td style={{ padding: '4px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>ADD</td>
+              </tr>
+              <tr style={{ fontSize: 10, color: '#444', borderBottom: '1px solid #999' }}>
+                <td style={{ padding: '2px 10px' }}></td>
+                <td style={{ padding: '2px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>SPH</td><td style={{ padding: '2px 10px', textAlign: 'center' }}>CYL</td><td style={{ padding: '2px 10px', textAlign: 'center' }}>AXIS</td>
+                <td style={{ padding: '2px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>SPH</td><td style={{ padding: '2px 10px', textAlign: 'center' }}>CYL</td><td style={{ padding: '2px 10px', textAlign: 'center' }}>AXIS</td>
+                <td style={{ padding: '2px 10px', borderLeft: '1px solid #ccc' }}></td>
+              </tr>
+              <tr style={{ fontSize: 12 }}>
+                <td style={{ padding: '5px 10px', fontWeight: 700 }}>RE</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>{prescriptionRx.ref_final_re_dist_sph || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center' }}>{prescriptionRx.ref_final_re_dist_cyl || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center' }}>{prescriptionRx.ref_final_re_dist_axis || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>{prescriptionRx.ref_final_re_near_sph || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center' }}>{prescriptionRx.ref_final_re_near_cyl || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center' }}>{prescriptionRx.ref_final_re_near_axis || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>{prescriptionRx.ref_final_re_add || '--'}</td>
+              </tr>
+              <tr style={{ fontSize: 12, borderTop: '1px solid #ccc' }}>
+                <td style={{ padding: '5px 10px', fontWeight: 700 }}>LE</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>{prescriptionRx.ref_final_le_dist_sph || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center' }}>{prescriptionRx.ref_final_le_dist_cyl || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center' }}>{prescriptionRx.ref_final_le_dist_axis || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>{prescriptionRx.ref_final_le_near_sph || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center' }}>{prescriptionRx.ref_final_le_near_cyl || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center' }}>{prescriptionRx.ref_final_le_near_axis || '--'}</td>
+                <td style={{ padding: '5px 10px', textAlign: 'center', borderLeft: '1px solid #ccc' }}>{prescriptionRx.ref_final_le_add || '--'}</td>
+              </tr>
+              {prescriptionRx.glasses_remarks && (
+                <tr>
+                  <td colSpan={8} style={{ padding: '5px 10px', fontSize: 10.5, color: '#444', borderTop: '1px solid #999' }}>
+                    <strong>Remarks:</strong> {prescriptionRx.glasses_remarks}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
 
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 4, fontSize: 12 }}>
           <thead>
