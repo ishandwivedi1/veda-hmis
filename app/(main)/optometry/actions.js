@@ -356,3 +356,44 @@ export async function addIopReading(assessmentId, eye, value) {
 
   return { reading };
 }
+
+// ── Final glasses prescription lookup, for use OUTSIDE the Optometry
+// workspace itself -- specifically Optical Shop, so staff there can
+// pull up a patient's most recent finalized refraction (without
+// needing to re-open the Optometry module) both to read the numbers
+// while preparing an order and to print the same prescription slip
+// that's already offered from inside the workspace
+// (glasses-prescription-print/[assessmentId]). Only ever looks at
+// Completed assessments -- a Draft is still being worked on and isn't
+// a real prescription yet. ──
+export async function getLatestGlassesPrescription(patientId) {
+  if (!patientId) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('optometry_assessments')
+    .select(`
+      id, completed_at,
+      ref_final_re_dist_sph, ref_final_re_dist_cyl, ref_final_re_dist_axis, ref_final_re_near_sph, ref_final_re_near_cyl, ref_final_re_near_axis, ref_final_re_add,
+      ref_final_le_dist_sph, ref_final_le_dist_cyl, ref_final_le_dist_axis, ref_final_le_near_sph, ref_final_le_near_cyl, ref_final_le_near_axis, ref_final_le_add,
+      glasses_prescribed, glasses_type, glasses_remarks,
+      visits!inner(patient_id)
+    `)
+    .eq('visits.patient_id', patientId)
+    .eq('status', 'Completed')
+    .order('completed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+
+  // Blank if nothing was actually filled in on the final refraction --
+  // a Completed assessment can still have skipped this section (e.g.
+  // a visit that was only IOP/anterior-segment focused), and there's
+  // nothing useful to show or print in that case.
+  const hasAnyPower = [
+    data.ref_final_re_dist_sph, data.ref_final_re_near_sph,
+    data.ref_final_le_dist_sph, data.ref_final_le_near_sph,
+  ].some((v) => v !== null && v !== undefined && v !== '');
+  if (!hasAnyPower) return null;
+
+  return data;
+}

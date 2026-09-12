@@ -13,6 +13,8 @@ import {
   editOpticalSaleItems,
   getOpticalSaleEditHistory,
 } from '../actions';
+import { getLatestGlassesPrescription } from '@/app/(main)/optometry/actions';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 
@@ -35,6 +37,11 @@ export default function BookSpectaclesTab() {
   const [advanceBalance, setAdvanceBalance] = useState(0);
   const [loadingBills, setLoadingBills] = useState(false);
   const [section, setSection] = useState('new');
+  // Pulled from Optometry so staff here can see (and print) the
+  // patient's own final prescription without leaving Optical Shop --
+  // null for walk-in optical customers (no optometry record to pull)
+  // and for patients with no completed refraction on file yet.
+  const [finalRx, setFinalRx] = useState(null);
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -48,6 +55,12 @@ export default function BookSpectaclesTab() {
     setSearchResults([]);
     setSearchQuery('');
     setUseWalkIn(false);
+    setFinalRx(null);
+    // Fired without awaiting -- supplementary info, shouldn't hold up
+    // customer selection or the bills/advance-balance fetch below.
+    if (r.type === 'patient') {
+      getLatestGlassesPrescription(r.id).then(setFinalRx).catch(() => setFinalRx(null));
+    }
     const list = await refreshCustomerData(r);
     const ongoingCount = (list || []).filter((b) => b.status === 'Pending' || b.status === 'Partial').length;
     setSection(ongoingCount > 0 ? 'ongoing' : 'new');
@@ -87,6 +100,7 @@ export default function BookSpectaclesTab() {
     setWalkInMobile('');
     setBills([]);
     setAdvanceBalance(0);
+    setFinalRx(null);
   }
 
   const ongoingBills = bills.filter((b) => b.status === 'Pending' || b.status === 'Partial');
@@ -122,6 +136,39 @@ export default function BookSpectaclesTab() {
               {advanceBalance > 0 && <span style={{ marginLeft: 10, color: 'var(--blue)' }}><i className="ti ti-piggy-bank"></i> Unused advance: <strong>{fmt(advanceBalance)}</strong></span>}
             </span>
             <button className="btn btn-sm" onClick={clearCustomer}><i className="ti ti-x"></i> Change Customer</button>
+          </div>
+        )}
+        {selected?.type === 'patient' && finalRx && (
+          <div style={{ marginTop: 10, padding: '10px 14px', border: '1px solid var(--g200)', borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--g600)', textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                <i className="ti ti-eye" style={{ color: 'var(--purple)' }}></i> Final Prescription -- {fmtDate(finalRx.completed_at)}
+              </div>
+              <button className="btn btn-sm" onClick={() => openPrintPopup(`/glasses-prescription-print/${finalRx.id}`)}>
+                <i className="ti ti-printer"></i> Print Prescription
+              </button>
+            </div>
+            <table className="tbl" style={{ fontSize: 12 }}>
+              <thead><tr><th></th><th colSpan={3}>Distance</th><th colSpan={3}>Near</th><th>Add</th></tr></thead>
+              <thead><tr><th></th><th>Sph</th><th>Cyl</th><th>Axis</th><th>Sph</th><th>Cyl</th><th>Axis</th><th></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><strong>RE</strong></td>
+                  <td>{finalRx.ref_final_re_dist_sph || '--'}</td><td>{finalRx.ref_final_re_dist_cyl || '--'}</td><td>{finalRx.ref_final_re_dist_axis || '--'}</td>
+                  <td>{finalRx.ref_final_re_near_sph || '--'}</td><td>{finalRx.ref_final_re_near_cyl || '--'}</td><td>{finalRx.ref_final_re_near_axis || '--'}</td>
+                  <td>{finalRx.ref_final_re_add || '--'}</td>
+                </tr>
+                <tr>
+                  <td><strong>LE</strong></td>
+                  <td>{finalRx.ref_final_le_dist_sph || '--'}</td><td>{finalRx.ref_final_le_dist_cyl || '--'}</td><td>{finalRx.ref_final_le_dist_axis || '--'}</td>
+                  <td>{finalRx.ref_final_le_near_sph || '--'}</td><td>{finalRx.ref_final_le_near_cyl || '--'}</td><td>{finalRx.ref_final_le_near_axis || '--'}</td>
+                  <td>{finalRx.ref_final_le_add || '--'}</td>
+                </tr>
+              </tbody>
+            </table>
+            {finalRx.glasses_remarks && (
+              <div style={{ fontSize: 11.5, color: 'var(--g500)', marginTop: 6 }}>{finalRx.glasses_remarks}</div>
+            )}
           </div>
         )}
         {useWalkIn && !selected && (
