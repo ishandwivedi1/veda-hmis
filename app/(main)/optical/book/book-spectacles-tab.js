@@ -9,6 +9,7 @@ import {
   getOpticalSaleDetail,
   getOpticalAdvanceBalance,
   collectOpticalPayment,
+  collectOpticalAdvance,
   applyOpticalAdvanceAdjustment,
   editOpticalSaleItems,
   getOpticalSaleEditHistory,
@@ -409,7 +410,22 @@ function CollectAdvanceForNewOrder({ sale, onCollected }) {
     setSaving(true);
     try {
       const modes = modeRows.filter((r) => parseFloat(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r.amount }));
-      const result = await collectOpticalPayment({ saleId: sale.id, amount: amt, modes });
+      // collectOpticalAdvance, NOT collectOpticalPayment -- money taken
+      // at booking, before the order is ready, is an advance against
+      // the customer, not a payment against this bill yet. Tying it to
+      // the sale directly made every booking with any money down look
+      // like a partially-billed sale on the day it was BOOKED, which
+      // is what fed the "advance is creating a bill" problem -- the
+      // full order value was counted as billed revenue immediately,
+      // before the glasses even existed. This sits as a pooled advance
+      // instead (shown as "Unused advance" once a customer is
+      // selected) until it's explicitly applied to this bill later,
+      // when the order is actually finalized -- see BillAndCloseForm's
+      // Apply Advance, and getBilledIncomeByCategory which now dates
+      // Optical Shop Sales by finalized_at, not booking date.
+      const result = await collectOpticalAdvance({
+        patientId: sale.patient_id, opticalCustomerId: sale.optical_customer_id, amount: amt, modes,
+      });
       if (result.error) { setError(result.error); return; }
       setCollected({ amount: amt, receipt: result.payment.receipt_number, paymentId: result.payment.id });
     } catch (e) {

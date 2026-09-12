@@ -88,7 +88,17 @@ async function getBilledIncomeByCategory(supabase, date) {
   const { startUTC, endUTC } = istDayBoundsUTC(date);
   const [{ data: invoices }, { data: opticalSales }] = await Promise.all([
     supabase.from('invoices').select('id, net, paid').neq('status', 'Cancelled').gte('created_at', startUTC).lte('created_at', endUTC),
-    supabase.from('optical_sales').select('id, net, paid').eq('sale_date', date).neq('status', 'Cancelled'),
+    // Dated by finalized_at (when the sale actually reached Paid),
+    // NOT sale_date (when it was booked) -- an order still Pending or
+    // Partial (an advance collected against a spectacles order still
+    // being made up) isn't revenue yet, it's a liability for goods not
+    // yet delivered. Counting it as "Billed" the moment it's booked
+    // overstated that day's billed revenue for something that might
+    // not even be finalized for days or weeks. Only a sale that has
+    // actually finished (status reached Paid) shows here, on the day
+    // it finished -- see recompute_optical_sale_status for where
+    // finalized_at gets set.
+    supabase.from('optical_sales').select('id, net, paid').not('finalized_at', 'is', null).gte('finalized_at', startUTC).lte('finalized_at', endUTC),
   ]);
   const invoiceById = {};
   (invoices || []).forEach((i) => { invoiceById[i.id] = i; });
