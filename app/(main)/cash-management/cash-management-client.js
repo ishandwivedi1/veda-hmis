@@ -655,7 +655,11 @@ export default function CashManagementClient({ initialData }) {
   }
 
   async function loadReport(date) {
-    setReport(await getDailyReport(date));
+    try {
+      setReport(await getDailyReport(date));
+    } catch (e) {
+      setReport(null);
+    }
   }
 
   useEffect(() => { if (activeTab === 'report') loadReport(reportDate); }, [activeTab, reportDate]);
@@ -1243,15 +1247,20 @@ export default function CashManagementClient({ initialData }) {
               </button>
             )}
           </div>
-          {!report?.closing ? (
-            <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>No closed day on record for this date.</div>
+          {!report ? (
+            <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--g400)' }}>Loading...</div>
           ) : (
             <>
               {/* KPI STRIP -- same visual style as the Billing Dashboard's
                   tabs (colored top border, big number). Not click-to-filter
                   here since the report below is one continuous printable
                   document, not swappable panels -- these are a quick-glance
-                  summary sitting above the detail. */}
+                  summary sitting above the detail. Shown for today even
+                  before the day is closed -- every figure here is computed
+                  live from the same source tables the report itself reads
+                  (see getDailyReport), it just wasn't surfaced in the UI
+                  before, so staff and doctors had no way to see this level
+                  of detail until end of day. */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
                 <div className="card" style={{ borderTop: '3px solid var(--blue)' }}>
                   <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Total Collection</div>
@@ -1281,9 +1290,18 @@ export default function CashManagementClient({ initialData }) {
                 <div style={{ fontSize: 18, fontWeight: 700 }}>VEDA EYE HOSPITAL</div>
                 <div style={{ fontSize: 12, opacity: .8 }}>Haridwar, Uttarakhand</div>
                 <div style={{ fontSize: 13, fontWeight: 700, marginTop: 10, borderTop: '1px solid rgba(255,255,255,.2)', paddingTop: 10 }}>
-                  DAILY CASH CLOSING REPORT<br />
-                  Date: {report.closing.closing_date}<br />
-                  Closed by: {report.closing.profiles?.full_name || '--'} at {new Date(report.closing.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                  DAILY CASH {report.closing ? 'CLOSING' : 'COLLECTION'} REPORT<br />
+                  {report.closing ? (
+                    <>
+                      Date: {report.closing.closing_date}<br />
+                      Closed by: {report.closing.profiles?.full_name || '--'} at {new Date(report.closing.closed_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                    </>
+                  ) : (
+                    <>
+                      Date: {reportDate}<br />
+                      <span style={{ color: '#ffd166' }}>Live figures -- this day has not been closed yet. Numbers will keep changing until Reconciliation &amp; Close Day is completed.</span>
+                    </>
+                  )}
                 </div>
               </div>
 
