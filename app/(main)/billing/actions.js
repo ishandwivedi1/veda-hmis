@@ -235,7 +235,10 @@ export async function getServiceCatalog() {
   return [...(services || []), ...drugsAsServices, ...packagesAsServices].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function addLineItem(invoiceId, serviceCode, qty, discType, discValue, discReason) {
+// modReason is only required when this invoice needs an Administrator
+// override (see getInvoiceModifyStatus/assert_invoice_editable) --
+// null/omitted is fine for an ordinary same-day, day-still-open edit.
+export async function addLineItem(invoiceId, serviceCode, qty, discType, discValue, discReason, modReason) {
   const supabase = await createClient();
   const { error } = await supabase.rpc('add_invoice_line_item', {
     p_invoice_id: invoiceId,
@@ -244,6 +247,7 @@ export async function addLineItem(invoiceId, serviceCode, qty, discType, discVal
     p_disc_type: discType || 'none',
     p_disc_value: discValue || 0,
     p_disc_reason: discReason || null,
+    p_reason: modReason || null,
   });
   if (error) return { error: error.message };
   return { success: true };
@@ -253,13 +257,14 @@ export async function addLineItem(invoiceId, serviceCode, qty, discType, discVal
 // only the consolidated "OPD Procedure Consumables" pharmacy line
 // (medicines clubbed into one line + total, since there's no pharmacy
 // license yet to itemize them). Always qty 1, no GST/discount.
-export async function addCustomLineItem(invoiceId, serviceName, amount, dept) {
+export async function addCustomLineItem(invoiceId, serviceName, amount, dept, modReason) {
   const supabase = await createClient();
   const { error } = await supabase.rpc('add_invoice_custom_line_item', {
     p_invoice_id: invoiceId,
     p_service_name: serviceName,
     p_amount: amount,
     p_dept: dept || 'Pharmacy',
+    p_reason: modReason || null,
   });
   if (error) return { error: error.message };
   return { success: true };
@@ -533,13 +538,20 @@ export async function getSurgeryBillingOptions() {
 
 // Only used for a manually-entered Surgery bill (no linked
 // surgical_case) -- renderInvoiceHtml falls back to these when it can't
-// find a case for the invoice's visit.
-export async function setManualSurgeryDetails(invoiceId, surgeryName, surgeryEye, surgeonId) {
+// find a case for the invoice's visit. Routed through the
+// set_manual_surgery_details RPC (rather than a direct table update)
+// so it goes through the same assert_invoice_editable gate as every
+// other invoice edit -- modReason required only for the Administrator
+// override case, same as addLineItem/addCustomLineItem.
+export async function setManualSurgeryDetails(invoiceId, surgeryName, surgeryEye, surgeonId, modReason) {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from('invoices')
-    .update({ manual_surgery_name: surgeryName || null, manual_surgery_eye: surgeryEye || null, manual_surgeon_id: surgeonId || null })
-    .eq('id', invoiceId);
+  const { error } = await supabase.rpc('set_manual_surgery_details', {
+    p_invoice_id: invoiceId,
+    p_surgery_name: surgeryName || null,
+    p_surgery_eye: surgeryEye || null,
+    p_surgeon_id: surgeonId || null,
+    p_reason: modReason || null,
+  });
   if (error) return { error: error.message };
   return { success: true };
 }
