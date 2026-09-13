@@ -27,9 +27,17 @@ export default function AdjustmentsTab() {
   useEffect(() => { getTodaysVisits().then(setTodaysVisits); }, []);
 
   async function loadPatientData(patient) {
-    setBalance(await getAdvanceBalance(patient.id));
-    setInvoices(await getOutstandingInvoices(patient.id));
-    setAudit(await getPatientLedgerAudit(patient.id));
+    // Three independent reads -- previously awaited one after another.
+    // Running them in parallel is most of the fix for the "freezes for
+    // a while" feeling after Apply.
+    const [bal, invs, aud] = await Promise.all([
+      getAdvanceBalance(patient.id),
+      getOutstandingInvoices(patient.id),
+      getPatientLedgerAudit(patient.id),
+    ]);
+    setBalance(bal);
+    setInvoices(invs);
+    setAudit(aud);
   }
 
   async function selectPatient(patient) {
@@ -59,14 +67,19 @@ export default function AdjustmentsTab() {
 
     setLoading(true);
     const result = await applyAdjustment(selected.id, invoiceId, amt);
-    setLoading(false);
 
-    if (result.error) { setError(result.error); return; }
+    if (result.error) { setLoading(false); setError(result.error); return; }
+
     setSuccess(`Rs.${amt} adjusted against invoice successfully.`);
     setAmount('');
     setInvoiceId('');
-    await loadPatientData(selected);
-    refresh();
+    // Keep the button showing "Applying..." through these refreshes too
+    // (run together, not one after another) -- previously it re-enabled
+    // the instant the RPC returned, while the screen was still catching
+    // up across four separate sequential round trips, which is exactly
+    // what read as "froze, then silently finished."
+    await Promise.all([loadPatientData(selected), refresh()]);
+    setLoading(false);
   }
 
   return (
