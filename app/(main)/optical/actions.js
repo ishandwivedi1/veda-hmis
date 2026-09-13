@@ -676,6 +676,7 @@ export async function getOpticalDashboardSummary() {
     { data: outstandingRows },
     { data: ledgerRows },
     { data: todayPayments },
+    { data: bookingRows },
   ] = await Promise.all([
     supabase.from('optical_sales').select('net').eq('sale_date', today).neq('status', 'Cancelled'),
     supabase.from('optical_sales').select('net').gte('sale_date', monthStart).lte('sale_date', today).neq('status', 'Cancelled'),
@@ -688,6 +689,12 @@ export async function getOpticalDashboardSummary() {
     // refund was silently ignored instead of subtracted, overstating cash collected.
     supabase.from('optical_payments').select('id, total_amount, payment_type, optical_payment_modes(mode, amount)')
       .in('payment_type', ['sale_payment', 'advance', 'refund']).gte('collected_at', `${today}T00:00:00+05:30`).lte('collected_at', `${today}T23:59:59+05:30`),
+    // Bookings awaiting delivery -- a genuinely different thing from an
+    // outstanding BILL (below): no invoice exists for these yet at all.
+    // See optical_orders / Finalize Order.
+    supabase.from('optical_orders')
+      .select('id, order_number, net, created_at, patients(first_name, salutation, last_name), optical_customers(name), customer_name')
+      .eq('status', 'Pending').order('created_at', { ascending: true }),
   ]);
 
   const outstandingBills = (outstandingRows || []).map(shapeSale);
@@ -721,6 +728,14 @@ export async function getOpticalDashboardSummary() {
     daysPending: Math.floor((nowIST - new Date(`${b.sale_date}T00:00:00+05:30`)) / 86400000),
   })).sort((a, b) => b.daysPending - a.daysPending);
 
+  const bookingsWithAge = (bookingRows || []).map((o) => ({
+    id: o.id,
+    order_number: o.order_number,
+    net: o.net,
+    displayName: o.patients ? `${o.patients.salutation || ''} ${o.patients.first_name} ${o.patients.last_name || ''}`.replace(/\s+/g, ' ').trim() : (o.optical_customers?.name || o.customer_name || 'Walk-in'),
+    daysPending: Math.floor((nowIST - new Date(o.created_at)) / 86400000),
+  })).sort((a, b) => b.daysPending - a.daysPending);
+
   return {
     today: {
       salesCount: (todaySales || []).length,
@@ -736,6 +751,11 @@ export async function getOpticalDashboardSummary() {
       count: outstandingBills.length,
       value: outstandingBills.reduce((s, b) => s + Number(b.outstanding), 0),
       needsAttention: withAge.slice(0, 10),
+    },
+    bookings: {
+      count: bookingsWithAge.length,
+      value: bookingsWithAge.reduce((s, b) => s + Number(b.net), 0),
+      list: bookingsWithAge.slice(0, 10),
     },
     advanceHeld: (ledgerRows || []).reduce((s, r) => s + Number(r.amount), 0),
   };

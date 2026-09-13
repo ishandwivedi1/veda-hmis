@@ -87,10 +87,16 @@ export default function OpticalDashboardTab() {
           onClick={() => router.push('/optical/payments')}
         />
         <KpiCard
-          icon="ti-clock" label="Outstanding Orders" color="var(--red)"
+          icon="ti-receipt" label="Unpaid Bills" color="var(--red)"
           value={data.outstanding.count}
           sub={`${fmt(data.outstanding.value)} still due`}
           onClick={() => router.push('/optical/collect')}
+        />
+        <KpiCard
+          icon="ti-clock" label="Existing Bookings" color="var(--indigo)"
+          value={data.bookings.count}
+          sub={`${fmt(data.bookings.value)} estimated, awaiting delivery`}
+          onClick={() => router.push('/optical/finalize-order')}
         />
         <KpiCard
           icon="ti-piggy-bank" label="Advance Held" color="var(--purple)"
@@ -108,13 +114,41 @@ export default function OpticalDashboardTab() {
         />
       </div>
 
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
+          <i className="ti ti-clock" style={{ color: 'var(--indigo)' }}></i> Existing Bookings
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Booked orders awaiting delivery -- no bill exists for these yet, sorted by how long they've been waiting.</div>
+        {data.bookings.list.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--g400)' }}>No bookings currently awaiting delivery.</div>
+        ) : (
+          data.bookings.list.map((b) => (
+            <div
+              key={b.id}
+              onClick={() => router.push('/optical/finalize-order')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{b.order_number} <span style={{ fontWeight: 400, color: 'var(--g500)' }}>-- {b.displayName}</span></div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontWeight: 700, color: 'var(--indigo)' }}>{fmt(b.net)}</div>
+                <span className="badge" style={{ background: b.daysPending > 7 ? 'var(--red-lt)' : 'var(--amber-lt)', color: b.daysPending > 7 ? 'var(--red)' : 'var(--amber)', fontSize: 10 }}>
+                  {b.daysPending}d waiting
+                </span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
       <div className="card">
         <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
-          <i className="ti ti-clock" style={{ color: 'var(--red)' }}></i> Pending Orders
+          <i className="ti ti-receipt" style={{ color: 'var(--red)' }}></i> Unpaid Bills
         </div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Across every customer, sorted by how long they've been waiting.</div>
+        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Already-billed invoices with a balance still due, sorted by how long they've been waiting.</div>
         {data.outstanding.needsAttention.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--g400)' }}>Nothing outstanding right now -- every order is settled.</div>
+          <div style={{ fontSize: 13, color: 'var(--g400)' }}>Nothing outstanding right now -- every bill is settled.</div>
         ) : (
           data.outstanding.needsAttention.map((b) => (
             <div
