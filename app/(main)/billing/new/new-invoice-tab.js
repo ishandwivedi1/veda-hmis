@@ -464,8 +464,15 @@ export default function NewInvoiceTab() {
       // being billed, not always default to Consultation. Surgery takes
       // priority if present (it's what also decides which print template
       // renders), otherwise whichever department was billed first.
+      // DEPARTMENTS and invoices_purpose_check don't share identical
+      // vocabulary -- 'OPD Procedure' (a real billing department) has no
+      // matching purpose value in the DB; the closest existing one is
+      // 'Minor Procedure'. Map through this rather than assuming every
+      // department name is already a valid purpose.
+      const DEPT_TO_PURPOSE = { 'OPD Procedure': 'Minor Procedure' };
       const deptsPresent = draftLines.map((l) => l.dept);
-      const purpose = deptsPresent.includes('Surgery') ? 'Surgery' : (deptsPresent[0] || DEFAULT_PURPOSE);
+      const firstDept = deptsPresent[0];
+      const purpose = deptsPresent.includes('Surgery') ? 'Surgery' : (DEPT_TO_PURPOSE[firstDept] || firstDept || DEFAULT_PURPOSE);
 
       const created = await createInvoiceForVisit(contextPatient.id, contextVisit?.id || null, purpose);
       if (created.error) { setError(created.error); return null; }
