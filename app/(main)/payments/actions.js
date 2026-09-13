@@ -137,7 +137,7 @@ export async function getPatientUnifiedLedger(patientId) {
 
   const [{ data: invoices }, { data: payments }, { data: refunds }, { data: creditNotes }] = await Promise.all([
     supabase.from('invoices').select('id, invoice_number, net, status, created_at, visits(visit_number)').eq('patient_id', patientId),
-    supabase.from('payments').select('*, payment_modes(mode, amount)').eq('patient_id', patientId),
+    supabase.from('payments').select('*, payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number))').eq('patient_id', patientId),
     supabase.from('payment_refunds').select('*, refund_payment:payments!payment_refunds_refund_payment_id_fkey(receipt_number), invoices(invoice_number, visits(visit_number))').eq('patient_id', patientId),
     supabase.from('credit_notes').select('*, invoices(invoice_number, visits(visit_number))').eq('patient_id', patientId),
   ]);
@@ -161,9 +161,22 @@ export async function getPatientUnifiedLedger(patientId) {
     if (p.payment_type === 'credit_note' || p.payment_type === 'refund') return;
     const type = PAYMENT_TYPE_LABEL[p.payment_type] || 'Payment';
     const modeDesc = (p.payment_modes || []).map((m) => m.mode).join('+') || 'Advance';
+    // An advance_adjustment moves money that was ALREADY counted here --
+    // either as an earlier 'Advance' credit or a Credit Note credit --
+    // onto a specific invoice. The invoice's own debit above and that
+    // original credit are both already in this ledger, so counting the
+    // adjustment itself as a THIRD, fresh credit double-counts it (this
+    // is exactly what inflated the running balance). It's shown for
+    // narrative continuity -- which invoice absorbed the credit -- but
+    // contributes nothing to the running balance.
+    const isAdjustment = p.payment_type === 'advance_adjustment';
+    const allocatedInvoiceNumber = p.payment_allocations?.[0]?.invoices?.invoice_number;
+    const desc = isAdjustment
+      ? `Advance/credit applied against ${allocatedInvoiceNumber || 'invoice'}`
+      : `${type} via ${modeDesc}${p.remarks ? ' -- ' + p.remarks : ''}`;
     entries.push({
       date: p.collected_at, type, ref: p.receipt_number, visit: '--',
-      desc: `${type} via ${modeDesc}${p.remarks ? ' -- ' + p.remarks : ''}`, debit: 0, credit: Number(p.total_amount), by: 'Staff',
+      desc, debit: 0, credit: isAdjustment ? 0 : Number(p.total_amount), by: 'Staff',
     });
   });
 
