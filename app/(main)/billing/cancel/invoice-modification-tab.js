@@ -388,6 +388,7 @@ export default function InvoiceModificationTab() {
           </table>
           <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>
             <i className="ti ti-info-circle"></i> To correct a billed item, remove it (with a reason) and add the corrected line below.
+            {selected.status === 'Paid' && <> This invoice is fully paid -- a line can only be removed if doing so wouldn&apos;t drop the total below what&apos;s already been collected. Correct or refund the payment first (Payments module) otherwise.</>}
           </div>
 
           {removeReasonFor && (
