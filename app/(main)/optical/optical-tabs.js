@@ -8,6 +8,7 @@ import { isTodayOpen } from '@/app/(main)/cash-management/actions';
 const TABS = [
   { href: '/optical/dashboard', label: 'Dashboard', icon: 'ti-layout-dashboard' },
   { href: '/optical/book', label: 'Book Spectacles', icon: 'ti-glasses' },
+  { href: '/optical/finalize-order', label: 'Finalize Order', icon: 'ti-truck-delivery' },
   { href: '/optical/new', label: 'New Bill', icon: 'ti-file-plus' },
   { href: '/optical/collect', label: 'Collect Payment', icon: 'ti-cash' },
   { href: '/optical/advance', label: 'Advance', icon: 'ti-piggy-bank' },

@@ -66,6 +66,77 @@ export async function createOpticalSale({ patientId, opticalCustomerId, customer
   return { success: true, sale: data };
 }
 
+// Booking an order never creates a bill/invoice -- only this lightweight
+// tracking record (see optical_orders), so no requireDayOpen() gate:
+// no money necessarily moves at booking, and if it does, that's a
+// separate collectOpticalAdvance call which has its own guard. The
+// actual invoice is created later, at delivery, by finalizeOpticalOrder.
+export async function createOpticalOrder({ patientId, opticalCustomerId, customerName, customerMobile, items, discount, notes }) {
+  const cleanItems = (items || [])
+    .map((i) => ({ description: (i.description || '').trim(), qty: Number(i.qty) || 1, unit_price: Number(i.unit_price) || 0 }))
+    .filter((i) => i.description && i.unit_price >= 0);
+  if (cleanItems.length === 0) return { error: 'Add at least one item with a description and price.' };
+  if (!patientId && !opticalCustomerId && (!customerName || !customerName.trim())) return { error: 'Select a patient or existing customer, or enter a walk-in name.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('create_optical_order', {
+    p_patient_id: patientId || null,
+    p_optical_customer_id: opticalCustomerId || null,
+    p_customer_name: customerName || null,
+    p_customer_mobile: customerMobile || null,
+    p_items: cleanItems,
+    p_discount: Number(discount) || 0,
+    p_notes: notes || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true, order: data };
+}
+
+// Orders still awaiting delivery/finalization -- the Finalize Order
+// screen's worklist.
+export async function getOpenOpticalOrders() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('optical_orders')
+    .select('*, patients(first_name, salutation, last_name, uhid), optical_customers(name, mobile)')
+    .eq('status', 'Pending')
+    .order('created_at', { ascending: true });
+  return data || [];
+}
+
+export async function cancelOpticalOrder(orderId, reason) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('cancel_optical_order', { p_order_id: orderId, p_reason: reason });
+  if (error) return { error: error.message };
+  return { success: true, order: data };
+}
+
+// The actual invoice never exists until this runs -- items/discount
+// here are what staff confirms at delivery (may differ from the
+// original estimate), and any advance the customer already holds is
+// applied automatically, up to what's needed.
+export async function finalizeOpticalOrder(orderId, { items, discount, notes } = {}) {
+  const dayOpenError = await requireDayOpen();
+  if (dayOpenError) return dayOpenError;
+
+  const cleanItems = items
+    ? (items || [])
+        .map((i) => ({ description: (i.description || '').trim(), qty: Number(i.qty) || 1, unit_price: Number(i.unit_price) || 0 }))
+        .filter((i) => i.description && i.unit_price >= 0)
+    : null;
+  if (items && cleanItems.length === 0) return { error: 'Add at least one item with a description and price.' };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('finalize_optical_order', {
+    p_order_id: orderId,
+    p_items: cleanItems,
+    p_discount: discount != null ? Number(discount) : null,
+    p_notes: notes || null,
+  });
+  if (error) return { error: error.message };
+  return { success: true, sale: data };
+}
+
 export async function getRecentOpticalItemNames() {
   const supabase = await createClient();
   const { data } = await supabase.from('optical_sale_items').select('description').order('created_at', { ascending: false }).limit(300);

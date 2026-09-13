@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   searchOpticalCustomers,
-  createOpticalSale,
+  createOpticalOrder,
   getRecentOpticalItemNames,
   getOpticalSalesForCustomer,
   getOpticalSaleDetail,
@@ -258,15 +258,15 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
     setError('');
     setSaving(true);
     try {
-      const saleResult = await createOpticalSale({
+      const orderResult = await createOpticalOrder({
         patientId: selected.type === 'patient' ? selected.id : null,
         opticalCustomerId: selected.type === 'optical_customer' ? selected.id : null,
         customerName: walkInName, customerMobile: walkInMobile,
         items: lines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
         discount, notes,
       });
-      if (saleResult.error) { setError(saleResult.error); return; }
-      setCreated(saleResult.sale);
+      if (orderResult.error) { setError(orderResult.error); return; }
+      setCreated(orderResult.order);
       setLines([{ tempId: nextTempId.current++, description: '', qty: 1, unit_price: '' }]);
       setDiscount('');
       setNotes('');
@@ -291,12 +291,9 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--green)', marginBottom: 4 }}>
                 <i className="ti ti-check"></i> Order Confirmed -- Sent for Fitting
               </div>
-              <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--g900)' }}>{created.sale_number}</div>
-              <div style={{ fontSize: 13, color: 'var(--g600)', marginTop: 2 }}>Total: {fmt(created.net)} -- nothing collected yet.</div>
+              <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--g900)' }}>{created.order_number}</div>
+              <div style={{ fontSize: 13, color: 'var(--g600)', marginTop: 2 }}>Estimated total: {fmt(created.net)} -- nothing billed yet. The invoice is created when the order is finalized at delivery (Finalize Order).</div>
             </div>
-            <a href={`/optical-receipt-print/${created.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ textDecoration: 'none' }}>
-              <i className="ti ti-printer"></i> Print Booking Receipt
-            </a>
           </div>
         </div>
 
