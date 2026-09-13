@@ -86,6 +86,22 @@ export async function getApprovers() {
   return data || [];
 }
 
+// Every non-cancelled invoice for this patient, regardless of status --
+// unlike getOutstandingInvoices (Pending/Partial only, used by Refund/
+// Adjustment). Credit Note now works against a Paid invoice too (it
+// issues store credit via patient_ledger instead of writing off the
+// invoice -- see create_credit_note), so it needs the full list.
+export async function getInvoicesForCreditNote(patientId) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('invoices')
+    .select('id, invoice_number, net, paid, status, created_at')
+    .eq('patient_id', patientId)
+    .neq('status', 'Cancelled')
+    .order('created_at', { ascending: true });
+  return data || [];
+}
+
 export async function createCreditNote(patientId, invoiceId, amount, reason, approvedBy, remarks) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('create_credit_note', {

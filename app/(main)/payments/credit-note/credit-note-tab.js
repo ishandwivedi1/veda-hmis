@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { searchPatientsForPayment, getOutstandingInvoices, getApprovers, createCreditNote, getCreditNoteRegister, getTodaysVisits } from '../actions';
+import { searchPatientsForPayment, getInvoicesForCreditNote, getApprovers, createCreditNote, getCreditNoteRegister, getTodaysVisits } from '../actions';
 import TodaysVisitsWidget from '../todays-visits-widget';
 
 const REASONS = ['Billing correction', 'Service cancellation', 'Approved financial adjustment', 'Goodwill gesture', 'Insurance adjustment', 'Other'];
@@ -56,7 +56,7 @@ export default function CreditNoteTab() {
     setPatient(p);
     setSearchResults([]);
     setSearchQuery('');
-    setInvoices(await getOutstandingInvoices(p.id));
+    setInvoices(await getInvoicesForCreditNote(p.id));
     setInvoiceId(''); setAmount(''); setReason(''); setApprovedBy(''); setRemarks('');
   }
 
@@ -67,13 +67,23 @@ export default function CreditNoteTab() {
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId);
   const outstandingOnSelected = selectedInvoice ? Number(selectedInvoice.net) - Number(selectedInvoice.paid) : 0;
+  // A fully paid invoice has no outstanding to write off -- the credit
+  // note instead issues store credit (see create_credit_note), capped
+  // at what was actually billed on this invoice rather than 0.
+  const isFullyPaid = selectedInvoice ? outstandingOnSelected <= 0 : false;
+  const maxCreditAmount = selectedInvoice ? (isFullyPaid ? Number(selectedInvoice.net) : outstandingOnSelected) : 0;
 
   async function handleSubmit() {
     setError(''); setSuccess('');
     if (!invoiceId) { setError('Select an invoice to credit.'); return; }
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setError('Enter a valid credit amount.'); return; }
-    if (amt > outstandingOnSelected) { setError(`Credit amount cannot exceed this invoice's outstanding balance (Rs.${outstandingOnSelected.toFixed(2)}).`); return; }
+    if (amt > maxCreditAmount) {
+      setError(isFullyPaid
+        ? `Credit amount cannot exceed this invoice's billed amount (Rs.${maxCreditAmount.toFixed(2)}).`
+        : `Credit amount cannot exceed this invoice's outstanding balance (Rs.${maxCreditAmount.toFixed(2)}).`);
+      return;
+    }
     if (!reason) { setError('Select a reason.'); return; }
     if (!approvedBy) { setError('Select an approver.'); return; }
 
@@ -84,7 +94,7 @@ export default function CreditNoteTab() {
     if (result.error) { setError(result.error); return; }
     setSuccess(`Credit note ${result.creditNote.credit_note_number} created for Rs.${amt.toFixed(2)}.`);
     setInvoiceId(''); setAmount(''); setReason(''); setApprovedBy(''); setRemarks('');
-    setInvoices(await getOutstandingInvoices(patient.id));
+    setInvoices(await getInvoicesForCreditNote(patient.id));
     refreshRegister();
   }
 
@@ -129,11 +139,23 @@ export default function CreditNoteTab() {
             </div>
 
             <label className="flbl">Invoice to credit *</label>
-            <select className="fi" style={{ marginBottom: 12 }} value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
+            <select className="fi" style={{ marginBottom: 4 }} value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
               <option value="">-- Select invoice --</option>
-              {invoices.map((inv) => <option key={inv.id} value={inv.id}>{inv.invoice_number} -- Rs.{(inv.net - inv.paid).toFixed(2)} outstanding</option>)}
+              {invoices.map((inv) => {
+                const outstanding = Number(inv.net) - Number(inv.paid);
+                return (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.invoice_number} ({inv.status}) -- {outstanding > 0 ? `Rs.${outstanding.toFixed(2)} outstanding` : `Rs.${Number(inv.net).toFixed(2)} billed, fully paid`}
+                  </option>
+                );
+              })}
             </select>
-            {invoices.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', marginBottom: 12 }}>No outstanding invoices for this patient.</div>}
+            {invoices.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', marginBottom: 12 }}>No invoices for this patient.</div>}
+            {selectedInvoice && isFullyPaid && (
+              <div className="msg-info" style={{ margin: '0 0 12px' }}>
+                <i className="ti ti-info-circle"></i> This invoice is fully paid, so it won&apos;t be modified -- this issues store credit the patient can apply to any future invoice instead.
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <div>
@@ -145,7 +167,7 @@ export default function CreditNoteTab() {
               </div>
               <div>
                 <label className="flbl">Credit amount (Rs.) *</label>
-                <input type="number" className="fi" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={selectedInvoice ? `Up to Rs.${outstandingOnSelected.toFixed(2)}` : '0.00'} />
+                <input type="number" className="fi" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={selectedInvoice ? `Up to Rs.${maxCreditAmount.toFixed(2)}` : '0.00'} />
               </div>
             </div>
 
