@@ -7,8 +7,6 @@ import {
   searchInvoices, getInvoiceById, getServiceCatalog, addLineItem, removeLineItem, cancelInvoice,
   getTodaysInvoicesForModification, getInvoicesForVisit, getSurgeryBillingOptions, setManualSurgeryDetails,
 } from '../actions';
-import { getInvoiceModifyStatus } from '@/lib/invoiceModifyGuard';
-import { getMyDesignation } from '@/app/(main)/users/actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'OPD Procedure', 'Surgery', 'Pharmacy'];
@@ -21,14 +19,6 @@ export default function InvoiceModificationTab() {
   const [lineItems, setLineItems] = useState([]);
   const [originalLineItemIds, setOriginalLineItemIds] = useState(new Set());
   const [catalog, setCatalog] = useState([]);
-  const [isAdmin, setIsAdmin] = useState(false);
-  // requiresAdmin: this invoice is from a previous day, or today but
-  // today's day has already been closed -- only an Administrator can
-  // touch it, with a mandatory reason. Same rule backdated payments
-  // already follow. Purely a UI hint fetched per-invoice -- the actual
-  // gate is enforced server-side (assert_invoice_editable) regardless.
-  const [modifyStatus, setModifyStatus] = useState(null);
-  const [modReason, setModReason] = useState('');
   const [visitInvoices, setVisitInvoices] = useState(null);
   const searchParams = useSearchParams();
   const urlVisitId = searchParams.get('visitId');
@@ -75,7 +65,6 @@ export default function InvoiceModificationTab() {
     getServiceCatalog().then(setCatalog);
     loadToday();
     getSurgeryBillingOptions().then(({ surgeries, doctors }) => { setSurgeryOptions(surgeries); setSurgeryDoctorOptions(doctors); });
-    getMyDesignation().then((d) => setIsAdmin(d === 'Administrator'));
   }, [loadToday]);
 
   // Arrived via "Modify" from Front Office Dashboard or New Invoice --
@@ -99,11 +88,6 @@ export default function InvoiceModificationTab() {
 
   const servicesForDept = catalog.filter((s) => s.dept === dept);
   const hasSurgeryLine = lineItems.some((li) => li.dept === 'Surgery');
-  // Mirrors assert_invoice_editable server-side: staff can always edit
-  // a same-day, still-open invoice; anything else needs an
-  // Administrator, and even an Administrator is blocked until a
-  // closed day is reopened from Cash Management.
-  const canEdit = !modifyStatus?.requiresAdmin || (isAdmin && !modifyStatus.dayClosed);
 
   async function handleSearch() {
     if (!searchQuery.trim()) return;
@@ -124,18 +108,16 @@ export default function InvoiceModificationTab() {
       setSelected(details.invoice);
       setLineItems(details.lineItems);
       // Snapshot which line items already existed when this modification
-      // session started -- purely informational now (shown as
-      // "(original)" in the table). Removability is governed entirely
-      // by canEdit (today + day open, or Administrator), not by
-      // whether a line was part of the original bill.
+      // session started -- these are locked (part of the original bill,
+      // exactly as filled in on New Invoice). Anything added from here on
+      // stays removable until the invoice is reopened fresh, at which
+      // point it becomes part of the locked original set.
       setOriginalLineItemIds(new Set((details.lineItems || []).map((li) => li.id)));
       setSurgeryName(details.invoice.manual_surgery_name || '');
       setSurgeryEyeField(details.invoice.manual_surgery_eye || '');
       setSurgeryDoctorId(details.invoice.manual_surgeon_id || '');
       setShowCancelForm(false);
       setCancelReason('');
-      setModReason('');
-      setModifyStatus(await getInvoiceModifyStatus(inv.id));
     } catch (e) {
       setError('Could not load this invoice -- check your connection and try again.');
     }
@@ -163,10 +145,9 @@ export default function InvoiceModificationTab() {
     setError('');
     if (!serviceCode) { setError('Select department and service.'); return; }
     if (discType !== 'none' && !discReason.trim()) { setError('A discount reason is required whenever a discount is applied.'); return; }
-    if (modifyStatus?.requiresAdmin && !modReason.trim()) { setError('A reason is required to modify this invoice as an Administrator.'); return; }
 
     try {
-      const result = await addLineItem(selected.id, serviceCode, parseInt(qty, 10) || 1, discType, parseFloat(discValue) || 0, discReason, modReason);
+      const result = await addLineItem(selected.id, serviceCode, parseInt(qty, 10) || 1, discType, parseFloat(discValue) || 0, discReason);
       if (result.error) { setError(result.error); return; }
       setDept(''); setServiceCode(''); setQty(1); setRate(''); setGstPct('');
       setDiscType('none'); setDiscValue(''); setDiscReason('');
@@ -193,10 +174,9 @@ export default function InvoiceModificationTab() {
 
   async function handleSaveSurgeryDetails() {
     setError(''); setInfo('');
-    if (modifyStatus?.requiresAdmin && !modReason.trim()) { setError('A reason is required to modify this invoice as an Administrator.'); return; }
     setSavingSurgery(true);
     try {
-      const result = await setManualSurgeryDetails(selected.id, surgeryName, surgeryEyeField, surgeryDoctorId, modReason);
+      const result = await setManualSurgeryDetails(selected.id, surgeryName, surgeryEyeField, surgeryDoctorId);
       if (result.error) { setError(result.error); return; }
       setInfo('Surgery billing details saved.');
       refresh();
@@ -334,26 +314,6 @@ export default function InvoiceModificationTab() {
             )}
           </div>
 
-          {modifyStatus?.requiresAdmin && (
-            <div className={isAdmin ? 'msg-info' : 'msg-err'} style={{ marginBottom: 12 }}>
-              <i className="ti ti-shield-lock"></i>{' '}
-              {modifyStatus.dayClosed ? (
-                <>{modifyStatus.businessDate} has already been closed -- reopen it from Cash Management (Reconciliation &amp; Close Day tab) before this invoice can be modified.</>
-              ) : isAdmin ? (
-                <>{modifyStatus.reasonWhy} As an Administrator you can still modify it below, but a reason is required for every change.</>
-              ) : (
-                <>{modifyStatus.reasonWhy} Only an Administrator can modify this invoice now.</>
-              )}
-            </div>
-          )}
-
-          {modifyStatus?.requiresAdmin && isAdmin && !modifyStatus.dayClosed && (
-            <div style={{ marginBottom: 12 }}>
-              <label className="flbl">Reason for this administrator correction *</label>
-              <input className="fi" value={modReason} onChange={(e) => setModReason(e.target.value)} placeholder="e.g. Corrected billing error found during audit" />
-            </div>
-          )}
-
           {error && <div className="msg-err">{error}</div>}
           {info && <div className="msg-success"><i className="ti ti-circle-check"></i> {info}</div>}
 
@@ -361,25 +321,25 @@ export default function InvoiceModificationTab() {
             <thead><tr><th>Dept</th><th>Service</th><th>Qty</th><th>Rate</th><th>Disc</th><th>Net</th><th></th></tr></thead>
             <tbody>
               {lineItems.map((li) => {
-                const isOriginal = originalLineItemIds.has(li.id);
-                const canRemove = selected.status !== 'Cancelled' && (!modifyStatus?.requiresAdmin || isAdmin) && !modifyStatus?.dayClosed;
+                const isLocked = originalLineItemIds.has(li.id);
                 return (
-                  <tr key={li.id}>
+                  <tr key={li.id} style={isLocked ? { color: 'var(--g600)' } : undefined}>
                     <td style={{ fontSize: 11 }}>{li.dept}</td>
-                    <td>
-                      {li.service_name}
-                      {isOriginal && <span style={{ fontSize: 10, color: 'var(--g400)', marginLeft: 6 }} title="Part of the original bill">(original)</span>}
-                    </td>
+                    <td>{li.service_name}</td>
                     <td>{li.qty}</td>
                     <td>Rs.{li.rate}</td>
                     <td>{li.disc > 0 ? `Rs.${li.disc}` : '--'}</td>
                     <td>Rs.{li.net}</td>
                     <td>
-                      {canRemove && (
+                      {isLocked ? (
+                        <span style={{ fontSize: 11, color: 'var(--g400)' }} title="Part of the original bill -- cannot be removed">
+                          <i className="ti ti-lock"></i> Locked
+                        </span>
+                      ) : selected.status !== 'Cancelled' ? (
                         <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => { setRemoveReasonFor(li.id); setRemoveReason(''); setError(''); }}>
                           Remove
                         </button>
-                      )}
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -387,7 +347,7 @@ export default function InvoiceModificationTab() {
             </tbody>
           </table>
           <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>
-            <i className="ti ti-info-circle"></i> To correct a billed item, remove it (with a reason) and add the corrected line below.
+            <i className="ti ti-info-circle"></i> Original line items are locked once an invoice is opened for modification -- add new items below instead of editing what was already billed.
           </div>
 
           {removeReasonFor && (
@@ -432,13 +392,13 @@ export default function InvoiceModificationTab() {
                   </select>
                 </div>
               </div>
-              <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={handleSaveSurgeryDetails} disabled={savingSurgery || !canEdit}>
+              <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={handleSaveSurgeryDetails} disabled={savingSurgery}>
                 <i className="ti ti-device-floppy"></i> {savingSurgery ? 'Saving...' : 'Save Surgery Details'}
               </button>
             </div>
           )}
 
-          {selected.status !== 'Cancelled' && canEdit && (
+          {selected.status !== 'Cancelled' && (
             <>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', margin: '16px 0 8px' }}>Add Line Item</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
@@ -491,7 +451,7 @@ export default function InvoiceModificationTab() {
               <div className="msg-info" style={{ margin: 0 }}>
                 <i className="ti ti-info-circle"></i> This invoice has payments recorded and cannot be cancelled. Contact an administrator if needed.
               </div>
-            ) : !canEdit ? null : !showCancelForm ? (
+            ) : !showCancelForm ? (
               <button className="btn" style={{ color: 'var(--red)' }} onClick={() => setShowCancelForm(true)}>
                 <i className="ti ti-x-circle"></i> Cancel Invoice
               </button>
