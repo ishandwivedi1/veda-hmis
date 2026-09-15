@@ -448,7 +448,13 @@ export async function getOpticalPaymentsForCustomer({ patientId, opticalCustomer
   let q = supabase
     .from('optical_payments')
     .select('id, total_amount, collected_at, sale_id, optical_sales(sale_number)')
-    .eq('payment_type', 'sale_payment')
+    // sale_payment: paid directly against this sale. advance_adjustment:
+    // an earlier advance applied to this sale (see finalize_optical_order
+    // and Apply Advance) -- both are real money genuinely sitting against
+    // a specific sale and equally refundable. A bare 'advance' (not yet
+    // applied to anything) is deliberately excluded -- that's Refund
+    // Advance's job, not this list.
+    .in('payment_type', ['sale_payment', 'advance_adjustment'])
     .order('collected_at', { ascending: false });
   if (patientId) q = q.eq('patient_id', patientId);
   else if (opticalCustomerId) q = q.eq('optical_customer_id', opticalCustomerId);
