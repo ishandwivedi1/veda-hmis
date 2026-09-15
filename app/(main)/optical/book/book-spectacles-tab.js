@@ -187,7 +187,15 @@ export default function BookSpectaclesTab() {
         )}
       </div>
 
-      {selected && (
+      {/* selected OR useWalkIn -- a brand-new walk-in customer has no
+          selected patient/optical-customer record yet (that's the
+          whole point of "New Walk-in"), so gating this on selected
+          alone meant the entire booking form -- tabs, item entry, the
+          Confirm Order button, all of it -- never rendered at all for
+          a walk-in no matter what was typed into the name/mobile
+          fields above. Ongoing/Previous Orders will correctly show
+          empty for a genuinely new walk-in; nothing to fix there. */}
+      {(selected || useWalkIn) && (
         <>
           <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
             <button className={section === 'new' ? 'btn btn-primary' : 'btn'} onClick={() => setSection('new')}>
@@ -259,8 +267,8 @@ function NewOrderSection({ selected, walkInName, walkInMobile, onBooked }) {
     setSaving(true);
     try {
       const orderResult = await createOpticalOrder({
-        patientId: selected.type === 'patient' ? selected.id : null,
-        opticalCustomerId: selected.type === 'optical_customer' ? selected.id : null,
+        patientId: selected?.type === 'patient' ? selected.id : null,
+        opticalCustomerId: selected?.type === 'optical_customer' ? selected.id : null,
         customerName: walkInName, customerMobile: walkInMobile,
         items: lines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price })),
         discount, notes,
