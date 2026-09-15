@@ -7,9 +7,6 @@ import { isTodayOpen } from '@/app/(main)/cash-management/actions';
 
 const TABS = [
   { href: '/optical/dashboard', label: 'Dashboard', icon: 'ti-layout-dashboard' },
-  { href: '/optical/book', label: 'Book Spectacles', icon: 'ti-glasses' },
-  { href: '/optical/finalize-order', label: 'Finalize Order', icon: 'ti-truck-delivery' },
-  { href: '/optical/new', label: 'New Bill', icon: 'ti-file-plus' },
   { href: '/optical/collect', label: 'Collect Payment', icon: 'ti-cash' },
   { href: '/optical/advance', label: 'Advance', icon: 'ti-piggy-bank' },
   { href: '/optical/credit-note', label: 'Credit Note', icon: 'ti-file-minus' },
@@ -17,6 +14,13 @@ const TABS = [
   { href: '/optical/payments', label: 'Optical Payments', icon: 'ti-list-details' },
   { href: '/optical/history', label: 'Bills History', icon: 'ti-history' },
 ];
+// Book Spectacles, Finalize Order, and New Bill are deliberately not
+// tabs here -- three "start something new" entry points sitting in
+// the top bar alongside seven other tabs made it unclear which button
+// actually started a fresh transaction versus managed an existing
+// one. They live as Quick Actions on the Dashboard instead (see
+// optical-dashboard-tab.js), which is also the only page any of them
+// need to link back to when done.
 
 export default function OpticalTabs() {
   const pathname = usePathname();

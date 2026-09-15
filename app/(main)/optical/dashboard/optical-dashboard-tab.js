@@ -64,13 +64,26 @@ export default function OpticalDashboardTab() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 20, fontWeight: 700, color: 'var(--g900)' }}>
           <i className="ti ti-sunglasses" style={{ color: 'var(--blue)', marginRight: 8 }}></i>Optical Shop Overview
         </div>
-        <button className="btn btn-primary" onClick={() => router.push('/optical/book')}>
-          <i className="ti ti-glasses"></i> Book Spectacles
-        </button>
+        {/* The three "start something new" entry points into Optical
+            Shop live here, and only here -- not in the top tab bar
+            alongside seven other, mostly management-oriented tabs,
+            where it wasn't clear at a glance which button actually
+            began a fresh transaction. */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={() => router.push('/optical/new')}>
+            <i className="ti ti-file-plus"></i> New Bill
+          </button>
+          <button className="btn" onClick={() => router.push('/optical/finalize-order')}>
+            <i className="ti ti-truck-delivery"></i> Finalize Order
+          </button>
+          <button className="btn btn-primary" onClick={() => router.push('/optical/book')}>
+            <i className="ti ti-glasses"></i> Book Spectacles
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
