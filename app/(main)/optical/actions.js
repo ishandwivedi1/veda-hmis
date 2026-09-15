@@ -209,7 +209,27 @@ export async function getOpticalSaleDetail(saleId) {
       : p
   ));
 
-  return { sale: shapeSale(sale), items: items || [], payments: paymentsWithCancellation };
+  // An advance-adjustment line only ever showed as a generic "Advance
+  // Applied" -- no way to tell, from the bill itself, which advance
+  // receipt that money actually came from. Same principle as any
+  // properly-traced advance elsewhere in this system: the bill should
+  // show the original payment being drawn on, not an anonymous
+  // internal transfer. Looked up once per sale (not per adjustment
+  // row) since it's the same customer's advance history regardless of
+  // how many adjustment lines exist.
+  const hasAdjustment = paymentsWithCancellation.some((p) => p.payment_type === 'advance_adjustment');
+  let sourceAdvances = [];
+  if (hasAdjustment && (sale.patient_id || sale.optical_customer_id)) {
+    let q = supabase.from('optical_payments').select('receipt_number, total_amount, collected_at').eq('payment_type', 'advance').order('collected_at', { ascending: true });
+    q = sale.patient_id ? q.eq('patient_id', sale.patient_id) : q.eq('optical_customer_id', sale.optical_customer_id);
+    const { data: advanceRows } = await q;
+    sourceAdvances = advanceRows || [];
+  }
+  const paymentsWithAdvanceSource = paymentsWithCancellation.map((p) => (
+    p.payment_type === 'advance_adjustment' ? { ...p, sourceAdvances } : p
+  ));
+
+  return { sale: shapeSale(sale), items: items || [], payments: paymentsWithAdvanceSource };
 }
 
 // Browsable default list for the Collect Payment tab's sidebar -- every

@@ -171,7 +171,13 @@ export default function OpticalHistoryTab() {
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Payments</div>
               {detail.payments.map((p) => (
                 <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', color: 'var(--g600)' }}>
-                  <span>{p.receipt_number} -- {p.payment_type === 'advance_adjustment' ? 'Advance Applied' : (p.optical_payment_modes || []).map((m) => m.mode).join('/')}</span>
+                  <span>
+                    {p.payment_type === 'advance_adjustment' ? (p.sourceAdvances || []).map((a) => a.receipt_number).join(', ') || '--' : p.receipt_number}
+                    {' -- '}
+                    {p.payment_type === 'advance_adjustment'
+                      ? `Advance applied${(p.sourceAdvances || []).length > 0 ? ` (paid ${(p.sourceAdvances || []).map((a) => fmtDate(a.collected_at)).join(', ')})` : ''}`
+                      : (p.optical_payment_modes || []).map((m) => m.mode).join('/')}
+                  </span>
                   <span>{fmt(p.total_amount)}</span>
                 </div>
               ))}

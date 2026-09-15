@@ -204,10 +204,16 @@ export default async function OpticalReceiptPrintPage({ params }) {
               <tbody>
                 {payments.map((p) => (
                   <tr key={p.id} style={p.cancelledRefundReason !== undefined ? { textDecoration: 'line-through', color: '#999' } : undefined}>
-                    <td style={{ border: '1px solid #999', padding: 6 }}>{p.receipt_number}</td>
+                    <td style={{ border: '1px solid #999', padding: 6 }}>
+                      {p.payment_type === 'advance_adjustment'
+                        ? (p.sourceAdvances || []).map((a) => a.receipt_number).join(', ') || '--'
+                        : p.receipt_number}
+                    </td>
                     <td style={{ border: '1px solid #999', padding: 6 }}>{fmtDate(p.collected_at)}</td>
                     <td style={{ border: '1px solid #999', padding: 6 }}>
-                      {p.payment_type === 'advance_adjustment' ? 'Advance Applied' : (p.optical_payment_modes || []).map((m) => m.mode).join(', ')}
+                      {p.payment_type === 'advance_adjustment'
+                        ? `Advance applied${(p.sourceAdvances || []).length > 0 ? ` (paid ${(p.sourceAdvances || []).map((a) => fmtDate(a.collected_at)).join(', ')})` : ''}`
+                        : (p.optical_payment_modes || []).map((m) => m.mode).join(', ')}
                       {p.cancelledRefundReason !== undefined && <div style={{ fontSize: 9.5, fontWeight: 700 }}>CANCELLED -- {p.cancelledRefundReason}</div>}
                     </td>
                     <td style={{ border: '1px solid #999', padding: 6, textAlign: 'right' }}>{inr(p.total_amount)}</td>
