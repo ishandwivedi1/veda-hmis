@@ -375,6 +375,24 @@ export async function cancelOpticalSale(saleId, reason) {
   return { success: true, sale: data };
 }
 
+// Administrator-only override for the one case the normal cancel
+// deliberately refuses: a bill that has refund or credit-note history
+// on file, even if its current balance is back to zero (see
+// cancel_optical_sale -- that history means the balance reflects a
+// resolved refund/credit, not simply an unbilled mistake, so it's not
+// safe for just anyone to make the bill disappear). Still never
+// allowed if the bill currently shows real money applied to it --
+// that check has no override, for anyone, regardless of p_force.
+export async function forceCancelOpticalSale(saleId, reason) {
+  const gate = await requireAdministrator();
+  if (!gate.ok) return { error: 'Only an Administrator can cancel a bill that has refund or credit-note history.' };
+  if (!reason || !reason.trim()) return { error: 'A cancellation reason is required.' };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('cancel_optical_sale', { p_sale_id: saleId, p_reason: reason.trim(), p_force: true });
+  if (error) return { error: error.message };
+  return { success: true, sale: data };
+}
+
 // ---------- Edit an ongoing order's items ----------
 // Not a hospital-invoice equivalent -- invoices can only be cancelled,
 // never edited. This exists specifically for Optical Shop's ongoing

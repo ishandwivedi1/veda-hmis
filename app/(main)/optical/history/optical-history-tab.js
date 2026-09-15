@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { searchOpticalSaleHistory, getOpticalSaleDetail, cancelOpticalSale } from '../actions';
+import { searchOpticalSaleHistory, getOpticalSaleDetail, cancelOpticalSale, forceCancelOpticalSale } from '../actions';
+import { getMyDesignation } from '@/app/(main)/users/actions';
 
 const STATUSES = ['', 'Pending', 'Partial', 'Paid', 'Cancelled'];
 const STATUS_COLORS = { Pending: 'var(--g500)', Partial: 'var(--purple)', Paid: 'var(--green)', Cancelled: 'var(--red)' };
@@ -27,8 +28,15 @@ export default function OpticalHistoryTab() {
   const [cancelReason, setCancelReason] = useState('');
   const [showCancel, setShowCancel] = useState(false);
   const [error, setError] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  // Set only when the plain cancel was refused specifically for
+  // having refund/credit-note history -- the one case an
+  // Administrator can override. Any other cancel failure (already
+  // cancelled, payments on file) stays a plain error with no override
+  // offered, since those aren't overridable for anyone.
+  const [canForceCancel, setCanForceCancel] = useState(false);
 
-  useEffect(() => { runSearch(); }, []);
+  useEffect(() => { runSearch(); getMyDesignation().then((d) => setIsAdmin(d === 'Administrator')); }, []);
 
   async function runSearch() {
     setLoading(true);
@@ -56,10 +64,31 @@ export default function OpticalHistoryTab() {
   }
 
   async function handleCancel() {
+    setError('');
+    setCanForceCancel(false);
     try {
       const result = await cancelOpticalSale(selectedId, cancelReason);
+      if (result.error) {
+        setError(result.error);
+        if (result.error.includes('refund or credit-note history')) setCanForceCancel(true);
+        return;
+      }
+      setShowCancel(false);
+      setCancelReason('');
+      openDetail(selectedId);
+      runSearch();
+    } catch (e) {
+      setError('Something went wrong cancelling this bill -- check your connection and try again.');
+    }
+  }
+
+  async function handleForceCancel() {
+    setError('');
+    try {
+      const result = await forceCancelOpticalSale(selectedId, cancelReason);
       if (result.error) { setError(result.error); return; }
       setShowCancel(false);
+      setCanForceCancel(false);
       setCancelReason('');
       openDetail(selectedId);
       runSearch();
@@ -182,9 +211,19 @@ export default function OpticalHistoryTab() {
               <label className="flbl">Cancellation reason</label>
               <input className="fi" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Reason" />
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button className="btn btn-sm" onClick={() => setShowCancel(false)}>Back</button>
+                <button className="btn btn-sm" onClick={() => { setShowCancel(false); setCanForceCancel(false); setError(''); }}>Back</button>
                 <button className="btn btn-sm btn-primary" style={{ background: 'var(--red)', borderColor: 'var(--red)' }} onClick={handleCancel}>Confirm Cancel</button>
               </div>
+              {canForceCancel && isAdmin && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--g300)' }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 6 }}>
+                    This bill has refund/credit-note history, so the normal cancel refused it. As an Administrator, you can override -- the refund/credit-note record itself stays exactly as it is, permanently, only this bill's own status changes to Cancelled.
+                  </div>
+                  <button className="btn btn-sm" style={{ background: 'var(--amber, #b45309)', color: '#fff', border: 'none' }} onClick={handleForceCancel}>
+                    <i className="ti ti-alert-triangle"></i> Cancel Anyway (Administrator override)
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
