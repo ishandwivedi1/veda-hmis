@@ -725,7 +725,10 @@ export async function getOpticalDashboardSummary() {
     supabase.from('optical_sales').select('net').eq('sale_date', today).neq('status', 'Cancelled'),
     supabase.from('optical_sales').select('net').gte('sale_date', monthStart).lte('sale_date', today).neq('status', 'Cancelled'),
     supabase.from('optical_sales').select(SALE_SELECT).in('status', ['Pending', 'Partial']).order('sale_date', { ascending: true }),
-    supabase.from('optical_customer_ledger').select('amount'),
+    // patient_id/optical_customer_id kept alongside amount (not just for the
+    // shop-wide advanceHeld total below) so each booking's own advance-on-file
+    // can be looked up from the same rows -- see advanceByIdentity below.
+    supabase.from('optical_customer_ledger').select('patient_id, optical_customer_id, amount'),
     // 'refund' is included and netted below (not skipped) -- refund_optical_payment
     // and refund_optical_advance both insert their own optical_payments row with
     // payment_type='refund' and a positive total_amount, mirroring a sale_payment/
@@ -737,7 +740,7 @@ export async function getOpticalDashboardSummary() {
     // outstanding BILL (below): no invoice exists for these yet at all.
     // See optical_orders / Finalize Order.
     supabase.from('optical_orders')
-      .select('id, order_number, net, created_at, patients(first_name, salutation, last_name), optical_customers(name), customer_name')
+      .select('id, order_number, net, created_at, patient_id, optical_customer_id, patients(first_name, salutation, last_name), optical_customers(name), customer_name')
       .eq('status', 'Pending').order('created_at', { ascending: true }),
   ]);
 
@@ -772,13 +775,27 @@ export async function getOpticalDashboardSummary() {
     daysPending: Math.floor((nowIST - new Date(`${b.sale_date}T00:00:00+05:30`)) / 86400000),
   })).sort((a, b) => b.daysPending - a.daysPending);
 
-  const bookingsWithAge = (bookingRows || []).map((o) => ({
-    id: o.id,
-    order_number: o.order_number,
-    net: o.net,
-    displayName: o.patients ? `${o.patients.salutation || ''} ${o.patients.first_name} ${o.patients.last_name || ''}`.replace(/\s+/g, ' ').trim() : (o.optical_customers?.name || o.customer_name || 'Walk-in'),
-    daysPending: Math.floor((nowIST - new Date(o.created_at)) / 86400000),
-  })).sort((a, b) => b.daysPending - a.daysPending);
+  // Advance held is tracked per customer identity (optical_customer_ledger),
+  // not per order -- same balance get_optical_advance_balance/finalizeOpticalOrder
+  // use. Grouping the ledger rows once here avoids an N+1 RPC call per booking.
+  const advanceByIdentity = new Map();
+  (ledgerRows || []).forEach((r) => {
+    const key = r.patient_id ? `p:${r.patient_id}` : (r.optical_customer_id ? `c:${r.optical_customer_id}` : null);
+    if (!key) return;
+    advanceByIdentity.set(key, (advanceByIdentity.get(key) || 0) + Number(r.amount));
+  });
+
+  const bookingsWithAge = (bookingRows || []).map((o) => {
+    const key = o.patient_id ? `p:${o.patient_id}` : (o.optical_customer_id ? `c:${o.optical_customer_id}` : null);
+    return {
+      id: o.id,
+      order_number: o.order_number,
+      net: o.net,
+      displayName: o.patients ? `${o.patients.salutation || ''} ${o.patients.first_name} ${o.patients.last_name || ''}`.replace(/\s+/g, ' ').trim() : (o.optical_customers?.name || o.customer_name || 'Walk-in'),
+      daysPending: Math.floor((nowIST - new Date(o.created_at)) / 86400000),
+      advanceOnFile: key ? Math.max(0, advanceByIdentity.get(key) || 0) : 0,
+    };
+  }).sort((a, b) => b.daysPending - a.daysPending);
 
   return {
     today: {

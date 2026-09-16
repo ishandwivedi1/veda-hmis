@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
 import { getOpenOpticalOrders, finalizeOpticalOrder, cancelOpticalOrder } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
@@ -13,6 +14,10 @@ function fmtDate(d) {
 }
 
 export default function FinalizeOrderTab() {
+  const searchParams = useSearchParams();
+  const initialOrderId = searchParams.get('orderId');
+  const autoOpenedRef = useRef(false);
+
   const [orders, setOrders] = useState([]);
   const [selected, setSelected] = useState(null);
   const [lines, setLines] = useState([]);
@@ -30,6 +35,21 @@ export default function FinalizeOrderTab() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Deep link from the dashboard's "Existing Bookings" widget (?orderId=...)
+  // opens that order's edit/finalize panel directly instead of landing on the
+  // bare list and making the person find and click it again. Runs once per
+  // orderId -- autoOpenedRef stops it from re-forcing the selection back open
+  // if the person deliberately closes it (e.g. after finalizing) while still
+  // on this page.
+  useEffect(() => {
+    if (!initialOrderId || autoOpenedRef.current) return;
+    const match = orders.find((o) => o.id === initialOrderId);
+    if (match) {
+      autoOpenedRef.current = true;
+      openOrder(match);
+    }
+  }, [initialOrderId, orders]);
 
   function openOrder(order) {
     setSelected(order);

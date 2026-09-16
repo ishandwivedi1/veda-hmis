@@ -127,61 +127,72 @@ export default function OpticalDashboardTab() {
         />
       </div>
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
-          <i className="ti ti-clock" style={{ color: 'var(--indigo)' }}></i> Existing Bookings
+      {/* Side by side (was stacked) -- each card gets its own scroll area so one
+          long list doesn't push the other card's heading off screen; wraps to
+          stacked below ~640px combined width via flexWrap, same pattern as the KPI row. */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <div className="card" style={{ flex: 1, minWidth: 320 }}>
+          <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
+            <i className="ti ti-clock" style={{ color: 'var(--indigo)' }}></i> Existing Bookings
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Booked orders awaiting delivery -- no bill exists for these yet, sorted by how long they've been waiting. Click one to open it directly for finalizing, editing, or cancelling.</div>
+          {data.bookings.list.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--g400)' }}>No bookings currently awaiting delivery.</div>
+          ) : (
+            data.bookings.list.map((b) => (
+              <div
+                key={b.id}
+                // Deep-links straight into that order's edit/finalize panel on the
+                // Finalize Order tab -- previously landed on the blank tab and made
+                // you find and click the order a second time.
+                onClick={() => router.push(`/optical/finalize-order?orderId=${b.id}`)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{b.order_number} <span style={{ fontWeight: 400, color: 'var(--g500)' }}>-- {b.displayName}</span></div>
+                  <div style={{ fontSize: 11.5, color: b.advanceOnFile > 0 ? 'var(--green)' : 'var(--g400)' }}>
+                    {b.advanceOnFile > 0 ? `Advance paid: ${fmt(b.advanceOnFile)}` : 'No advance paid'}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--indigo)' }}>{fmt(b.net)}</div>
+                  <span className="badge" style={{ background: b.daysPending > 7 ? 'var(--red-lt)' : 'var(--amber-lt)', color: b.daysPending > 7 ? 'var(--red)' : 'var(--amber)', fontSize: 10 }}>
+                    {b.daysPending}d waiting
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Booked orders awaiting delivery -- no bill exists for these yet, sorted by how long they've been waiting.</div>
-        {data.bookings.list.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--g400)' }}>No bookings currently awaiting delivery.</div>
-        ) : (
-          data.bookings.list.map((b) => (
-            <div
-              key={b.id}
-              onClick={() => router.push('/optical/finalize-order')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
-            >
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{b.order_number} <span style={{ fontWeight: 400, color: 'var(--g500)' }}>-- {b.displayName}</span></div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 700, color: 'var(--indigo)' }}>{fmt(b.net)}</div>
-                <span className="badge" style={{ background: b.daysPending > 7 ? 'var(--red-lt)' : 'var(--amber-lt)', color: b.daysPending > 7 ? 'var(--red)' : 'var(--amber)', fontSize: 10 }}>
-                  {b.daysPending}d waiting
-                </span>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
 
-      <div className="card">
-        <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
-          <i className="ti ti-receipt" style={{ color: 'var(--red)' }}></i> Unpaid Bills
+        <div className="card" style={{ flex: 1, minWidth: 320 }}>
+          <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
+            <i className="ti ti-receipt" style={{ color: 'var(--red)' }}></i> Unpaid Bills
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Already-billed invoices with a balance still due, sorted by how long they've been waiting.</div>
+          {data.outstanding.needsAttention.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--g400)' }}>Nothing outstanding right now -- every bill is settled.</div>
+          ) : (
+            data.outstanding.needsAttention.map((b) => (
+              <div
+                key={b.id}
+                onClick={() => router.push(`/optical/collect?saleId=${b.id}`)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{b.sale_number} <span style={{ fontWeight: 400, color: 'var(--g500)' }}>-- {b.displayName}</span></div>
+                  <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>{b.status}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--red)' }}>{fmt(b.outstanding)}</div>
+                  <span className="badge" style={{ background: b.daysPending > 7 ? 'var(--red-lt)' : 'var(--amber-lt)', color: b.daysPending > 7 ? 'var(--red)' : 'var(--amber)', fontSize: 10 }}>
+                    {b.daysPending}d pending
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 12 }}>Already-billed invoices with a balance still due, sorted by how long they've been waiting.</div>
-        {data.outstanding.needsAttention.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--g400)' }}>Nothing outstanding right now -- every bill is settled.</div>
-        ) : (
-          data.outstanding.needsAttention.map((b) => (
-            <div
-              key={b.id}
-              onClick={() => router.push(`/optical/collect?saleId=${b.id}`)}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--g100)', cursor: 'pointer' }}
-            >
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{b.sale_number} <span style={{ fontWeight: 400, color: 'var(--g500)' }}>-- {b.displayName}</span></div>
-                <div style={{ fontSize: 11.5, color: 'var(--g400)' }}>{b.status}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 700, color: 'var(--red)' }}>{fmt(b.outstanding)}</div>
-                <span className="badge" style={{ background: b.daysPending > 7 ? 'var(--red-lt)' : 'var(--amber-lt)', color: b.daysPending > 7 ? 'var(--red)' : 'var(--amber)', fontSize: 10 }}>
-                  {b.daysPending}d pending
-                </span>
-              </div>
-            </div>
-          ))
-        )}
       </div>
     </div>
   );
