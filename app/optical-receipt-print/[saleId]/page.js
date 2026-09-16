@@ -7,6 +7,16 @@ function inr(n) {
   return `Rs. ${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Advance-adjustment rows get their own visual treatment in the payments
+// table below (light tint + bold) so "money paid earlier, applied now" is
+// distinguishable at a glance from a same-day payment -- cancelled rows
+// keep the existing strikethrough regardless of type.
+function paymentRowStyle(p) {
+  if (p.cancelledRefundReason !== undefined) return { textDecoration: 'line-through', color: '#999' };
+  if (p.payment_type === 'advance_adjustment') return { background: '#eef4ff', fontWeight: 600 };
+  return undefined;
+}
+
 function fmtDate(iso) {
   return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
@@ -36,6 +46,14 @@ export default async function OpticalReceiptPrintPage({ params }) {
   const isSettled = sale.status === 'Paid';
   const docTitle = isSettled ? 'OPTICAL SHOP BILL' : 'BOOKING RECEIPT';
   const refLabel = isSettled ? 'Bill No' : 'Booking No';
+
+  // Sum of advance actually applied to this bill (excludes any adjustment
+  // later reversed via a cancelled refund) -- surfaced as a one-line
+  // summary above the payments table so it's visible without reading
+  // every row.
+  const advanceAppliedTotal = payments
+    .filter((p) => p.payment_type === 'advance_adjustment' && p.cancelledRefundReason === undefined)
+    .reduce((s, p) => s + Number(p.total_amount), 0);
 
   return (
     <div>
@@ -192,6 +210,11 @@ export default async function OpticalReceiptPrintPage({ params }) {
         {payments.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>Payments Received</div>
+            {advanceAppliedTotal > 0 && (
+              <div style={{ fontSize: 11, color: '#1a56a8', fontWeight: 700, marginBottom: 8, background: '#eef4ff', border: '1px solid #cfe0fb', borderRadius: 4, padding: '5px 9px', display: 'inline-block' }}>
+                Advance of {inr(advanceAppliedTotal)} already paid -- applied below
+              </div>
+            )}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
               <thead>
                 <tr style={{ background: '#e9edf2' }}>
@@ -203,7 +226,7 @@ export default async function OpticalReceiptPrintPage({ params }) {
               </thead>
               <tbody>
                 {payments.map((p) => (
-                  <tr key={p.id} style={p.cancelledRefundReason !== undefined ? { textDecoration: 'line-through', color: '#999' } : undefined}>
+                  <tr key={p.id} style={paymentRowStyle(p)}>
                     <td style={{ border: '1px solid #999', padding: 6 }}>
                       {p.payment_type === 'advance_adjustment'
                         ? (p.sourceAdvances || []).map((a) => a.receipt_number).join(', ') || '--'
