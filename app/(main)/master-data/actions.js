@@ -545,6 +545,21 @@ export async function addPackageLineItem(packageId, description, amount) {
   await logMasterAudit(supabase, 'master_packages', pkg?.code || packageId, 'Edit', `Constituent added: ${normalizeName(description)} -- Rs.${amount}`);
   return { success: true };
 }
+export async function updatePackageLineItem(id, packageId, description, amount) {
+  const supabase = await createClient();
+  const { data: existing } = await supabase.from('package_line_items').select('description, amount').eq('id', id).single();
+  const desc = normalizeName(description);
+  const amt = parseFloat(amount) || 0;
+  const { error } = await supabase.from('package_line_items').update({ description: desc, amount: amt }).eq('id', id);
+  if (error) return { error: error.message };
+  await supabase.rpc('recompute_package_price', { p_package_id: packageId });
+  const { data: pkg } = await supabase.from('master_packages').select('code').eq('id', packageId).single();
+  const changes = [];
+  if (existing?.description !== desc) changes.push(`Constituent renamed: ${existing?.description || '--'} -> ${desc}`);
+  if (Number(existing?.amount) !== amt) changes.push(`${desc} amount Rs.${existing?.amount ?? '--'} -> Rs.${amt}`);
+  await logMasterAudit(supabase, 'master_packages', pkg?.code || packageId, 'Edit', changes.join('; ') || 'Constituent updated');
+  return { success: true };
+}
 export async function removePackageLineItem(id, packageId) {
   const supabase = await createClient();
   const { error } = await supabase.from('package_line_items').delete().eq('id', id);

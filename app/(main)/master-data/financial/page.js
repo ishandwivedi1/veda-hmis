@@ -5,7 +5,7 @@ import {
   toggleStatus,
   getServices, addService, updateService, deleteService,
   getPackages, addPackage, updatePackage, deletePackage,
-  getPackageLineItems, addPackageLineItem, removePackageLineItem,
+  getPackageLineItems, addPackageLineItem, updatePackageLineItem, removePackageLineItem,
   getDrugs, addDrug, updateDrug, deleteDrug,
   getDrugTypes, addDrugType, updateDrugType, updateDrugTypeOcular, updateDrugTypeCountable, deleteDrugType,
   getDosageOptions, addDosageOption, removeDosageOption,
@@ -58,6 +58,9 @@ export default function FinancialMastersPage() {
 
   const [constituentsFor, setConstituentsFor] = useState(null);
   const [constituents, setConstituents] = useState([]);
+  const [editingLineId, setEditingLineId] = useState(null);
+  const [editLineDesc, setEditLineDesc] = useState('');
+  const [editLineAmount, setEditLineAmount] = useState('');
   const [newLineDesc, setNewLineDesc] = useState('');
   const [newLineAmount, setNewLineAmount] = useState('');
 
@@ -193,11 +196,13 @@ export default function FinancialMastersPage() {
     setConstituentsFor(pkg);
     setConstituents(await getPackageLineItems(pkg.id));
     setNewLineDesc(''); setNewLineAmount('');
+    cancelEditLine();
   }
 
   function closeConstituents() {
     setConstituentsFor(null);
     setConstituents([]);
+    cancelEditLine();
   }
 
   async function handleAddLine() {
@@ -206,6 +211,28 @@ export default function FinancialMastersPage() {
     const result = await addPackageLineItem(constituentsFor.id, newLineDesc, newLineAmount);
     if (result?.error) { setError(result.error); return; }
     setNewLineDesc(''); setNewLineAmount('');
+    setConstituents(await getPackageLineItems(constituentsFor.id));
+    refresh();
+  }
+
+  function startEditLine(c) {
+    setEditingLineId(c.id);
+    setEditLineDesc(c.description);
+    setEditLineAmount(String(c.amount));
+  }
+
+  function cancelEditLine() {
+    setEditingLineId(null);
+    setEditLineDesc('');
+    setEditLineAmount('');
+  }
+
+  async function saveEditLine(id) {
+    if (!editLineDesc.trim() || !editLineAmount) { setError('Description and amount are required.'); return; }
+    setError('');
+    const result = await updatePackageLineItem(id, constituentsFor.id, editLineDesc, editLineAmount);
+    if (result?.error) { setError(result.error); return; }
+    cancelEditLine();
     setConstituents(await getPackageLineItems(constituentsFor.id));
     refresh();
   }
@@ -575,11 +602,25 @@ export default function FinancialMastersPage() {
                             <thead><tr><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th></th></tr></thead>
                             <tbody>
                               {constituents.map((c) => (
-                                <tr key={c.id}>
-                                  <td>{c.description}</td>
-                                  <td style={{ textAlign: 'right' }}>Rs.{Number(c.amount).toFixed(2)}</td>
-                                  <td><button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => handleRemoveLine(c.id)}>Remove</button></td>
-                                </tr>
+                                editingLineId === c.id ? (
+                                  <tr key={c.id}>
+                                    <td><input className="fi fi-sm" value={editLineDesc} onChange={(e) => setEditLineDesc(e.target.value)} /></td>
+                                    <td style={{ textAlign: 'right' }}><input type="number" className="fi fi-sm" style={{ textAlign: 'right', width: 110 }} value={editLineAmount} onChange={(e) => setEditLineAmount(e.target.value)} /></td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                      <button className="btn btn-primary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => saveEditLine(c.id)}>Save</button>
+                                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginLeft: 4 }} onClick={cancelEditLine}>Cancel</button>
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  <tr key={c.id}>
+                                    <td>{c.description}</td>
+                                    <td style={{ textAlign: 'right' }}>Rs.{Number(c.amount).toFixed(2)}</td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => startEditLine(c)}><i className="ti ti-edit"></i></button>
+                                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginLeft: 4 }} onClick={() => handleRemoveLine(c.id)}>Remove</button>
+                                    </td>
+                                  </tr>
+                                )
                               ))}
                               {constituents.length === 0 && (
                                 <tr><td colSpan={3} style={{ padding: 12, textAlign: 'center', color: 'var(--g400)' }}>No constituents yet -- price is Rs.0 until you add some.</td></tr>
