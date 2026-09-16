@@ -232,11 +232,18 @@ export default async function OpticalReceiptPrintPage({ params }) {
                         ? (p.sourceAdvances || []).map((a) => a.receipt_number).join(', ') || '--'
                         : p.receipt_number}
                     </td>
-                    <td style={{ border: '1px solid #999', padding: 6 }}>{fmtDate(p.collected_at)}</td>
                     <td style={{ border: '1px solid #999', padding: 6 }}>
-                      {p.payment_type === 'advance_adjustment'
-                        ? `Advance applied${(p.sourceAdvances || []).length > 0 ? ` (paid ${(p.sourceAdvances || []).map((a) => fmtDate(a.collected_at)).join(', ')})` : ''}`
-                        : (p.optical_payment_modes || []).map((m) => m.mode).join(', ')}
+                      {/* For an advance applied to this bill, the date that matters to the
+                          patient is when they actually paid it (the original advance receipt),
+                          not today's finalization/adjustment date -- that's an internal-records
+                          distinction only. Falls back to the adjustment's own date if, for any
+                          reason, no source receipt was found. */}
+                      {p.payment_type === 'advance_adjustment' && (p.sourceAdvances || []).length > 0
+                        ? p.sourceAdvances.map((a) => fmtDate(a.collected_at)).join(', ')
+                        : fmtDate(p.collected_at)}
+                    </td>
+                    <td style={{ border: '1px solid #999', padding: 6 }}>
+                      {p.payment_type === 'advance_adjustment' ? 'Advance applied' : (p.optical_payment_modes || []).map((m) => m.mode).join(', ')}
                       {p.cancelledRefundReason !== undefined && <div style={{ fontSize: 9.5, fontWeight: 700 }}>CANCELLED -- {p.cancelledRefundReason}</div>}
                     </td>
                     <td style={{ border: '1px solid #999', padding: 6, textAlign: 'right' }}>{inr(p.total_amount)}</td>
