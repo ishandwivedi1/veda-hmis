@@ -224,6 +224,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   const [rxDosage, setRxDosage] = useState('1 drop');
   const [rxFrequency, setRxFrequency] = useState('BD');
   const [rxDuration, setRxDuration] = useState('1 week');
+  const [rxCustomDuration, setRxCustomDuration] = useState('');
   const [rxEye, setRxEye] = useState('BE');
   const [rxIsOcular, setRxIsOcular] = useState(true);
 
@@ -382,8 +383,12 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleAddPrescription() {
     setError('');
     if (!rxDrug.trim()) { setError('Drug name is required.'); return; }
+    // "Custom" is a sentinel in the dropdown -- the actual duration text the
+    // doctor typed lives in rxCustomDuration.
+    const effectiveDuration = rxDuration === 'Custom' ? rxCustomDuration.trim() : rxDuration;
+    if (rxDuration === 'Custom' && !effectiveDuration) { setError('Enter the custom duration.'); return; }
     const result = await addPrescription(data.encounter.id, {
-      drugName: rxDrug, dosage: rxDosage, frequency: rxFrequency, duration: rxDuration, eye: rxIsOcular ? rxEye : 'Oral',
+      drugName: rxDrug, dosage: rxDosage, frequency: rxFrequency, duration: effectiveDuration, eye: rxIsOcular ? rxEye : 'Oral',
     });
     if (result.error) { setError(result.error); return; }
     setRxDrug('');
@@ -1086,10 +1091,17 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   </select>
                   <select className="fi" value={rxDuration} onChange={(e) => setRxDuration(e.target.value)} style={{ flex: '1 1 100px' }}>
                     <option>1 day</option><option>2 days</option><option>3 days</option><option>4 days</option><option>5 days</option>
-                    <option>1 week</option><option>2 weeks</option><option>10 days</option>
+                    <option>1 week</option><option>2 weeks</option><option>10 days</option><option>20 days</option>
                     <option>1 month</option><option>2 months</option><option>3 months</option><option>4 months</option><option>5 months</option><option>6 months</option>
                     <option>Ongoing</option>
+                    <option value="Custom">Custom...</option>
                   </select>
+                  {rxDuration === 'Custom' && (
+                    <input
+                      className="fi" placeholder="e.g. 18 days, 3 weeks" value={rxCustomDuration}
+                      onChange={(e) => setRxCustomDuration(e.target.value)} style={{ flex: '1 1 130px' }}
+                    />
+                  )}
                   {rxIsOcular ? (
                     <select className="fi" value={rxEye} onChange={(e) => setRxEye(e.target.value)} style={{ width: 110 }}>
                       <option value="RE">Right (OD)</option><option value="LE">Left (OS)</option><option value="BE">Both (OU)</option>
@@ -1131,7 +1143,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                         </select>
                         <select className="fi fi-sm" value={s.duration} onChange={(e) => updateTaperStep(i, 'duration', e.target.value)} style={{ maxWidth: 110 }}>
                           <option>1 day</option><option>2 days</option><option>3 days</option><option>4 days</option><option>5 days</option>
-                          <option>1 week</option><option>2 weeks</option><option>10 days</option>
+                          <option>1 week</option><option>2 weeks</option><option>10 days</option><option>20 days</option>
                           <option>1 month</option><option>2 months</option><option>3 months</option><option>4 months</option><option>5 months</option><option>6 months</option>
                         </select>
                         {taperSteps.length > 2 && (
