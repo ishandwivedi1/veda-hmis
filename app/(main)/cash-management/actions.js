@@ -753,7 +753,7 @@ export async function getDailyReport(date) {
       ? supabase.from('payment_refunds').select('refund_payment_id, invoice_id').in('refund_payment_id', hospitalRefundTx.map((p) => p.id))
       : Promise.resolve({ data: [] }),
     opticalRefundTx.length > 0
-      ? supabase.from('optical_payment_refunds').select('refund_payment_id, sale_id').in('refund_payment_id', opticalRefundTx.map((p) => p.id.replace('optical-', '')))
+      ? supabase.from('optical_payment_refunds').select('refund_payment_id, sale_id, payment_id').in('refund_payment_id', opticalRefundTx.map((p) => p.id.replace('optical-', '')))
       : Promise.resolve({ data: [] }),
   ]);
   const invoiceIdByRefundPaymentId = {};
@@ -761,10 +761,37 @@ export async function getDailyReport(date) {
   const saleIdByRefundPaymentId = {};
   (opticalRefundLinks || []).forEach((r) => { if (r.sale_id) saleIdByRefundPaymentId[r.refund_payment_id] = r.sale_id; });
 
+  // A refund that's reversing an advance_adjustment (an advance that was
+  // applied to a sale, not fresh sale cash) is, economically, the advance
+  // being handed back -- regardless of what sale it happened to be applied
+  // to. This matters specifically when that sale is then fully cancelled:
+  // recompute_optical_sale_status() clears the sale's finalized_at once it's
+  // Cancelled, so getBilledIncomeByCategory's "only sales finalized today"
+  // query silently drops the sale -- and its refund -- from Table 2's
+  // Optical Shop Sales row entirely. If that refund were also excluded from
+  // the Advance Collected netting below (because it has a sale_id on file),
+  // the ₹ that actually left the till that day would net to zero in Table 1
+  // but never appear as a deduction anywhere in Table 2 -- overstating
+  // Optical Advance Collected by exactly the refunded amount. Checking the
+  // TYPE of the payment being refunded (not just whether a sale_id happens
+  // to be on file) routes it to the right bucket in both cases.
+  const refundedPaymentIds = (opticalRefundLinks || []).map((r) => r.payment_id).filter(Boolean);
+  const { data: refundedPayments } = refundedPaymentIds.length > 0
+    ? await supabase.from('optical_payments').select('id, payment_type').in('id', refundedPaymentIds)
+    : { data: [] };
+  const refundedPaymentTypeById = {};
+  (refundedPayments || []).forEach((p) => { refundedPaymentTypeById[p.id] = p.payment_type; });
+  const refundedPaymentTypeByRefundId = {};
+  (opticalRefundLinks || []).forEach((r) => { refundedPaymentTypeByRefundId[r.refund_payment_id] = refundedPaymentTypeById[r.payment_id]; });
+  const isOpticalAdvanceReversal = (p) => {
+    const key = p.id.replace('optical-', '');
+    return refundedPaymentTypeByRefundId[key] === 'advance_adjustment' || !saleIdByRefundPaymentId[key];
+  };
+
   const invoiceRefundTx = hospitalRefundTx.filter((p) => invoiceIdByRefundPaymentId[p.id]);
   const advanceRefundTx = hospitalRefundTx.filter((p) => !invoiceIdByRefundPaymentId[p.id]);
-  const opticalSaleRefundTx = opticalRefundTx.filter((p) => saleIdByRefundPaymentId[p.id.replace('optical-', '')]);
-  const opticalAdvanceRefundTx = opticalRefundTx.filter((p) => !saleIdByRefundPaymentId[p.id.replace('optical-', '')]);
+  const opticalSaleRefundTx = opticalRefundTx.filter((p) => !isOpticalAdvanceReversal(p));
+  const opticalAdvanceRefundTx = opticalRefundTx.filter(isOpticalAdvanceReversal);
 
   // For invoice/sale-linked refunds, look up when that invoice/sale
   // was actually created -- a refund against something billed on a
