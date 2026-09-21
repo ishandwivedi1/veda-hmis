@@ -293,13 +293,22 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
   const [doctorOverrides, setDoctorOverrides] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [dbLocked, setDbLocked] = useState(false);
+  // Own-workspace unlock -- previously the ONLY way to fix a completed
+  // assessment (e.g. a mistyped IOP reading) was for a doctor to open the
+  // consultation and hit its "Unlock to Edit" toggle; the optometrist's own
+  // dashboard/workspace had no such control at all once dbLocked was true,
+  // even for someone who could see their own mistake immediately after
+  // completing the exam. Admin-gated (like other override-a-completed-
+  // record actions in this app, e.g. backdating a payment) since this
+  // bypasses the normal completed/handed-off protection.
+  const [unlockOverride, setUnlockOverride] = useState(false);
   // When embedded in the doctor's consultation page, "Unlock to Edit" on
   // a completed encounter only toggled an outer <fieldset disabled> --
   // it never reached this component's OWN server-fetched lock state,
   // which every field's disabled= reads from directly. That left every
   // field permanently disabled after unlocking. forceUnlocked (passed
   // down from that page-level toggle) overrides it here instead.
-  const locked = dbLocked && !forceUnlocked;
+  const locked = dbLocked && !forceUnlocked && !unlockOverride;
   const [loadError, setLoadError] = useState('');
 
   const [form, setForm] = useState(emptyForm());
@@ -374,7 +383,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     });
   }
 
-  useEffect(() => { load(); }, [queueEntryId]);
+  useEffect(() => { setUnlockOverride(false); load(); }, [queueEntryId]);
 
   useEffect(() => {
     getIopMethods().then((all) => setIopMethods(all.filter((m) => m.status === 'Active')));
@@ -747,8 +756,27 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
       </div>
 
       {locked && (
-        <div className="msg-err" style={{ marginBottom: 12 }}>
-          <i className="ti ti-lock"></i> {embedded ? 'This visit is closed. Shown here for reference only -- no further edits.' : 'The doctor has already started this consultation. Shown here for reference only -- no further edits.'}
+        <div className="msg-err" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span>
+            <i className="ti ti-lock"></i> {embedded ? 'This visit is closed. Shown here for reference only -- no further edits.' : 'The doctor has already started this consultation. Shown here for reference only -- no further edits.'}
+          </span>
+          {/* Previously the only way to fix something here (e.g. a mistyped
+              IOP reading) after the doctor's consultation was marked Done
+              was for a doctor to reopen it via the consultation page's own
+              "Unlock to Edit" toggle -- the optometrist's own workspace had
+              no path at all. Admin-gated since it bypasses the normal
+              completed-record protection, same as other override actions
+              in this app. */}
+          {isAdmin && !embedded && dbLocked && !forceUnlocked && (
+            <button className="btn btn-sm" style={{ flexShrink: 0 }} onClick={() => setUnlockOverride((v) => !v)}>
+              {unlockOverride ? 'Lock' : 'Unlock to Edit'}
+            </button>
+          )}
+        </div>
+      )}
+      {unlockOverride && (
+        <div className="msg-info" style={{ marginBottom: 12 }}>
+          <i className="ti ti-lock-open"></i> Editing a completed assessment as Administrator -- changes save immediately.
         </div>
       )}
       {doctorOverrides.length > 0 && (
