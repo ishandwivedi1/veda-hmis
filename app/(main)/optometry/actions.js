@@ -329,6 +329,44 @@ export async function updateCompletedAssessment(assessmentId, fields) {
 // Add a single IOP reading -- applied immediately (not batched with
 // the rest of the form), same as the prototype's "Add reading" flow.
 // Out-of-range values still get recorded but flagged (VAL-OPT-003).
+// Edit an existing IOP reading -- e.g. a mistyped digit (41 instead of
+// 14). Previously there was no way to correct a reading once added,
+// only to add more -- an optometrist had no recourse but to leave a
+// wrong value on file or add a second reading and hope the doctor
+// noticed the right one. Logs old -> new value to the assessment's
+// audit trail, same as every other clinical edit here.
+export async function updateIopReading(readingId, assessmentId, value) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const numericValue = parseFloat(value);
+  if (!numericValue || numericValue <= 0 || numericValue > 80) {
+    return { error: 'Enter a valid IOP value (1-80 mmHg).' };
+  }
+
+  const { data: existing } = await supabase.from('optometry_iop_readings').select('eye, value').eq('id', readingId).single();
+  if (!existing) return { error: 'Reading not found.' };
+
+  const { data: reading, error } = await supabase
+    .from('optometry_iop_readings')
+    .update({ value: numericValue })
+    .eq('id', readingId)
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+
+  const isHigh = numericValue > 21;
+  await addAudit(
+    supabase,
+    assessmentId,
+    `IOP ${existing.eye} corrected: ${existing.value} -> ${numericValue} mmHg${isHigh ? ' -- ELEVATED (VAL-OPT-003)' : ''}`,
+    userData?.user?.id
+  );
+
+  return { reading };
+}
+
 export async function addIopReading(assessmentId, eye, value) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();

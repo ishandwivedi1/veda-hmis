@@ -9,6 +9,7 @@ import {
   completeAssessment,
   updateCompletedAssessment,
   addIopReading,
+  updateIopReading,
   sendForDilation,
   sendForInvestigation,
 } from '@/app/(main)/optometry/actions';
@@ -286,6 +287,8 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
   const [assessment, setAssessment] = useState(null);
   const [encounter, setEncounter] = useState(null);
   const [iopReadings, setIopReadings] = useState([]);
+  const [editingIopId, setEditingIopId] = useState(null);
+  const [editIopValue, setEditIopValue] = useState('');
   const [auditLog, setAuditLog] = useState([]);
   const [doctorOverrides, setDoctorOverrides] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -546,6 +549,27 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     setIopReadings((prev) => [...prev, result.reading]);
   }
 
+  function startEditIop(r) {
+    setEditingIopId(r.id);
+    setEditIopValue(String(r.value));
+  }
+
+  function cancelEditIop() {
+    setEditingIopId(null);
+    setEditIopValue('');
+  }
+
+  async function saveEditIop(readingId) {
+    if (!editIopValue) return;
+    const result = await updateIopReading(readingId, assessment.id, editIopValue);
+    if (result.error) { setError(result.error); return; }
+    setError('');
+    // Same local-update approach as handleAddIop -- avoids a full
+    // reload wiping out unsaved edits elsewhere on the form.
+    setIopReadings((prev) => prev.map((r) => (r.id === readingId ? result.reading : r)));
+    cancelEditIop();
+  }
+
   async function handleSaveDraft() {
     setSaving(true);
     setError('');
@@ -649,12 +673,32 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     const isWarn = r.value > 18 && r.value <= 21;
     const isLatest = i === list.length - 1;
     const time = new Date(r.recorded_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+    if (editingIopId === r.id) {
+      return (
+        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--g50)', marginBottom: 6, fontSize: 12 }}>
+          <input
+            type="number" className="fi fi-sm" autoFocus value={editIopValue}
+            onChange={(e) => setEditIopValue(e.target.value)} style={{ width: 80 }}
+          />
+          <span style={{ fontSize: 11, color: 'var(--g500)' }}>mmHg -- {time}</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            <button className="btn btn-primary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => saveEditIop(r.id)}>Save</button>
+            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={cancelEditIop}>Cancel</button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: isHigh ? 'var(--red-lt)' : isWarn ? 'var(--amber-lt)' : 'var(--g50)', marginBottom: 6, fontSize: 12 }}>
         <i className={`ti ti-${isHigh ? 'alert-circle' : 'circle-check'}`} style={{ color: isHigh ? 'var(--red)' : isWarn ? 'var(--amber)' : 'var(--green)', fontSize: 14 }}></i>
         <span style={{ fontWeight: isLatest ? 700 : 400, color: isHigh ? 'var(--red)' : isWarn ? 'var(--amber)' : 'var(--g800)' }}>{r.value} mmHg</span>
         <span style={{ fontSize: 11, color: 'var(--g500)' }}>{time}</span>
-        <span style={{ marginLeft: 'auto' }} className={`badge ${isLatest ? 'b-teal' : 'b-gray'}`}>{isLatest ? 'Latest' : 'Historical'}</span>
+        <span className={`badge ${isLatest ? 'b-teal' : 'b-gray'}`}>{isLatest ? 'Latest' : 'Historical'}</span>
+        {!locked && (
+          <button className="btn" style={{ marginLeft: 'auto', padding: '2px 6px' }} onClick={() => startEditIop(r)} title="Edit this reading">
+            <i className="ti ti-edit" style={{ fontSize: 13 }}></i>
+          </button>
+        )}
       </div>
     );
   }
