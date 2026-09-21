@@ -65,6 +65,7 @@ export async function middleware(request) {
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
   const isLoginPage = request.nextUrl.pathname.startsWith('/login');
@@ -73,8 +74,29 @@ export async function middleware(request) {
     request.nextUrl.pathname.startsWith('/forgot-password') ||
     request.nextUrl.pathname.startsWith('/reset-password');
 
+  // Transient refresh-token race: two requests from the same browser tab
+  // (e.g. a dashboard's 15-second auto-refresh poll landing at the same
+  // instant as the browser's own routine hourly token renewal, or a
+  // heartbeat call overlapping a page navigation) both try to rotate the
+  // session's refresh token at once. Whichever gets there first is fine;
+  // the other's cookie is now one step behind and getUser() reports "no
+  // user" even though the person never logged out -- Supabase's own error
+  // codes for exactly this situation are refresh_token_not_found,
+  // refresh_token_already_used, and session_not_found. Treating that the
+  // same as "never logged in" is what was bouncing people to the login
+  // screen (or hanging a server action that got a redirect back instead
+  // of the response it expected) in the middle of a task -- experienced
+  // as the portal "getting stuck" until a manual refresh, since the next
+  // request is already past the race and uses the freshly rotated cookie
+  // the winning request wrote back to the browser. Only applied when a
+  // session cookie is actually present, so someone who was genuinely
+  // never logged in still gets sent to login as before.
+  const RACE_ERROR_CODES = ['refresh_token_not_found', 'refresh_token_already_used', 'session_not_found'];
+  const hasSessionCookie = request.cookies.getAll().some((c) => c.name.includes('auth-token'));
+  const looksLikeRefreshRace = !user && userError && RACE_ERROR_CODES.includes(userError.code) && hasSessionCookie;
+
   // Not logged in and trying to reach a protected page -> send to login
-  if (!user && !isPublicPage) {
+  if (!user && !isPublicPage && !looksLikeRefreshRace) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
