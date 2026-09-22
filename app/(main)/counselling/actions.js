@@ -217,6 +217,26 @@ export async function markForSurgery(patientId, encounterId, procedureName, eye,
     }
   }
 
+  // BR: a patient shouldn't end up with two surgical cases open at once
+  // across different visits either. This is the gap the visit-scoped
+  // check above can't catch: a patient returns weeks later for a
+  // pre-op/follow-up visit -- a fresh visit_id -- and gets marked for
+  // surgery again while an earlier case is still open, creating a
+  // duplicate that staff then had to notice, decline ("Not Willing")
+  // on one, and fix up the other. Excludes Completed and Cancelled --
+  // a genuinely new case after an earlier one finished or was declined
+  // is fine and expected (e.g. second eye, or a repeat procedure).
+  const { data: activeElsewhere } = await supabase
+    .from('surgical_cases')
+    .select('id, procedure_name, eye, status')
+    .eq('patient_id', patientId)
+    .not('status', 'in', '(Cancelled,Completed)')
+    .limit(1);
+  if (activeElsewhere && activeElsewhere.length > 0) {
+    const c = activeElsewhere[0];
+    return { error: `This patient already has an active surgical case from an earlier visit (${c.procedure_name} -- ${c.eye}, status: ${c.status}). Please continue that case in Surgical Journey instead of creating a new one -- or mark it "Not Willing" first if it's no longer relevant.` };
+  }
+
   let priority = 'Routine';
   if (encounter?.visit_id) {
     const { data: visit } = await supabase.from('visits').select('priority').eq('id', encounter.visit_id).single();
