@@ -253,6 +253,29 @@ export async function addRecoveryComplication(episodeId, values) {
   return { success: true };
 }
 
+// ── REVIEW SCREEN CONTEXT ── everything the simplified Post-op Review
+// screen (app/consultation/[id]/postop) needs about the episode this
+// follow-up belongs to, in one call -- given the followupId that
+// ot-postop's "Start/Open Review" button already has on hand. Kept
+// separate from getPostOpEpisodeDetail (which is keyed by episodeId,
+// not followupId, and returns the full followups/complications lists
+// the dashboard workspace needs) so neither caller has to fetch more
+// than it actually uses.
+export async function getFollowupReviewContext(followupId) {
+  const supabase = await createClient();
+  const { data: followup, error } = await supabase
+    .from('recovery_followups')
+    .select('*, recovery_episodes(*, surgical_cases(procedure_name, eye, patients:patient_id(id, first_name, salutation, last_name, uhid, age, gender), profiles:surgeon_id(full_name)))')
+    .eq('id', followupId)
+    .single();
+  if (error) return { error: error.message };
+
+  const episode = followup.recovery_episodes;
+  if (!episode) return { error: 'Could not find the recovery episode for this follow-up.' };
+
+  return { followup, episode, sc: episode.surgical_cases || null };
+}
+
 // ── CLOSE EPISODE ──
 export async function closeEpisode(episodeId, values) {
   const supabase = await createClient();

@@ -148,9 +148,15 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
     setOpeningReview(null);
     if (result.error) { setError(result.error); return; }
     // Opens in its own window (closes itself once the doctor finishes --
-    // see finishAndClose() in consultation-form.js) -- poll for it
+    // see finishAndClose() in postop-review-form.js) -- poll for it
     // closing so the follow-up list refreshes without waiting on a timer.
-    const win = window.open(`/consultation/${result.queueEntryId}`, 'postop-review-window');
+    // Routed to the simplified Post-op Review screen (not the full
+    // multi-tab consultation form) -- optometrist findings, a quick
+    // doctor note, meds/tapering, and the schedule-next/close-episode
+    // decision, all on one screen. followupId is passed explicitly
+    // since a visit can be shared by more than one follow-up opened
+    // the same day.
+    const win = window.open(`/consultation/${result.queueEntryId}/postop?followupId=${f.id}`, 'postop-review-window');
     if (win) {
       const poll = setInterval(() => {
         if (win.closed) { clearInterval(poll); refresh(); }
