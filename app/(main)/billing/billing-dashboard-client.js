@@ -12,7 +12,7 @@ const RUPEE = (n) => `Rs.${Number(n || 0).toLocaleString('en-IN')}`;
 
 const VISIT_TYPE_COLOR = {
   'New Consultation': '--blue',
-  'Follow-up': '--green',
+  'OPD Follow Up': '--green',
   'Investigation Only': '--purple',
   'Post-operative Review': '--amber',
   'Emergency': '--red',

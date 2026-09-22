@@ -761,7 +761,7 @@ const SAMPLE_CASE_SHEET_RAW = {
   procedures: [{ name: 'Chalazion Excision', eye: 'RE', notes: 'Under local anaesthesia' }],
   referrals: [{ destination: 'Retina Specialist', reason: 'Diabetic Retinopathy evaluation' }],
   prescriptions: [{ drug_name: 'CMC 0.5%', eye: 'BE', dosage: '1 drop', frequency: 'QID', duration: '1 month' }],
-  followup: { after_period: '1 month', visit_type: 'Follow-up', instructions: null },
+  followup: { after_period: '1 month', visit_type: 'OPD Follow Up', instructions: null },
 };
 
 // Deliberately includes one eye with SPH-only (no CYL/AXIS) so the
