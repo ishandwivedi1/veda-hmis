@@ -7,6 +7,7 @@ import {
   addRecoveryComplication, closeEpisode, openFollowupReview, addFollowup, removeFollowup,
 } from './actions';
 import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
+import { openPrintPopup } from '@/lib/printPopup';
 
 const MILESTONES_START = [
   { key: 'recovery', label: 'Recovery', icon: 'ti-bed' },
@@ -259,6 +260,15 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {f.rescheduled_count > 0 && <span style={{ fontSize: 10, color: 'var(--amber)' }}>Rescheduled {f.rescheduled_count}x</span>}
                   <span className="badge" style={{ background: `${color}20`, color }}>{f.status}</span>
+                  {f.visit_id && (
+                    <button
+                      className="btn btn-sm" style={{ padding: '2px 8px' }}
+                      title="Print this review's summary"
+                      onClick={() => openPrintPopup(`/postop-review-print/${f.id}`)}
+                    >
+                      <i className="ti ti-printer"></i>
+                    </button>
+                  )}
                 </div>
               </div>
 

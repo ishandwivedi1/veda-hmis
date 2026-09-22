@@ -11,6 +11,7 @@ import {
   getFollowupReviewContext, markFollowupStatus, addFollowup, closeEpisode, addRecoveryComplication,
 } from '@/app/(main)/ot-postop/actions';
 import { getDrugs, getDosageOptions } from '@/app/(main)/master-data/actions';
+import { openPrintPopup } from '@/lib/printPopup';
 import { PatientSnapshotBar } from './follow-up-panel';
 
 function todayIst() {
@@ -258,6 +259,9 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
           </div>
         </div>
         <span className="badge" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{isLocked ? 'Completed' : 'Post-op Review'} -- {reviewCtx.followup.visit_label}</span>
+        <button className="btn btn-sm" style={{ borderColor: 'rgba(255,255,255,.3)', background: 'rgba(255,255,255,.1)', color: '#fff' }} onClick={() => openPrintPopup(`/postop-review-print/${followupId}`)}>
+          <i className="ti ti-printer"></i> Print
+        </button>
       </div>
 
       {error && <div className="msg-err">{error}</div>}

@@ -87,6 +87,19 @@ PLACEHOLDER_REFERENCE.discharge_summary = [
   'followups (loop: visit_label, date, status)',
 ];
 
+PLACEHOLDER_REFERENCE.post_op_review = [
+  'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
+  'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',
+  'patient_id', 'patient_name', 'patient_age', 'patient_gender', 'patient_mobile',
+  'surgeon_name', 'surgeon_regn_no', 'procedure_name', 'eye', 'visit_label', 'review_date',
+  '{{#unless hasFindings}}...{{/unless}}', '{{#if hasFindings}}...{{/if}}', 're_vision', 'le_vision', 're_iop', 'le_iop',
+  '{{#if hasDoctorNotes}}...{{/if}}', '{{#if note_re}}...{{/if}}', 'note_re', '{{#if note_le}}...{{/if}}', 'note_le',
+  '{{#unless hasMedications}}...{{/unless}}', '{{#if hasMedications}}...{{/if}}', 'medications (loop: name, eye, dosage, frequency, duration, isTaper)',
+  '{{#if hasComplications}}...{{/if}}', 'complications (loop: name, severity, management)',
+  '{{#if isClosed}}...{{/if}}', 'closure_outcome', 'closure_remarks',
+  '{{#if hasNextReview}}...{{/if}}', 'next_review_label', 'next_review_date',
+];
+
 PLACEHOLDER_REFERENCE.investigation_report = [
   'hospital_name', 'hospital_unit_line', 'hospital_regn_no', 'hospital_address_line1', 'hospital_address_line2',
   'hospital_city_state_pin', 'hospital_phone', 'hospital_email', '{{{logo_html}}}',

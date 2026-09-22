@@ -5,6 +5,7 @@ import Handlebars from 'handlebars';
 import { matchInvestigationType, getFullFieldValues } from '@/app/(main)/investigation/investigation-types';
 import { plainFrequency, groupPrescriptionsForPrint } from '@/lib/prescriptionFormatting';
 import { formatPatientName } from '@/lib/patientName';
+import { getFollowupReviewContext } from '@/app/(main)/ot-postop/actions';
 
 // ── Editable print templates ──────────────────────────────────────────
 // Each template's HTML lives here as a code-level DEFAULT (versioned,
@@ -503,7 +504,162 @@ const DEFAULT_TEMPLATES = {
   </div>
 
 </div>
-`
+`,
+  post_op_review: `<div style="max-width: 780px; margin: 0 auto; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 13px;">
+
+  <!-- HEADER -->
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 6px;">
+    <tr>
+      <td style="width: 100px; vertical-align: top;">{{{logo_html}}}</td>
+      <td style="vertical-align: top;">
+        <div style="font-size: 24px; font-weight: 800; letter-spacing: .3px; text-decoration: underline; color: #0f766e;">{{hospital_name}}</div>
+        <div style="font-size: 11px; font-weight: 700; margin-top: 2px;">{{hospital_unit_line}}</div>
+        <div style="font-size: 10px; font-weight: 700;">REGN NO : {{hospital_regn_no}}</div>
+      </td>
+      <td style="text-align: right; vertical-align: top; font-size: 10.5px; line-height: 1.5;">
+        {{hospital_address_line1}}<br/>
+        {{hospital_address_line2}}<br/>
+        {{hospital_city_state_pin}}<br/>
+        Tel: {{hospital_phone}}
+      </td>
+    </tr>
+  </table>
+
+  <div style="text-align: center; font-size: 16px; font-weight: 700; border-top: 1.5px solid #0f766e; border-bottom: 1.5px solid #0f766e; padding: 8px 0; margin: 10px 0 16px; color: #0f766e;">
+    POST-OPERATIVE REVIEW SUMMARY
+  </div>
+
+  <!-- PATIENT / VISIT INFO -->
+  <table style="width: 100%; border: 1.5px solid #333; border-collapse: collapse; margin-bottom: 16px;">
+    <tr>
+      <td style="width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9; border-right: 1px solid #999;">
+        <table style="width: 100%; font-size: 12px;">
+          <tr><td style="width: 100px; color: #444;">PATIENT ID</td><td>: <strong>{{patient_id}}</strong></td></tr>
+          <tr><td style="color: #444;">NAME</td><td>: <strong>{{patient_name}}</strong></td></tr>
+          <tr><td style="color: #444;">AGE/GENDER</td><td>: <strong>{{patient_age}} / {{patient_gender}}</strong></td></tr>
+          <tr><td style="color: #444;">MOBILE</td><td>: <strong>{{patient_mobile}}</strong></td></tr>
+        </table>
+      </td>
+      <td style="width: 50%; padding: 10px 14px; vertical-align: top; font-size: 12px; line-height: 1.9;">
+        <table style="width: 100%; font-size: 12px;">
+          <tr><td style="width: 110px; color: #444;">SURGEON</td><td>: <strong>Dr. {{surgeon_name}}</strong></td></tr>
+          <tr><td style="color: #444;">PROCEDURE</td><td>: <strong>{{procedure_name}} ({{eye}})</strong></td></tr>
+          <tr><td style="color: #444;">REVIEW VISIT</td><td>: <strong>{{visit_label}}</strong></td></tr>
+          <tr><td style="color: #444;">REVIEW DATE</td><td>: <strong>{{review_date}}</strong></td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- OPTOMETRIST'S FINDINGS -->
+  <div style="margin-bottom: 14px;">
+    <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;">Optometrist's Findings</div>
+    {{#unless hasFindings}}<div style="font-size: 12px; color: #9ca3af;">No optometry assessment on file for this visit.</div>{{/unless}}
+    {{#if hasFindings}}
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <thead>
+        <tr style="background: #f0fdfa;">
+          <th style="border: 1px solid #999; padding: 5px 8px; text-align: left; color: #0f766e; width: 90px;"></th>
+          <th style="border: 1px solid #999; padding: 5px 8px; color: #0f766e;">Vision</th>
+          <th style="border: 1px solid #999; padding: 5px 8px; color: #0f766e; width: 100px;">IOP</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="border: 1px solid #999; padding: 5px 8px; font-weight: 600;">Right Eye</td>
+          <td style="border: 1px solid #999; padding: 5px 8px;">{{re_vision}}</td>
+          <td style="border: 1px solid #999; padding: 5px 8px; text-align: center;">{{re_iop}}</td>
+        </tr>
+        <tr>
+          <td style="border: 1px solid #999; padding: 5px 8px; font-weight: 600;">Left Eye</td>
+          <td style="border: 1px solid #999; padding: 5px 8px;">{{le_vision}}</td>
+          <td style="border: 1px solid #999; padding: 5px 8px; text-align: center;">{{le_iop}}</td>
+        </tr>
+      </tbody>
+    </table>
+    {{/if}}
+  </div>
+
+  <!-- DOCTOR'S REVIEW -->
+  {{#if hasDoctorNotes}}
+  <div style="margin-bottom: 14px;">
+    <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;">Doctor's Review</div>
+    {{#if note_re}}<div style="font-size: 13px; padding: 2px 0;"><strong>Right Eye:</strong> {{note_re}}</div>{{/if}}
+    {{#if note_le}}<div style="font-size: 13px; padding: 2px 0;"><strong>Left Eye:</strong> {{note_le}}</div>{{/if}}
+  </div>
+  {{/if}}
+
+  <!-- MEDICATIONS -->
+  <div style="margin-bottom: 14px;">
+    <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;">Current Medications</div>
+    {{#unless hasMedications}}<div style="font-size: 12px; color: #9ca3af;">None currently prescribed.</div>{{/unless}}
+    {{#if hasMedications}}
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <thead>
+        <tr style="background: #f0fdfa;">
+          <th style="border: 1px solid #999; padding: 5px 8px; text-align: left; color: #0f766e;">Medicine</th>
+          <th style="border: 1px solid #999; padding: 5px 8px; color: #0f766e;">Eye</th>
+          <th style="border: 1px solid #999; padding: 5px 8px; color: #0f766e;">Dosage</th>
+          <th style="border: 1px solid #999; padding: 5px 8px; color: #0f766e;">Frequency</th>
+          <th style="border: 1px solid #999; padding: 5px 8px; color: #0f766e;">Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each medications}}
+        <tr>
+          <td style="border: 1px solid #999; padding: 5px 8px; font-weight: 600;">{{name}}{{#if isTaper}} <span style="font-size: 9px; font-weight: 700; color: #7c3aed; text-transform: uppercase;">(Taper)</span>{{/if}}</td>
+          <td style="border: 1px solid #999; padding: 5px 8px; text-align: center; color: #4b5563;">{{eye}}</td>
+          {{#if isTaper}}
+          <td colspan="3" style="border: 1px solid #999; padding: 5px 8px; text-align: center; color: #4b5563; font-size: 11px;">{{frequency}}</td>
+          {{else}}
+          <td style="border: 1px solid #999; padding: 5px 8px; text-align: center; color: #4b5563;">{{dosage}}</td>
+          <td style="border: 1px solid #999; padding: 5px 8px; text-align: center; color: #4b5563;">{{frequency}}</td>
+          <td style="border: 1px solid #999; padding: 5px 8px; text-align: center; color: #4b5563;">{{duration}}</td>
+          {{/if}}
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+    {{/if}}
+  </div>
+
+  <!-- COMPLICATIONS -->
+  {{#if hasComplications}}
+  <div style="margin-bottom: 14px;">
+    <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #b91c1c; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 8px;">Complications Noted</div>
+    {{#each complications}}
+    <div style="font-size: 12.5px; padding: 2px 0;">{{name}} ({{severity}}){{#if management}} -- {{management}}{{/if}}</div>
+    {{/each}}
+  </div>
+  {{/if}}
+
+  <!-- NEXT STEP -->
+  <div style="margin-bottom: 14px; padding: 10px 14px; background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 6px;">
+    <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #0f766e; margin-bottom: 4px;">Next Step</div>
+    {{#if isClosed}}
+    <div style="font-size: 13px;">Episode closed -- <strong>{{closure_outcome}}</strong>{{#if closure_remarks}} ({{closure_remarks}}){{/if}}</div>
+    {{/if}}
+    {{#if hasNextReview}}
+    <div style="font-size: 13px;">Next review: <strong>{{next_review_label}}</strong> on <strong>{{next_review_date}}</strong></div>
+    {{/if}}
+    {{#unless isClosed}}{{#unless hasNextReview}}
+    <div style="font-size: 13px; color: #9ca3af;">Not yet decided.</div>
+    {{/unless}}{{/unless}}
+  </div>
+
+  <div style="margin-top: 50px; display: flex; justify-content: flex-end;">
+    <div style="text-align: center; border-top: 1px solid #9ca3af; padding-top: 6px; width: 220px;">
+      <div style="font-size: 12px; font-weight: 600;">Dr. {{surgeon_name}}</div>
+      <div style="font-size: 10.5px; color: #444;">Regn No: {{surgeon_regn_no}}</div>
+      <div style="font-size: 10px; color: #9ca3af; margin-top: 2px;">Signature</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 30px; text-align: center; font-size: 11px; color: #9ca3af;">
+    This is a computer-generated summary -- {{hospital_name}}.
+  </div>
+</div>
+`,
 };
 
 const PRINT_TEMPLATE_CATALOG = [
@@ -521,6 +677,7 @@ const PRINT_TEMPLATE_CATALOG = [
   { key: 'opd_procedure_summary', name: 'OPD Procedure Summary', description: 'Handed to the patient after an OPD Procedure is completed -- procedure performed, findings, and post-procedure instructions.' },
   { key: 'external_tests_requisition', name: 'External Tests Requisition', description: 'Printed from Surgical Journey -- list of external tests (blood work, HIV test, etc) for the patient to take to an outside lab.' },
   { key: 'medical_fitness_form', name: 'Medical Fitness Form (Cataract Surgery)', description: 'Bilingual pre-op fitness certificate, printed from Medical Fitness once the doctor gives clearance -- goes in the patient file.' },
+  { key: 'post_op_review', name: 'Post-op Review Summary', description: 'Handed to the patient after a Post-op Review -- optometrist findings, doctor\'s review, current medications, and the next step (next review date or episode closure).' },
 ];
 
 // ── Hospital Settings -- the "actual fields to edit" form (name,
@@ -623,6 +780,7 @@ export async function getSampleData(key) {
   if (key === 'biometry_report') return buildBiometryReportContext(settings, SAMPLE_BIOMETRY_RAW);
   if (key === 'discharge_summary') return buildDischargeSummaryContext(settings, SAMPLE_DISCHARGE_RAW);
   if (key === 'investigation_report') return SAMPLE_INVESTIGATION_CONTEXT(settings);
+  if (key === 'post_op_review') return buildPostOpReviewContext(settings, SAMPLE_POSTOP_RAW);
   return {};
 }
 
@@ -660,6 +818,34 @@ const SAMPLE_DISCHARGE_RAW = {
     { visit_label: 'Post-op Week 1', scheduled_date: '2026-06-18', status: 'Scheduled' },
     { visit_label: 'Post-op Month 1', scheduled_date: '2026-07-11', status: 'Scheduled' },
   ],
+};
+
+const SAMPLE_POSTOP_RAW = {
+  patient: { uhid: 'VEH-00004', first_name: 'Utkarsh', last_name: 'Prakash', mobile: '9876543210', age: 62, gender: 'M' },
+  surgeon: { full_name: 'Nisha Bachkheti', registration_no: 'UKMC-3436' },
+  procedureName: 'Phaco Cataract Surgery', eye: 'OD',
+  followup: { visit_label: 'Post-op Week 1', scheduled_date: '2026-06-18' },
+  findings: {
+    va_not_assessed: false,
+    re_dist_unaided: '6/12', re_dist_glasses: '6/6', re_dist_ph: '',
+    le_dist_unaided: '6/9', le_dist_glasses: '', le_dist_ph: '',
+  },
+  iopReadings: [{ eye: 'RE', value: 16 }, { eye: 'LE', value: 15 }],
+  examination: { remarks_re: 'Quiet, healing well, no complaints.', remarks_le: '' },
+  prescriptions: [
+    { drug_name: 'Moxifloxacin 0.5%', eye: 'RE', dosage: '1 drop', frequency: 'QID', duration: '1 week' },
+    {
+      drug_name: 'Prednisolone Acetate 1%', eye: 'RE',
+      taper_group_id: 'sample-taper-2', taper_step: 1, dosage: '1 drop', frequency: 'QID', duration: '1 week',
+    },
+    {
+      drug_name: 'Prednisolone Acetate 1%', eye: 'RE',
+      taper_group_id: 'sample-taper-2', taper_step: 2, dosage: '1 drop', frequency: 'BD', duration: '1 week',
+    },
+  ],
+  complications: [],
+  episode: { closure_status: null, closure_outcome: null, closure_remarks: null },
+  nextFollowup: { visit_label: 'Post-op Month 1', scheduled_date: '2026-07-11' },
 };
 
 function SAMPLE_INVESTIGATION_CONTEXT(settings) {
@@ -2313,4 +2499,123 @@ export async function renderMedicalFitnessFormHtml(referralId) {
   const template = await getPrintTemplate('medical_fitness_form');
   const compiled = Handlebars.compile(template.html);
   return { html: compiled(context) };
+}
+
+// ── POST-OP REVIEW SUMMARY -- handed to the patient after a Post-op
+//    Review (app/consultation/[id]/postop). Keyed by followupId, same
+//    as the review screen itself, so a printout always reflects
+//    exactly the visit that was just reviewed, not just "whatever is
+//    latest" for the episode. ──
+function vaSummary(findings, side) {
+  if (!findings || findings.va_not_assessed) return 'Not assessed';
+  const unaided = findings[`${side}_dist_unaided`];
+  const glasses = findings[`${side}_dist_glasses`];
+  const ph = findings[`${side}_dist_ph`];
+  const parts = [];
+  if (unaided) parts.push(`Unaided ${unaided}`);
+  if (glasses) parts.push(`Glasses ${glasses}`);
+  if (ph) parts.push(`PH ${ph}`);
+  return parts.length > 0 ? parts.join(', ') : '--';
+}
+
+export async function renderPostOpReviewHtml(followupId) {
+  const ctx = await getFollowupReviewContext(followupId);
+  if (ctx.error) return { error: ctx.error };
+  const { followup, episode, sc } = ctx;
+  const patient = sc?.patients;
+
+  const supabase = await createClient();
+  let findings = null, iopReadings = [], examination = null, prescriptions = [], complications = [];
+
+  if (followup.visit_id) {
+    const [{ data: f }, { data: encounters }, { data: compl }] = await Promise.all([
+      supabase.from('optometry_assessments').select('*').eq('visit_id', followup.visit_id).eq('status', 'Completed').maybeSingle(),
+      supabase.from('encounters').select('*').eq('visit_id', followup.visit_id).order('started_at', { ascending: false }).limit(1),
+      supabase.from('recovery_complications').select('*').eq('recovery_episode_id', episode.id).order('occurred_at'),
+    ]);
+    findings = f || null;
+    complications = compl || [];
+
+    if (findings) {
+      const { data: readings } = await supabase.from('optometry_iop_readings').select('*').eq('assessment_id', findings.id).order('recorded_at', { ascending: true });
+      iopReadings = readings || [];
+    }
+
+    const encounter = encounters?.[0] || null;
+    if (encounter) {
+      const [{ data: exam }, { data: rx }] = await Promise.all([
+        supabase.from('clinical_examinations').select('*').eq('encounter_id', encounter.id).maybeSingle(),
+        supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
+      ]);
+      examination = exam || null;
+      prescriptions = rx || [];
+    }
+  }
+
+  // Next follow-up on the schedule after this one -- if the doctor
+  // just scheduled the next review, it's the newest-created row still
+  // pending; if the episode was closed instead, there won't be one.
+  const { data: nextFollowups } = await supabase
+    .from('recovery_followups')
+    .select('*')
+    .eq('recovery_episode_id', episode.id)
+    .neq('id', followup.id)
+    .eq('status', 'Due')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const nextFollowup = nextFollowups?.[0] || null;
+
+  const settings = await getHospitalSettings();
+  const context = buildPostOpReviewContext(settings, {
+    patient, surgeon: sc?.profiles, procedureName: sc?.procedure_name, eye: sc?.eye,
+    followup, findings, iopReadings, examination, prescriptions, complications, episode, nextFollowup,
+  });
+
+  const template = await getPrintTemplate('post_op_review');
+  const compiled = Handlebars.compile(template.html);
+  return { html: compiled(context) };
+}
+
+function buildPostOpReviewContext(settings, { patient, surgeon, procedureName, eye, followup, findings, iopReadings, examination, prescriptions, complications, episode, nextFollowup }) {
+  const reIop = iopReadings.filter((r) => r.eye === 'RE').map((r) => r.value).join(', ');
+  const leIop = iopReadings.filter((r) => r.eye === 'LE').map((r) => r.value).join(', ');
+
+  const groupedMeds = groupPrescriptionsForPrint(
+    prescriptions.map((r) => ({
+      drug: r.drug_name, eye: r.eye || 'Oral', dosage: r.dosage, frequency: r.frequency, duration: r.duration,
+      taper_group_id: r.taper_group_id, taper_step: r.taper_step,
+    }))
+  );
+
+  return {
+    hospital_name: settings.name, hospital_unit_line: settings.unit_line, hospital_regn_no: settings.regn_no,
+    hospital_address_line1: settings.address_line1, hospital_address_line2: settings.address_line2,
+    hospital_city_state_pin: settings.city_state_pin, hospital_phone: settings.phone, hospital_email: settings.email,
+    logo_html: logoHtml(settings),
+
+    patient_id: patient?.uhid || '--', patient_name: formatPatientName(patient),
+    patient_age: patient?.age ?? '--', patient_gender: patient?.gender || '--', patient_mobile: patient?.mobile || '--',
+
+    surgeon_name: surgeon?.full_name || '--', surgeon_regn_no: surgeon?.registration_no || '--',
+    procedure_name: procedureName || '--', eye: fmtEye(eye),
+    visit_label: followup.visit_label, review_date: fmtDate(followup.scheduled_date),
+
+    hasFindings: !!findings,
+    re_vision: vaSummary(findings, 're'), le_vision: vaSummary(findings, 'le'),
+    re_iop: reIop || '--', le_iop: leIop || '--',
+
+    hasDoctorNotes: !!(examination?.remarks_re || examination?.remarks_le),
+    note_re: examination?.remarks_re || '', note_le: examination?.remarks_le || '',
+
+    hasMedications: groupedMeds.length > 0,
+    medications: groupedMeds.map((m) => ({ name: m.drug, eye: m.eye, dosage: m.dosage, frequency: m.frequency, duration: m.duration, isTaper: m.isTaper })),
+
+    hasComplications: complications.length > 0,
+    complications: complications.map((c) => ({ name: c.name, severity: c.severity, management: c.management })),
+
+    isClosed: !!episode.closure_status,
+    closure_outcome: episode.closure_outcome || '', closure_remarks: episode.closure_remarks || '',
+    hasNextReview: !!nextFollowup,
+    next_review_label: nextFollowup?.visit_label || '', next_review_date: nextFollowup ? fmtDate(nextFollowup.scheduled_date) : '',
+  };
 }
