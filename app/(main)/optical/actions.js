@@ -597,14 +597,21 @@ const PAYMENT_TYPE_LABELS = {
 
 export async function getOpticalPaymentsRegister({ fromDate, toDate, query }) {
   const supabase = await createClient();
+  const trimmedQuery = query && query.trim();
+  // Name matching can't be pushed into the same .or() as receipt_number/
+  // reference below -- those are columns on this table, but the patient/
+  // customer name only exists after the join, and Supabase's .or() can't
+  // combine a same-table ilike with a joined-table one in a single filter.
+  // So: fetch a wider window (uncapped by the usual 200 when someone's
+  // actually searching) and match the name in JS below, same as the
+  // receipt_number/reference columns get their own DB-side ilike either way.
   let q = supabase
     .from('optical_payments')
     .select('*, optical_payment_modes(mode, amount), optical_sales(sale_number), patients(salutation, first_name, last_name), optical_customers(name)')
     .order('collected_at', { ascending: false })
-    .limit(200);
+    .limit(trimmedQuery ? 2000 : 200);
   if (fromDate) q = q.gte('collected_at', `${fromDate}T00:00:00+05:30`);
   if (toDate) q = q.lte('collected_at', `${toDate}T23:59:59+05:30`);
-  if (query && query.trim()) q = q.or(`receipt_number.ilike.%${query.trim()}%,reference.ilike.%${query.trim()}%`);
   const { data, error } = await q;
   if (error) return { error: error.message, payments: [] };
 
@@ -625,12 +632,23 @@ export async function getOpticalPaymentsRegister({ fromDate, toDate, query }) {
     });
   }
 
-  const payments = (data || []).map((p) => ({
+  let payments = (data || []).map((p) => ({
     ...p,
     typeLabel: PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type,
     displayName: p.patients ? formatPatientName(p.patients) : (p.optical_customers?.name || '--'),
     cancelledRefundReason: cancelledByRefundPaymentId[p.id],
   }));
+
+  if (trimmedQuery) {
+    const needle = trimmedQuery.toLowerCase();
+    payments = payments
+      .filter((p) =>
+        (p.receipt_number || '').toLowerCase().includes(needle) ||
+        (p.reference || '').toLowerCase().includes(needle) ||
+        p.displayName.toLowerCase().includes(needle))
+      .slice(0, 200);
+  }
+
   return { payments };
 }
 

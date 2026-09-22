@@ -148,14 +148,16 @@ export default function OpticalPaymentsTab() {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <input className="fi" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ flex: 1 }} />
         <input className="fi" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ flex: 1 }} />
-        <input className="fi" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Receipt number / reference" style={{ flex: 2 }} />
+        <input className="fi" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Receipt number / reference / patient or customer name" style={{ flex: 2 }} />
         <button className="btn btn-primary" onClick={runSearch}><i className="ti ti-search"></i></button>
       </div>
 
       {loading ? (
         <div style={{ fontSize: 12, color: 'var(--g400)' }}>Loading...</div>
       ) : payments.length === 0 ? (
-        <div style={{ fontSize: 12, color: 'var(--g400)' }}>No payments found for these filters.</div>
+        <div style={{ fontSize: 12, color: 'var(--g400)' }}>
+          No payments found for these filters.{query.trim() ? ' If searching by name, try widening the date range above -- the search only looks within it.' : ''}
+        </div>
       ) : (
         <table className="tbl">
           <thead><tr><th>Receipt #</th><th>Date/Time</th><th>Bill</th><th>Customer</th><th>Type</th><th>Mode(s)</th><th style={{ textAlign: 'right' }}>Amount</th><th></th></tr></thead>
