@@ -28,7 +28,7 @@ const POST_STRUCTS_WITHOUT = ['Disc', 'CDR'];
 const POST_TEMPLATES = {
   Vitreous: ['Clear', 'Haze', 'Haemorrhage', 'PVD'],
   Disc: ['Healthy', 'Pale', 'Cupped', 'Swollen', 'Tilted'],
-  Macula: ['Normal', 'ARMD', 'CSME', 'Macular Hole', 'Epiretinal Membrane', 'Scar'],
+  Macula: ['Normal', 'ARMD', 'CSME', 'Macular Hole', 'Epiretinal Membrane', 'Scar', 'FR Full', 'Drusens Present', 'Dot-blot hemorrhages', 'CWS', 'Tessalated Fundus'],
   Vessels: ['Normal', 'Arteriovenous nipping', 'Disc collaterals', 'Arteriolar Attenuation'],
   'Peripheral Retina': ['Attached', 'Lattice', 'Tear', 'Detachment', 'Laser Marks'],
   CDR: ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.65', '0.7', '0.75', '0.8', '0.85', '0.9', '0.95', 'GOA'],
