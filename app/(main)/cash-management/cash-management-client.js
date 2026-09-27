@@ -36,6 +36,7 @@ import { addExpenseCategory } from '@/app/(main)/master-data/actions';
 import { getApprovers } from '@/app/(main)/payments/actions';
 import { getOpenQueueEntriesToday, bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
+import BackdateControl from '@/app/components/BackdateControl';
 import { uploadAttachment } from '@/lib/attachments';
 import { openPrintPopup } from '@/lib/printPopup';
 
@@ -318,6 +319,7 @@ export default function CashManagementClient({ initialData }) {
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
   const [newExpenseRemarks, setNewExpenseRemarks] = useState('');
   const [newExpenseBill, setNewExpenseBill] = useState(null);
+  const [expenseBackdate, setExpenseBackdate] = useState({ backdateTo: '', backdateReason: '' });
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -343,7 +345,10 @@ export default function CashManagementClient({ initialData }) {
     if (!newExpenseCategory) { setError('Select an expense category.'); return; }
     if (!newExpenseAmount || parseFloat(newExpenseAmount) <= 0) { setError('Enter a valid amount.'); return; }
     setExpenseSaving(true);
-    const result = await addExpense(newExpenseCategory, parseFloat(newExpenseAmount), newExpenseRemarks, '');
+    const result = await addExpense(
+      newExpenseCategory, parseFloat(newExpenseAmount), newExpenseRemarks, '',
+      expenseBackdate.backdateTo || null, expenseBackdate.backdateReason
+    );
     if (result.error) { setExpenseSaving(false); setError(result.error); return; }
 
     if (newExpenseBill && result.expense) {
@@ -357,8 +362,9 @@ export default function CashManagementClient({ initialData }) {
 
     setExpenseSaving(false);
     setNewExpenseCategory(''); setNewExpenseAmount(''); setNewExpenseRemarks(''); setNewExpenseBill(null);
+    setExpenseBackdate({ backdateTo: '', backdateReason: '' });
     if (billInputRef.current) billInputRef.current.value = '';
-    setSuccess('Expense recorded.');
+    setSuccess(expenseBackdate.backdateTo ? `Expense recorded against ${new Date(expenseBackdate.backdateTo).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })}.` : 'Expense recorded.');
     refreshPettyCash();
     refreshReconciliation();
   }
@@ -845,13 +851,13 @@ export default function CashManagementClient({ initialData }) {
           </div>
 
           {!opening && (
-            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-alert-triangle"></i> Today's cash day hasn't been opened yet. Open it from the "Today's Collection" tab before recording expenses.</div>
+            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-alert-triangle"></i> Today's cash day hasn't been opened yet. Open it from the "Today's Collection" tab before recording expenses -- or use Backdate below for an expense from an earlier, still-open day.</div>
           )}
           {closedToday && (
-            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-lock"></i> Today is already closed -- cash expense entries are locked. See the Daily Report tab.</div>
+            <div className="msg-err" style={{ marginBottom: 14 }}><i className="ti ti-lock"></i> Today is already closed -- cash expense entries are locked. See the Daily Report tab -- or use Backdate below for an expense from an earlier, still-open day.</div>
           )}
 
-          {!closedToday && opening && (
+          {(
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-title" style={{ marginBottom: 10 }}><i className="ti ti-plus" style={{ color: 'var(--green)' }}></i> Record an Expense</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 0.8fr 1.6fr', gap: 10, marginBottom: 10 }}>
@@ -862,7 +868,8 @@ export default function CashManagementClient({ initialData }) {
                 <input type="number" className="fi" placeholder="Amount" value={newExpenseAmount} onChange={(e) => setNewExpenseAmount(e.target.value)} />
                 <input type="text" className="fi" placeholder="Remarks (optional)" value={newExpenseRemarks} onChange={(e) => setNewExpenseRemarks(e.target.value)} />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <BackdateControl value={expenseBackdate} onChange={setExpenseBackdate} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
                 <label className="btn" style={{ cursor: 'pointer', marginBottom: 0 }}>
                   <i className="ti ti-paperclip"></i> {newExpenseBill ? newExpenseBill.name : 'Attach bill (optional)'}
                   <input ref={billInputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/jpg" onChange={(e) => setNewExpenseBill(e.target.files?.[0] || null)} style={{ display: 'none' }} />

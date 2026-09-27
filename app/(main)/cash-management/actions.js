@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
 
 function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -314,9 +315,22 @@ export async function getPettyCashTotal(date) {
   return (data || []).reduce((sum, r) => sum + Number(r.amount), 0);
 }
 
-export async function addExpense(categoryId, amount, paidTo, note) {
-  const dayGuard = await requireDayOpen();
-  if (dayGuard) return dayGuard;
+export async function addExpense(categoryId, amount, paidTo, note, backdateTo, backdateReason) {
+  // Backdating (Administrator only, mandatory reason, target day must not
+  // already be closed) replaces the normal today-only day-open check
+  // entirely, same as optical/hospital payment collection -- this is what
+  // lets a genuinely same-day expense that was missed (e.g. the day got
+  // closed before it was entered) still be recorded against the day it
+  // actually happened, rather than misdating it into today's expenses.
+  const backdate = await resolveBackdatedCollection({ backdateTo, reason: backdateReason });
+  if (backdate.error) return { error: backdate.error };
+  let expenseDate = todayIST();
+  if (backdate.collectedAt) {
+    expenseDate = new Date(backdate.collectedAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  } else {
+    const dayGuard = await requireDayOpen();
+    if (dayGuard) return dayGuard;
+  }
 
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
@@ -324,10 +338,18 @@ export async function addExpense(categoryId, amount, paidTo, note) {
   if (!categoryId) return { error: 'Select a category.' };
   if (!amt || amt <= 0) return { error: 'Enter a valid amount.' };
 
+  // A backdated expense still needs the target day to have actually been
+  // opened -- resolveBackdatedCollection only checks it isn't CLOSED yet,
+  // not that it exists at all.
+  if (backdate.collectedAt) {
+    const { data: openingRow } = await supabase.from('day_openings').select('id').eq('opening_date', expenseDate).maybeSingle();
+    if (!openingRow) return { error: `${expenseDate} was never opened as a cash day -- can't backdate an expense to it.` };
+  }
+
   const { data, error } = await supabase
     .from('petty_cash_expenses')
     .insert({
-      expense_date: todayIST(),
+      expense_date: expenseDate,
       category_id: categoryId,
       amount: amt,
       paid_to: paidTo || null,
@@ -338,6 +360,14 @@ export async function addExpense(categoryId, amount, paidTo, note) {
     .single();
 
   if (error) return { error: error.message };
+
+  if (backdate.collectedAt) {
+    await logBackdatedEntry({
+      module: 'petty_cash_expense', entryTable: 'petty_cash_expenses', entryId: data.id,
+      backdatedTo: backdate.collectedAt, reason: backdateReason, adminId: backdate.adminId, amount: amt,
+    });
+  }
+
   return { success: true, expense: data };
 }
 
