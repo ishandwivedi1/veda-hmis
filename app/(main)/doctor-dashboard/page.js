@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { getDoctorDashboardData, getDoctorHistory, getProceduresDueToday } from '@/lib/rpc-reads/doctor-dashboard__actions'; // parallel reads (tools/parallel-reads)
 import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
@@ -372,9 +373,9 @@ export default function DoctorDashboardPage() {
   useEffect(() => {
     refresh();
     refreshHistory();
-    const interval = setInterval(refresh, 15000);
-    return () => clearInterval(interval);
   }, [refresh, refreshHistory]);
+  // every 15s while this tab is on screen (paused when hidden)
+  useVisibleInterval(refresh, 15000);
 
   async function runAction(fn, ...args) {
     setError('');

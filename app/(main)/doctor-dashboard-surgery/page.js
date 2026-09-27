@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardDischargedToday, getSurgeryDashboardHistory } from '@/lib/rpc-reads/doctor-dashboard-surgery__actions'; // parallel reads (tools/parallel-reads)
@@ -402,11 +403,9 @@ export default function DoctorSurgeryDashboardPage() {
   }, []);
   useEffect(() => { if (activeTab === 'history') refreshFullHistory(); }, [activeTab, refreshFullHistory]);
 
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 15000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh]);
+  // every 15s while this tab is on screen (paused when hidden)
+  useVisibleInterval(refresh, 15000);
 
   // Every tile below is a pure count -- no patient names shown on this
   // dashboard -- so clicking always lands on the workflow page's own

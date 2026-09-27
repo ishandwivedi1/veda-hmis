@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { useState, useEffect, useCallback } from 'react';
+import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { getWorkflowMonitorData } from '@/lib/rpc-reads/workflow-monitor__actions'; // parallel reads (tools/parallel-reads)
 
 const STATE_MATRIX = [
@@ -40,11 +41,9 @@ export default function WorkflowMonitorPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 15000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh]);
+  // every 15s while this tab is on screen (paused when hidden)
+  useVisibleInterval(refresh, 15000);
 
   return (
     <div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { approveIol } from './actions';
@@ -378,11 +379,9 @@ function IolApprovalInner() {
   // Same live-queue pattern used elsewhere (Queue, OT Intraop, etc) --
   // without this, an approval made by someone else, or just leaving
   // this tab open, never shows up until a manual hard refresh.
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 15000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh]);
+  // every 15s while this tab is on screen (paused when hidden)
+  useVisibleInterval(refresh, 15000);
 
   function openCase(caseId) {
     setSelectedCaseId(caseId);

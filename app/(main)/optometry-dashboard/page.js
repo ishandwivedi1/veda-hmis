@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { useSearchParams } from 'next/navigation';
 import { getOptometryDashboardData } from '@/lib/rpc-reads/optometry-dashboard__actions'; // parallel reads (tools/parallel-reads)
 import { getOptometryHistory } from '@/lib/rpc-reads/optometry-history__actions'; // parallel reads (tools/parallel-reads)
@@ -277,11 +278,10 @@ function OptometryHubInner() {
   // visible -- no point refetching queue state in the background every
   // 15s while someone is heads-down in the Workspace or History tab.
   useEffect(() => {
-    if (activeTab !== 'dashboard') return;
-    refresh();
-    const interval = setInterval(refresh, 15000);
-    return () => clearInterval(interval);
+    if (activeTab === 'dashboard') refresh();
   }, [activeTab, refresh]);
+  // ...and also paused while the browser tab itself is hidden
+  useVisibleInterval(refresh, 15000, activeTab === 'dashboard');
 
   function openWorkspace(queueEntryId, origin = 'dashboard') {
     setSelectedQueueEntryId(queueEntryId);

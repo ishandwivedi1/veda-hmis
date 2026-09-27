@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getPharmacyDashboard } from '@/lib/rpc-reads/pharmacy__actions'; // parallel reads (tools/parallel-reads)
@@ -42,11 +43,9 @@ export default function PharmacyDashboard() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 20000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh]);
+  // every 20s while this tab is on screen (paused when hidden)
+  useVisibleInterval(refresh, 20000);
 
   const pendingGroups = groups.filter((g) => g.anyPending);
   // "Done" = nothing left to action for this patient today -- either

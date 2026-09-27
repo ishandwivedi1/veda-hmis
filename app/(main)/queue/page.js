@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useState, useEffect, useCallback } from 'react';
+import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { optometryCallNext, optometryCallSpecific, doctorCallNext, doctorCallSpecific, doctorMarkReady } from './actions';
 import { getQueues, getPatientFlow, getPatientTimeline } from '@/lib/rpc-reads/queue__actions'; // parallel reads (tools/parallel-reads)
 
@@ -211,11 +212,9 @@ export default function QueuePage() {
     setDoctor(queues.doctor);
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 15000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh]);
+  // every 15s while this tab is on screen (paused when hidden)
+  useVisibleInterval(refresh, 15000);
 
   async function runAction(fn, ...args) {
     setError('');
