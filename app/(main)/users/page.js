@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getUsers, createUser, toggleUserStatus, resetUserPassword, updateUserProfile, updateStaffIdentity, getMyDesignation, getLoginHistory } from './actions';
+import BillingPermissionsTab from './billing-permissions-tab';
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
 
@@ -247,9 +248,13 @@ export default function UsersPage() {
         <button className={tab === 'history' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('history')}>
           <i className="ti ti-history"></i> Login History
         </button>
+        <button className={tab === 'billing' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('billing')}>
+          <i className="ti ti-shield-lock"></i> Billing Permissions
+        </button>
       </div>
 
       {tab === 'history' && <LoginHistoryTable />}
+      {tab === 'billing' && <BillingPermissionsTab designations={DESIGNATIONS} />}
 
       {tab === 'accounts' && (
         <div className="card">
