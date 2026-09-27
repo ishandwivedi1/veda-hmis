@@ -124,8 +124,7 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
         expectedAmount: Number(p.total_amount),
       });
       if (res.error) { setError(res.error); return; }
-      onChanged?.(`${p.receipt_number} updated.${creditChange > 0 ? ` ${money(creditChange)} added to patient credit.` : ''}`);
-      load();
+      onChanged?.(`${p.receipt_number} updated.${creditChange > 0 ? ` ${money(creditChange)} added to patient credit.` : creditChange < 0 ? ` Patient credit reduced by ${money(-creditChange)}.` : ''}`);
     } catch (e) {
       setError('Something went wrong saving -- check your connection and try again. Nothing was saved.');
     } finally {

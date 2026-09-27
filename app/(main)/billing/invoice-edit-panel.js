@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getInvoiceEditContext, saveInvoiceEdit, saveInvoiceDate, saveInvoiceVoid } from './invoice-edit-actions';
 
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+const fmtDay = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--');
 
 // Cancel / Void the whole invoice (void_invoice() in Postgres).
 function VoidSection({ ctx, invoiceId, onVoided }) {
@@ -183,7 +184,18 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
   async function handleSaveDate() {
     setError('');
     if (!newDate || newDate === ctx.invoiceDate) { setError('Choose a different date.'); return; }
+    if (ctx.visitDate && newDate < ctx.visitDate) {
+      setError(`This invoice belongs to visit ${ctx.visitNumber || ''} dated ${fmtDay(ctx.visitDate)}. It cannot be dated before the visit.`);
+      return;
+    }
+    if (newDate > ctx.today) { setError('An invoice cannot be dated in the future.'); return; }
     if (!dateReason.trim()) { setError('Please give a reason for changing the invoice date.'); return; }
+    const ok = window.confirm(
+      `Move ${ctx.invoice.invoice_number} from ${fmtDay(ctx.invoiceDate)} to ${fmtDay(newDate)}?\n\n`
+      + `Its amount moves out of ${fmtDay(ctx.invoiceDate)}'s revenue and into ${fmtDay(newDate)}'s. `
+      + 'Payments keep their own dates. The change is recorded in the invoice history.',
+    );
+    if (!ok) return;
     setSavingDate(true);
     try {
       const res = await saveInvoiceDate(invoiceId, newDate, dateReason.trim());
@@ -337,8 +349,13 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 6 }}>
             <i className="ti ti-calendar-event"></i> Invoice date <span style={{ fontWeight: 400, color: 'var(--g400)' }}>(Administrator only -- both days must be open)</span>
           </div>
+          {ctx.visitDate && (
+            <div style={{ fontSize: 11.5, color: 'var(--amber)', marginBottom: 6 }}>
+              <i className="ti ti-info-circle"></i> This invoice belongs to visit {ctx.visitNumber} on {fmtDay(ctx.visitDate)}, so it can only be dated from {fmtDay(ctx.visitDate)} to today.
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input type="date" className="fi fi-sm" style={{ width: 150 }} value={newDate} max={ctx.today} onChange={(e) => setNewDate(e.target.value)} />
+            <input type="date" className="fi fi-sm" style={{ width: 150 }} value={newDate} min={ctx.visitDate || undefined} max={ctx.today} onChange={(e) => setNewDate(e.target.value)} />
             <input className="fi fi-sm" style={{ flex: 1, minWidth: 180 }} value={dateReason} onChange={(e) => setDateReason(e.target.value)} placeholder="Reason for changing the date *" />
             <button className="btn btn-sm" onClick={handleSaveDate} disabled={savingDate || newDate === ctx.invoiceDate}>
               {savingDate ? 'Saving...' : 'Change date'}

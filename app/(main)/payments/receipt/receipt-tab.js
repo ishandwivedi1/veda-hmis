@@ -131,7 +131,8 @@ export default function ReceiptTab() {
 
       {view === 'deleted' && <DeletedPayments />}
 
-      {view === 'register' && <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      {view === 'register' && <div style={{ display: 'grid', gridTemplateColumns: editingId ? 'minmax(0, 1fr) minmax(0, 1.1fr)' : '1fr', gap: 16, alignItems: 'start' }}>
+      <div className="card" style={{ padding: 0, overflow: 'auto' }}>
         <table className="tbl">
           <thead>
             <tr><th>Receipt #</th><th>Date/Time</th><th>Patient</th><th>Invoice ref</th><th>Mode(s)</th><th>Amount</th><th>Type</th><th></th></tr>
@@ -139,7 +140,7 @@ export default function ReceiptTab() {
           <tbody>
             {sortedReceipts.map((r) => (
               <Fragment key={r.id}>
-                <tr style={r.cancelledRefundReason !== undefined ? { opacity: 0.6 } : undefined}>
+                <tr style={{ ...(r.cancelledRefundReason !== undefined ? { opacity: 0.6 } : {}), ...(editingId === r.id ? { background: 'var(--blue-lt)' } : {}) }}>
                   <td style={{ fontFamily: 'monospace', color: 'var(--blue)' }}>{r.receipt_number}</td>
                   <td>{new Date(r.collected_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                   <td style={{ fontWeight: 600 }}>{formatPatientName(r.patients)}</td>
@@ -167,21 +168,6 @@ export default function ReceiptTab() {
                     {waStatus[r.id] === 'error' && <span style={{ fontSize: 10, color: 'var(--red)' }} title={waMsg[r.id]}><i className="ti ti-alert-circle"></i></span>}
                   </td>
                 </tr>
-                {editingId === r.id && (
-                  <tr key={`${r.id}-edit`}>
-                    <td colSpan={8} style={{ background: 'var(--g50)', padding: 16 }}>
-                      <PaymentEditPanel
-                        paymentId={r.id}
-                        onClose={cancelEdit}
-                        onChanged={(msg, opts) => {
-                          setSuccess(msg);
-                          if (opts?.deleted) setEditingId(null);
-                          runSearch();
-                        }}
-                      />
-                    </td>
-                  </tr>
-                )}
               </Fragment>
             ))}
             {sortedReceipts.length === 0 && (
@@ -189,6 +175,21 @@ export default function ReceiptTab() {
             )}
           </tbody>
         </table>
+      </div>
+      {editingId && (
+        <div className="card" style={{ position: 'sticky', top: 12 }}>
+          <PaymentEditPanel
+            key={editingId}
+            paymentId={editingId}
+            onClose={cancelEdit}
+            onChanged={(msg) => {
+              setSuccess(msg);
+              setEditingId(null);
+              runSearch();
+            }}
+          />
+        </div>
+      )}
       </div>}
     </div>
   );

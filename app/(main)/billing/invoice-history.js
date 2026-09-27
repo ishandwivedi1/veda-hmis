@@ -20,6 +20,7 @@ const SIDE_EFFECT_TEXT = {
   biometry_back_to_pending: (s) => `${s.count} biometry record(s) back to Pending billing`,
   surgical_case_unbilled: (s) => `${s.service ? `${s.service}: ` : ''}surgical case marked as not billed`,
   surgical_case_not_found: (s) => `${s.service}: no matching surgical case found to un-bill -- check Surgical Journey`,
+  surgical_case_ambiguous: (s) => `${s.service}: ${s.count} billed surgical cases could match, none was changed -- un-bill the right one in Surgical Journey`,
 };
 const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--');
 
@@ -84,7 +85,7 @@ export default function InvoiceHistory({ invoiceId, refreshKey }) {
                 ? <span style={{ color: 'var(--blue)' }}> -- {money(e.after.credited_to_patient)} paid on it moved to patient credit ({(e.after.credit_moves || []).map((m) => `${m.receipt} ${money(m.amount)}`).join(', ')})</span>
                 : ' -- nothing had been paid'}
               {(e.after?.side_effects || []).map((s, i) => (
-                <div key={i} style={{ color: s.effect === 'surgical_case_not_found' ? 'var(--amber)' : 'var(--g500)', marginTop: 2 }}>
+                <div key={i} style={{ color: ['surgical_case_not_found', 'surgical_case_ambiguous'].includes(s.effect) ? 'var(--amber)' : 'var(--g500)', marginTop: 2 }}>
                   <i className="ti ti-link"></i> {(SIDE_EFFECT_TEXT[s.effect] || ((x) => x.effect))(s)}
                 </div>
               ))}
@@ -111,7 +112,7 @@ export default function InvoiceHistory({ invoiceId, refreshKey }) {
                 </div>
               )}
               {(e.after?.side_effects || []).map((s, i) => (
-                <div key={i} style={{ color: s.effect === 'surgical_case_not_found' ? 'var(--amber)' : 'var(--g500)', marginTop: 2 }}>
+                <div key={i} style={{ color: ['surgical_case_not_found', 'surgical_case_ambiguous'].includes(s.effect) ? 'var(--amber)' : 'var(--g500)', marginTop: 2 }}>
                   <i className="ti ti-link"></i> {(SIDE_EFFECT_TEXT[s.effect] || ((x) => `${x.service}: ${x.effect}`))(s)}
                 </div>
               ))}

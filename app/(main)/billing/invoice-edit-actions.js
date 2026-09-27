@@ -16,7 +16,7 @@ export async function getInvoiceEditContext(invoiceId) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
   const [{ data: invoice, error }, { data: lines }, perms, services, { data: packages }, { data: me }] = await Promise.all([
-    supabase.from('invoices').select('id, status, net, paid, created_at, invoice_number').eq('id', invoiceId).single(),
+    supabase.from('invoices').select('id, status, net, paid, created_at, invoice_number, visits(visit_number, created_at)').eq('id', invoiceId).single(),
     supabase.from('invoice_line_items').select('*').eq('invoice_id', invoiceId).order('id'),
     getMyBillingPermissions(supabase),
     getServiceCatalog(),
@@ -86,6 +86,9 @@ export async function getInvoiceEditContext(invoiceId) {
     invoice,
     invoiceDate,
     today,
+    // a visit's invoice can't be dated before the visit (change_invoice_date enforces it)
+    visitDate: invoice.visits?.created_at ? istDate(invoice.visits.created_at) : null,
+    visitNumber: invoice.visits?.visit_number || null,
     isAdmin: me?.designation === 'Administrator',
     canVoid: !voidBlock,
     voidBlock,
