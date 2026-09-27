@@ -3,10 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getPendingInvestigationBilling, markInvestigationDenied, markInvestigationDeferred, resetInvestigationBilling } from '@/app/(main)/investigation/actions';
-import { getPendingProcedureBilling } from '@/app/(main)/billing/actions';
-import { getPendingPrescriptionsForFrontOffice, markPrescriptionDenied, markPrescriptionDeferred, resetPrescriptionBilling } from '@/app/(main)/pharmacy/actions';
-import { getPendingBiometryBilling, markBiometryDenied, markBiometryDeferred, resetBiometryBilling } from '@/app/(main)/biometry/actions';
+import { markInvestigationDenied, markInvestigationDeferred, resetInvestigationBilling } from '@/app/(main)/investigation/actions';
+import { getPendingInvestigationBilling } from '@/lib/rpc-reads/investigation__actions'; // parallel reads (tools/parallel-reads)
+import { getPendingProcedureBilling } from '@/lib/rpc-reads/billing__actions'; // parallel reads (tools/parallel-reads)
+import { markPrescriptionDenied, markPrescriptionDeferred, resetPrescriptionBilling } from '@/app/(main)/pharmacy/actions';
+import { getPendingPrescriptionsForFrontOffice } from '@/lib/rpc-reads/pharmacy__actions'; // parallel reads (tools/parallel-reads)
+import { markBiometryDenied, markBiometryDeferred, resetBiometryBilling } from '@/app/(main)/biometry/actions';
+import { getPendingBiometryBilling } from '@/lib/rpc-reads/biometry__actions'; // parallel reads (tools/parallel-reads)
 
 const BILLING_BADGE = { Pending: 'b-amber', Deferred: 'b-indigo', Denied: 'b-gray', Billed: 'b-green' };
 

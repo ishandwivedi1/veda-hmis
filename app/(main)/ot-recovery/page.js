@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
-import { getRecoveryCaseList, getRecoveryHistory } from './actions';
+import { getRecoveryCaseList, getRecoveryHistory } from '@/lib/rpc-reads/ot-recovery__actions'; // parallel reads (tools/parallel-reads)
 import Workspace from './workspace';
 
 function TabButton({ active, onClick, icon, label, disabled }) {

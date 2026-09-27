@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getOTAvailability, getOTMonthSummary, getOTUpcomingWeek } from './actions';
+import { getOTAvailability, getOTMonthSummary, getOTUpcomingWeek } from '@/lib/rpc-reads/ot-schedule__actions'; // parallel reads (tools/parallel-reads)
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

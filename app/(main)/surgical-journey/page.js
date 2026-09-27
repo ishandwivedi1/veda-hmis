@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getSurgicalCaseLists, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, recordManualReminder, getSurgicalTrackArrivalsToday } from './actions';
-import { getScheduledOT, getOTHistory } from '../ot-schedule/actions';
+import { recordManualReminder } from './actions';
+import { getSurgicalCaseLists, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, getSurgicalTrackArrivalsToday } from '@/lib/rpc-reads/surgical-journey__actions'; // parallel reads (tools/parallel-reads)
+import { getScheduledOT, getOTHistory } from '@/lib/rpc-reads/ot-schedule__actions'; // parallel reads (tools/parallel-reads)
 
 const STAGE_LABEL = {
   'Pending Workup': 'Working Up',

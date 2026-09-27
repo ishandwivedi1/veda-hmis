@@ -1,17 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  searchOpticalCustomers,
-  getOpticalAdvanceBalance,
-  getOpticalPaymentsForCustomer,
-  getApprovers,
-  refundOpticalAdvance,
-  refundOpticalPayment,
-  getOpticalRefundRegister,
-  cancelOpticalRefund,
-} from '../actions';
-import { getMyDesignation } from '@/app/(main)/users/actions';
+import { getApprovers, refundOpticalAdvance, refundOpticalPayment, cancelOpticalRefund } from '../actions';
+import { searchOpticalCustomers, getOpticalAdvanceBalance, getOpticalPaymentsForCustomer, getOpticalRefundRegister } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
+import { getMyDesignation } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 

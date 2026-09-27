@@ -1,13 +1,9 @@
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
-import {
-  getOpticalPaymentsRegister,
-  editOpticalPaymentClerical,
-  correctOpticalPaymentAmount,
-  getOpticalPaymentEditHistory,
-} from '../actions';
-import { getMyDesignation } from '@/app/(main)/users/actions';
+import { editOpticalPaymentClerical, correctOpticalPaymentAmount } from '../actions';
+import { getOpticalPaymentsRegister, getOpticalPaymentEditHistory } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
+import { getMyDesignation } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 const TYPE_COLORS = {

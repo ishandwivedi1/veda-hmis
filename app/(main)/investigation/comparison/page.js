@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { searchPatientsForInvestigation, getInvestigationComparisonData } from '../actions';
+import { searchPatientsForInvestigation, getInvestigationComparisonData } from '@/lib/rpc-reads/investigation__actions'; // parallel reads (tools/parallel-reads)
 import { matchInvestigationType, parseNumeric } from '../investigation-types';
 import InvestigationTabs from '../investigation-tabs';
 

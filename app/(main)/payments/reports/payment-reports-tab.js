@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { getPaymentReport } from '../actions';
+import { getPaymentReport } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 
 const RPT_DEFS = [
   { id: 'daily', icon: 'ti-calendar', color: '--green', title: 'Collection', desc: 'All payments in period' },

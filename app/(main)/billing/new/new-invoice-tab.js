@@ -3,17 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
-import {
-  searchPatientsForInvoice,
-  getVisitsForPatient,
-  getInvoicesForVisit,
-  getInvestigationOrdersForBilling,
-  getPrescriptionsForBilling,
-  getBiometryForBilling,
-  getProceduresForBilling,
-  getPackageForBilling,
-} from '../actions';
-import { getNewInvoiceBootstrap, getVisitBillingContext, getPatientBillingContext, getPickedVisitContext, commitNewInvoice } from '../combined-actions';
+import { searchPatientsForInvoice, getVisitsForPatient, getInvoicesForVisit, getInvestigationOrdersForBilling, getPrescriptionsForBilling, getBiometryForBilling, getProceduresForBilling, getPackageForBilling } from '@/lib/rpc-reads/billing__actions'; // parallel reads (tools/parallel-reads)
+import { commitNewInvoice } from '../combined-actions';
+import { getNewInvoiceBootstrap, getVisitBillingContext, getPatientBillingContext, getPickedVisitContext } from '@/lib/rpc-reads/billing__combined-actions'; // parallel reads (tools/parallel-reads)
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'OPD Procedure', 'Surgery', 'Pharmacy'];
 const DEFAULT_PURPOSE = 'Consultation';

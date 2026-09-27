@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getMyDesignation } from '@/app/(main)/users/actions';
+import { getMyDesignation } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
 
 // Dropped into any payment/advance collection form that supports
 // admin-only backdating (see lib/backdating.js for the server-side

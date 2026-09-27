@@ -3,11 +3,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardDischargedToday, getSurgeryDashboardHistory } from './actions';
-import { getPendingIolApprovals } from '@/app/(main)/iol-approval/actions';
-import { getPostOpTurnedUpToday } from '@/app/(main)/ot-postop/actions';
-import { getSurgicalCaseLists, getSurgicalEvaluationArrivalsToday } from '@/app/(main)/surgical-journey/actions';
-import { getMedicalFitnessQueue } from '@/app/(main)/medical-fitness/actions';
+import { getSurgeryDashboardScheduled, getSurgeryDashboardActive, getSurgeryDashboardDischargedToday, getSurgeryDashboardHistory } from '@/lib/rpc-reads/doctor-dashboard-surgery__actions'; // parallel reads (tools/parallel-reads)
+import { getPendingIolApprovals } from '@/lib/rpc-reads/iol-approval__actions'; // parallel reads (tools/parallel-reads)
+import { getPostOpTurnedUpToday } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
+import { getSurgicalCaseLists, getSurgicalEvaluationArrivalsToday } from '@/lib/rpc-reads/surgical-journey__actions'; // parallel reads (tools/parallel-reads)
+import { getMedicalFitnessQueue } from '@/lib/rpc-reads/medical-fitness__actions'; // parallel reads (tools/parallel-reads)
 
 function patientName(sc) {
   const p = sc?.patients;

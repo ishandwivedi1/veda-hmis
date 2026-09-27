@@ -1,18 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import {
-  toggleStatus,
-  getDiagnosesMaster, addDiagnosisMaster, updateDiagnosisMaster, deleteDiagnosisMaster,
-  getDoctorsMaster,
-  getSurgeries, addSurgery, updateSurgery, deleteSurgery,
-  getIopMethods, addIopMethod, updateIopMethod, deleteIopMethod,
-  getClinicalObservations, addClinicalObservation, updateClinicalObservation, deleteClinicalObservation,
-  getPatientInstructionTemplates, addPatientInstructionTemplate, updatePatientInstructionTemplate, deletePatientInstructionTemplate,
-  getHistoryOptions, addHistoryOption, updateHistoryOption, deleteHistoryOption,
-  getIolCatalog, addIolCatalogItem, updateIolCatalogItem, deleteIolCatalogItem,
-  getSurgicalConsumablesMaster, addSurgicalConsumable, updateSurgicalConsumable, deleteSurgicalConsumable,
-} from '../actions';
+import { toggleStatus, addDiagnosisMaster, updateDiagnosisMaster, deleteDiagnosisMaster, getDoctorsMaster, addSurgery, updateSurgery, deleteSurgery, addIopMethod, updateIopMethod, deleteIopMethod, addClinicalObservation, updateClinicalObservation, deleteClinicalObservation, addPatientInstructionTemplate, updatePatientInstructionTemplate, deletePatientInstructionTemplate, addHistoryOption, updateHistoryOption, deleteHistoryOption, addIolCatalogItem, updateIolCatalogItem, deleteIolCatalogItem, addSurgicalConsumable, updateSurgicalConsumable, deleteSurgicalConsumable } from '../actions';
+import { getDiagnosesMaster, getSurgeries, getIopMethods, getClinicalObservations, getPatientInstructionTemplates, getHistoryOptions, getIolCatalog, getSurgicalConsumablesMaster } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 
 const TABS = [
   { key: 'doctors', label: 'Doctor' },

@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import InventoryTabs from '../inventory-tabs';
-import {
-  getInventoryDashboard, getUntrackedDrugs, createInventoryItem, updateInventoryItem,
-  getItemMovements, writeOffLot,
-} from '../actions';
+import { createInventoryItem, updateInventoryItem, writeOffLot } from '../actions';
+import { getInventoryDashboard, getUntrackedDrugs, getItemMovements } from '@/lib/rpc-reads/inventory__actions'; // parallel reads (tools/parallel-reads)
 
 const STATUS_BADGE = { OK: 'b-green', Low: 'b-amber', Out: 'b-red' };
 

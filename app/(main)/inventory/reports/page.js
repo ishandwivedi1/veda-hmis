@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import InventoryTabs from '../inventory-tabs';
-import { getStockValuationReport, getExpiryReport, getConsumptionReport, getVendorPurchaseSummary } from '../actions';
+import { getStockValuationReport, getExpiryReport, getConsumptionReport, getVendorPurchaseSummary } from '@/lib/rpc-reads/inventory__actions'; // parallel reads (tools/parallel-reads)
 
 function daysAgo(n) {
   const d = new Date();

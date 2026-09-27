@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { getInvestigationReport } from '../actions';
+import { getInvestigationReport } from '@/lib/rpc-reads/investigation__actions'; // parallel reads (tools/parallel-reads)
 import InvestigationTabs from '../investigation-tabs';
 
 const RPT_DEFS = [

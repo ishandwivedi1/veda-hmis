@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { saveHistory } from '@/app/(main)/consultation/actions';
-import { getActiveHistoryOptions } from '@/app/(main)/master-data/actions';
+import { getActiveHistoryOptions } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 
 // Right eye = Oculus Dexter (OD), Left eye = Oculus Sinister (OS),
 // Both = Oculus Uterque (OU) -- the scientific abbreviations, paired

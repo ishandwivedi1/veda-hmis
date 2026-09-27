@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { useState, useEffect, useCallback } from 'react';
-import { getPharmacyHistory } from '../actions';
+import { getPharmacyHistory } from '@/lib/rpc-reads/pharmacy__actions'; // parallel reads (tools/parallel-reads)
 import PharmacyTabs from '../pharmacy-tabs';
 
 function todayIST() {

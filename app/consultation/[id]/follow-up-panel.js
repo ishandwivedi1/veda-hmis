@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { openPopup } from '@/lib/popup';
-import { getPatientTimeline } from '@/app/(main)/patient-timeline/actions';
+import { getPatientTimeline } from '@/lib/rpc-reads/patient-timeline__actions'; // parallel reads (tools/parallel-reads)
 
 const VISIT_OUTCOMES = [
   'Continue Follow-up', 'Surgery Advised', 'Proceed to Pre-operative Consultation',

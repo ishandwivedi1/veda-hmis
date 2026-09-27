@@ -3,8 +3,8 @@
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { getOTCaseList, getCheckinHistory, getSurgeryLandingForPatient } from '../ot-intraop/actions';
-import { getPatientById } from '../visits/actions';
+import { getOTCaseList, getCheckinHistory, getSurgeryLandingForPatient } from '@/lib/rpc-reads/ot-intraop__actions'; // parallel reads (tools/parallel-reads)
+import { getPatientById } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
 import { DashboardTab, TabButton } from '../ot-intraop/page';
 import Workspace from '../ot-intraop/workspace';
 

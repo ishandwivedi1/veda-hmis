@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getOpticalDashboardSummary } from '../actions';
+import { getOpticalDashboardSummary } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
 
 function fmt(n) {
   return `\u20b9${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;

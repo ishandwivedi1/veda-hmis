@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { searchPatients } from '../patient-timeline/actions';
-import { getOpdProcedureLists, getCombinedSchedule, getOpdProcedureHistory } from './actions';
+import { searchPatients } from '@/lib/rpc-reads/patient-timeline__actions'; // parallel reads (tools/parallel-reads)
+import { getOpdProcedureLists, getCombinedSchedule, getOpdProcedureHistory } from '@/lib/rpc-reads/opd-procedures__actions'; // parallel reads (tools/parallel-reads)
 
 function fmtDate(d) {
   if (!d) return '--';

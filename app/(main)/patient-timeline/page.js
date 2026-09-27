@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { searchPatients, getPatientTimeline } from './actions';
+import { searchPatients, getPatientTimeline } from '@/lib/rpc-reads/patient-timeline__actions'; // parallel reads (tools/parallel-reads)
 import { sendReviewRequestForPatient } from '@/app/(main)/patients/actions';
 import { openPopup } from '@/lib/popup';
 

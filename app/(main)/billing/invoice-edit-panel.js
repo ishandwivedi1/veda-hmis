@@ -6,7 +6,8 @@
 // only thing that saves.
 
 import { useState, useEffect, useCallback } from 'react';
-import { getInvoiceEditContext, saveInvoiceEdit, saveInvoiceDate, saveInvoiceVoid } from './invoice-edit-actions';
+import { saveInvoiceEdit, saveInvoiceDate, saveInvoiceVoid } from './invoice-edit-actions';
+import { getInvoiceEditContext } from '@/lib/rpc-reads/billing__invoice-edit-actions'; // parallel reads (tools/parallel-reads)
 
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 const fmtDay = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--');

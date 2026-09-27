@@ -1,20 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import {
-  searchOpticalCustomers,
-  createOpticalOrder,
-  getRecentOpticalItemNames,
-  getOpticalSalesForCustomer,
-  getOpticalSaleDetail,
-  getOpticalAdvanceBalance,
-  collectOpticalPayment,
-  collectOpticalAdvance,
-  applyOpticalAdvanceAdjustment,
-  editOpticalSaleItems,
-  getOpticalSaleEditHistory,
-} from '../actions';
-import { getLatestGlassesPrescription } from '@/app/(main)/optometry/actions';
+import { createOpticalOrder, collectOpticalPayment, collectOpticalAdvance, applyOpticalAdvanceAdjustment, editOpticalSaleItems } from '../actions';
+import { searchOpticalCustomers, getRecentOpticalItemNames, getOpticalSalesForCustomer, getOpticalSaleDetail, getOpticalAdvanceBalance, getOpticalSaleEditHistory } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
+import { getLatestGlassesPrescription } from '@/lib/rpc-reads/optometry__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];

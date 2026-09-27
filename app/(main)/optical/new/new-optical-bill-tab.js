@@ -2,11 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  searchOpticalCustomers,
-  createOpticalSale,
-  getRecentOpticalItemNames,
-} from '../actions';
+import { createOpticalSale } from '../actions';
+import { searchOpticalCustomers, getRecentOpticalItemNames } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
 
 function fmt(n) {
   return `\u20b9${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

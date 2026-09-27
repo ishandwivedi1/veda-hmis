@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { searchPatientsForPayment, getAdvanceBalance, collectAdvance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits, getPatientById } from '../actions';
+import { collectAdvance } from '../actions';
+import { searchPatientsForPayment, getAdvanceBalance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits, getPatientById } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
 import BackdateControl from '@/app/components/BackdateControl';
 

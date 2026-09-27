@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { searchPatientsForPayment, collectPayment, applyAdjustment } from '../actions';
-import { getCollectPaymentBootstrap, getPatientPaymentContext } from '../combined-actions';
+import { collectPayment, applyAdjustment } from '../actions';
+import { searchPatientsForPayment } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
+import { getCollectPaymentBootstrap, getPatientPaymentContext } from '@/lib/rpc-reads/payments__combined-actions'; // parallel reads (tools/parallel-reads)
 import BackdateControl from '@/app/components/BackdateControl';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];

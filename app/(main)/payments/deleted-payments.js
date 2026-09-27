@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { getDeletedPayments } from './payment-edit-actions';
+import { getDeletedPayments } from '@/lib/rpc-reads/payments__payment-edit-actions'; // parallel reads (tools/parallel-reads)
 
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const when = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });

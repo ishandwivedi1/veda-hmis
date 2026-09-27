@@ -2,16 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {
-  findOpticalSaleByNumber,
-  searchOpticalCustomers,
-  getOpticalSalesForCustomer,
-  getOpticalSaleDetail,
-  getOpticalAdvanceBalance,
-  collectOpticalPayment,
-  applyOpticalAdvanceAdjustment,
-  getOutstandingOpticalBills,
-} from '../actions';
+import { collectOpticalPayment, applyOpticalAdvanceAdjustment } from '../actions';
+import { findOpticalSaleByNumber, searchOpticalCustomers, getOpticalSalesForCustomer, getOpticalSaleDetail, getOpticalAdvanceBalance, getOutstandingOpticalBills } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
 import BackdateControl from '@/app/components/BackdateControl';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];

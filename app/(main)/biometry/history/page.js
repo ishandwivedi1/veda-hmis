@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getBiometryHistory } from '../actions';
+import { getBiometryHistory } from '@/lib/rpc-reads/biometry__actions'; // parallel reads (tools/parallel-reads)
 
 function bestReading(sets) {
   if (!Array.isArray(sets) || sets.length === 0) return {};

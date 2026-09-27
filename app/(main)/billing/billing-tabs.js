@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { isTodayOpen } from '@/app/(main)/cash-management/actions';
+import { isTodayOpen } from '@/lib/rpc-reads/cash-management__actions'; // parallel reads (tools/parallel-reads)
 
 const TABS = [
   { href: '/billing', label: 'Dashboard', icon: 'ti-layout-dashboard' },

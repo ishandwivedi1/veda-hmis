@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { searchPatientsForBooking, getDoctors, createAppointment } from '@/app/(main)/appointments/actions';
+import { createAppointment } from '@/app/(main)/appointments/actions';
+import { searchPatientsForBooking, getDoctors } from '@/lib/rpc-reads/appointments__actions'; // parallel reads (tools/parallel-reads)
 
 export default function NewAppointmentPage() {
   const [searchQuery, setSearchQuery] = useState('');

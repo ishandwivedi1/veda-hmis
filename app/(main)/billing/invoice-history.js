@@ -5,7 +5,7 @@
 // invoice_modifications log (cancellations).
 
 import { useState, useEffect } from 'react';
-import { getInvoiceHistory } from './invoice-edit-actions';
+import { getInvoiceHistory } from '@/lib/rpc-reads/billing__invoice-edit-actions'; // parallel reads (tools/parallel-reads)
 
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const when = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });

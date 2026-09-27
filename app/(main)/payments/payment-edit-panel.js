@@ -7,7 +7,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { getPaymentEditContext, savePaymentEdit, removePayment, getPaymentHistory } from './payment-edit-actions';
+import { savePaymentEdit, removePayment } from './payment-edit-actions';
+import { getPaymentEditContext, getPaymentHistory } from '@/lib/rpc-reads/payments__payment-edit-actions'; // parallel reads (tools/parallel-reads)
 
 const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;

@@ -5,7 +5,8 @@
 // payments. Every change is recorded permanently in billing_audit_log.
 
 import { useState, useEffect, useCallback } from 'react';
-import { getBillingPermissionMatrix, setBillingPermission } from './billing-permission-actions';
+import { setBillingPermission } from './billing-permission-actions';
+import { getBillingPermissionMatrix } from '@/lib/rpc-reads/users__billing-permission-actions'; // parallel reads (tools/parallel-reads)
 import { BILLING_PERMISSIONS } from '@/lib/billingPermissionDefs';
 
 const ACTION_LABEL = { permission_granted: 'Allowed', permission_revoked: 'Removed' };

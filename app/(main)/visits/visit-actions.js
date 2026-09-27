@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { updateVisit, cancelVisit, getSurgeryTypeOptions, resendVisitWhatsApp, sendReviewRequestForVisit } from './actions';
+import { updateVisit, cancelVisit, resendVisitWhatsApp, sendReviewRequestForVisit } from './actions';
+import { getSurgeryTypeOptions } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
 
 const VISIT_TYPES = ['New Consultation', 'OPD Follow Up', 'Surgery', 'Surgery Evaluation', 'Investigation Only', 'Post-operative Review', 'OPD Procedure Only', 'Emergency', 'In House Camp'];
 

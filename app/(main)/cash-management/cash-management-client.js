@@ -2,39 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import {
-  getTodayCollectionSummary,
-  getReconciliationData,
-  saveReconciliation,
-  getCloseDayReadiness,
-  closeDay,
-  getDayClosingHistory,
-  getDailyReport,
-  getDayClosedAt,
-  reopenDay,
-  getDayOpening,
-  openDay,
-  updateOpeningBalance,
-  getSuggestedOpeningBalance,
-  getRevenueByDepartmentToday,
-  getUnclosedPastDays,
-  getExpenseCategoriesActive,
-  getExpensesForDate,
-  getPettyCashTotal,
-  getCashCounterForDate,
-  recordClosingCash,
-  confirmCashCounter,
-  unlockCashCounter,
-  getCashCounterHistory,
-  getReconciliationLockStatus,
-  lockReconciliation,
-  unlockReconciliation,
-  addExpense,
-  deleteExpense,
-} from './actions';
+import { saveReconciliation, closeDay, reopenDay, openDay, updateOpeningBalance, recordClosingCash, confirmCashCounter, unlockCashCounter, lockReconciliation, unlockReconciliation, addExpense, deleteExpense } from './actions';
+import { getTodayCollectionSummary, getReconciliationData, getCloseDayReadiness, getDayClosingHistory, getDailyReport, getDayClosedAt, getDayOpening, getSuggestedOpeningBalance, getRevenueByDepartmentToday, getUnclosedPastDays, getExpenseCategoriesActive, getExpensesForDate, getPettyCashTotal, getCashCounterForDate, getCashCounterHistory, getReconciliationLockStatus } from '@/lib/rpc-reads/cash-management__actions'; // parallel reads (tools/parallel-reads)
 import { addExpenseCategory } from '@/app/(main)/master-data/actions';
-import { getApprovers } from '@/app/(main)/payments/actions';
-import { getOpenQueueEntriesToday, bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
+import { getApprovers } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
+import { bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
+import { getOpenQueueEntriesToday } from '@/lib/rpc-reads/queue__actions'; // parallel reads (tools/parallel-reads)
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import BackdateControl from '@/app/components/BackdateControl';
 import { uploadAttachment } from '@/lib/attachments';

@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
-import { searchInvoices, getInvoiceById, resendInvoiceBillWhatsApp } from '../actions';
+import { resendInvoiceBillWhatsApp } from '../actions';
+import { searchInvoices, getInvoiceById } from '@/lib/rpc-reads/billing__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import InvoiceEditPanel from '../invoice-edit-panel';
 import InvoiceHistory from '../invoice-history';

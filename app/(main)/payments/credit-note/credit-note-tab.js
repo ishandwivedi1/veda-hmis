@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { searchPatientsForPayment, getInvoicesForCreditNote, getApprovers, createCreditNote, getCreditNoteRegister, getTodaysVisits } from '../actions';
+import { createCreditNote } from '../actions';
+import { searchPatientsForPayment, getInvoicesForCreditNote, getApprovers, getCreditNoteRegister, getTodaysVisits } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
 
 const REASONS = ['Billing correction', 'Service cancellation', 'Approved financial adjustment', 'Goodwill gesture', 'Insurance adjustment', 'Other'];

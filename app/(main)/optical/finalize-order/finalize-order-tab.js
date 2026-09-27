@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
-import { getOpenOpticalOrders, finalizeOpticalOrder, cancelOpticalOrder } from '../actions';
+import { finalizeOpticalOrder, cancelOpticalOrder } from '../actions';
+import { getOpenOpticalOrders } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 
 function fmt(n) {

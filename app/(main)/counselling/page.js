@@ -2,13 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import {
-  getCounsellingCases, getCounsellingHistory, getPackagesForCase, selectPackage, changePackage,
-  setDecision, getCaseNotes, addCaseNote, getCounsellingItems, toggleCounsellingItem,
-  markReadyForScheduling, referBackToDoctor,
-  sendForBiometry, skipBiometry, unskipBiometry,
-  getSurgeons, getOTAvailability, bookOTSlot,
-} from './actions';
+import { selectPackage, changePackage, setDecision, addCaseNote, toggleCounsellingItem, markReadyForScheduling, referBackToDoctor, sendForBiometry, skipBiometry, unskipBiometry, bookOTSlot } from './actions';
+import { getCounsellingCases, getCounsellingHistory, getPackagesForCase, getCaseNotes, getCounsellingItems, getSurgeons, getOTAvailability } from '@/lib/rpc-reads/counselling__actions'; // parallel reads (tools/parallel-reads)
 
 // Biometry is satisfied either by actually being done, or by having
 // been explicitly marked not required for this case (retina, glaucoma,

@@ -3,14 +3,8 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import {
-  getPharmacyWorkspace,
-  billPharmacyItems,
-  dispenseAllForVisit,
-  markPrescriptionDenied,
-  markPrescriptionDeferred,
-  resetPrescriptionBilling,
-} from '../actions';
+import { billPharmacyItems, dispenseAllForVisit, markPrescriptionDenied, markPrescriptionDeferred, resetPrescriptionBilling } from '../actions';
+import { getPharmacyWorkspace } from '@/lib/rpc-reads/pharmacy__actions'; // parallel reads (tools/parallel-reads)
 
 function fmt(n) {
   return `Rs ${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;

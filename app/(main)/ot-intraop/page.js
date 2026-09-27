@@ -4,7 +4,8 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { getOTCaseList, getOTIntraopHistory, markPatientReported, unmarkPatientReported } from './actions';
+import { markPatientReported, unmarkPatientReported } from './actions';
+import { getOTCaseList, getOTIntraopHistory } from '@/lib/rpc-reads/ot-intraop__actions'; // parallel reads (tools/parallel-reads)
 import Workspace from './workspace';
 
 const STATUS_BADGE = { Scheduled: 'b-amber', 'In Progress': 'b-blue' };

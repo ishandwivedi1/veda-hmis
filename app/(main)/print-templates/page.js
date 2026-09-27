@@ -1,10 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  listPrintTemplates, getPrintTemplate, savePrintTemplate, resetPrintTemplate, previewTemplateHtml,
-  getHospitalSettings, saveHospitalSettings,
-} from '@/app/print-templates/actions';
+import { savePrintTemplate, resetPrintTemplate, previewTemplateHtml, saveHospitalSettings } from '@/app/print-templates/actions';
+import { listPrintTemplates, getPrintTemplate, getHospitalSettings } from '@/lib/rpc-reads/print-templates__actions'; // parallel reads (tools/parallel-reads)
 
 const PLACEHOLDER_REFERENCE = {
   invoice_opd: [

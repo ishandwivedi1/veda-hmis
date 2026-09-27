@@ -2,11 +2,9 @@
 
 import { useState, useEffect, useCallback, Fragment, Suspense } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import {
-  getScheduledOT, getOTHistory, getOTAvailability, rescheduleOTSlot, completeOT, undoCompleteOT,
-  searchPatientsForDirectSurgery, getPackagesForDirectSurgery, getSurgeonsForDirectSurgery, registerSurgeryDirect,
-} from './actions';
-import { getSurgeries } from '@/app/(main)/master-data/actions';
+import { rescheduleOTSlot, completeOT, undoCompleteOT, registerSurgeryDirect } from './actions';
+import { getScheduledOT, getOTHistory, getOTAvailability, searchPatientsForDirectSurgery, getPackagesForDirectSurgery, getSurgeonsForDirectSurgery } from '@/lib/rpc-reads/ot-schedule__actions'; // parallel reads (tools/parallel-reads)
+import { getSurgeries } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import OTCalendar from './ot-calendar';
 
 const STATUS_BADGE = { Scheduled: 'b-blue', 'In Progress': 'b-amber', Completed: 'b-green', Cancelled: 'b-red' };

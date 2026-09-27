@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { searchReceipts, resendPaymentReceiptWhatsApp } from '../actions';
+import { resendPaymentReceiptWhatsApp } from '../actions';
+import { searchReceipts } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import PaymentEditPanel from '../payment-edit-panel';
 import DeletedPayments from '../deleted-payments';

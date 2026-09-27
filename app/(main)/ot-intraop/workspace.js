@@ -2,15 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import {
-  getOTCaseDetail,
-  saveCheckinItems, completeCheckin, recordAnaesthesia, saveIntraopDraft, saveCheckinIolVerification,
-  addConsumable, removeConsumable, addIntraopEvent, removeIntraopEvent,
-  completeSurgery, getConsumableOptions, markPatientReported, unmarkPatientReported,
-} from './actions';
+import { saveCheckinItems, completeCheckin, recordAnaesthesia, saveIntraopDraft, saveCheckinIolVerification, addConsumable, removeConsumable, addIntraopEvent, removeIntraopEvent, completeSurgery, markPatientReported, unmarkPatientReported } from './actions';
+import { getOTCaseDetail, getConsumableOptions } from '@/lib/rpc-reads/ot-intraop__actions'; // parallel reads (tools/parallel-reads)
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { uploadAttachment, deleteAttachment } from '@/lib/attachments';
-import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
+import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import ConfirmActionModal from '@/app/components/ConfirmActionModal';
 
 const STEPS = ['Check-In', 'Anaesthesia', 'Surgery', 'Implant', 'Recovery'];
@@ -112,7 +108,13 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     setLog((prev) => [`${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })} -- ${msg}`, ...prev].slice(0, 20));
   }
 
+  // A check-in tick saves in the background (no await, so the checkbox
+  // stays instant). Reads now run in parallel with saves, so a refresh
+  // waits for that save first -- otherwise it could fetch the old value.
+  const pendingCheckinSave = useRef(null);
+
   const refresh = useCallback(async () => {
+    if (pendingCheckinSave.current) await pendingCheckinSave.current.catch(() => {});
     const result = await getOTCaseDetail(otScheduleId);
     if (result.error) { setLoadError(result.error); return; }
     setData(result);
@@ -263,7 +265,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     if (i === CONSENT_INDEX) return;
     const updated = { ...checkinChecked, [i]: !checkinChecked[i] };
     setCheckinChecked(updated);
-    saveCheckinItems(otScheduleId, sc.id, updated);
+    pendingCheckinSave.current = saveCheckinItems(otScheduleId, sc.id, updated);
   }
 
   async function handleToggleReported() {

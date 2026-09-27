@@ -51,8 +51,17 @@ export async function middleware(request) {
   // cookie at all, the request falls through to the full check below
   // (redirect to login), exactly as before. Page navigations are unchanged.
   const isServerAction = request.method === 'POST' && request.headers.has('next-action');
-  if (isServerAction && request.cookies.getAll().some((c) => c.name.includes('auth-token'))) {
+  const hasAuthCookie = request.cookies.getAll().some((c) => c.name.includes('auth-token'));
+  if (isServerAction && hasAuthCookie) {
     return NextResponse.next({ request: { headers: request.headers } });
+  }
+  // Parallel reads (/api/rpc, see lib/rpcClient.js): same treatment as
+  // server actions above. Without a session cookie, answer 401 (not a
+  // redirect to the login page -- the caller expects JSON and sends the
+  // browser to /login itself).
+  if (request.nextUrl.pathname.startsWith('/api/rpc/')) {
+    if (hasAuthCookie) return NextResponse.next({ request: { headers: request.headers } });
+    return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
   }
 
   let response = NextResponse.next({

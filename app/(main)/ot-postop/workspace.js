@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import {
-  getPostOpEpisodeDetail, rescheduleFollowup, saveFollowupNotes, markFollowupStatus,
-  addRecoveryComplication, closeEpisode, openFollowupReview, addFollowup, removeFollowup,
-} from './actions';
+import { rescheduleFollowup, saveFollowupNotes, markFollowupStatus, addRecoveryComplication, closeEpisode, openFollowupReview, addFollowup, removeFollowup } from './actions';
+import { getPostOpEpisodeDetail } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
 import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
 import { openPrintPopup } from '@/lib/printPopup';
 

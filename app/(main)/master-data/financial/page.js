@@ -1,18 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
-import {
-  toggleStatus,
-  getServices, addService, updateService, deleteService,
-  getPackages, addPackage, updatePackage, deletePackage,
-  getPackageLineItems, addPackageLineItem, updatePackageLineItem, removePackageLineItem,
-  getDrugs, addDrug, updateDrug, deleteDrug,
-  getDrugTypes, addDrugType, updateDrugType, updateDrugTypeOcular, updateDrugTypeCountable, deleteDrugType,
-  getDosageOptions, addDosageOption, removeDosageOption,
-  getVendorsMaster, addVendorMaster, updateVendorMaster, deleteVendorMaster,
-  getSurgeries,
-  getMasterAuditLog, amIAdmin,
-} from '../actions';
+import { toggleStatus, addService, updateService, deleteService, addPackage, updatePackage, deletePackage, addPackageLineItem, updatePackageLineItem, removePackageLineItem, addDrug, updateDrug, deleteDrug, addDrugType, updateDrugType, updateDrugTypeOcular, updateDrugTypeCountable, deleteDrugType, addDosageOption, removeDosageOption, addVendorMaster, updateVendorMaster, deleteVendorMaster, amIAdmin } from '../actions';
+import { getServices, getPackages, getPackageLineItems, getDrugs, getDrugTypes, getDosageOptions, getVendorsMaster, getSurgeries, getMasterAuditLog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 
 const SERVICE_DEPTS = ['Consultation', 'Investigation', 'OPD Procedure'];
 const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key: 'Pharmacy', type: 'drug' }, { key: 'Packages', label: 'Surgery', type: 'package' }, { key: 'Vendors', type: 'vendor' }];

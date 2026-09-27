@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { useState, useEffect, useCallback } from 'react';
-import { getWorkflowMonitorData } from './actions';
+import { getWorkflowMonitorData } from '@/lib/rpc-reads/workflow-monitor__actions'; // parallel reads (tools/parallel-reads)
 
 const STATE_MATRIX = [
   { from: 'Waiting (Optometry)', event: 'Call Next / Call', to: 'Calling (Optometry)' },

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getUsers, createUser, toggleUserStatus, resetUserPassword, updateUserProfile, updateStaffIdentity, getMyDesignation, getLoginHistory } from './actions';
+import { createUser, toggleUserStatus, resetUserPassword, updateUserProfile, updateStaffIdentity } from './actions';
+import { getUsers, getMyDesignation, getLoginHistory } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
 import BillingPermissionsTab from './billing-permissions-tab';
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];

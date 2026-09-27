@@ -3,14 +3,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
-import {
-  getConsultationData, addPrescription, removePrescription, addTaperedPrescription,
-  removeTaperGroup, saveExamination, completeConsultation, getFollowUpContext,
-} from '@/app/(main)/consultation/actions';
-import {
-  getFollowupReviewContext, markFollowupStatus, addFollowup, closeEpisode, addRecoveryComplication,
-} from '@/app/(main)/ot-postop/actions';
-import { getDrugs, getDosageOptions } from '@/app/(main)/master-data/actions';
+import { getConsultationData, addPrescription, removePrescription, addTaperedPrescription, removeTaperGroup, saveExamination, completeConsultation } from '@/app/(main)/consultation/actions';
+import { getFollowUpContext } from '@/lib/rpc-reads/consultation__actions'; // parallel reads (tools/parallel-reads)
+import { markFollowupStatus, addFollowup, closeEpisode, addRecoveryComplication } from '@/app/(main)/ot-postop/actions';
+import { getFollowupReviewContext } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
+import { getDrugs, getDosageOptions } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import { PatientSnapshotBar } from './follow-up-panel';
 

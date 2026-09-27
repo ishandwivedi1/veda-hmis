@@ -3,11 +3,9 @@
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import {
-  getBiometryDetail, saveBiometryDraft, markBiometryMeasured,
-  addIolRecommendation, removeIolRecommendation,
-} from '../actions';
-import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
+import { saveBiometryDraft, markBiometryMeasured, addIolRecommendation, removeIolRecommendation } from '../actions';
+import { getBiometryDetail } from '@/lib/rpc-reads/biometry__actions'; // parallel reads (tools/parallel-reads)
+import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import { openPrintPopup } from '@/lib/printPopup';
 

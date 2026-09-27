@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
-import { getDoctorDashboardData, getDoctorHistory, getProceduresDueToday } from './actions';
+import { getDoctorDashboardData, getDoctorHistory, getProceduresDueToday } from '@/lib/rpc-reads/doctor-dashboard__actions'; // parallel reads (tools/parallel-reads)
 import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
 import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
-import { getOpenPostOpEpisodeForPatient } from '@/app/(main)/ot-postop/actions';
+import { getOpenPostOpEpisodeForPatient } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
 import { useRouter } from 'next/navigation';
 import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
 

@@ -4,40 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
-import {
-  getConsultationData,
-  addDiagnosis,
-  removeDiagnosis,
-  updateDiagnosisNotes,
-  addPrescription,
-  removePrescription,
-  addTaperedPrescription,
-  removeTaperGroup,
-  addInvestigation,
-  removeInvestigation,
-  completeConsultation,
-  sendForDilationFromConsultation,
-  sendForInvestigationFromConsultation,
-  completeWorkflowRequest,
-  addOpticalAdvice,
-  removeOpticalAdvice,
-  addProcedure,
-  removeProcedure,
-  sendForProcedureFromConsultation,
-  addReferral,
-  removeReferral,
-  completePlanItem,
-  saveFollowup,
-  savePatientInstructions,
-  saveDraft,
-  getFollowUpContext,
-  saveVisitOutcome,
-  carryForwardDiagnosis,
-} from '@/app/(main)/consultation/actions';
+import { getConsultationData, addDiagnosis, removeDiagnosis, updateDiagnosisNotes, addPrescription, removePrescription, addTaperedPrescription, removeTaperGroup, addInvestigation, removeInvestigation, completeConsultation, sendForDilationFromConsultation, sendForInvestigationFromConsultation, completeWorkflowRequest, addOpticalAdvice, removeOpticalAdvice, addProcedure, removeProcedure, sendForProcedureFromConsultation, addReferral, removeReferral, completePlanItem, saveFollowup, savePatientInstructions, saveDraft, saveVisitOutcome, carryForwardDiagnosis } from '@/app/(main)/consultation/actions';
+import { getFollowUpContext } from '@/lib/rpc-reads/consultation__actions'; // parallel reads (tools/parallel-reads)
 import { openPopup } from '@/lib/popup';
 import { markForSurgery, markSameDaySurgicalEval, updateSurgicalCase, setDecision, addCaseProcedure, removeCaseProcedure } from '@/app/(main)/counselling/actions';
 import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
-import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries, getActivePatientInstructionTemplates } from '@/app/(main)/master-data/actions';
+import { getDiagnosesMaster, getDrugs, getDosageOptions, getServices, getSurgeries, getActivePatientInstructionTemplates } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import ExaminationTab from './examination-tab';
 import OptometryWorkspace from '@/app/(main)/optometry/[id]/optometry-workspace';
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';

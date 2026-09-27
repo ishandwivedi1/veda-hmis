@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { approveIolPlan, getIolVersionHistory } from '../actions';
-import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
+import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 
 const FORMULA_NAMES = ['Barrett Universal II', 'SRK/T', 'Haigis', 'Hoffer Q', 'Holladay 1', 'Other'];

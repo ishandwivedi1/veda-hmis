@@ -1,13 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  searchOpticalCustomers,
-  createWalkInOpticalCustomer,
-  getOpticalAdvanceBalance,
-  collectOpticalAdvance,
-  getRecentOpticalAdvances,
-} from '../actions';
+import { createWalkInOpticalCustomer, collectOpticalAdvance } from '../actions';
+import { searchOpticalCustomers, getOpticalAdvanceBalance, getRecentOpticalAdvances } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
 import BackdateControl from '@/app/components/BackdateControl';
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];

@@ -3,24 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getPatientById } from '@/app/(main)/visits/actions';
+import { getPatientById } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
 import { openTab } from '@/lib/popup';
-import {
-  getPatientOpdProcedureJourney,
-  getOpdProcedureMonthSummary,
-  getPostProcedurePrescriptions,
-  getDrugCatalogForOpdProcedures,
-  addPostProcedureMedicine,
-  removePostProcedureMedicine,
-  addPostProcedureTaperedMedicine,
-  removePostProcedureTaperGroup,
-  setOpdProcedureDecision,
-  scheduleOpdProcedure,
-  checkInOpdProcedure,
-  completeOpdProcedure,
-  cancelOpdProcedure,
-  updateCompletedProcedureNotes,
-} from '../actions';
+import { addPostProcedureMedicine, removePostProcedureMedicine, addPostProcedureTaperedMedicine, removePostProcedureTaperGroup, setOpdProcedureDecision, scheduleOpdProcedure, checkInOpdProcedure, completeOpdProcedure, cancelOpdProcedure, updateCompletedProcedureNotes } from '../actions';
+import { getPatientOpdProcedureJourney, getOpdProcedureMonthSummary, getPostProcedurePrescriptions, getDrugCatalogForOpdProcedures } from '@/lib/rpc-reads/opd-procedures__actions'; // parallel reads (tools/parallel-reads)
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 

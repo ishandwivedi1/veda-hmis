@@ -4,8 +4,8 @@ import dynamic from 'next/dynamic';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { getOptometryDashboardData } from './actions';
-import { getOptometryHistory } from '@/app/(main)/optometry-history/actions';
+import { getOptometryDashboardData } from '@/lib/rpc-reads/optometry-dashboard__actions'; // parallel reads (tools/parallel-reads)
+import { getOptometryHistory } from '@/lib/rpc-reads/optometry-history__actions'; // parallel reads (tools/parallel-reads)
 import { optometryCallNext, optometryCallSpecific } from '@/app/(main)/queue/actions';
 
 // The Workspace (Final Rx entry, ~1200 lines) is the one heavy piece of

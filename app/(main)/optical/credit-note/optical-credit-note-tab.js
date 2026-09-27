@@ -2,15 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {
-  findOpticalSaleByNumber,
-  searchOpticalCustomers,
-  getOpticalSalesForCustomer,
-  getOpticalSaleDetail,
-  getApprovers,
-  createOpticalCreditNote,
-  getOpticalCreditNoteRegister,
-} from '../actions';
+import { getApprovers, createOpticalCreditNote } from '../actions';
+import { findOpticalSaleByNumber, searchOpticalCustomers, getOpticalSalesForCustomer, getOpticalSaleDetail, getOpticalCreditNoteRegister } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
 
 function fmt(n) {
   return `\u20b9${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

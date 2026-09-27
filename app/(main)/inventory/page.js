@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import InventoryTabs from './inventory-tabs';
-import { getDashboardSummary, searchItemStock, markPurchasePaid } from './actions';
+import { markPurchasePaid } from './actions';
+import { getDashboardSummary, searchItemStock } from '@/lib/rpc-reads/inventory__actions'; // parallel reads (tools/parallel-reads)
 
 function KpiCard({ label, value, sub, color }) {
   return (

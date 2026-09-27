@@ -3,10 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import InventoryTabs from '../inventory-tabs';
-import {
-  getVendors, createPurchaseWithLines, getRecentPurchases, getPurchaseLines,
-  getTrackedItemsForPicker, markPurchasePaid, markPurchaseUnpaid,
-} from '../actions';
+import { createPurchaseWithLines, markPurchasePaid, markPurchaseUnpaid } from '../actions';
+import { getVendors, getRecentPurchases, getPurchaseLines, getTrackedItemsForPicker } from '@/lib/rpc-reads/inventory__actions'; // parallel reads (tools/parallel-reads)
 
 const emptyLine = () => ({ key: Math.random().toString(36).slice(2), itemId: '', batchNumber: '', expiryDate: '', qty: '', rate: '', discountPct: '' });
 

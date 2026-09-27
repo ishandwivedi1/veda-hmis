@@ -3,10 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
-import {
-  searchInvoices, getInvoiceById,
-  getTodaysInvoicesForModification, getInvoicesForVisit, getSurgeryBillingOptions, setManualSurgeryDetails,
-} from '../actions';
+import { setManualSurgeryDetails } from '../actions';
+import { searchInvoices, getInvoiceById, getTodaysInvoicesForModification, getInvoicesForVisit, getSurgeryBillingOptions } from '@/lib/rpc-reads/billing__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import InvoiceEditPanel from '../invoice-edit-panel';
 import InvoiceHistory from '../invoice-history';

@@ -3,8 +3,9 @@
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
-import { getPendingIolApprovals, getApprovedToday, getIolApprovalHistory, getIolApprovalDetail, approveIol } from './actions';
-import { getActiveIolCatalog } from '@/app/(main)/master-data/actions';
+import { approveIol } from './actions';
+import { getPendingIolApprovals, getApprovedToday, getIolApprovalHistory, getIolApprovalDetail } from '@/lib/rpc-reads/iol-approval__actions'; // parallel reads (tools/parallel-reads)
+import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 

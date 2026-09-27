@@ -3,11 +3,8 @@
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
-import {
-  getMedicalFitnessQueue, getMedicalFitnessHistory, getMedicalFitnessClearedToday, getMedicalFitnessDetail,
-  getInvestigationMasterOptions, orderFitnessInvestigation, removeFitnessInvestigation,
-  clearFitness, markNotFit, saveFitnessFormDraft, submitFitnessForm, getCurrentDoctorProfile,
-} from './actions';
+import { orderFitnessInvestigation, removeFitnessInvestigation, clearFitness, markNotFit, saveFitnessFormDraft, submitFitnessForm } from './actions';
+import { getMedicalFitnessQueue, getMedicalFitnessHistory, getMedicalFitnessClearedToday, getMedicalFitnessDetail, getInvestigationMasterOptions, getCurrentDoctorProfile } from '@/lib/rpc-reads/medical-fitness__actions'; // parallel reads (tools/parallel-reads)
 import { matchInvestigationType, summarizeResultData } from '@/app/(main)/investigation/investigation-types';
 import { openPopup } from '@/lib/popup';
 import { openPrintPopup } from '@/lib/printPopup';

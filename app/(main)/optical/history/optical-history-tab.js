@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { searchOpticalSaleHistory, getOpticalSaleDetail, cancelOpticalSale, forceCancelOpticalSale } from '../actions';
-import { getMyDesignation } from '@/app/(main)/users/actions';
+import { cancelOpticalSale, forceCancelOpticalSale } from '../actions';
+import { searchOpticalSaleHistory, getOpticalSaleDetail } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
+import { getMyDesignation } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
 
 const STATUSES = ['', 'Pending', 'Partial', 'Paid', 'Cancelled'];
 const STATUS_COLORS = { Pending: 'var(--g500)', Partial: 'var(--purple)', Paid: 'var(--green)', Cancelled: 'var(--red)' };

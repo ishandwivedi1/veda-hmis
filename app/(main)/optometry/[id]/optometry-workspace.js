@@ -13,7 +13,7 @@ import {
   sendForDilation,
   sendForInvestigation,
 } from '@/app/(main)/optometry/actions';
-import { getIopMethods, getServices } from '@/app/(main)/master-data/actions';
+import { getIopMethods, getServices } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
 import HistoryTab from '@/app/consultation/[id]/history-tab';
 import { openPrintPopup } from '@/lib/printPopup';

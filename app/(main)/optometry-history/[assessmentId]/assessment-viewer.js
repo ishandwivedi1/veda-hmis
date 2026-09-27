@@ -3,7 +3,7 @@
 import { useState, useEffect, Fragment } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getAssessmentDetail } from '@/app/(main)/optometry-history/actions';
+import { getAssessmentDetail } from '@/lib/rpc-reads/optometry-history__actions'; // parallel reads (tools/parallel-reads)
 
 // Same field-key helpers and row/type layout as the live entry workspace
 // (app/(main)/optometry/[id]/optometry-workspace.js) -- kept identical

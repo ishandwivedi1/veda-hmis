@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getInvestigationHistory } from '../actions';
+import { getInvestigationHistory } from '@/lib/rpc-reads/investigation__actions'; // parallel reads (tools/parallel-reads)
 import { matchInvestigationType, summarizeResultData } from '../investigation-types';
 import InvestigationTabs from '../investigation-tabs';
 import { openPrintPopup } from '@/lib/printPopup';

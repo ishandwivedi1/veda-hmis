@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
-import { getPostOpCaseList, getPostOpTurnedUpToday, getPostOpHistory } from './actions';
+import { getPostOpCaseList, getPostOpTurnedUpToday, getPostOpHistory } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
 import Workspace from './workspace';
 
 function TabButton({ active, onClick, icon, label, disabled }) {

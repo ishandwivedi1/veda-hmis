@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getPharmacyDashboard } from './actions';
+import { getPharmacyDashboard } from '@/lib/rpc-reads/pharmacy__actions'; // parallel reads (tools/parallel-reads)
 import PharmacyTabs from './pharmacy-tabs';
 
 const STATUS_BADGE = {

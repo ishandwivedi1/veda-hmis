@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getBiometryQueue, getBiometryCompletedToday } from './actions';
+import { getBiometryQueue, getBiometryCompletedToday } from '@/lib/rpc-reads/biometry__actions'; // parallel reads (tools/parallel-reads)
 
 function KpiCard({ label, value, sub, color }) {
   return (

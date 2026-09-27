@@ -3,16 +3,8 @@
 import Link from 'next/link';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useState, useEffect, useCallback } from 'react';
-import {
-  getQueues,
-  getPatientFlow,
-  getPatientTimeline,
-  optometryCallNext,
-  optometryCallSpecific,
-  doctorCallNext,
-  doctorCallSpecific,
-  doctorMarkReady,
-} from './actions';
+import { optometryCallNext, optometryCallSpecific, doctorCallNext, doctorCallSpecific, doctorMarkReady } from './actions';
+import { getQueues, getPatientFlow, getPatientTimeline } from '@/lib/rpc-reads/queue__actions'; // parallel reads (tools/parallel-reads)
 
 function elapsedMin(isoString) {
   if (!isoString) return 0;

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
-import { getInvestigationQueue, getTodaysInvestigations } from './actions';
+import { getInvestigationQueue, getTodaysInvestigations } from '@/lib/rpc-reads/investigation__actions'; // parallel reads (tools/parallel-reads)
 import InvestigationTabs from './investigation-tabs';
 import { openPrintPopup } from '@/lib/printPopup';
 

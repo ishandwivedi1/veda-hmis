@@ -5,20 +5,11 @@ import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import ConfirmActionModal from '@/app/components/ConfirmActionModal';
-import {
-  getSurgicalCaseDetail,
-  setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions,
-  getInvestigationOptionsForCase, addInHouseInvestigationForCase, removeInHouseInvestigationForCase,
-  addExternalTest, removeExternalTest,
-  declineSurgicalCase,
-} from '../actions';
-import { getSurgeries } from '@/app/(main)/master-data/actions';
-import {
-  selectPackage, changePackage, updatePackageDiscount, getPackagesForCase,
-  setDecision, markReadyForScheduling, bookOTSlot, getSurgeons,
-  getCaseProcedures, selectProcedurePackage, changeProcedurePackage, updateProcedurePackageDiscount,
-  getPatientInvoicesForCase, linkExistingInvoiceToPackage,
-} from '@/app/(main)/counselling/actions';
+import { setIolOrderNotes, editSurgicalCaseDetails, setTreatmentInstructions, addInHouseInvestigationForCase, removeInHouseInvestigationForCase, addExternalTest, removeExternalTest, declineSurgicalCase } from '../actions';
+import { getSurgicalCaseDetail, getInvestigationOptionsForCase } from '@/lib/rpc-reads/surgical-journey__actions'; // parallel reads (tools/parallel-reads)
+import { getSurgeries } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
+import { selectPackage, changePackage, updatePackageDiscount, setDecision, markReadyForScheduling, bookOTSlot, selectProcedurePackage, changeProcedurePackage, updateProcedurePackageDiscount, linkExistingInvoiceToPackage } from '@/app/(main)/counselling/actions';
+import { getPackagesForCase, getSurgeons, getCaseProcedures, getPatientInvoicesForCase } from '@/lib/rpc-reads/counselling__actions'; // parallel reads (tools/parallel-reads)
 import { rescheduleOTSlot } from '@/app/(main)/ot-schedule/actions';
 import { openPopup, openTab } from '@/lib/popup';
 

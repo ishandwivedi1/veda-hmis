@@ -2,12 +2,8 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import {
-  getCampEvent, listScreenings, registerAttendee, updateRegistration, deleteScreening,
-  recordEyeCheckup, recordDoctorExamination,
-  checkExistingPatientByPhone, linkScreeningToPatient, convertScreeningToPatient,
-  sendCampScreeningWhatsApp, bulkSendCampScreeningWhatsApp,
-} from '../actions';
+import { registerAttendee, updateRegistration, deleteScreening, recordEyeCheckup, recordDoctorExamination, checkExistingPatientByPhone, linkScreeningToPatient, convertScreeningToPatient, sendCampScreeningWhatsApp, bulkSendCampScreeningWhatsApp } from '../actions';
+import { getCampEvent, listScreenings } from '@/lib/rpc-reads/camps__actions'; // parallel reads (tools/parallel-reads)
 
 function fmtDate(d) {
   if (!d) return '--';

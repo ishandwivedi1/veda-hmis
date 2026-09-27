@@ -2,11 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import {
-  getRecoveryEpisodeDetail,
-  saveRecoveryFields, addRecoveryMedication, addTaperedRecoveryMedication, removeRecoveryMedication, removeRecoveryTaperGroup,
-  confirmDischarge, getDrugOptions, getMedDosageOptions,
-} from './actions';
+import { saveRecoveryFields, addRecoveryMedication, addTaperedRecoveryMedication, removeRecoveryMedication, removeRecoveryTaperGroup, confirmDischarge } from './actions';
+import { getRecoveryEpisodeDetail, getDrugOptions, getMedDosageOptions } from '@/lib/rpc-reads/ot-recovery__actions'; // parallel reads (tools/parallel-reads)
 import { DISCHARGE_ITEMS } from './constants';
 import { openPrintPopup } from '@/lib/printPopup';
 import ConfirmActionModal from '@/app/components/ConfirmActionModal';

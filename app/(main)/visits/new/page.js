@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { searchPatientsForBooking } from '@/app/(main)/appointments/actions';
-import { createWalkInVisit, getLastVisitInfo } from '@/app/(main)/visits/actions';
-import { getBookVisitBootstrap } from '@/app/(main)/visits/combined-actions';
+import { searchPatientsForBooking } from '@/lib/rpc-reads/appointments__actions'; // parallel reads (tools/parallel-reads)
+import { createWalkInVisit } from '@/app/(main)/visits/actions';
+import { getLastVisitInfo } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
+import { getBookVisitBootstrap } from '@/lib/rpc-reads/visits__combined-actions'; // parallel reads (tools/parallel-reads)
 import VisitCreatedModal from '@/app/components/VisitCreatedModal';
 
 function fmtDate(iso) {
