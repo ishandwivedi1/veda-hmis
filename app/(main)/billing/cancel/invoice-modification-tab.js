@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import {
-  searchInvoices, getInvoiceById, cancelInvoice,
+  searchInvoices, getInvoiceById,
   getTodaysInvoicesForModification, getInvoicesForVisit, getSurgeryBillingOptions, setManualSurgeryDetails,
 } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
@@ -41,8 +41,6 @@ export default function InvoiceModificationTab() {
   const [surgeryDoctorOptions, setSurgeryDoctorOptions] = useState([]);
   const [savingSurgery, setSavingSurgery] = useState(false);
 
-  const [showCancelForm, setShowCancelForm] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
 
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -101,8 +99,6 @@ export default function InvoiceModificationTab() {
       setSurgeryName(details.invoice.manual_surgery_name || '');
       setSurgeryEyeField(details.invoice.manual_surgery_eye || '');
       setSurgeryDoctorId(details.invoice.manual_surgeon_id || '');
-      setShowCancelForm(false);
-      setCancelReason('');
     } catch (e) {
       setError('Could not load this invoice -- check your connection and try again.');
     }
@@ -138,22 +134,6 @@ export default function InvoiceModificationTab() {
     setSelected(null);
     setLineItems([]);
     loadToday();
-  }
-
-  async function handleCancel() {
-    setError('');
-    if (!cancelReason.trim()) { setError('A cancellation reason is required.'); return; }
-    try {
-      const result = await cancelInvoice(selected.id, cancelReason);
-      if (result.error) { setError(result.error); return; }
-      setInfo('Invoice cancelled and logged for audit.');
-      setShowCancelForm(false);
-      setCancelReason('');
-      refresh();
-      loadToday();
-    } catch (e) {
-      setError('Something went wrong cancelling this invoice -- check your connection and try again.');
-    }
   }
 
   return (
@@ -284,6 +264,14 @@ export default function InvoiceModificationTab() {
               key={selected.id}
               embedded
               invoiceId={selected.id}
+              onVoided={(_, credited) => {
+                setInfo(credited > 0
+                  ? `Invoice voided. Rs.${credited} already paid is now kept as patient credit.`
+                  : 'Invoice cancelled.');
+                setHistoryKey((k) => k + 1);
+                refresh();
+                loadToday();
+              }}
               onSaved={(_, credited) => {
                 setInfo(credited > 0
                   ? `Invoice updated. Rs.${credited} already paid is now kept as patient credit.`
@@ -339,26 +327,9 @@ export default function InvoiceModificationTab() {
               <div style={{ fontSize: 12, color: 'var(--g500)' }}>
                 <i className="ti ti-x-circle" style={{ color: 'var(--red)' }}></i> Cancelled -- reason: {selected.cancellation_reason}
               </div>
-            ) : selected.paid > 0 ? (
-              <div className="msg-info" style={{ margin: 0 }}>
-                <i className="ti ti-info-circle"></i> This invoice has payments recorded and cannot be cancelled. Contact an administrator if needed.
-              </div>
-            ) : !showCancelForm ? (
-              <button className="btn" style={{ color: 'var(--red)' }} onClick={() => setShowCancelForm(true)}>
-                <i className="ti ti-x-circle"></i> Cancel Invoice
-              </button>
-            ) : (
-              <div style={{ border: '1.5px solid var(--red-lt)', borderRadius: 8, padding: 12 }}>
-                <label className="flbl">Cancellation reason *</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input className="fi" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
-                  <button className="btn btn-sm" style={{ background: 'var(--red)', color: '#fff', borderColor: 'transparent' }} onClick={handleCancel}>Confirm Cancel</button>
-                  <button className="btn btn-sm" onClick={() => setShowCancelForm(false)}>Back</button>
-                </div>
-              </div>
-            )}
+            ) : null}
 
-            {selected.status !== 'Cancelled' && !showCancelForm && (
+            {selected.status !== 'Cancelled' && (
               <button className="btn btn-green" style={{ marginTop: 12 }} onClick={handleConfirmModification}>
                 <i className="ti ti-circle-check"></i> Confirm Modification &amp; Close
               </button>

@@ -58,6 +58,24 @@ export async function getInvoiceEditContext(invoiceId) {
     else if (l.service_code && packageCodes.has(l.service_code)) removeHints[l.id] = 'Surgical case will show as not billed';
   }
 
+  // Cancel / Void (mirrors void_invoice() in Postgres): an unpaid invoice
+  // from today only needs edit rights; a paid or past-day one needs
+  // "Void invoices".
+  const [{ data: allocs }, { data: invRefunds }, { data: cns }] = await Promise.all([
+    supabase.from('payment_allocations').select('amount').eq('invoice_id', invoiceId),
+    supabase.from('payment_refunds').select('id').eq('invoice_id', invoiceId).is('cancelled_at', null),
+    supabase.from('credit_notes').select('id').eq('invoice_id', invoiceId),
+  ]);
+  const appliedTotal = (allocs || []).reduce((s, a) => s + Number(a.amount), 0);
+  const needsVoidPermission = (allocs || []).length > 0 || invoiceDate < today;
+  let voidBlock = null;
+  if (invoice.status === 'Cancelled' || invoice.status === 'Void') voidBlock = 'This invoice is already cancelled.';
+  else if (closed) voidBlock = 'This invoice is from a closed day.';
+  else if ((invRefunds || []).length) voidBlock = 'This invoice has a refund against it. Cancel the refund first (Payments > Refund).';
+  else if ((cns || []).length) voidBlock = 'This invoice has a credit note against it, so it cannot be voided. Contact an Administrator.';
+  else if (needsVoidPermission && !perms['invoice.void']) voidBlock = 'Voiding a paid or past-day invoice needs the "Void invoices" permission. Ask an Administrator.';
+  else if (!needsVoidPermission && !perms['invoice.edit']) voidBlock = 'You do not have permission to cancel invoices.';
+
   return {
     canEdit: !blockReason,
     blockReason,
@@ -69,7 +87,22 @@ export async function getInvoiceEditContext(invoiceId) {
     invoiceDate,
     today,
     isAdmin: me?.designation === 'Administrator',
+    canVoid: !voidBlock,
+    voidBlock,
+    appliedTotal,
   };
+}
+
+// Cancel / Void (void_invoice() in Postgres checks everything).
+export async function saveInvoiceVoid(invoiceId, reason, expectedNet) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('void_invoice', {
+    p_invoice_id: invoiceId,
+    p_reason: reason,
+    p_expected_net: expectedNet,
+  });
+  if (error) return { error: error.message };
+  return { ok: true, invoice: data };
 }
 
 // Administrator only (enforced in change_invoice_date()).
@@ -123,10 +156,13 @@ export async function getInvoiceHistory(invoiceId) {
       id: a.id, at: a.changed_at, by: names[a.changed_by] || 'Unknown', action: a.action,
       reason: a.reason, before: a.before_data, after: a.after_data,
     })),
-    ...(legacy || []).map((l) => ({
-      id: l.id, at: l.modified_at, by: names[l.modified_by] || 'Unknown', action: l.action,
-      reason: l.reason, details: l.details,
-    })),
+    // older log; skip the row void_invoice() also writes at the same moment
+    ...(legacy || [])
+      .filter((l) => !(audit || []).some((a) => a.action === 'invoice_voided' && a.changed_at?.slice(0, 19) === l.modified_at?.slice(0, 19)))
+      .map((l) => ({
+        id: l.id, at: l.modified_at, by: names[l.modified_by] || 'Unknown', action: l.action,
+        reason: l.reason, details: l.details,
+      })),
   ].sort((a, b) => new Date(b.at) - new Date(a.at));
 
   return entries;

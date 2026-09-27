@@ -231,6 +231,15 @@ export default function InvoiceDetailsTab() {
               <InvoiceEditPanel
                 invoiceId={selected.id}
                 onClose={() => setEditing(false)}
+                onVoided={(_, credited) => {
+                  setEditing(false);
+                  setEditSavedMsg(credited > 0
+                    ? `Invoice voided. Rs.${credited} already paid is now kept as patient credit.`
+                    : 'Invoice cancelled.');
+                  setHistoryKey((k) => k + 1);
+                  getInvoiceById(selected.id).then((d) => { if (!d.error) { setSelected(d.invoice); setLineItems(d.lineItems); } });
+                  runSearch();
+                }}
                 onSaved={(_, credited) => {
                   setEditing(false);
                   setEditSavedMsg(credited > 0

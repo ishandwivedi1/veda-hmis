@@ -6,9 +6,63 @@
 // only thing that saves.
 
 import { useState, useEffect, useCallback } from 'react';
-import { getInvoiceEditContext, saveInvoiceEdit, saveInvoiceDate } from './invoice-edit-actions';
+import { getInvoiceEditContext, saveInvoiceEdit, saveInvoiceDate, saveInvoiceVoid } from './invoice-edit-actions';
 
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+// Cancel / Void the whole invoice (void_invoice() in Postgres).
+function VoidSection({ ctx, invoiceId, onVoided }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  if (ctx.invoice.status === 'Cancelled') return null;
+  const paid = Number(ctx.appliedTotal) > 0;
+
+  async function handleVoid() {
+    setError('');
+    if (!reason.trim()) { setError('Please give a reason.'); return; }
+    setBusy(true);
+    try {
+      const res = await saveInvoiceVoid(invoiceId, reason.trim(), Number(ctx.invoice.net));
+      if (res.error) { setError(res.error); return; }
+      onVoided(res.invoice, Number(ctx.appliedTotal) || 0);
+    } catch (e) {
+      setError('Something went wrong -- check your connection and try again. Nothing was changed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ borderTop: '1px dashed var(--g300, #cbd5e1)', marginTop: 16, paddingTop: 10 }}>
+      {!ctx.canVoid ? (
+        <div style={{ fontSize: 11, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Cancel / Void: {ctx.voidBlock}</div>
+      ) : !open ? (
+        <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => setOpen(true)}>
+          <i className="ti ti-x-circle"></i> {paid ? 'Void this invoice' : 'Cancel this invoice'}
+        </button>
+      ) : (
+        <div style={{ border: '1.5px solid var(--red-lt)', borderRadius: 8, padding: 10 }}>
+          <div style={{ fontSize: 12, color: 'var(--g600)', marginBottom: 6, lineHeight: 1.5 }}>
+            The invoice stays on record as <strong>Cancelled</strong> and drops out of revenue and dues.
+            {paid && <> The <strong>{money(ctx.appliedTotal)}</strong> already paid on it becomes <strong>patient credit</strong> (usable on another bill or refundable) -- no cash changes hands.</>}
+            {' '}Linked prescriptions, tests, procedures and biometry go back to Pending; a surgery package&apos;s case is marked not billed.
+          </div>
+          {error && <div className="msg-err">{error}</div>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input className="fi" style={{ flex: 1, minWidth: 200 }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason *" />
+            <button className="btn btn-sm" style={{ background: 'var(--red)', color: '#fff', borderColor: 'transparent' }} onClick={handleVoid} disabled={busy}>
+              {busy ? 'Working...' : paid ? 'Confirm void' : 'Confirm cancel'}
+            </button>
+            <button className="btn btn-sm" onClick={() => setOpen(false)} disabled={busy}>Back</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function lineTotals(rate, gstPct, qty, discType, discValue) {
   const gross = (Number(rate) || 0) * (parseInt(qty, 10) || 0);
@@ -20,7 +74,7 @@ function lineTotals(rate, gstPct, qty, discType, discValue) {
   return { gross, disc, net: gross - disc + gst };
 }
 
-export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, embedded = false }) {
+export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided, embedded = false }) {
   const [ctx, setCtx] = useState(null);
   const [rows, setRows] = useState([]);
   const [added, setAdded] = useState([]);
@@ -58,6 +112,7 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, embedded
         <div className="msg-info" style={{ margin: 0 }}>
           <i className="ti ti-lock"></i> {ctx.blockReason}
         </div>
+        <VoidSection ctx={ctx} invoiceId={invoiceId} onVoided={(inv, credited) => onVoided?.(inv, credited)} />
         {onClose && <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={onClose}>Close</button>}
       </div>
     );
@@ -291,6 +346,8 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, embedded
           </div>
         </div>
       )}
+
+      <VoidSection ctx={ctx} invoiceId={invoiceId} onVoided={(inv, credited) => onVoided?.(inv, credited)} />
     </div>
   );
 }

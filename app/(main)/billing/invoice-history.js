@@ -10,11 +10,15 @@ import { getInvoiceHistory } from './invoice-edit-actions';
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const when = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-const LEGACY_LABEL = { cancelled: 'Cancelled', line_item_removed: 'Item removed', invoice_date_changed: 'Date changed' };
+const LEGACY_LABEL = { cancelled: 'Cancelled', line_item_removed: 'Item removed', invoice_date_changed: 'Date changed', invoice_voided: 'Cancelled / Voided' };
 
 const SIDE_EFFECT_TEXT = {
   prescription_back_to_pending: (s) => `${s.service}: prescription sent back to Pending in Pharmacy`,
-  surgical_case_unbilled: (s) => `${s.service}: surgical case marked as not billed`,
+  prescriptions_back_to_pending: (s) => `${s.count} prescription(s) sent back to Pending in Pharmacy`,
+  investigations_back_to_pending: (s) => `${s.count} investigation order(s) back to Pending billing`,
+  procedures_back_to_pending: (s) => `${s.count} OPD procedure(s) back to Pending billing`,
+  biometry_back_to_pending: (s) => `${s.count} biometry record(s) back to Pending billing`,
+  surgical_case_unbilled: (s) => `${s.service ? `${s.service}: ` : ''}surgical case marked as not billed`,
   surgical_case_not_found: (s) => `${s.service}: no matching surgical case found to un-bill -- check Surgical Journey`,
 };
 const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--');
@@ -71,6 +75,19 @@ export default function InvoiceHistory({ invoiceId, refreshKey }) {
           {e.action === 'invoice_date_changed' && (
             <div style={{ marginTop: 4, color: 'var(--g600)' }}>
               <i className="ti ti-calendar-event"></i> {fmtDate(e.before?.date)} → <strong>{fmtDate(e.after?.date)}</strong>
+            </div>
+          )}
+          {e.action === 'invoice_voided' && (
+            <div style={{ marginTop: 4, color: 'var(--g600)' }}>
+              Total was {money(e.before?.net)}
+              {Number(e.after?.credited_to_patient) > 0
+                ? <span style={{ color: 'var(--blue)' }}> -- {money(e.after.credited_to_patient)} paid on it moved to patient credit ({(e.after.credit_moves || []).map((m) => `${m.receipt} ${money(m.amount)}`).join(', ')})</span>
+                : ' -- nothing had been paid'}
+              {(e.after?.side_effects || []).map((s, i) => (
+                <div key={i} style={{ color: s.effect === 'surgical_case_not_found' ? 'var(--amber)' : 'var(--g500)', marginTop: 2 }}>
+                  <i className="ti ti-link"></i> {(SIDE_EFFECT_TEXT[s.effect] || ((x) => x.effect))(s)}
+                </div>
+              ))}
             </div>
           )}
           {e.action === 'invoice_edited' && (
