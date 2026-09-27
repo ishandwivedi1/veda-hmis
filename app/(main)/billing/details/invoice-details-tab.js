@@ -5,6 +5,8 @@ import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { searchInvoices, getInvoiceById, resendInvoiceBillWhatsApp } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
+import InvoiceEditPanel from '../invoice-edit-panel';
+import InvoiceHistory from '../invoice-history';
 
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
 
@@ -40,6 +42,9 @@ export default function InvoiceDetailsTab() {
   const [error, setError] = useState('');
   const [waStatus, setWaStatus] = useState(''); // '', 'sending', 'sent', 'warning', 'error'
   const [waMsg, setWaMsg] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0);
+  const [editSavedMsg, setEditSavedMsg] = useState('');
 
   async function handleSendWhatsAppBill() {
     if (!selected) return;
@@ -72,6 +77,8 @@ export default function InvoiceDetailsTab() {
     setError('');
     setWaStatus('');
     setWaMsg('');
+    setEditing(false);
+    setEditSavedMsg('');
     try {
       const details = await getInvoiceById(inv.id);
       if (details.error) { setError(details.error); return; }
@@ -94,7 +101,7 @@ export default function InvoiceDetailsTab() {
   const balanceDue = selected ? Number(selected.net) - Number(selected.paid) : 0;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: selected ? '1.3fr 1fr' : '1fr', gap: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: selected ? (editing ? '1fr 1.6fr' : '1.3fr 1fr') : '1fr', gap: 20 }}>
       <div className="card">
         <div className="card-title" style={{ marginBottom: 10 }}>
           <i className="ti ti-search" style={{ color: 'var(--blue)' }}></i> Search Invoices
@@ -172,6 +179,11 @@ export default function InvoiceDetailsTab() {
                   <i className="ti ti-brand-whatsapp" style={{ color: 'var(--green)' }}></i>
                   {waStatus === 'sending' ? 'Sending...' : 'Send WhatsApp Bill'}
                 </button>
+                {selected.status !== 'Cancelled' && !editing && (
+                  <button onClick={() => { setEditing(true); setEditSavedMsg(''); }} className="btn btn-sm">
+                    <i className="ti ti-edit"></i> Edit
+                  </button>
+                )}
                 <span className={`badge ${STATUS_BADGE[selected.status] || 'b-gray'}`}>{selected.status}</span>
               </div>
             </div>
@@ -207,7 +219,30 @@ export default function InvoiceDetailsTab() {
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--green)' }}><span>Paid</span><span>Rs.{selected.paid}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: balanceDue > 0 ? 'var(--red)' : 'var(--green)' }}><span>Balance Due</span><span>Rs.{balanceDue}</span></div>
             </div>
+            {editSavedMsg && (
+              <div className="msg-success" style={{ marginTop: 10, marginBottom: 0 }}>
+                <i className="ti ti-circle-check"></i> {editSavedMsg}
+              </div>
+            )}
           </div>
+
+          {editing && (
+            <div style={{ marginBottom: 16 }}>
+              <InvoiceEditPanel
+                invoiceId={selected.id}
+                onClose={() => setEditing(false)}
+                onSaved={(_, credited) => {
+                  setEditing(false);
+                  setEditSavedMsg(credited > 0
+                    ? `Invoice updated. Rs.${credited} already paid is now kept as patient credit.`
+                    : 'Invoice updated.');
+                  setHistoryKey((k) => k + 1);
+                  getInvoiceById(selected.id).then((d) => { if (!d.error) { setSelected(d.invoice); setLineItems(d.lineItems); } });
+                  runSearch();
+                }}
+              />
+            </div>
+          )}
 
           {balanceDue > 0 && selected.status !== 'Cancelled' && (
             <div className="card">
@@ -223,6 +258,8 @@ export default function InvoiceDetailsTab() {
               </a>
             </div>
           )}
+
+          <InvoiceHistory invoiceId={selected.id} refreshKey={historyKey} />
         </div>
       )}
     </div>

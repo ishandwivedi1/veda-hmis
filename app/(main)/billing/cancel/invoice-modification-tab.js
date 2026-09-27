@@ -347,7 +347,7 @@ export default function InvoiceModificationTab() {
             </tbody>
           </table>
           <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>
-            <i className="ti ti-info-circle"></i> Original line items are locked once an invoice is opened for modification -- add new items below instead of editing what was already billed.
+            <i className="ti ti-info-circle"></i> Original line items are locked here -- to change quantity, discount or remove an original item, open this invoice in <strong>Invoice Details</strong> and use <strong>Edit</strong> (needs permission; every change is logged).
           </div>
 
           {removeReasonFor && (
