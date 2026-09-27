@@ -41,6 +41,20 @@ export async function middleware(request) {
     return new NextResponse(null, { status: 403 });
   }
 
+  // Data requests from an open page (Next.js Server Actions -- a POST
+  // carrying a `next-action` header) skip the network login check here.
+  // Screens fire several of these one after another, and each one paying
+  // for a round trip to Supabase Auth made every screen slower. They are
+  // still protected: each action's own Supabase client sends the user's
+  // token (refreshing it when due), the database enforces RLS on it, and
+  // the admin-key actions verify the user themselves. Without any session
+  // cookie at all, the request falls through to the full check below
+  // (redirect to login), exactly as before. Page navigations are unchanged.
+  const isServerAction = request.method === 'POST' && request.headers.has('next-action');
+  if (isServerAction && request.cookies.getAll().some((c) => c.name.includes('auth-token'))) {
+    return NextResponse.next({ request: { headers: request.headers } });
+  }
+
   let response = NextResponse.next({
     request: { headers: request.headers },
   });

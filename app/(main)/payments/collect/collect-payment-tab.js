@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { searchPatientsForPayment, getOutstandingInvoices, collectPayment, getAdvanceBalance, getPatientById, getAllUnpaidInvoices, applyAdjustment } from '../actions';
+import { searchPatientsForPayment, collectPayment, applyAdjustment } from '../actions';
+import { getCollectPaymentBootstrap, getPatientPaymentContext } from '../combined-actions';
 import BackdateControl from '@/app/components/BackdateControl';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -42,25 +43,24 @@ export default function CollectPaymentTab() {
   const urlInvoiceId = searchParams.get('invoiceId');
   const isPopup = searchParams.get('popup') === '1';
   const returnTo = searchParams.get('returnTo');
-  const autofillDoneFor = useRef(null);
 
+  // One round trip on open (see ../combined-actions.js): the recent
+  // unpaid list and -- arrived from "Finalize invoice" -- the patient
+  // with their outstanding invoices (including the one just billed) and
+  // advance balance, instead of requiring a manual search.
   useEffect(() => {
-    getAllUnpaidInvoices().then(setUnpaidInvoices);
-  }, []);
-
-  // Arrived from "Finalize invoice" -- auto-load the patient and their
-  // outstanding invoices (including the one just billed) instead of
-  // requiring a manual search.
-  useEffect(() => {
-    if (!urlPatientId) return;
-    if (autofillDoneFor.current === urlPatientId) return;
-    autofillDoneFor.current = urlPatientId;
-    (async () => {
-      const result = await getPatientById(urlPatientId);
-      if (result.error) { setError(result.error); return; }
+    // `live` (not a ref) guards against React running this twice in dev.
+    let live = true;
+    const autofill = Boolean(urlPatientId);
+    getCollectPaymentBootstrap(autofill ? urlPatientId : null).then(({ unpaid, patientResult, ctx }) => {
+      if (!live) return;
+      setUnpaidInvoices(unpaid);
+      if (!autofill) return;
+      if (patientResult.error) { setError(patientResult.error); return; }
       if (urlInvoiceId) setHighlightInvoiceId(urlInvoiceId);
-      await pickPatient(result.patient);
-    })();
+      showPatient(patientResult.patient, ctx);
+    });
+    return () => { live = false; };
   }, [urlPatientId, urlInvoiceId]);
 
   // In the common case (single payment mode), the mode's amount should
@@ -92,15 +92,22 @@ export default function CollectPaymentTab() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
+  function showPatient(p, ctx) {
+    setError('');
+    setSelectedPatient(p);
+    setSearchResults([]);
+    setSearchQuery('');
+    setInvoices(ctx.invoices);
+    setSelectedInvoiceIds(ctx.invoices.map((i) => i.id)); // pre-select all, matching "select invoice(s) to pay"
+    setAdvanceBalance(ctx.advanceBalance);
+  }
+
   async function pickPatient(p) {
     setError('');
     setSelectedPatient(p);
     setSearchResults([]);
     setSearchQuery('');
-    const invs = await getOutstandingInvoices(p.id);
-    setInvoices(invs);
-    setSelectedInvoiceIds(invs.map((i) => i.id)); // pre-select all, matching "select invoice(s) to pay"
-    setAdvanceBalance(await getAdvanceBalance(p.id));
+    showPatient(p, await getPatientPaymentContext(p.id));
   }
 
   function toggleInvoice(id) {
@@ -138,10 +145,7 @@ export default function CollectPaymentTab() {
       remaining -= toApply;
     }
 
-    const [refreshedInvoices, refreshedAdvance] = await Promise.all([
-      getOutstandingInvoices(selectedPatient.id),
-      getAdvanceBalance(selectedPatient.id),
-    ]);
+    const { invoices: refreshedInvoices, advanceBalance: refreshedAdvance } = await getPatientPaymentContext(selectedPatient.id);
     setInvoices(refreshedInvoices);
     setAdvanceBalance(refreshedAdvance);
     const stillOutstandingIds = refreshedInvoices.filter((i) => selectedInvoiceIds.includes(i.id)).map((i) => i.id);

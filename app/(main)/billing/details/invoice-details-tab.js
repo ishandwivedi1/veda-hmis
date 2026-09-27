@@ -69,7 +69,12 @@ export default function InvoiceDetailsTab() {
     }
   }, [query, deptFilter, dateFrom, dateTo]);
 
-  useEffect(() => { runSearch(); }, [runSearch]);
+  // Wait for a pause in typing: Next.js runs server calls one at a time,
+  // so searching on every keystroke queued up one request per letter.
+  useEffect(() => {
+    const t = setTimeout(runSearch, query ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [runSearch, query]);
 
   const sortedInvoices = sortInvoices(invoices, sortBy);
 

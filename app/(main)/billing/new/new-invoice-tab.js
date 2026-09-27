@@ -6,26 +6,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   searchPatientsForInvoice,
   getVisitsForPatient,
-  getVisitWithPatient,
   getInvoicesForVisit,
-  createInvoiceForVisit,
-  getInvoiceById,
-  getServiceCatalog,
-  addLineItem,
-  getTodaysVisitsForBilling,
   getInvestigationOrdersForBilling,
-  markInvestigationOrdersBilled,
   getPrescriptionsForBilling,
-  markPrescriptionsBilled,
   getBiometryForBilling,
-  markBiometryBilled,
   getProceduresForBilling,
-  markProceduresBilled,
   getPackageForBilling,
-  markPackageBilled,
-  getSurgeryBillingOptions,
-  setManualSurgeryDetails,
 } from '../actions';
+import { getNewInvoiceBootstrap, getVisitBillingContext, getPatientBillingContext, getPickedVisitContext, commitNewInvoice } from '../combined-actions';
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'OPD Procedure', 'Surgery', 'Pharmacy'];
 const DEFAULT_PURPOSE = 'Consultation';
@@ -103,9 +91,13 @@ export default function NewInvoiceTab() {
   const pkgLoadedFor = useRef(null);
 
   useEffect(() => {
-    getServiceCatalog().then(setCatalog);
-    getTodaysVisitsForBilling().then(setTodaysVisits);
-    getSurgeryBillingOptions().then(({ surgeries, doctors }) => { setSurgeryOptions(surgeries); setSurgeryDoctorOptions(doctors); });
+    // One round trip for all three lists (see combined-actions.js).
+    getNewInvoiceBootstrap().then(({ catalog: c, todaysVisits: tv, surgery }) => {
+      setCatalog(c);
+      setTodaysVisits(tv);
+      setSurgeryOptions(surgery.surgeries);
+      setSurgeryDoctorOptions(surgery.doctors);
+    });
   }, []);
 
   useEffect(() => {
@@ -113,14 +105,12 @@ export default function NewInvoiceTab() {
     if (contextLoadedFor.current === urlVisitId) return;
     contextLoadedFor.current = urlVisitId;
     (async () => {
-      const details = await getVisitWithPatient(urlVisitId);
-      if (details.error) { setError(details.error); return; }
-      setContextPatient(details.visit.patients);
-      setContextVisit(details.visit);
-      const visits = await getVisitsForPatient(details.visit.patients.id);
-      setPatientVisits(visits);
-      const invResult = await getInvoicesForVisit(urlVisitId);
-      setExistingInvoices(invResult.invoices || []);
+      const ctx = await getVisitBillingContext(urlVisitId);
+      if (ctx.error) { setError(ctx.error); return; }
+      setContextPatient(ctx.visit.patients);
+      setContextVisit(ctx.visit);
+      setPatientVisits(ctx.visits);
+      setExistingInvoices(ctx.invoices);
     })();
   }, [urlVisitId]);
 
@@ -279,19 +269,19 @@ export default function NewInvoiceTab() {
       // case doesn't always have an open visit attached), so this can't
       // rely on the urlVisitId effect above to have already run.
       if (!contextPatient && primary.patient) {
+        let visitsLoaded = false;
         if (primary.visitId) {
-          const details = await getVisitWithPatient(primary.visitId);
-          if (!details.error) {
-            setContextPatient(details.visit.patients);
-            setContextVisit(details.visit);
-            const invResult = await getInvoicesForVisit(primary.visitId);
-            setExistingInvoices(invResult.invoices || []);
+          const ctx = await getVisitBillingContext(primary.visitId);
+          if (!ctx.error) {
+            setContextPatient(ctx.visit.patients);
+            setContextVisit(ctx.visit);
+            setExistingInvoices(ctx.invoices);
+            if (ctx.visit.patients?.id === primary.patient.id) { setPatientVisits(ctx.visits); visitsLoaded = true; }
           }
         } else {
           setContextPatient(primary.patient);
         }
-        const visits = await getVisitsForPatient(primary.patient.id);
-        setPatientVisits(visits);
+        if (!visitsLoaded) setPatientVisits(await getVisitsForPatient(primary.patient.id));
       }
 
       // Manual Surgery/Eye/Doctor fields and the package breakup display
@@ -349,16 +339,10 @@ export default function NewInvoiceTab() {
     setSearchQuery('');
     setContextPatient(p);
     try {
-      const visits = await getVisitsForPatient(p.id);
-      setPatientVisits(visits);
-      const visit = visits[0] || null; // already sorted newest-first
-      setContextVisit(visit);
-      if (visit) {
-        const invResult = await getInvoicesForVisit(visit.id);
-        setExistingInvoices(invResult.invoices || []);
-      } else {
-        setExistingInvoices([]);
-      }
+      const ctx = await getPatientBillingContext(p.id);
+      setPatientVisits(ctx.visits);
+      setContextVisit(ctx.visits[0] || null); // already sorted newest-first
+      setExistingInvoices(ctx.invoices);
     } catch (e) {
       setError('Could not load this patient\'s visits -- check your connection and try again.');
     }
@@ -369,10 +353,9 @@ export default function NewInvoiceTab() {
     setContextPatient(v.patients);
     setContextVisit(v);
     try {
-      const visits = await getVisitsForPatient(v.patients.id);
-      setPatientVisits(visits);
-      const invResult = await getInvoicesForVisit(v.id);
-      setExistingInvoices(invResult.invoices || []);
+      const ctx = await getPickedVisitContext(v.patients.id, v.id);
+      setPatientVisits(ctx.visits);
+      setExistingInvoices(ctx.invoices);
     } catch (e) {
       setError('Could not load this visit -- check your connection and try again.');
     }
@@ -474,63 +457,40 @@ export default function NewInvoiceTab() {
       const firstDept = deptsPresent[0];
       const purpose = deptsPresent.includes('Surgery') ? 'Surgery' : (DEPT_TO_PURPOSE[firstDept] || firstDept || DEFAULT_PURPOSE);
 
-      const created = await createInvoiceForVisit(contextPatient.id, contextVisit?.id || null, purpose);
-      if (created.error) { setError(created.error); return null; }
-
-      // Deliberately sequential, NOT Promise.all -- add_invoice_line_item
-      // recomputes the invoice's running totals against the live row on
-      // each call, so concurrent calls against the same invoice risk a
-      // lost update. Line items are usually few (1-5), so this stays
-      // fast in practice; correctness matters more here than shaving a
-      // few hundred ms off an already-quick loop.
-      for (const line of draftLines) {
-        const result = await addLineItem(created.invoice.id, line.serviceCode, line.qty, line.discType, line.discValue, line.discReason);
-        if (result.error) {
-          setError(`Invoice created, but failed adding ${line.serviceName}: ${result.error}. Finish it from Invoice Details.`);
-          return null;
-        }
-      }
-
-      const detailsPromise = getInvoiceById(created.invoice.id);
-
-      // These four categories touch four completely independent tables
-      // (investigation_orders/procedures/prescriptions/biometry_records),
-      // each only flipping its own billing_status by id -- nothing here
-      // shares mutable state the way invoice line items do, so unlike
-      // the loop above, running them together is safe and cuts what was
-      // up to 4 sequential round trips down to 1 parallel wave.
-      const billedInvOrderIds = draftLines.map((l) => l.sourceInvOrderId).filter(Boolean);
-      const billedProcIds = draftLines.map((l) => l.sourceProcId).filter(Boolean);
-      const billedRxIds = draftLines.map((l) => l.sourceRxId).filter(Boolean);
-      const billedBioIds = draftLines.map((l) => l.sourceBioId).filter(Boolean);
-      // Every surgery package line gets marked billed -- a surgery with
-      // additional procedures (see surgical_case_procedures) adds more
-      // than one sourcePkgCaseId line, each needing to flip out of the
-      // Pending Package Billing queue, not just the first one. Also
-      // independent per case -- safe alongside the four above.
-      const billedPkgCaseIds = [...new Set(draftLines.map((l) => l.sourcePkgCaseId).filter(Boolean))];
-
-      await Promise.all([
-        billedInvOrderIds.length > 0 ? markInvestigationOrdersBilled(billedInvOrderIds, created.invoice.id) : null,
-        billedProcIds.length > 0 ? markProceduresBilled(billedProcIds, created.invoice.id) : null,
-        billedRxIds.length > 0 ? markPrescriptionsBilled(billedRxIds) : null,
-        billedBioIds.length > 0 ? markBiometryBilled(billedBioIds, created.invoice.id) : null,
-        ...billedPkgCaseIds.map((pkgCaseId) => markPackageBilled(pkgCaseId, created.invoice.id)),
-      ]);
-
-      // Fields are always editable now (whether prefilled from a case via
-      // the automatic route, or entered by hand), so whatever's in the
-      // form at commit time is what should print -- save it whenever a
-      // Surgery line was actually added. dept has already been reset by
-      // now (cleared after each Add), so this checks the actual lines
-      // added rather than current form state.
+      // Surgery package lines: every one gets marked billed -- a surgery
+      // with additional procedures (see surgical_case_procedures) adds
+      // more than one sourcePkgCaseId line. Fields are always editable,
+      // so whatever is in the Surgery form at commit time is what prints
+      // (saved whenever a Surgery line was actually added).
       const hasSurgeryLine = draftLines.some((l) => l.dept === 'Surgery');
-      if (hasSurgeryLine && surgeryName) {
-        await setManualSurgeryDetails(created.invoice.id, surgeryName, surgeryEyeField, surgeryDoctorId);
-      }
 
-      const details = await detailsPromise;
-      return details.invoice;
+      // One round trip (see combined-actions.js): create, add every line
+      // strictly in order, mark sources billed, save surgery details,
+      // return the fresh invoice -- the same steps as before, run on the
+      // server instead of one browser round trip each.
+      const result = await commitNewInvoice({
+        patientId: contextPatient.id,
+        visitId: contextVisit?.id || null,
+        purpose,
+        lines: draftLines.map((l) => ({
+          serviceCode: l.serviceCode, serviceName: l.serviceName, qty: l.qty,
+          discType: l.discType, discValue: l.discValue, discReason: l.discReason,
+        })),
+        marks: {
+          invOrderIds: draftLines.map((l) => l.sourceInvOrderId).filter(Boolean),
+          procIds: draftLines.map((l) => l.sourceProcId).filter(Boolean),
+          rxIds: draftLines.map((l) => l.sourceRxId).filter(Boolean),
+          bioIds: draftLines.map((l) => l.sourceBioId).filter(Boolean),
+          pkgCaseIds: [...new Set(draftLines.map((l) => l.sourcePkgCaseId).filter(Boolean))],
+        },
+        surgery: hasSurgeryLine && surgeryName ? { name: surgeryName, eye: surgeryEyeField, doctorId: surgeryDoctorId } : null,
+      });
+      if (result.error) {
+        if (result.stage === 'line') setError(`Invoice created, but failed adding ${result.serviceName}: ${result.error}. Finish it from Invoice Details.`);
+        else setError(result.error);
+        return null;
+      }
+      return result.invoice;
     } catch (e) {
       setError('Something went wrong saving the invoice -- check your connection and try again. If line items were already added, check Invoice Details before retrying.');
       return null;

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { searchPatientsForBooking, getDoctors } from '@/app/(main)/appointments/actions';
-import { createWalkInVisit, getSurgeryTypeOptions, getPatientById, getLastVisitInfo } from '@/app/(main)/visits/actions';
+import { searchPatientsForBooking } from '@/app/(main)/appointments/actions';
+import { createWalkInVisit, getLastVisitInfo } from '@/app/(main)/visits/actions';
+import { getBookVisitBootstrap } from '@/app/(main)/visits/combined-actions';
 import VisitCreatedModal from '@/app/components/VisitCreatedModal';
 
 function fmtDate(iso) {
@@ -90,8 +91,18 @@ function NewVisitForm() {
   const [createdVisitInfo, setCreatedVisitInfo] = useState(null);
   const router = useRouter();
 
+  // Last-visit info already fetched with the prefilled patient, so the
+  // effect below doesn't ask for it a second time.
+  const prefetchedLastVisit = useRef(null);
+
+  // One round trip on open (see ../combined-actions.js): doctors, surgery
+  // types and -- when arriving with ?patientId -- that patient and their
+  // last visit.
   useEffect(() => {
-    getDoctors().then((list) => {
+    let cancelled = false;
+    if (prefillPatientId) setPrefillLoading(true);
+    getBookVisitBootstrap(prefillPatientId || null).then(({ doctors: list, surgeryTypes, patient, lastVisitInfo: info }) => {
+      if (cancelled) return;
       setDoctors(list);
       // Default to Dr. Nisha Bachkheti (the hospital's sole/primary
       // doctor) instead of leaving this blank -- an unselected doctor
@@ -103,18 +114,11 @@ function NewVisitForm() {
         const defaultDoctor = list.find((d) => d.full_name?.toLowerCase().includes('nisha bachkheti'));
         return defaultDoctor ? defaultDoctor.id : prev;
       });
-    });
-    getSurgeryTypeOptions().then(setSurgeryTypes);
-  }, []);
-
-  useEffect(() => {
-    if (!prefillPatientId) return;
-    let cancelled = false;
-    setPrefillLoading(true);
-    getPatientById(prefillPatientId).then((patient) => {
-      if (cancelled) return;
+      setSurgeryTypes(surgeryTypes);
+      if (!prefillPatientId) return;
       setPrefillLoading(false);
       if (patient) {
+        prefetchedLastVisit.current = { patientId: patient.id, info };
         setSelectedPatient(patient);
       } else {
         setPrefillError('Could not load that patient -- search for them below instead.');
@@ -128,6 +132,11 @@ function NewVisitForm() {
   // correctly.
   useEffect(() => {
     if (!selectedPatient?.id) { setLastVisitInfo(null); return; }
+    if (prefetchedLastVisit.current?.patientId === selectedPatient.id) {
+      setLastVisitInfo(prefetchedLastVisit.current.info);
+      setLastVisitLoading(false);
+      return;
+    }
     let cancelled = false;
     setLastVisitLoading(true);
     getLastVisitInfo(selectedPatient.id).then((info) => {

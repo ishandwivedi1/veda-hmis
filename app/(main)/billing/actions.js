@@ -202,9 +202,11 @@ export async function createInvoiceForVisit(patientId, visitId, purpose) {
 
 export async function getServiceCatalog() {
   const supabase = await createClient();
-  const { data: services } = await supabase.from('master_services').select('*').eq('status', 'Active');
-  const { data: drugs } = await supabase.from('master_drugs').select('*').eq('status', 'Active');
-  const { data: packages } = await supabase.from('master_packages').select('*').eq('status', 'Active');
+  const [{ data: services }, { data: drugs }, { data: packages }] = await Promise.all([
+    supabase.from('master_services').select('*').eq('status', 'Active'),
+    supabase.from('master_drugs').select('*').eq('status', 'Active'),
+    supabase.from('master_packages').select('*').eq('status', 'Active'),
+  ]);
 
   // Drugs live in their own master (managed under Master Data -> Drugs)
   // but bill under the Pharmacy department -- mapped here rather than
@@ -748,9 +750,11 @@ export async function markBiometryBilled(ids, invoiceId) {
 
 export async function getInvoiceById(invoiceId) {
   const supabase = await createClient();
-  const { data: invoice, error } = await supabase.from('invoices').select('*, patients(id, first_name, salutation, last_name, uhid, mobile), visits(id, visit_number, visit_type, created_at)').eq('id', invoiceId).single();
+  const [{ data: invoice, error }, { data: lineItems }] = await Promise.all([
+    supabase.from('invoices').select('*, patients(id, first_name, salutation, last_name, uhid, mobile), visits(id, visit_number, visit_type, created_at)').eq('id', invoiceId).single(),
+    supabase.from('invoice_line_items').select('*').eq('invoice_id', invoiceId).order('id'),
+  ]);
   if (error) return { error: error.message };
-  const { data: lineItems } = await supabase.from('invoice_line_items').select('*').eq('invoice_id', invoiceId).order('id');
   return { invoice, lineItems: lineItems || [] };
 }
 

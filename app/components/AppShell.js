@@ -174,11 +174,16 @@ export default function AppShell({ children }) {
     const onVisible = () => { if (document.visibilityState === 'visible') checkIdle(); };
     document.addEventListener('visibilitychange', onVisible);
 
-    updateHeartbeat(); // immediately on mount, not just on the first interval tick -- extra safety net beyond the login-page write
+    // Soon after mount, not just on the first interval tick -- extra safety
+    // net beyond the login-page write. Delayed a few seconds because
+    // Next.js runs a page's server calls one at a time: firing this
+    // immediately put it in the queue ahead of the page's own data.
+    const firstBeat = setTimeout(updateHeartbeat, 8000);
 
     const interval = setInterval(checkIdle, CHECK_INTERVAL_MS);
 
     return () => {
+      clearTimeout(firstBeat);
       events.forEach((e) => window.removeEventListener(e, markActive));
       document.removeEventListener('visibilitychange', onVisible);
       clearInterval(interval);

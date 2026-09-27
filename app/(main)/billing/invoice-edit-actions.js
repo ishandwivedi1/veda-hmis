@@ -27,7 +27,18 @@ export async function getInvoiceEditContext(invoiceId) {
 
   const invoiceDate = istDate(invoice.created_at);
   const today = istDate(new Date());
-  const { data: closed } = await supabase.from('day_closings').select('closing_date').eq('closing_date', invoiceDate).maybeSingle();
+  // Everything that only needs the invoice, fetched in one parallel wave
+  // (these used to run one after another).
+  const lineIds = (lines || []).map((l) => l.id);
+  const [{ data: closed }, { data: rxRows }, { data: allocs }, { data: invRefunds }, { data: cns }] = await Promise.all([
+    supabase.from('day_closings').select('closing_date').eq('closing_date', invoiceDate).maybeSingle(),
+    lineIds.length
+      ? supabase.from('prescriptions').select('id, invoice_line_item_id').in('invoice_line_item_id', lineIds)
+      : Promise.resolve({ data: [] }),
+    supabase.from('payment_allocations').select('amount').eq('invoice_id', invoiceId),
+    supabase.from('payment_refunds').select('id').eq('invoice_id', invoiceId).is('cancelled_at', null),
+    supabase.from('credit_notes').select('id').eq('invoice_id', invoiceId),
+  ]);
 
   let blockReason = null;
   if (invoice.status === 'Cancelled' || invoice.status === 'Void') blockReason = `This invoice is ${invoice.status.toLowerCase()}.`;
@@ -38,10 +49,6 @@ export async function getInvoiceEditContext(invoiceId) {
   // What removing a line will also do (shown to staff before they save),
   // and the one case that stays locked: a medicine whose stock was
   // actually deducted (mirrors invoice_line_lock_reason() in Postgres).
-  const lineIds = (lines || []).map((l) => l.id);
-  const { data: rxRows } = lineIds.length
-    ? await supabase.from('prescriptions').select('id, invoice_line_item_id').in('invoice_line_item_id', lineIds)
-    : { data: [] };
   const rxIds = (rxRows || []).map((r) => r.id);
   const { data: moves } = rxIds.length
     ? await supabase.from('inventory_movements').select('reference_id').in('reference_id', rxIds)
@@ -61,11 +68,6 @@ export async function getInvoiceEditContext(invoiceId) {
   // Cancel / Void (mirrors void_invoice() in Postgres): an unpaid invoice
   // from today only needs edit rights; a paid or past-day one needs
   // "Void invoices".
-  const [{ data: allocs }, { data: invRefunds }, { data: cns }] = await Promise.all([
-    supabase.from('payment_allocations').select('amount').eq('invoice_id', invoiceId),
-    supabase.from('payment_refunds').select('id').eq('invoice_id', invoiceId).is('cancelled_at', null),
-    supabase.from('credit_notes').select('id').eq('invoice_id', invoiceId),
-  ]);
   const appliedTotal = (allocs || []).reduce((s, a) => s + Number(a.amount), 0);
   const needsVoidPermission = (allocs || []).length > 0 || invoiceDate < today;
   let voidBlock = null;
