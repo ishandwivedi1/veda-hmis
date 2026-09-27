@@ -4,12 +4,18 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import {
-  searchInvoices, getInvoiceById, getServiceCatalog, addLineItem, removeLineItem, cancelInvoice,
+  searchInvoices, getInvoiceById, cancelInvoice,
   getTodaysInvoicesForModification, getInvoicesForVisit, getSurgeryBillingOptions, setManualSurgeryDetails,
 } from '../actions';
 import { openPrintPopup } from '@/lib/printPopup';
+import InvoiceEditPanel from '../invoice-edit-panel';
+import InvoiceHistory from '../invoice-history';
 
-const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'OPD Procedure', 'Surgery', 'Pharmacy'];
+// Items are changed through the shared Edit Invoice panel (edit_invoice() in
+// Postgres): anything can be added, changed or removed, subject to Billing
+// Permissions and closed days, and every change is kept in the history.
+// The old "original items are locked" rules were retired on 27 Sep 2026.
+
 const STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
 
 export default function InvoiceModificationTab() {
@@ -17,21 +23,11 @@ export default function InvoiceModificationTab() {
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(null);
   const [lineItems, setLineItems] = useState([]);
-  const [originalLineItemIds, setOriginalLineItemIds] = useState(new Set());
-  const [catalog, setCatalog] = useState([]);
   const [visitInvoices, setVisitInvoices] = useState(null);
   const searchParams = useSearchParams();
   const urlVisitId = searchParams.get('visitId');
   const visitLoadedFor = useRef(null);
-
-  const [dept, setDept] = useState('');
-  const [serviceCode, setServiceCode] = useState('');
-  const [qty, setQty] = useState(1);
-  const [rate, setRate] = useState('');
-  const [gstPct, setGstPct] = useState('');
-  const [discType, setDiscType] = useState('none');
-  const [discValue, setDiscValue] = useState('');
-  const [discReason, setDiscReason] = useState('');
+  const [historyKey, setHistoryKey] = useState(0);
 
   // Surgery Billing Details -- same fields as New Invoice, editable here
   // too since a surgery invoice's surgeon/eye can need correction after
@@ -44,9 +40,6 @@ export default function InvoiceModificationTab() {
   const [surgeryOptions, setSurgeryOptions] = useState([]);
   const [surgeryDoctorOptions, setSurgeryDoctorOptions] = useState([]);
   const [savingSurgery, setSavingSurgery] = useState(false);
-
-  const [removeReasonFor, setRemoveReasonFor] = useState(null);
-  const [removeReason, setRemoveReason] = useState('');
 
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -62,7 +55,6 @@ export default function InvoiceModificationTab() {
   }, []);
 
   useEffect(() => {
-    getServiceCatalog().then(setCatalog);
     loadToday();
     getSurgeryBillingOptions().then(({ surgeries, doctors }) => { setSurgeryOptions(surgeries); setSurgeryDoctorOptions(doctors); });
   }, [loadToday]);
@@ -86,7 +78,6 @@ export default function InvoiceModificationTab() {
     })();
   }, [urlVisitId]);
 
-  const servicesForDept = catalog.filter((s) => s.dept === dept);
   const hasSurgeryLine = lineItems.some((li) => li.dept === 'Surgery');
 
   async function handleSearch() {
@@ -107,12 +98,6 @@ export default function InvoiceModificationTab() {
       if (details.error) { setError(details.error); return; }
       setSelected(details.invoice);
       setLineItems(details.lineItems);
-      // Snapshot which line items already existed when this modification
-      // session started -- these are locked (part of the original bill,
-      // exactly as filled in on New Invoice). Anything added from here on
-      // stays removable until the invoice is reopened fresh, at which
-      // point it becomes part of the locked original set.
-      setOriginalLineItemIds(new Set((details.lineItems || []).map((li) => li.id)));
       setSurgeryName(details.invoice.manual_surgery_name || '');
       setSurgeryEyeField(details.invoice.manual_surgery_eye || '');
       setSurgeryDoctorId(details.invoice.manual_surgeon_id || '');
@@ -130,45 +115,6 @@ export default function InvoiceModificationTab() {
       setLineItems(details.lineItems);
     } catch (e) {
       setError('Could not refresh this invoice -- check your connection and try again.');
-    }
-  }
-
-  function handleServiceChange(e) {
-    const code = e.target.value;
-    setServiceCode(code);
-    const svc = catalog.find((s) => s.code === code);
-    setRate(svc ? svc.rate : '');
-    setGstPct(svc ? svc.gst_pct : '');
-  }
-
-  async function handleAddLine() {
-    setError('');
-    if (!serviceCode) { setError('Select department and service.'); return; }
-    if (discType !== 'none' && !discReason.trim()) { setError('A discount reason is required whenever a discount is applied.'); return; }
-
-    try {
-      const result = await addLineItem(selected.id, serviceCode, parseInt(qty, 10) || 1, discType, parseFloat(discValue) || 0, discReason);
-      if (result.error) { setError(result.error); return; }
-      setDept(''); setServiceCode(''); setQty(1); setRate(''); setGstPct('');
-      setDiscType('none'); setDiscValue(''); setDiscReason('');
-      refresh();
-    } catch (e) {
-      setError('Something went wrong adding this line item -- check your connection and try again.');
-    }
-  }
-
-  async function confirmRemoveLine() {
-    setError('');
-    if (!removeReason.trim()) { setError('A reason is required to remove a line item from an existing invoice.'); return; }
-    try {
-      const result = await removeLineItem(removeReasonFor, removeReason);
-      if (result.error) { setError(result.error); return; }
-      setRemoveReasonFor(null);
-      setRemoveReason('');
-      setInfo('Line item removed and logged.');
-      refresh();
-    } catch (e) {
-      setError('Something went wrong removing this line item -- check your connection and try again.');
     }
   }
 
@@ -317,48 +263,36 @@ export default function InvoiceModificationTab() {
           {error && <div className="msg-err">{error}</div>}
           {info && <div className="msg-success"><i className="ti ti-circle-check"></i> {info}</div>}
 
-          <table className="tbl">
-            <thead><tr><th>Dept</th><th>Service</th><th>Qty</th><th>Rate</th><th>Disc</th><th>Net</th><th></th></tr></thead>
-            <tbody>
-              {lineItems.map((li) => {
-                const isLocked = originalLineItemIds.has(li.id);
-                return (
-                  <tr key={li.id} style={isLocked ? { color: 'var(--g600)' } : undefined}>
+          {selected.status === 'Cancelled' ? (
+            <table className="tbl">
+              <thead><tr><th>Dept</th><th>Service</th><th>Qty</th><th>Rate</th><th>Disc</th><th>Net</th></tr></thead>
+              <tbody>
+                {lineItems.map((li) => (
+                  <tr key={li.id} style={{ color: 'var(--g600)' }}>
                     <td style={{ fontSize: 11 }}>{li.dept}</td>
                     <td>{li.service_name}</td>
                     <td>{li.qty}</td>
                     <td>Rs.{li.rate}</td>
                     <td>{li.disc > 0 ? `Rs.${li.disc}` : '--'}</td>
                     <td>Rs.{li.net}</td>
-                    <td>
-                      {isLocked ? (
-                        <span style={{ fontSize: 11, color: 'var(--g400)' }} title="Part of the original bill -- cannot be removed">
-                          <i className="ti ti-lock"></i> Locked
-                        </span>
-                      ) : selected.status !== 'Cancelled' ? (
-                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => { setRemoveReasonFor(li.id); setRemoveReason(''); setError(''); }}>
-                          Remove
-                        </button>
-                      ) : null}
-                    </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>
-            <i className="ti ti-info-circle"></i> Original line items are locked here -- to change quantity, discount or remove an original item, open this invoice in <strong>Invoice Details</strong> and use <strong>Edit</strong> (needs permission; every change is logged).
-          </div>
-
-          {removeReasonFor && (
-            <div style={{ border: '1.5px solid var(--red-lt)', borderRadius: 8, padding: 12, marginTop: 10 }}>
-              <label className="flbl">Reason for removing this line item *</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input className="fi" value={removeReason} onChange={(e) => setRemoveReason(e.target.value)} placeholder="e.g. Billed in error" />
-                <button className="btn btn-primary btn-sm" onClick={confirmRemoveLine}>Confirm</button>
-                <button className="btn btn-sm" onClick={() => setRemoveReasonFor(null)}>Cancel</button>
-              </div>
-            </div>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <InvoiceEditPanel
+              key={selected.id}
+              embedded
+              invoiceId={selected.id}
+              onSaved={(_, credited) => {
+                setInfo(credited > 0
+                  ? `Invoice updated. Rs.${credited} already paid is now kept as patient credit.`
+                  : 'Invoice updated and logged.');
+                setHistoryKey((k) => k + 1);
+                refresh();
+                loadToday();
+              }}
+            />
           )}
 
           {hasSurgeryLine && (
@@ -398,48 +332,6 @@ export default function InvoiceModificationTab() {
             </div>
           )}
 
-          {selected.status !== 'Cancelled' && (
-            <>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g500)', textTransform: 'uppercase', margin: '16px 0 8px' }}>Add Line Item</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                <select className="fi" value={dept} onChange={(e) => { setDept(e.target.value); setServiceCode(''); setRate(''); setGstPct(''); }}>
-                  <option value="">-- Dept --</option>
-                  {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <select className="fi" value={serviceCode} onChange={handleServiceChange} disabled={!dept}>
-                  <option value="">-- Service --</option>
-                  {servicesForDept.map((s) => <option key={s.code} value={s.code}>{s.name} -- Rs.{s.rate}</option>)}
-                </select>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-                <div>
-                  <label className="flbl">Qty</label>
-                  <input type="number" className="fi" value={qty} onChange={(e) => setQty(e.target.value)} min={1} />
-                </div>
-                <div>
-                  <label className="flbl">Unit rate (Rs.)</label>
-                  <input className="fi" value={rate} readOnly style={{ background: 'var(--g50)' }} />
-                </div>
-                <div>
-                  <label className="flbl">GST %</label>
-                  <input className="fi" value={gstPct} readOnly style={{ background: 'var(--g50)' }} />
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 8, marginBottom: 10 }}>
-                <select className="fi" value={discType} onChange={(e) => setDiscType(e.target.value)}>
-                  <option value="none">No discount</option>
-                  <option value="pct">Percentage (%)</option>
-                  <option value="fixed">Fixed (Rs.)</option>
-                </select>
-                <input type="number" className="fi" value={discValue} onChange={(e) => setDiscValue(e.target.value)} placeholder="Discount value" disabled={discType === 'none'} />
-                <input className="fi" value={discReason} onChange={(e) => setDiscReason(e.target.value)} placeholder="Reason (required if discounted)" disabled={discType === 'none'} />
-              </div>
-              <button className="btn btn-primary btn-sm" onClick={handleAddLine} style={{ marginBottom: 16 }}>
-                <i className="ti ti-plus"></i> Add
-              </button>
-            </>
-          )}
-
           <div style={{ borderTop: '1px solid var(--g200)', paddingTop: 12, marginTop: 4 }}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Net Total: Rs.{selected.net} -- Paid: Rs.{selected.paid}</div>
 
@@ -472,6 +364,7 @@ export default function InvoiceModificationTab() {
               </button>
             )}
           </div>
+          <InvoiceHistory invoiceId={selected.id} refreshKey={historyKey} />
         </div>
       )}
     </div>

@@ -1,11 +1,12 @@
 'use client';
 
-// Edit an issued invoice (Billing Phase 2). Shown from Invoice Details.
-// The preview here is only a preview -- edit_invoice() in Postgres
-// recalculates everything and is the only thing that saves.
+// Edit an issued invoice. Used by Invoice Details (as a pop-open panel) and
+// by the Invoice Modification tab (embedded). The preview here is only a
+// preview -- edit_invoice() in Postgres recalculates everything and is the
+// only thing that saves.
 
-import { useState, useEffect } from 'react';
-import { getInvoiceEditContext, saveInvoiceEdit } from './invoice-edit-actions';
+import { useState, useEffect, useCallback } from 'react';
+import { getInvoiceEditContext, saveInvoiceEdit, saveInvoiceDate } from './invoice-edit-actions';
 
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
@@ -19,7 +20,7 @@ function lineTotals(rate, gstPct, qty, discType, discValue) {
   return { gross, disc, net: gross - disc + gst };
 }
 
-export default function InvoiceEditPanel({ invoiceId, onSaved, onClose }) {
+export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, embedded = false }) {
   const [ctx, setCtx] = useState(null);
   const [rows, setRows] = useState([]);
   const [added, setAdded] = useState([]);
@@ -28,27 +29,36 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose }) {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [newDate, setNewDate] = useState('');
+  const [dateReason, setDateReason] = useState('');
+  const [savingDate, setSavingDate] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     getInvoiceEditContext(invoiceId).then((c) => {
       if (c.error) { setError(c.error); return; }
       setCtx(c);
       setRows(c.lines.map((l) => ({
         line: l, qty: l.qty, discType: 'fixed', discValue: Number(l.disc) || 0, discReason: '', removed: false,
       })));
+      setAdded([]);
+      setReason('');
+      setNewDate(c.invoiceDate);
+      setDateReason('');
     });
   }, [invoiceId]);
+
+  useEffect(() => { load(); }, [load]);
 
   if (error && !ctx) return <div className="card"><div className="msg-err">{error}</div></div>;
   if (!ctx) return <div className="card" style={{ color: 'var(--g400)', textAlign: 'center' }}>Loading...</div>;
 
   if (!ctx.canEdit) {
     return (
-      <div className="card">
+      <div className={embedded ? '' : 'card'}>
         <div className="msg-info" style={{ margin: 0 }}>
           <i className="ti ti-lock"></i> {ctx.blockReason}
         </div>
-        <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={onClose}>Close</button>
+        {onClose && <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={onClose}>Close</button>}
       </div>
     );
   }
@@ -106,7 +116,8 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose }) {
     try {
       const res = await saveInvoiceEdit(invoiceId, changes, reason.trim(), Number(inv.net));
       if (res.error) { setError(res.error); return; }
-      onSaved(res.invoice, toCredit);
+      if (embedded) load();
+      onSaved?.(res.invoice, toCredit);
     } catch (e) {
       setError('Something went wrong saving this edit -- check your connection and try again. Nothing was saved.');
     } finally {
@@ -114,14 +125,33 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose }) {
     }
   }
 
+  async function handleSaveDate() {
+    setError('');
+    if (!newDate || newDate === ctx.invoiceDate) { setError('Choose a different date.'); return; }
+    if (!dateReason.trim()) { setError('Please give a reason for changing the invoice date.'); return; }
+    setSavingDate(true);
+    try {
+      const res = await saveInvoiceDate(invoiceId, newDate, dateReason.trim());
+      if (res.error) { setError(res.error); return; }
+      load();
+      onSaved?.(res.invoice, 0);
+    } catch (e) {
+      setError('Something went wrong changing the date -- check your connection and try again. Nothing was saved.');
+    } finally {
+      setSavingDate(false);
+    }
+  }
+
   return (
-    <div className="card" style={{ border: '1.5px solid var(--blue)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div className="card-title" style={{ marginBottom: 0 }}>
-          <i className="ti ti-edit" style={{ color: 'var(--blue)' }}></i> Edit {inv.invoice_number}
+    <div className={embedded ? '' : 'card'} style={embedded ? undefined : { border: '1.5px solid var(--blue)' }}>
+      {!embedded && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div className="card-title" style={{ marginBottom: 0 }}>
+            <i className="ti ti-edit" style={{ color: 'var(--blue)' }}></i> Edit {inv.invoice_number}
+          </div>
+          {onClose && <button className="btn btn-sm" onClick={onClose} disabled={saving}>Close</button>}
         </div>
-        <button className="btn btn-sm" onClick={onClose} disabled={saving}>Close</button>
-      </div>
+      )}
 
       {error && <div className="msg-err">{error}</div>}
 
@@ -135,6 +165,9 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose }) {
                   <div style={{ textDecoration: r.removed ? 'line-through' : 'none', fontWeight: 600 }}>{r.line.service_name}</div>
                   <div style={{ fontSize: 10.5, color: 'var(--g400)' }}>{r.line.dept}</div>
                   {r.lock && <div style={{ fontSize: 10.5, color: 'var(--g500)' }}><i className="ti ti-lock"></i> {r.lock}</div>}
+                  {r.removed && ctx.removeHints[r.line.id] && (
+                    <div style={{ fontSize: 10.5, color: 'var(--amber)' }}><i className="ti ti-info-circle"></i> {ctx.removeHints[r.line.id]}</div>
+                  )}
                 </td>
                 <td>
                   {r.lock || r.removed ? r.qty : (
@@ -207,15 +240,12 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose }) {
           {depts.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
         <select className="fi fi-sm" style={{ flex: 1, minWidth: 180 }} value={newCode} disabled={!newDept} onChange={(e) => setNewCode(e.target.value)}>
-          <option value="">-- Add a service --</option>
+          <option value="">-- Add an item --</option>
           {ctx.services.filter((s) => s.dept === newDept).map((s) => <option key={s.code} value={s.code}>{s.name} -- Rs.{s.rate}</option>)}
         </select>
         <button className="btn btn-sm" disabled={!newCode} onClick={() => { setAdded((as) => [...as, { code: newCode, qty: 1, discType: 'none', discValue: 0, discReason: '' }]); setNewCode(''); }}>
           <i className="ti ti-plus"></i> Add
         </button>
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 4 }}>
-        Medicines and surgery packages are added from Pharmacy / Surgical Journey, not here.
       </div>
 
       <div style={{ borderTop: '1px solid var(--g200)', marginTop: 14, paddingTop: 10, fontSize: 13, lineHeight: 1.9 }}>
@@ -244,8 +274,23 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose }) {
         <button className="btn btn-primary" onClick={handleSave} disabled={saving || !anyChange}>
           <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save changes'}
         </button>
-        <button className="btn" onClick={onClose} disabled={saving}>Discard</button>
+        <button className="btn" onClick={embedded ? load : onClose} disabled={saving || (embedded && !anyChange)}>Discard</button>
       </div>
+
+      {ctx.isAdmin && (
+        <div style={{ border: '1px dashed var(--g300, #cbd5e1)', borderRadius: 8, padding: '10px 12px', marginTop: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 6 }}>
+            <i className="ti ti-calendar-event"></i> Invoice date <span style={{ fontWeight: 400, color: 'var(--g400)' }}>(Administrator only -- both days must be open)</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input type="date" className="fi fi-sm" style={{ width: 150 }} value={newDate} max={ctx.today} onChange={(e) => setNewDate(e.target.value)} />
+            <input className="fi fi-sm" style={{ flex: 1, minWidth: 180 }} value={dateReason} onChange={(e) => setDateReason(e.target.value)} placeholder="Reason for changing the date *" />
+            <button className="btn btn-sm" onClick={handleSaveDate} disabled={savingDate || newDate === ctx.invoiceDate}>
+              {savingDate ? 'Saving...' : 'Change date'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

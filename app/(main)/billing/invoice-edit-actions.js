@@ -8,17 +8,20 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { getMyBillingPermissions } from '@/lib/billingPermissions';
+import { getServiceCatalog } from './actions';
 
 const istDate = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 export async function getInvoiceEditContext(invoiceId) {
   const supabase = await createClient();
-  const [{ data: invoice, error }, { data: lines }, perms, { data: services }, { data: packages }] = await Promise.all([
+  const { data: userData } = await supabase.auth.getUser();
+  const [{ data: invoice, error }, { data: lines }, perms, services, { data: packages }, { data: me }] = await Promise.all([
     supabase.from('invoices').select('id, status, net, paid, created_at, invoice_number').eq('id', invoiceId).single(),
     supabase.from('invoice_line_items').select('*').eq('invoice_id', invoiceId).order('id'),
     getMyBillingPermissions(supabase),
-    supabase.from('master_services').select('code, name, dept, rate, gst_pct').eq('status', 'Active').neq('dept', 'Pharmacy').order('name'),
+    getServiceCatalog(),
     supabase.from('master_packages').select('code'),
+    supabase.from('profiles').select('designation').eq('id', userData?.user?.id || '00000000-0000-0000-0000-000000000000').maybeSingle(),
   ]);
   if (error) return { error: error.message };
 
@@ -32,21 +35,53 @@ export async function getInvoiceEditContext(invoiceId) {
   else if (!perms['invoice.edit']) blockReason = 'You do not have permission to edit invoices.';
   else if (invoiceDate < today && !perms['invoice.edit_past']) blockReason = 'You can only edit invoices dated today. Ask an Administrator.';
 
+  // What removing a line will also do (shown to staff before they save),
+  // and the one case that stays locked: a medicine whose stock was
+  // actually deducted (mirrors invoice_line_lock_reason() in Postgres).
+  const lineIds = (lines || []).map((l) => l.id);
+  const { data: rxRows } = lineIds.length
+    ? await supabase.from('prescriptions').select('id, invoice_line_item_id').in('invoice_line_item_id', lineIds)
+    : { data: [] };
+  const rxIds = (rxRows || []).map((r) => r.id);
+  const { data: moves } = rxIds.length
+    ? await supabase.from('inventory_movements').select('reference_id').in('reference_id', rxIds)
+    : { data: [] };
+  const rxWithStock = new Set((moves || []).map((m) => m.reference_id));
+
   const packageCodes = new Set((packages || []).map((p) => p.code));
   const lockReasons = {};
+  const removeHints = {};
   for (const l of lines || []) {
-    if (l.dept === 'Pharmacy') lockReasons[l.id] = 'Pharmacy item (stock) -- cannot be edited here';
-    else if (l.service_code && packageCodes.has(l.service_code)) lockReasons[l.id] = 'Surgery package -- cannot be edited here';
+    const rxForLine = (rxRows || []).filter((r) => r.invoice_line_item_id === l.id);
+    if (rxForLine.some((r) => rxWithStock.has(r.id))) lockReasons[l.id] = 'Stock was deducted -- return it in Inventory first';
+    else if (rxForLine.length) removeHints[l.id] = 'Prescription goes back to Pending in Pharmacy';
+    else if (l.service_code && packageCodes.has(l.service_code)) removeHints[l.id] = 'Surgical case will show as not billed';
   }
 
   return {
     canEdit: !blockReason,
     blockReason,
     lockReasons,
+    removeHints,
     services: services || [],
     lines: lines || [],
     invoice,
+    invoiceDate,
+    today,
+    isAdmin: me?.designation === 'Administrator',
   };
+}
+
+// Administrator only (enforced in change_invoice_date()).
+export async function saveInvoiceDate(invoiceId, newDate, reason) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('change_invoice_date', {
+    p_invoice_id: invoiceId,
+    p_new_date: newDate,
+    p_reason: reason,
+  });
+  if (error) return { error: error.message };
+  return { ok: true, invoice: data };
 }
 
 export async function saveInvoiceEdit(invoiceId, changes, reason, expectedNet) {

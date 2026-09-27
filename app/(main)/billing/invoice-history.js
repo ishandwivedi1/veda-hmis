@@ -10,7 +10,14 @@ import { getInvoiceHistory } from './invoice-edit-actions';
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const when = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-const LEGACY_LABEL = { cancelled: 'Cancelled', line_item_removed: 'Item removed' };
+const LEGACY_LABEL = { cancelled: 'Cancelled', line_item_removed: 'Item removed', invoice_date_changed: 'Date changed' };
+
+const SIDE_EFFECT_TEXT = {
+  prescription_back_to_pending: (s) => `${s.service}: prescription sent back to Pending in Pharmacy`,
+  surgical_case_unbilled: (s) => `${s.service}: surgical case marked as not billed`,
+  surgical_case_not_found: (s) => `${s.service}: no matching surgical case found to un-bill -- check Surgical Journey`,
+};
+const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--');
 
 function describeLine(l) {
   return `${l.service_name} x${l.qty}${Number(l.disc) > 0 ? ` (disc ${money(l.disc)})` : ''} = ${money(l.net)}`;
@@ -61,6 +68,11 @@ export default function InvoiceHistory({ invoiceId, refreshKey }) {
           </div>
           {e.reason && <div style={{ color: 'var(--g600)', marginTop: 2 }}>Reason: {e.reason}</div>}
           {e.details && <div style={{ color: 'var(--g500)', marginTop: 2 }}>{e.details}</div>}
+          {e.action === 'invoice_date_changed' && (
+            <div style={{ marginTop: 4, color: 'var(--g600)' }}>
+              <i className="ti ti-calendar-event"></i> {fmtDate(e.before?.date)} → <strong>{fmtDate(e.after?.date)}</strong>
+            </div>
+          )}
           {e.action === 'invoice_edited' && (
             <>
               <div style={{ marginTop: 4 }}>
@@ -81,6 +93,11 @@ export default function InvoiceHistory({ invoiceId, refreshKey }) {
                   Discount reason: {e.after.discount_reasons.map((r) => r.reason).join('; ')}
                 </div>
               )}
+              {(e.after?.side_effects || []).map((s, i) => (
+                <div key={i} style={{ color: s.effect === 'surgical_case_not_found' ? 'var(--amber)' : 'var(--g500)', marginTop: 2 }}>
+                  <i className="ti ti-link"></i> {(SIDE_EFFECT_TEXT[s.effect] || ((x) => `${x.service}: ${x.effect}`))(s)}
+                </div>
+              ))}
             </>
           )}
         </div>
