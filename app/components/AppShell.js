@@ -26,7 +26,16 @@ const NAV_ITEMS = [
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
   { href: '/credit-notes', label: 'Credit Notes', icon: 'ti-file-minus', group: 'Finance' },
   { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
-  { href: '/optical', label: 'Optical Shop', icon: 'ti-sunglasses', group: 'Finance' },
+
+  // ── OPTICAL SHOP ──
+  { href: '/optical', label: 'Optical Bills', icon: 'ti-file-invoice', group: 'Optical Shop' },
+  { href: '/optical/payments', label: 'Optical Payments', icon: 'ti-receipt-2', group: 'Optical Shop' },
+  { href: '/optical/book', label: 'Book Spectacles', icon: 'ti-eyeglass', group: 'Optical Shop' },
+  { href: '/optical/finalize-order', label: 'Finalize Order', icon: 'ti-package', group: 'Optical Shop' },
+  { href: '/optical/new', label: 'New Bill', icon: 'ti-file-plus', group: 'Optical Shop' },
+  { href: '/optical/advance', label: 'Advance', icon: 'ti-piggy-bank', group: 'Optical Shop' },
+  { href: '/optical/credit-note', label: 'Credit Note', icon: 'ti-file-minus', group: 'Optical Shop' },
+  { href: '/optical/refund', label: 'Refund', icon: 'ti-receipt-refund', group: 'Optical Shop' },
 
   // ── OPD ──
   { href: '/optometry-dashboard', label: 'Optometry', icon: 'ti-eye-check', group: 'OPD' },
@@ -79,7 +88,14 @@ const PAGE_TITLES = [
   { match: /^\/consultation/, title: 'Doctor Consultation' },
   { match: /^\/investigation/, title: 'Investigation' },
   { match: /^\/billing/, title: 'Billing' },
-  { match: /^\/optical/, title: 'Optical Shop' },
+  { match: /^\/optical\/payments/, title: 'Optical Shop · Payments' },
+  { match: /^\/optical\/book/, title: 'Optical Shop · Book Spectacles' },
+  { match: /^\/optical\/finalize-order/, title: 'Optical Shop · Finalize Order' },
+  { match: /^\/optical\/new/, title: 'Optical Shop · New Bill' },
+  { match: /^\/optical\/advance/, title: 'Optical Shop · Advance' },
+  { match: /^\/optical\/credit-note/, title: 'Optical Shop · Credit Note' },
+  { match: /^\/optical\/refund/, title: 'Optical Shop · Refund' },
+  { match: /^\/optical/, title: 'Optical Shop · Bills' },
   { match: /^\/payments/, title: 'Payments' },
   { match: /^\/credit-notes/, title: 'Credit Notes' },
   { match: /^\/cash-management/, title: 'Daily Cash Management' },
