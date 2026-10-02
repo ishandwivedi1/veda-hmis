@@ -212,7 +212,7 @@ export default async function OpticalReceiptPrintPage({ params }) {
             <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>Payments Received</div>
             {advanceAppliedTotal > 0 && (
               <div style={{ fontSize: 11, color: '#1a56a8', fontWeight: 700, marginBottom: 8, background: '#eef4ff', border: '1px solid #cfe0fb', borderRadius: 4, padding: '5px 9px', display: 'inline-block' }}>
-                Advance of {inr(advanceAppliedTotal)} already paid -- applied below
+                Advance of {inr(advanceAppliedTotal)} paid earlier -- used in this bill (receipt details below)
               </div>
             )}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
@@ -220,35 +220,44 @@ export default async function OpticalReceiptPrintPage({ params }) {
                 <tr style={{ background: '#e9edf2' }}>
                   <th style={{ border: '1px solid #999', padding: 6, textAlign: 'left' }}>Receipt No</th>
                   <th style={{ border: '1px solid #999', padding: 6, textAlign: 'left' }}>Date</th>
-                  <th style={{ border: '1px solid #999', padding: 6, textAlign: 'left' }}>Mode</th>
+                  <th style={{ border: '1px solid #999', padding: 6, textAlign: 'left' }}>Mode / Details</th>
                   <th style={{ border: '1px solid #999', padding: 6, textAlign: 'right' }}>Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {payments.map((p) => (
-                  <tr key={p.id} style={paymentRowStyle(p)}>
-                    <td style={{ border: '1px solid #999', padding: 6 }}>
-                      {p.payment_type === 'advance_adjustment'
-                        ? (p.sourceAdvances || []).map((a) => a.receipt_number).join(', ') || '--'
-                        : p.receipt_number}
-                    </td>
-                    <td style={{ border: '1px solid #999', padding: 6 }}>
-                      {/* For an advance applied to this bill, the date that matters to the
-                          patient is when they actually paid it (the original advance receipt),
-                          not today's finalization/adjustment date -- that's an internal-records
-                          distinction only. Falls back to the adjustment's own date if, for any
-                          reason, no source receipt was found. */}
-                      {p.payment_type === 'advance_adjustment' && (p.sourceAdvances || []).length > 0
-                        ? p.sourceAdvances.map((a) => fmtDate(a.collected_at)).join(', ')
-                        : fmtDate(p.collected_at)}
-                    </td>
-                    <td style={{ border: '1px solid #999', padding: 6 }}>
-                      {p.payment_type === 'advance_adjustment' ? 'Advance applied' : (p.optical_payment_modes || []).map((m) => m.mode).join(', ')}
-                      {p.cancelledRefundReason !== undefined && <div style={{ fontSize: 9.5, fontWeight: 700 }}>CANCELLED -- {p.cancelledRefundReason}</div>}
-                    </td>
-                    <td style={{ border: '1px solid #999', padding: 6, textAlign: 'right' }}>{inr(p.total_amount)}</td>
-                  </tr>
-                ))}
+                {payments.flatMap((p) => {
+                  // Advance applied: one line per advance receipt it came from,
+                  // with that receipt's number and date, what was paid as
+                  // advance, and how much of it was used in this bill.
+                  if (p.payment_type === 'advance_adjustment' && (p.sourceAdvances || []).length > 0) {
+                    return p.sourceAdvances.map((a, i) => (
+                      <tr key={`${p.id}-${i}`} style={paymentRowStyle(p)}>
+                        <td style={{ border: '1px solid #999', padding: 6 }}>{a.receipt_number || '--'}</td>
+                        <td style={{ border: '1px solid #999', padding: 6 }}>{fmtDate(a.collected_at)}</td>
+                        <td style={{ border: '1px solid #999', padding: 6 }}>
+                          Advance paid {inr(a.advance)}
+                          {Math.abs(Number(a.used) - Number(a.advance)) > 0.004 && <> -- used {inr(a.used)} in this bill</>}
+                          {p.cancelledRefundReason !== undefined && <div style={{ fontSize: 9.5, fontWeight: 700 }}>CANCELLED -- {p.cancelledRefundReason}</div>}
+                        </td>
+                        <td style={{ border: '1px solid #999', padding: 6, textAlign: 'right' }}>{inr(a.used)}</td>
+                      </tr>
+                    ));
+                  }
+                  return [(
+                    <tr key={p.id} style={paymentRowStyle(p)}>
+                      <td style={{ border: '1px solid #999', padding: 6 }}>{p.receipt_number || '--'}</td>
+                      <td style={{ border: '1px solid #999', padding: 6 }}>{fmtDate(p.collected_at)}</td>
+                      <td style={{ border: '1px solid #999', padding: 6 }}>
+                        {p.payment_type === 'advance_adjustment' ? 'Advance applied'
+                          : p.payment_type === 'credit_note' ? 'Credit note'
+                            : p.payment_type === 'refund' ? `Refund${(p.optical_payment_modes || []).length ? ` (${p.optical_payment_modes.map((m) => m.mode).join(', ')})` : ''}`
+                              : (p.optical_payment_modes || []).map((m) => m.mode).join(', ')}
+                        {p.cancelledRefundReason !== undefined && <div style={{ fontSize: 9.5, fontWeight: 700 }}>CANCELLED -- {p.cancelledRefundReason}</div>}
+                      </td>
+                      <td style={{ border: '1px solid #999', padding: 6, textAlign: 'right' }}>{p.payment_type === 'refund' ? '-' : ''}{inr(p.total_amount)}</td>
+                    </tr>
+                  )];
+                })}
               </tbody>
             </table>
           </div>

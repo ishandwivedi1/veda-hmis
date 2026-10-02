@@ -280,11 +280,14 @@ function CollectBalance({ sale, onPaid }) {
     return (
       <div style={{ marginTop: 14, background: 'var(--green-lt)', padding: '12px 16px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>
         <i className="ti ti-check"></i> {fmt(done.amount)} received{done.receipt ? ` -- receipt ${done.receipt}` : ''}.{done.extra > 0 ? ` ${fmt(done.extra)} over the balance is kept as advance credit.` : ' Bill fully paid.'}
-        {done.paymentId && (
-          <div style={{ marginTop: 6 }}>
-            <a href={`/optical-payment-receipt-print/${done.paymentId}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 400 }}><i className="ti ti-printer"></i> Print Receipt</a>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* The full bill: items, totals, and every payment -- including the
+              advance receipt(s) used, with the amount used from each. */}
+          <a href={`/optical-receipt-print/${sale.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ textDecoration: 'none' }}><i className="ti ti-printer"></i> Print Bill</a>
+          {done.paymentId && (
+            <a href={`/optical-payment-receipt-print/${done.paymentId}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 400 }}><i className="ti ti-receipt"></i> Print this payment receipt only</a>
+          )}
+        </div>
       </div>
     );
   }

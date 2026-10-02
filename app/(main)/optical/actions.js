@@ -209,24 +209,47 @@ export async function getOpticalSaleDetail(saleId) {
       : p
   ));
 
-  // An advance-adjustment line only ever showed as a generic "Advance
-  // Applied" -- no way to tell, from the bill itself, which advance
-  // receipt that money actually came from. Same principle as any
-  // properly-traced advance elsewhere in this system: the bill should
-  // show the original payment being drawn on, not an anonymous
-  // internal transfer. Looked up once per sale (not per adjustment
-  // row) since it's the same customer's advance history regardless of
-  // how many adjustment lines exist.
+  // Which advance receipt(s) paid for each "advance applied" line, and how
+  // much of each was used here. Worked out first-in-first-out over the
+  // customer's advance ledger: every 'Advance Collected' credit (an
+  // advance receipt, or the extra on an over-payment) is used up oldest
+  // first by every 'Advance Adjusted' / refund debit, in time order. So a
+  // bill shows e.g. "OPTRCT-0012, paid 01 Oct, advance 1,000 -- used 600"
+  // when only part of that advance went into this bill.
   const hasAdjustment = paymentsWithCancellation.some((p) => p.payment_type === 'advance_adjustment');
-  let sourceAdvances = [];
+  let sourcesByAdjustment = {};
   if (hasAdjustment && (sale.patient_id || sale.optical_customer_id)) {
-    let q = supabase.from('optical_payments').select('receipt_number, total_amount, collected_at').eq('payment_type', 'advance').order('collected_at', { ascending: true });
-    q = sale.patient_id ? q.eq('patient_id', sale.patient_id) : q.eq('optical_customer_id', sale.optical_customer_id);
-    const { data: advanceRows } = await q;
-    sourceAdvances = advanceRows || [];
+    let lq = supabase.from('optical_customer_ledger').select('id, payment_id, entry_type, amount, recorded_at').order('recorded_at', { ascending: true }).order('id', { ascending: true });
+    lq = sale.patient_id ? lq.eq('patient_id', sale.patient_id) : lq.eq('optical_customer_id', sale.optical_customer_id);
+    const { data: ledger } = await lq;
+    const creditIds = [...new Set((ledger || []).filter((l) => Number(l.amount) > 0 && l.payment_id).map((l) => l.payment_id))];
+    const { data: creditPays } = creditIds.length
+      ? await supabase.from('optical_payments').select('id, receipt_number, collected_at, payment_type').in('id', creditIds)
+      : { data: [] };
+    const payById = Object.fromEntries((creditPays || []).map((x) => [x.id, x]));
+    const queue = []; // open credits, oldest first: { receipt_number, collected_at, advance, left }
+    (ledger || []).forEach((l) => {
+      const amt = Math.round(Number(l.amount) * 100) / 100;
+      if (amt > 0) {
+        const src = payById[l.payment_id] || {};
+        queue.push({ receipt_number: src.receipt_number || null, collected_at: src.collected_at || l.recorded_at, advance: amt, left: amt });
+        return;
+      }
+      let need = -amt;
+      const used = [];
+      while (need > 0.004 && queue.length) {
+        const c = queue[0];
+        const take = Math.round(Math.min(c.left, need) * 100) / 100;
+        if (take > 0) used.push({ receipt_number: c.receipt_number, collected_at: c.collected_at, advance: c.advance, used: take });
+        c.left = Math.round((c.left - take) * 100) / 100;
+        need = Math.round((need - take) * 100) / 100;
+        if (c.left <= 0.004) queue.shift();
+      }
+      if (l.payment_id) sourcesByAdjustment[l.payment_id] = [...(sourcesByAdjustment[l.payment_id] || []), ...used];
+    });
   }
   const paymentsWithAdvanceSource = paymentsWithCancellation.map((p) => (
-    p.payment_type === 'advance_adjustment' ? { ...p, sourceAdvances } : p
+    p.payment_type === 'advance_adjustment' ? { ...p, sourceAdvances: sourcesByAdjustment[p.id] || [] } : p
   ));
 
   return { sale: shapeSale(sale), items: items || [], payments: paymentsWithAdvanceSource };
