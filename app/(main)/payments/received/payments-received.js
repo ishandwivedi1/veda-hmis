@@ -307,12 +307,13 @@ function PaymentDetail({ paymentId, onChanged, onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// "+ New" and "..." menus -- everything the old tabs did, from one place.
+// "+ New" and "..." menus. Paying a bill is done from the invoice itself
+// (Invoices > open invoice > Record Payment), as in Zoho -- not from here.
 // Each item opens the existing form full-width with a "<- Payments" link
 // back (same routes as before, so links from other screens keep working).
 // ─────────────────────────────────────────────────────────────────────
 const NEW_ITEMS = [
-  { href: '/payments/collect', icon: 'ti-cash', label: 'Record Payment', hint: 'For bills, or as an advance' },
+  { href: '/payments/advance', icon: 'ti-wallet', label: 'Advance', hint: 'Money taken before a bill exists' },
   { href: '/payments/adjustments', icon: 'ti-adjustments', label: 'Apply Advance', hint: 'Use credit on a bill' },
   { href: '/payments/refund', icon: 'ti-rotate-clockwise', label: 'Refund', hint: 'Return money' },
   { href: '/payments/credit-note', icon: 'ti-file-minus', label: 'Credit Note', hint: 'Write-off / concession' },
