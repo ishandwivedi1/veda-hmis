@@ -269,7 +269,7 @@ function PaymentDetail({ paymentId, onChanged, onClose }) {
                   <tbody>
                     {p.payment_allocations.map((a) => (
                       <tr key={a.invoice_id}>
-                        <td><Link href={`/billing/details?invoiceId=${a.invoice_id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{a.invoices?.invoice_number || 'Invoice'}</Link></td>
+                        <td><Link href={`/billing?invoiceId=${a.invoice_id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{a.invoices?.invoice_number || 'Invoice'}</Link></td>
                         <td style={{ textAlign: 'right' }}>{money(a.amount)}</td>
                       </tr>
                     ))}

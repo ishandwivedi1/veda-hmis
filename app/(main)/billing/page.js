@@ -1,28 +1,27 @@
+import { Suspense } from 'react';
 import BillingTabs from './billing-tabs';
-import BillingDashboardClient from './billing-dashboard-client';
-import { getBillingDashboardData, getTodaysVisitsWithBillingStatus, getPendingPackageBilling } from './actions';
+import InvoicesScreen from './invoices/invoices-screen';
+import { getTodaysVisitsWithBillingStatus, getPendingPackageBilling } from './actions';
 
-export default async function BillingDashboardPage() {
-  const [data, todaysVisitsData, fullyPaidUnbilled] = await Promise.all([
-    getBillingDashboardData(),
+// Billing is one Zoho-style Invoices screen (2 Oct 2026): summary strip,
+// the "To bill" work lists, the invoice list and a split view to open,
+// edit, collect, print or WhatsApp an invoice. The old dashboard and tab
+// bar (Dashboard / Invoice Details / Invoice Modification) were retired.
+export default async function BillingPage() {
+  const [todaysVisitsData, fullyPaidUnbilled] = await Promise.all([
     getTodaysVisitsWithBillingStatus(),
     getPendingPackageBilling(),
   ]);
-  const { visits: todaysVisits, billingByVisit } = todaysVisitsData;
-
   return (
     <div>
       <BillingTabs />
-      <BillingDashboardClient
-        fullyPaidUnbilled={fullyPaidUnbilled}
-        todaysVisits={todaysVisits}
-        billingByVisit={billingByVisit}
-        todaysInvoices={data.todaysInvoices}
-        outstandingInvoices={data.outstandingInvoices}
-        outstandingTotal={data.outstandingTotal}
-        outstandingInvoicesToday={data.outstandingInvoicesToday}
-        outstandingTotalToday={data.outstandingTotalToday}
-      />
+      <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>}>
+        <InvoicesScreen
+          fullyPaidUnbilled={fullyPaidUnbilled || []}
+          todaysVisits={todaysVisitsData?.visits || []}
+          billingByVisit={todaysVisitsData?.billingByVisit || {}}
+        />
+      </Suspense>
     </div>
   );
 }

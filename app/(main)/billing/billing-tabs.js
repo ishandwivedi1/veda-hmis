@@ -1,53 +1,68 @@
 'use client';
 
+// Billing header (2 Oct 2026: the tab bar is gone -- Billing is one
+// Zoho-style Invoices screen at /billing). Every billing page still
+// renders this component, so it now shows only a slim "day not opened"
+// bar (with Open Day right here) and, on New Invoice / Reports, a
+// "<- Invoices" link back to the list. Name kept so imports don't change.
+
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { isTodayOpen } from '@/lib/rpc-reads/cash-management__actions'; // parallel reads (tools/parallel-reads)
+import { isTodayOpen, getSuggestedOpeningBalance } from '@/lib/rpc-reads/cash-management__actions'; // parallel reads (tools/parallel-reads)
+import { openDay } from '@/app/(main)/cash-management/actions';
 
-const TABS = [
-  { href: '/billing', label: 'Dashboard', icon: 'ti-layout-dashboard' },
-  { href: '/billing/new', label: 'New Invoice', icon: 'ti-file-plus' },
-  { href: '/billing/details', label: 'Invoice Details', icon: 'ti-search' },
-  { href: '/billing/cancel', label: 'Invoice Modification', icon: 'ti-edit' },
-  { href: '/billing/reports', label: 'Reports', icon: 'ti-file-report' },
-];
+const TITLES = {
+  '/billing/new': 'New Invoice',
+  '/billing/reports': 'Billing Reports',
+};
 
 export default function BillingTabs() {
   const pathname = usePathname();
-  const [dayOpen, setDayOpen] = useState(true);
+  const [dayOpen, setDayOpen] = useState(true); // assume open until checked, to avoid a flash on every load
+  const [isPopup, setIsPopup] = useState(false);
+  const [opening, setOpening] = useState('');
+  const [suggestedFrom, setSuggestedFrom] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [openErr, setOpenErr] = useState('');
 
-  useEffect(() => { isTodayOpen().then(setDayOpen); }, []);
+  useEffect(() => {
+    isTodayOpen().then((open) => {
+      setDayOpen(open);
+      if (!open) getSuggestedOpeningBalance().then((s) => { if (s) { setOpening(String(s.amount)); setSuggestedFrom(s.date); } }).catch(() => {});
+    }).catch(() => {});
+    setIsPopup(new URLSearchParams(window.location.search).get('popup') === '1');
+  }, []);
 
-  // Returns a Fragment, not a wrapping <div> -- position: sticky only
-  // stays "stuck" for as long as its immediate parent's box is still in
-  // view. A wrapping div here would be barely taller than the tab bar
-  // itself, so the tabs would appear to stick for a moment then scroll
-  // away immediately. As a Fragment, the sticky div becomes a direct
-  // sibling of the page's own content below it, giving it the full
-  // page height to actually remain stuck through.
+  async function handleOpenDay() {
+    if (busy) return;
+    setBusy(true); setOpenErr('');
+    const res = await openDay(Number(opening) || 0, 'Opened from Billing');
+    setBusy(false);
+    if (res?.error) { setOpenErr(res.error); return; }
+    setDayOpen(true);
+  }
+
+  const title = isPopup ? null : TITLES[pathname];
+
   return (
-    <>
+    <div>
       {!dayOpen && (
-        <div className="msg-err" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <span><i className="ti ti-lock"></i> Today's cash day hasn't been opened -- Package Billing advance collection will be blocked until it is. Plain invoicing without an advance still works.</span>
-          <Link href="/cash-management" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>Open Day in Cash Management</Link>
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 10px', borderRadius: 8, background: 'var(--amber-lt, #fff7e6)', border: '1px solid #fcd34d', fontSize: 12.5 }}>
+          <span style={{ color: '#92400e', fontWeight: 600 }}><i className="ti ti-lock"></i> Today isn&apos;t open -- collecting money (incl. package advances) is blocked.</span>
+          <span style={{ color: 'var(--g600)' }}>Opening cash ₹</span>
+          <input className="fi fi-sm" type="number" min="0" style={{ width: 100 }} value={opening} onChange={(e) => setOpening(e.target.value)}
+            title={suggestedFrom ? `Carried forward from ${suggestedFrom}` : 'Cash in the drawer now'} />
+          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={handleOpenDay}>{busy ? 'Opening...' : 'Open Day'}</button>
+          {openErr && <span style={{ color: 'var(--red)' }}>{openErr}</span>}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 8, background: '#fff', padding: '8px 0' }}>
-        {TABS.map((t) => (
-          <Link
-            key={t.href}
-            href={t.href}
-            className={pathname === t.href ? 'btn btn-primary' : 'btn'}
-            style={{ textDecoration: 'none' }}
-          >
-            <i className={`ti ${t.icon}`}></i> {t.label}
-          </Link>
-        ))}
-      </div>
-    </>
+      {title && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <Link href="/billing" className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-arrow-left"></i> Invoices</Link>
+          <span style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-display-stack)' }}>{title}</span>
+        </div>
+      )}
+    </div>
   );
 }
-
-
