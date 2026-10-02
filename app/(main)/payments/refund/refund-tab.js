@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
 import { refundPayment, refundAdvance, cancelPaymentRefund } from '../actions';
-import { searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, getRefundRegister, getTodaysVisits } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
+import { getPatientById, searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, getRefundRegister, getTodaysVisits } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
 import { getMyDesignation } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
 
@@ -35,6 +36,29 @@ export default function RefundTab() {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelSaving, setCancelSaving] = useState(false);
   const [cancelError, setCancelError] = useState('');
+
+  // Opened from a payment (Payments > open payment > Refund), as in Zoho:
+  // load that patient and start the refund for that receipt directly.
+  const searchParams = useSearchParams();
+  const urlPatientId = searchParams.get('patientId');
+  const urlPaymentId = searchParams.get('paymentId');
+  const autoLoaded = useRef(false);
+  useEffect(() => {
+    if (!urlPatientId || autoLoaded.current) return;
+    autoLoaded.current = true;
+    (async () => {
+      const res = await getPatientById(urlPatientId);
+      if (res?.error || !res?.patient) { setError(res?.error || 'Patient not found.'); return; }
+      const pmts = await pickPatient(res.patient);
+      if (!urlPaymentId) return;
+      const pay = (pmts || []).find((p) => p.id === urlPaymentId);
+      if (!pay) return;
+      if (pay.payment_type === 'advance') { startRefundAdvance(); return; }
+      const refundable = (pay.payment_allocations || []).filter((a) => a.refundable > 0);
+      if (refundable.length === 1) startRefund(pay, refundable[0]);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlPatientId, urlPaymentId]);
 
   useEffect(() => {
     getApprovers().then(setApprovers);
@@ -87,6 +111,7 @@ export default function RefundTab() {
     const [pmts, balance] = await Promise.all([getPatientPayments(p.id), getAdvanceBalance(p.id)]);
     setPayments(pmts);
     setAdvanceBalance(balance);
+    return pmts;
   }
 
   function changePatient() {

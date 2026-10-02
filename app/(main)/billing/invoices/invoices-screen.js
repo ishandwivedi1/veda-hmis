@@ -312,6 +312,9 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
         )}
         <button type="button" className="btn btn-sm" onClick={() => openPrintPopup(`/invoice-print/${inv.id}`)}><i className="ti ti-printer"></i> PDF/Print</button>
         {!cancelled && (
+          <Link href={`/payments/credit-note?patientId=${inv.patient_id}&invoiceId=${inv.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-file-minus"></i> Credit Note</Link>
+        )}
+        {!cancelled && (
           <button type="button" className="btn btn-sm" disabled={wa.status === 'sending'} onClick={sendWhatsApp}>
             <i className="ti ti-brand-whatsapp" style={{ color: 'var(--green)' }}></i> {wa.status === 'sending' ? 'Sending...' : 'WhatsApp'}
           </button>

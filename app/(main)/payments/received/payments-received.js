@@ -210,7 +210,7 @@ function PaymentDetail({ paymentId, onChanged, onClose }) {
           </button>
         )}
         {['invoice_payment', 'advance'].includes(p.payment_type) && (
-          <Link href="/payments/refund" className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-rotate-clockwise"></i> Refund</Link>
+          <Link href={`/payments/refund?patientId=${p.patient_id}&paymentId=${p.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-rotate-clockwise"></i> Refund</Link>
         )}
         <button type="button" className={showHistory ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setShowHistory((v) => !v)}>
           <i className="ti ti-history"></i> History{detail.history?.length ? ` (${detail.history.length})` : ''}
@@ -307,17 +307,12 @@ function PaymentDetail({ paymentId, onChanged, onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// "+ New" and "..." menus. Paying a bill is done from the invoice itself
-// (Invoices > open invoice > Record Payment), as in Zoho -- not from here.
+// "..." menu. As in Zoho: "+ New Payment" is the only way to start money
+// in (the form lists the patient's unpaid bills; with none, it's saved as
+// an advance). Refund lives on a payment, Credit Note on an invoice.
 // Each item opens the existing form full-width with a "<- Payments" link
 // back (same routes as before, so links from other screens keep working).
 // ─────────────────────────────────────────────────────────────────────
-const NEW_ITEMS = [
-  { href: '/payments/advance', icon: 'ti-wallet', label: 'Advance', hint: 'Money taken before a bill exists' },
-  { href: '/payments/adjustments', icon: 'ti-adjustments', label: 'Apply Advance', hint: 'Use credit on a bill' },
-  { href: '/payments/refund', icon: 'ti-rotate-clockwise', label: 'Refund', hint: 'Return money' },
-  { href: '/payments/credit-note', icon: 'ti-file-minus', label: 'Credit Note', hint: 'Write-off / concession' },
-];
 
 function Menu({ label, icon, primary, items, align = 'right' }) {
   const [open, setOpen] = useState(false);
@@ -433,7 +428,7 @@ export default function PaymentsReceived() {
           ) : 'Payments'}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <Menu label="New" icon="ti-plus" primary items={NEW_ITEMS} />
+          <Link href="/payments/collect" className="btn btn-primary" style={{ textDecoration: 'none' }}><i className="ti ti-plus"></i> New Payment</Link>
           <Menu
             label=""
             icon="ti-dots"

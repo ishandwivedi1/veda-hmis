@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
 import { createCreditNote } from '../actions';
-import { searchPatientsForPayment, getInvoicesForCreditNote, getApprovers, getCreditNoteRegister, getTodaysVisits } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
+import { getPatientById, searchPatientsForPayment, getInvoicesForCreditNote, getApprovers, getCreditNoteRegister, getTodaysVisits } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
 
 const REASONS = ['Billing correction', 'Service cancellation', 'Approved financial adjustment', 'Goodwill gesture', 'Insurance adjustment', 'Other'];
@@ -26,6 +27,24 @@ export default function CreditNoteTab() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [todaysVisits, setTodaysVisits] = useState([]);
+
+  // Opened from an invoice (Invoices > open invoice > Credit Note), as in
+  // Zoho: load that patient and pre-select that invoice.
+  const searchParams = useSearchParams();
+  const urlPatientId = searchParams.get('patientId');
+  const urlInvoiceId = searchParams.get('invoiceId');
+  const autoLoaded = useRef(false);
+  useEffect(() => {
+    if (!urlPatientId || autoLoaded.current) return;
+    autoLoaded.current = true;
+    (async () => {
+      const res = await getPatientById(urlPatientId);
+      if (res?.error || !res?.patient) { setError(res?.error || 'Patient not found.'); return; }
+      await pickPatient(res.patient);
+      if (urlInvoiceId) setInvoiceId(urlInvoiceId);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlPatientId, urlInvoiceId]);
 
   useEffect(() => {
     getApprovers().then(setApprovers);
