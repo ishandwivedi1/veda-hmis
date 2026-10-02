@@ -11,7 +11,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { isTodayOpen } from '@/lib/rpc-reads/cash-management__actions'; // parallel reads (tools/parallel-reads)
+import { isTodayOpen, getSuggestedOpeningBalance } from '@/lib/rpc-reads/cash-management__actions'; // parallel reads (tools/parallel-reads)
+import { openDay } from '@/app/(main)/cash-management/actions';
 
 const TITLES = {
   '/payments/collect': 'Record Payment',
@@ -31,8 +32,27 @@ export default function PaymentsTabs() {
   // ?popup=1): no "back to Payments" link there.
   const [isPopup, setIsPopup] = useState(false);
 
+  // Slim "day not opened" bar with Open Day right here (same open_day as
+  // Cash Management), instead of a big banner sending people elsewhere.
+  const [opening, setOpening] = useState('');
+  const [suggestedFrom, setSuggestedFrom] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [openErr, setOpenErr] = useState('');
+
+  async function handleOpenDay() {
+    if (busy) return;
+    setBusy(true); setOpenErr('');
+    const res = await openDay(Number(opening) || 0, 'Opened from Payments');
+    setBusy(false);
+    if (res?.error) { setOpenErr(res.error); return; }
+    setDayOpen(true);
+  }
+
   useEffect(() => {
-    isTodayOpen().then(setDayOpen).catch(() => {});
+    isTodayOpen().then((open) => {
+      setDayOpen(open);
+      if (!open) getSuggestedOpeningBalance().then((s) => { if (s) { setOpening(String(s.amount)); setSuggestedFrom(s.date); } }).catch(() => {});
+    }).catch(() => {});
     setIsPopup(new URLSearchParams(window.location.search).get('popup') === '1');
   }, []);
 
@@ -41,9 +61,13 @@ export default function PaymentsTabs() {
   return (
     <div>
       {!dayOpen && (
-        <div className="msg-err" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <span><i className="ti ti-lock"></i> Today&apos;s cash day hasn&apos;t been opened -- collecting or refunding payments is blocked until it is.</span>
-          <Link href="/cash-management" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>Open Day in Cash Management</Link>
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 10px', borderRadius: 8, background: 'var(--amber-lt, #fff7e6)', border: '1px solid #fcd34d', fontSize: 12.5 }}>
+          <span style={{ color: '#92400e', fontWeight: 600 }}><i className="ti ti-lock"></i> Today isn&apos;t open -- payments are blocked.</span>
+          <span style={{ color: 'var(--g600)' }}>Opening cash ₹</span>
+          <input className="fi fi-sm" type="number" min="0" style={{ width: 100 }} value={opening} onChange={(e) => setOpening(e.target.value)}
+            title={suggestedFrom ? `Carried forward from ${suggestedFrom}` : 'Cash in the drawer now'} />
+          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={handleOpenDay}>{busy ? 'Opening...' : 'Open Day'}</button>
+          {openErr && <span style={{ color: 'var(--red)' }}>{openErr}</span>}
         </div>
       )}
       {title && (
