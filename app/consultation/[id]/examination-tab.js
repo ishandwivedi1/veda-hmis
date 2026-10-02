@@ -12,12 +12,12 @@ const EXT_TEMPLATES = {
 };
 const ANT_STRUCTS = ['Conjunctiva', 'Cornea', 'Anterior Chamber', 'Iris', 'Pupil', 'Lens'];
 const ANT_TEMPLATES = {
-  Conjunctiva: ['Normal', 'Congested', 'PCVO', 'Pterygium', 'Subconjunctival haemorrhage'],
-  Cornea: ['Clear', 'Scar', 'Ulcer', 'Edema', 'Pterygium', 'Guttata', 'Keratitis'],
+  Conjunctiva: ['Normal', 'Congested', 'Subconjunctival haemorrhage'],
+  Cornea: ['Clear', 'Scar', 'Ulcer', 'Edema', 'Pterygium', 'Guttae', 'DMF', "KP's"],
   'Anterior Chamber': ['Deep & Quiet', 'Shallow', 'Cells+', 'Hypopyon', 'Hyphema'],
   Iris: ['Normal Pattern', 'Rubeosis', 'Heterochromia', 'Synechiae'],
   Pupil: ['Round & Reactive', 'RAPD', 'Irregular', 'Fixed & Dilated'],
-  Lens: ['Clear', 'NS1', 'NS2', 'NS3', 'NS4', 'PSC', 'Cortical', 'Mature', 'Hypermature', 'PCIOL', 'Aphakia'],
+  Lens: ['Clear', 'NS1', 'NS2', 'NS3', 'NS4', 'PSC', 'Cortical', 'Mature', 'Hypermature', 'IMSC', 'PCIOL', 'Aphakia'],
 };
 
 // Posterior Segment struct list differs by dilatation stage: a full exam
@@ -27,8 +27,8 @@ const POST_STRUCTS_WITH = ['Vitreous', 'Disc', 'CDR', 'Macula', 'Vessels', 'Peri
 const POST_STRUCTS_WITHOUT = ['Disc', 'CDR'];
 const POST_TEMPLATES = {
   Vitreous: ['Clear', 'Haze', 'Haemorrhage', 'PVD'],
-  Disc: ['Healthy', 'Pale', 'Cupped', 'Swollen', 'Tilted'],
-  Macula: ['Normal', 'ARMD', 'CSME', 'Macular Hole', 'Epiretinal Membrane', 'Scar', 'FR Full', 'Drusens Present', 'Dot-blot hemorrhages', 'CWS', 'Tessalated Fundus'],
+  Disc: ['Healthy', 'Pale', 'Cupped', 'Swollen', 'Tilted', 'PPA+'],
+  Macula: ['Normal', 'ARMD', 'CSME', 'CME', 'SRF', 'Macular Hole', 'Epiretinal Membrane', 'Scar', 'FR Dull', 'Drusens Present', 'Dot-blot hemorrhages', 'CWS', 'Tessalated Fundus'],
   Vessels: ['Normal', 'Arteriovenous nipping', 'Disc collaterals', 'Arteriolar Attenuation'],
   'Peripheral Retina': ['Attached', 'Lattice', 'Tear', 'Detachment', 'Laser Marks'],
   CDR: ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.65', '0.7', '0.75', '0.8', '0.85', '0.9', '0.95', 'GOA'],
@@ -47,7 +47,7 @@ const REGIONS = {
 };
 
 // ── GONIOSCOPY (replaces the old Glaucoma section entirely) ──
-const ANGLE_OPTIONS = ['Open Angle', 'Occludable', 'Closed Angle', 'Synechiae', 'Iris Process'];
+const ANGLE_OPTIONS = ['Open Angle', 'Open Angle till CBB', 'Open Angle till SS', 'Open Angle till PTM', 'Occludable', 'Closed Angle', 'Synechiae', 'Iris Process'];
 const PTM_OPTIONS = ['+1', '+2', '+3'];
 const IRIS_CONFIG_OPTIONS = ['Concave', 'Convex', 'Regular'];
 const GONIO_FIELDS = [
