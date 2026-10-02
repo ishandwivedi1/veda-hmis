@@ -2,52 +2,26 @@
 
 import { createClient } from '@/lib/supabase-server';
 
+// Optometry Dashboard -- queues for today (IST) in ONE database call
+// (ui_optometry_dashboard, migration 048). Completed rows carry
+// doctorStatus + locked: readings stay editable until the doctor opens
+// (or finishes) the consultation.
 export async function getOptometryDashboardData() {
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
-
-  const [{ data: activeEntries }, { data: doneEntries }] = await Promise.all([
-    supabase
-      .from('queue_entries')
-      .select('*, visits(id, patients(first_name, salutation, last_name, uhid, age, gender))')
-      .eq('department', 'Optometry')
-      .in('status', ['Waiting', 'Calling'])
-      .gte('issued_at', today)
-      .order('issued_at', { ascending: true }),
-    supabase
-      .from('queue_entries')
-      .select('*, visits(id, patients(first_name, salutation, last_name, uhid, age, gender))')
-      .eq('department', 'Optometry')
-      .eq('status', 'Done')
-      .gte('issued_at', today)
-      .order('completed_at', { ascending: false }),
-  ]);
-
-  const done = doneEntries || [];
-  const visitIds = done.map((e) => e.visits?.id).filter(Boolean);
-
-  // Batch-fetch the Doctor queue status for every completed visit today, so
-  // we can tell which posted readings are still editable vs. already locked
-  // because the doctor has opened (or finished) the consultation.
-  let doctorStatusByVisit = {};
-  if (visitIds.length > 0) {
-    const { data: doctorEntries } = await supabase
-      .from('queue_entries')
-      .select('visit_id, status')
-      .eq('department', 'Doctor')
-      .in('visit_id', visitIds);
-
-    (doctorEntries || []).forEach((d) => {
-      doctorStatusByVisit[d.visit_id] = d.status;
-    });
-  }
-
-  const completed = done.map((e) => {
-    const doctorStatus = doctorStatusByVisit[e.visits?.id] || null;
-    const locked = doctorStatus === 'In Consultation' || doctorStatus === 'Done';
-    return { ...e, doctorStatus, locked };
-  });
-
-  return { active: activeEntries || [], completed };
+  const { data, error } = await supabase.rpc('ui_optometry_dashboard');
+  if (error || !data) return { active: [], completed: [] };
+  return { active: data.active || [], completed: data.completed || [] };
 }
 
+// Call Next / Call in ONE request and ONE database call: the status
+// change, its journey event and the refreshed dashboard come back together
+// (optometry_queue_action, migration 048). The Queue page keeps using its
+// own actions in queue/actions.js -- untouched.
+export async function runOptometryQueueAction(action, id = null) {
+  if (action !== 'call_next' && action !== 'call') return { error: 'Unknown action.' };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('optometry_queue_action', { p_action: action, p_id: id });
+  if (error) return { error: error.message };
+  if (data?.error) return { error: data.error };
+  return { dashboard: { active: data?.dashboard?.active || [], completed: data?.dashboard?.completed || [] } };
+}

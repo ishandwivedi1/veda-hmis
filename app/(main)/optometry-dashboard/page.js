@@ -7,7 +7,8 @@ import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { useSearchParams } from 'next/navigation';
 import { getOptometryDashboardData } from '@/lib/rpc-reads/optometry-dashboard__actions'; // parallel reads (tools/parallel-reads)
 import { getOptometryHistory } from '@/lib/rpc-reads/optometry-history__actions'; // parallel reads (tools/parallel-reads)
-import { optometryCallNext, optometryCallSpecific } from '@/app/(main)/queue/actions';
+// Call Next / Call: one request each, returns the refreshed dashboard too.
+import { runOptometryQueueAction } from '@/app/(main)/optometry-dashboard/actions';
 
 // The Workspace (Final Rx entry, ~1200 lines) is the one heavy piece of
 // this module. Loaded on demand with next/dynamic + ssr:false so the
@@ -62,14 +63,16 @@ function TokenBadge({ token }) {
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────
-function DashboardTab({ active, completed, onOpen, refresh }) {
+function DashboardTab({ active, completed, onOpen, refresh, onDashboard }) {
   const [error, setError] = useState('');
 
-  async function runAction(fn, ...args) {
+  // One request: the change and the refreshed dashboard come back together.
+  async function runAction(action, id) {
     setError('');
-    const result = await fn(...args);
+    const result = await runOptometryQueueAction(action, id ?? null);
+    if (result?.dashboard) { onDashboard(result.dashboard); return; }
     if (result?.error) setError(result.error);
-    refresh();
+    refresh(); // only on error: show the current state
   }
 
   const waitingCount = active.filter((e) => e.status === 'Waiting').length;
@@ -110,7 +113,7 @@ function DashboardTab({ active, completed, onOpen, refresh }) {
               <span className="badge b-gray">{active.length}</span>
             </div>
           </div>
-          <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => runAction(optometryCallNext)}>
+          <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => runAction('call_next')}>
             <i className="ti ti-bell-ringing"></i> Call Next
           </button>
           {active.map((e) => (
@@ -128,7 +131,7 @@ function DashboardTab({ active, completed, onOpen, refresh }) {
                 </div>
               </div>
               {e.status === 'Waiting' && (
-                <button className="btn btn-sm" onClick={() => runAction(optometryCallSpecific, e.id)}>Call</button>
+                <button className="btn btn-sm" onClick={() => runAction('call', e.id)}>Call</button>
               )}
               {e.status === 'Calling' && (
                 <button className="btn btn-primary btn-sm" onClick={() => onOpen(e.id)}>Start Assessment</button>
@@ -268,11 +271,15 @@ function OptometryHubInner() {
   const [active, setActive] = useState([]);
   const [completed, setCompleted] = useState([]);
 
-  const refresh = useCallback(async () => {
-    const { active, completed } = await getOptometryDashboardData();
+  const applyDashboard = useCallback(({ active, completed }) => {
     setActive(active);
     setCompleted(completed);
   }, []);
+
+  // ONE request (one DB call) for the whole Dashboard tab.
+  const refresh = useCallback(async () => {
+    applyDashboard(await getOptometryDashboardData());
+  }, [applyDashboard]);
 
   // Live-queue polling only runs while the Dashboard tab is actually
   // visible -- no point refetching queue state in the background every
@@ -299,8 +306,9 @@ function OptometryHubInner() {
   // any more than opening a live entry should leave them on History.
   function handleWorkspaceDone() {
     setSelectedQueueEntryId(null);
+    // Switching back to the Dashboard tab already refreshes it (effect
+    // above) -- calling refresh() here too fetched it twice.
     setActiveTab(workspaceOrigin);
-    refresh();
   }
 
   return (
@@ -316,7 +324,7 @@ function OptometryHubInner() {
         <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon="ti-history" label="History" />
       </div>
 
-      {activeTab === 'dashboard' && <DashboardTab active={active} completed={completed} onOpen={openWorkspace} refresh={refresh} />}
+      {activeTab === 'dashboard' && <DashboardTab active={active} completed={completed} onOpen={openWorkspace} refresh={refresh} onDashboard={applyDashboard} />}
       {activeTab === 'workspace' && selectedQueueEntryId && <OptometryWorkspace queueEntryId={selectedQueueEntryId} onDone={handleWorkspaceDone} />}
       {activeTab === 'workspace' && !selectedQueueEntryId && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--g400)', padding: 30 }}>Select an entry from the Dashboard.</div>

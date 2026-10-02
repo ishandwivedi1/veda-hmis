@@ -13,7 +13,6 @@ import {
   sendForDilation,
   sendForInvestigation,
 } from '@/app/(main)/optometry/actions';
-import { getIopMethods, getServices } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
 import HistoryTab from '@/app/consultation/[id]/history-tab';
 import { openPrintPopup } from '@/lib/printPopup';
@@ -338,6 +337,9 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
   const [showSendOutConfirm, setShowSendOutConfirm] = useState(null); // 'dilate' | 'investigate' | null
   const [sendingOut, setSendingOut] = useState(false);
   const [investigationOptions, setInvestigationOptions] = useState([]);
+  // History chip options -- handed to the embedded HistoryTab so it
+  // doesn't make its own request.
+  const [historyOptions, setHistoryOptions] = useState(null);
   const [sendOutInvName, setSendOutInvName] = useState('');
   const [sendOutInvEye, setSendOutInvEye] = useState('OU');
   const router = useRouter();
@@ -359,8 +361,10 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
   const autosaveTimer = useRef(null);
   const skipNextAutosave = useRef(true);
 
-  function load() {
-    getAssessmentWorkspaceData(queueEntryId).then((result) => {
+  // Opening the workspace is ONE request / ONE database call -- including
+  // the IOP methods, investigation list and history chip options that used
+  // to be 3 more requests (optometry_open_workspace, migration 048).
+  function applyWorkspace(result) {
       if (result.error) { setLoadError(result.error); return; }
       setEntry(result.entry);
       setAssessment(result.assessment);
@@ -380,15 +384,16 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
       // doesn't get mistaken for a real edit.
       skipNextAutosave.current = true;
       setForm(f);
-    });
+      if (result.iopMethods) setIopMethods(result.iopMethods);
+      if (result.investigationOptions) setInvestigationOptions(result.investigationOptions);
+      if (result.historyOptions) setHistoryOptions(result.historyOptions);
+  }
+
+  function load() {
+    getAssessmentWorkspaceData(queueEntryId).then(applyWorkspace);
   }
 
   useEffect(() => { setUnlockOverride(false); load(); }, [queueEntryId]);
-
-  useEffect(() => {
-    getIopMethods().then((all) => setIopMethods(all.filter((m) => m.status === 'Active')));
-    getServices().then((sv) => setInvestigationOptions(sv.filter((s) => s.status === 'Active' && s.dept === 'Investigation')));
-  }, []);
 
   const isEdit = assessment?.status === 'Completed';
 
@@ -583,11 +588,12 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     setSaving(true);
     setError('');
     setOkMsg('');
-    const result = await saveDraft(assessment.id, form);
+    // one request: save + refreshed workspace come back together
+    const result = await saveDraft(assessment.id, form, queueEntryId);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setOkMsg('Draft saved -- patient stays in Optometry Queue.');
-    load();
+    if (result.workspace) applyWorkspace(result.workspace); else load();
   }
 
   function handleComplete() {
@@ -660,11 +666,12 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
     setSaving(true);
     setError('');
     setOkMsg('');
-    const result = await updateCompletedAssessment(assessment.id, form);
+    // one request: save + refreshed workspace come back together
+    const result = await updateCompletedAssessment(assessment.id, form, queueEntryId);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setOkMsg('Changes saved.');
-    load();
+    if (result.workspace) applyWorkspace(result.workspace); else load();
   }
 
   if (loadError) return <div className="msg-err">{loadError}</div>;
@@ -830,7 +837,7 @@ export default function OptometryWorkspace({ queueEntryId, embedded = false, for
           open={openSections.history} onToggle={() => toggleSection('history')}
         >
           <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
-            {encounter && <HistoryTab encounter={encounter} findings={null} onSaved={() => {}} hideOptometryBanner />}
+            {encounter && <HistoryTab encounter={encounter} findings={null} onSaved={() => {}} hideOptometryBanner initialOptions={historyOptions} />}
           </fieldset>
         </AsmtSection>
       </div>

@@ -53,7 +53,10 @@ function formatComplaintEntry(e) {
   return bits.join(' ');
 }
 
-export default function HistoryTab({ encounter, findings, onSaved, hideOptometryBanner = false }) {
+// initialOptions (optional): chip options already loaded by the parent
+// (the Optometry workspace gets them in its one load call) -- skips this
+// component's own request. Without it, behaviour is unchanged.
+export default function HistoryTab({ encounter, findings, onSaved, hideOptometryBanner = false, initialOptions = null }) {
   // Multiple chief-complaint entries -- see formatComplaintEntry above.
   // Each entry: { id, chips: string[], text, duration, laterality }.
   const [complaints, setComplaints] = useState(() => [blankComplaint()]);
@@ -78,20 +81,22 @@ export default function HistoryTab({ encounter, findings, onSaved, hideOptometry
   // History tab): app/(main)/master-data/actions.js:getActiveHistoryOptions,
   // table master_history_options. No hardcoded arrays; staff add/retire
   // options from Master Data -> Clinical -> Patient History.
-  const [options, setOptions] = useState({
+  const [options, setOptions] = useState(() => initialOptions || {
     chief_complaint: [], ocular_history: [], medical_history: [], family_history: [], drug_history: [], allergy: [],
   });
-  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsLoading, setOptionsLoading] = useState(!initialOptions);
 
   const loadedEncounterId = useRef(null);
   const saveTimer = useRef(null);
   const skipNextAutosave = useRef(true);
 
   useEffect(() => {
+    if (initialOptions) return; // parent already loaded them
     getActiveHistoryOptions().then((result) => {
       setOptions(result);
       setOptionsLoading(false);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

@@ -3,95 +3,18 @@
 import { createClient } from '@/lib/supabase-server';
 import { isCurrentUserAdmin } from '@/lib/authz';
 
+// Assessment History in ONE database call (ui_optometry_history,
+// migration 048): only the columns the History table shows, the latest
+// IOP per eye, the "Doctor correction" flag and the assessment's
+// Optometry queue entry -- so History's "View" reopens the real, current
+// entry workspace (optometry-workspace.js) instead of a separate
+// read-only viewer (see assessment-viewer.js's own comment on why that
+// was retired). Before: 4 database steps one after another, every column.
 export async function getOptometryHistory(filterStatus) {
   const supabase = await createClient();
-
-  let query = supabase
-    .from('optometry_assessments')
-    .select(`
-      *,
-      visits(visit_number, patients(first_name, salutation, last_name, uhid)),
-      recorded_by_profile:profiles!optometry_assessments_recorded_by_fkey(full_name),
-      completed_by_profile:profiles!optometry_assessments_completed_by_fkey(full_name)
-    `)
-    .order('created_at', { ascending: false });
-
-  if (filterStatus) query = query.eq('status', filterStatus);
-
-  const { data: assessments, error } = await query;
+  const { data, error } = await supabase.rpc('ui_optometry_history', { p_status: filterStatus || null });
   if (error) return { error: error.message };
-
-  const ids = (assessments || []).map((a) => a.id);
-
-  // Full IOP reading history per assessment (not just the latest value --
-  // the detail view needs the whole trend; the summary row still only
-  // shows the latest).
-  let readingsByAssessment = {};
-  if (ids.length > 0) {
-    const { data: readings } = await supabase
-      .from('optometry_iop_readings')
-      .select('*')
-      .in('assessment_id', ids)
-      .order('recorded_at', { ascending: true });
-
-    (readings || []).forEach((r) => {
-      if (!readingsByAssessment[r.assessment_id]) readingsByAssessment[r.assessment_id] = { RE: [], LE: [] };
-      readingsByAssessment[r.assessment_id][r.eye].push(r);
-    });
-  }
-
-  // Doctor overrides: the doctor edits this assessment directly (no
-  // separate shadow table). Every changed field is logged to this same
-  // assessment's audit log as "Doctor override -- ...". The raw audit
-  // log itself is Administrator-only (see optometry_audit_log RLS), but
-  // this "was it overridden" signal is useful to everyone reviewing the
-  // history list, so it's resolved via a narrow RPC that returns only
-  // the assessment_ids affected -- never the message content, who made
-  // the change, or when.
-  let overriddenIds = new Set();
-  if (ids.length > 0) {
-    const { data: overrideRows } = await supabase.rpc('get_doctor_override_assessment_ids', { assessment_ids: ids });
-    (overrideRows || []).forEach((r) => overriddenIds.add(r.assessment_id));
-  }
-
-  // Every assessment's Optometry queue entry from the day it was
-  // originally worked on -- queue_entries rows are never deleted (they
-  // move to 'Done', not removed), so this reliably exists for any
-  // assessment no matter how old. Lets History's "View" reopen the
-  // real, current entry workspace (optometry-workspace.js) directly,
-  // instead of a separate hand-maintained read-only viewer that has
-  // already drifted out of sync with it once before (see
-  // assessment-viewer.js's own comment on why it was retired).
-  const visitIds = [...new Set((assessments || []).map((a) => a.visit_id).filter(Boolean))];
-  let queueEntryByVisit = {};
-  if (visitIds.length > 0) {
-    const { data: entries } = await supabase
-      .from('queue_entries')
-      .select('id, visit_id')
-      .in('visit_id', visitIds)
-      .eq('department', 'Optometry')
-      .order('issued_at', { ascending: false });
-    (entries || []).forEach((e) => {
-      if (!queueEntryByVisit[e.visit_id]) queueEntryByVisit[e.visit_id] = e.id;
-    });
-  }
-
-  const rows = (assessments || []).map((a) => {
-    const readings = readingsByAssessment[a.id] || { RE: [], LE: [] };
-    const lastRe = readings.RE.length ? readings.RE[readings.RE.length - 1].value : null;
-    const lastLe = readings.LE.length ? readings.LE[readings.LE.length - 1].value : null;
-
-    return {
-      ...a,
-      iopRe: lastRe,
-      iopLe: lastLe,
-      iopReadings: readings,
-      hasDoctorCorrection: overriddenIds.has(a.id),
-      queueEntryId: queueEntryByVisit[a.visit_id] || null,
-    };
-  });
-
-  return { rows };
+  return { rows: data || [] };
 }
 
 // Full assessment detail for the read-only "open full sheet" viewer --

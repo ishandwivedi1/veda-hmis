@@ -1,7 +1,6 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
-import { isCurrentUserAdmin } from '@/lib/authz';
 import { doctorSendOut } from '@/app/(main)/queue/actions';
 import { addInvestigation } from '@/app/(main)/consultation/actions';
 
@@ -63,110 +62,31 @@ async function addAudit(supabase, assessmentId, message, userId) {
   await supabase.from('optometry_audit_log').insert({ assessment_id: assessmentId, message, created_by: userId || null });
 }
 
-// Loads everything the workspace needs: the queue entry + patient, the
-// assessment row (creating an empty Draft one on first open -- same
-// pattern as encounters auto-creating on first doctor consultation),
-// IOP readings, audit log, and lock status.
+// Loads everything the workspace needs in ONE database call
+// (optometry_open_workspace, migration 048): the queue entry + patient,
+// the assessment row (creating an empty Draft one on first open -- same
+// pattern as encounters auto-creating on first doctor consultation), the
+// encounter (also auto-created, for the History section), IOP readings,
+// audit log (Administrators only -- RLS on optometry_audit_log is the real
+// boundary), doctor-override lines (everyone), lock status, and the
+// pick-lists the screen used to fetch separately (iopMethods,
+// investigationOptions, historyOptions). Lock rule as before: once
+// completed, editable until the doctor's queue entry moves to "In
+// Consultation" or "Done" (viewed from the doctor's own entry: only Done).
 export async function getAssessmentWorkspaceData(queueEntryId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  const { data: entry, error: entryError } = await supabase
-    .from('queue_entries')
-    .select('*, visits(id, doctor_id, patients(first_name, salutation, last_name, uhid, age, gender))')
-    .eq('id', queueEntryId)
-    .single();
-
-  if (entryError) return { error: entryError.message };
-
-  const visitId = entry.visits?.id;
-
-  let { data: assessment } = await supabase
-    .from('optometry_assessments')
-    .select('*')
-    .eq('visit_id', visitId)
-    .maybeSingle();
-
-  if (!assessment) {
-    const { data: newAssessment, error: createError } = await supabase
-      .from('optometry_assessments')
-      .insert({ visit_id: visitId, recorded_by: userData?.user?.id || null })
-      .select()
-      .single();
-
-    if (createError) return { error: createError.message };
-    assessment = newAssessment;
-    await addAudit(supabase, assessment.id, 'Assessment started', userData?.user?.id);
-  }
-
-  // History (chief complaint, HOPI, ocular/medical/family/drug history,
-  // allergy) lives on `encounters`, same table and columns the doctor's
-  // History tab reads/writes via saveHistory. Opening it here lets the
-  // optometrist capture it before the doctor ever sees the patient --
-  // auto-created on first open, same pattern as the assessment above and
-  // as the doctor's own encounter in consultation/actions.js.
-  let { data: encounter } = await supabase
-    .from('encounters')
-    .select('*')
-    .eq('visit_id', visitId)
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!encounter) {
-    const { data: newEncounter, error: encError } = await supabase
-      .from('encounters')
-      .insert({ visit_id: visitId, doctor_id: entry.visits?.doctor_id || null })
-      .select()
-      .single();
-
-    if (encError) return { error: encError.message };
-    encounter = newEncounter;
-    await supabase.from('encounter_audit_log').insert({ encounter_id: encounter.id, message: 'Encounter started (from Optometry)', created_by: userData?.user?.id || null });
-  }
-
-  const [{ data: iopReadings }, { data: auditLog }, { data: doctorOverrides }] = await Promise.all([
-    supabase.from('optometry_iop_readings').select('*').eq('assessment_id', assessment.id).order('recorded_at', { ascending: true }),
-    supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).order('created_at', { ascending: false }),
-    // Visible to everyone (not just admins) -- narrow RLS policy only
-    // exposes rows whose message begins with 'Doctor override', so the
-    // optometrist can see what the doctor changed on their record.
-    supabase.from('optometry_audit_log').select('*').eq('assessment_id', assessment.id).ilike('message', 'Doctor override%').order('created_at', { ascending: false }),
-  ]);
-
-  // Audit Log is Administrator-only (app-layer check here is a UX
-  // convenience -- the real boundary is the RLS policy on
-  // optometry_audit_log itself, which already blocks SELECT for
-  // non-admins at the database level).
-  const isAdmin = await isCurrentUserAdmin(supabase);
-
-  // Same lock rule as before: once completed, editable until the
-  // doctor's queue entry moves to "In Consultation" or "Done".
-  let locked = false;
-  if (assessment.status === 'Completed') {
-    const { data: doctorEntry } = await supabase
-      .from('queue_entries')
-      .select('status')
-      .eq('visit_id', visitId)
-      .eq('department', 'Doctor')
-      .maybeSingle();
-
-    // Viewed from the Optometry queue: lock as soon as the doctor has
-    // taken over (In Consultation) or finished (Done). Viewed from the
-    // Doctor's own queue entry (embedded in the consultation): the
-    // doctor is the one currently "In Consultation", so that status
-    // shouldn't lock them out of their own screen -- only a fully
-    // Done visit does.
-    const viewerIsDoctor = entry.department === 'Doctor';
-    locked = doctorEntry?.status === 'Done' || (!viewerIsDoctor && doctorEntry?.status === 'In Consultation');
-  }
-
-  return { entry, assessment, encounter, iopReadings: iopReadings || [], auditLog: isAdmin ? (auditLog || []) : [], doctorOverrides: doctorOverrides || [], locked, isAdmin };
+  const { data, error } = await supabase.rpc('optometry_open_workspace', { p_queue_entry_id: queueEntryId });
+  if (error) return { error: error.message };
+  if (!data || data.error) return { error: data?.error || 'Could not load this assessment.' };
+  return data;
 }
 
 // "Save Draft" -- patient stays in the queue, nothing routed anywhere
 // (BR-OPT-003).
-export async function saveDraft(assessmentId, fields) {
+// reloadQueueEntryId (optional): the "Save Draft" button passes it so the
+// refreshed workspace comes back in the SAME request (it used to be a
+// second request after the save). Autosave doesn't pass it.
+export async function saveDraft(assessmentId, fields, reloadQueueEntryId = null) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
@@ -178,6 +98,7 @@ export async function saveDraft(assessmentId, fields) {
   if (error) return { error: error.message };
 
   await addAudit(supabase, assessmentId, 'Draft saved -- patient remains in Optometry Queue', userData?.user?.id);
+  if (reloadQueueEntryId) return { success: true, workspace: await getAssessmentWorkspaceData(reloadQueueEntryId) };
   return { success: true };
 }
 
@@ -311,7 +232,9 @@ export async function sendForInvestigation(assessmentId, queueEntryId, encounter
 // Edit path -- assessment already Completed and not yet locked (doctor
 // hasn't opened the consultation). Updates fields only; queue status
 // and doctor token were already handled the first time.
-export async function updateCompletedAssessment(assessmentId, fields) {
+// reloadQueueEntryId (optional): see saveDraft -- the "Save Changes"
+// button gets the refreshed workspace in the same request.
+export async function updateCompletedAssessment(assessmentId, fields, reloadQueueEntryId = null) {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
@@ -323,6 +246,7 @@ export async function updateCompletedAssessment(assessmentId, fields) {
   if (error) return { error: error.message };
 
   await addAudit(supabase, assessmentId, 'Assessment updated post-completion -- not yet seen by doctor', userData?.user?.id);
+  if (reloadQueueEntryId) return { success: true, workspace: await getAssessmentWorkspaceData(reloadQueueEntryId) };
   return { success: true };
 }
 
