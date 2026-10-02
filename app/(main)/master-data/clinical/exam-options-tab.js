@@ -11,27 +11,33 @@ import { useState, useEffect, useCallback } from 'react';
 import { addExamOption, updateExamOption, deleteExamOption, moveExamOption, toggleStatus } from '../actions';
 import { getExamOptions } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 
+// Each section maps to a stored `region`. Posterior Segment is split by
+// dilatation stage: the Without Dilatation pass (Disc + CDR only) has its
+// own lists, stored as structure "Disc (Without Dilatation)" etc., so the
+// two passes can offer different options.
+const s = (key, label = key) => ({ key, label });
+const WITHOUT = ' (Without Dilatation)';
 export const EXAM_SECTIONS = [
-  { key: 'external', label: 'External Examination', structures: ['Lids', 'Adnexa', 'Lacrimal', 'Motility'] },
-  { key: 'anterior', label: 'Anterior Segment', structures: ['Conjunctiva', 'Cornea', 'Anterior Chamber', 'Iris', 'Pupil', 'Lens'] },
-  { key: 'posterior', label: 'Posterior Segment', structures: ['Vitreous', 'Disc', 'CDR', 'Macula', 'Vessels', 'Peripheral Retina'] },
-  { key: 'gonioscopy', label: 'Gonioscopy', structures: ['Angle Configuration', 'PTM Pigmentation', 'Iris Configuration'] },
+  { key: 'external', region: 'external', label: 'External Examination', structures: ['Lids', 'Adnexa', 'Lacrimal', 'Motility'].map((x) => s(x)) },
+  { key: 'anterior', region: 'anterior', label: 'Anterior Segment', structures: ['Conjunctiva', 'Cornea', 'Anterior Chamber', 'Iris', 'Pupil', 'Lens'].map((x) => s(x)) },
+  { key: 'posterior_without', region: 'posterior', label: 'Posterior -- Without Dilatation', structures: [s(`Disc${WITHOUT}`, 'Disc'), s(`CDR${WITHOUT}`, 'CDR')] },
+  { key: 'posterior_with', region: 'posterior', label: 'Posterior -- With Dilatation', structures: ['Vitreous', 'Disc', 'CDR', 'Macula', 'Vessels', 'Peripheral Retina'].map((x) => s(x)) },
+  { key: 'gonioscopy', region: 'gonioscopy', label: 'Gonioscopy', structures: ['Angle Configuration', 'PTM Pigmentation', 'Iris Configuration'].map((x) => s(x)) },
 ];
 
 // Structures where the first option is NOT used as an "All Normal"
 // default: CDR is a measured ratio, and Gonioscopy has no All Normal.
-function hasNormalDefault(section, structure) {
-  return section !== 'gonioscopy' && structure !== 'CDR';
+function hasNormalDefault(region, structureLabel) {
+  return region !== 'gonioscopy' && structureLabel !== 'CDR';
 }
 
 const STRUCT_NOTE = {
-  Disc: 'Shown in both Without and With Dilatation.',
   CDR: 'Shown as a dropdown (C.D Ratio).',
 };
 
 export default function ExamOptionsTab() {
-  const [section, setSection] = useState('anterior');
-  const [structure, setStructure] = useState('Conjunctiva');
+  const [sectionKey, setSectionKey] = useState('anterior');
+  const [structure, setStructure] = useState('Conjunctiva'); // stored structure key
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -47,15 +53,17 @@ export default function ExamOptionsTab() {
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  const sectionCfg = EXAM_SECTIONS.find((s) => s.key === section);
+  const sectionCfg = EXAM_SECTIONS.find((x) => x.key === sectionKey);
+  const section = sectionCfg.region; // stored region
+  const structureLabel = sectionCfg.structures.find((x) => x.key === structure)?.label || structure;
   const list = rows
     .filter((r) => r.region === section && r.structure === structure)
     .sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
   const firstActiveId = list.find((r) => r.status === 'Active')?.id;
 
   function chooseSection(key) {
-    const cfg = EXAM_SECTIONS.find((s) => s.key === key);
-    setSection(key); setStructure(cfg.structures[0]);
+    const cfg = EXAM_SECTIONS.find((x) => x.key === key);
+    setSectionKey(key); setStructure(cfg.structures[0].key);
     setError(''); setEditingId(null); setNewName('');
   }
   function chooseStructure(s) {
@@ -84,7 +92,7 @@ export default function ExamOptionsTab() {
     if (!result?.error) setEditingId(null);
   }
   async function handleDelete(row) {
-    if (!confirm(`Delete "${row.name}" from ${structure}?\n\nPast patient records that used it keep their text. To hide it without deleting, set it to Inactive instead.`)) return;
+    if (!confirm(`Delete "${row.name}" from ${structureLabel} (${sectionCfg.label})?\n\nPast patient records that used it keep their text. To hide it without deleting, set it to Inactive instead.`)) return;
     await run(() => deleteExamOption(row.id, row.code));
   }
 
@@ -101,23 +109,28 @@ export default function ExamOptionsTab() {
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-        {EXAM_SECTIONS.map((s) => (
-          <button key={s.key} type="button" className={section === s.key ? 'btn btn-primary btn-sm' : 'btn btn-sm'} onClick={() => chooseSection(s.key)}>{s.label}</button>
+        {EXAM_SECTIONS.map((x) => (
+          <button key={x.key} type="button" className={sectionKey === x.key ? 'btn btn-primary btn-sm' : 'btn btn-sm'} onClick={() => chooseSection(x.key)}>{x.label}</button>
         ))}
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {sectionCfg.structures.map((s) => {
-          const count = rows.filter((r) => r.region === section && r.structure === s && r.status === 'Active').length;
+        {sectionCfg.structures.map((x) => {
+          const count = rows.filter((r) => r.region === section && r.structure === x.key && r.status === 'Active').length;
           return (
-            <button key={s} type="button" style={tabBtn(structure === s)} onClick={() => chooseStructure(s)}>
-              {s} <span style={{ opacity: 0.7, fontWeight: 500 }}>({count})</span>
+            <button key={x.key} type="button" style={tabBtn(structure === x.key)} onClick={() => chooseStructure(x.key)}>
+              {x.label} <span style={{ opacity: 0.7, fontWeight: 500 }}>({count})</span>
             </button>
           );
         })}
       </div>
 
-      {STRUCT_NOTE[structure] && section === 'posterior' && (
-        <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}><i className="ti ti-info-circle"></i> {STRUCT_NOTE[structure]}</div>
+      {section === 'posterior' && (
+        <div style={{ fontSize: 11.5, color: 'var(--g500)', marginBottom: 8 }}>
+          <i className="ti ti-info-circle"></i> {sectionKey === 'posterior_without'
+            ? 'Used when the doctor records Posterior Segment WITHOUT dilatation. Separate from the With Dilatation lists.'
+            : 'Used when the doctor records Posterior Segment WITH dilatation. Disc and CDR here are separate from the Without Dilatation lists.'}
+          {STRUCT_NOTE[structureLabel] ? ` ${STRUCT_NOTE[structureLabel]}` : ''}
+        </div>
       )}
 
       {error && <div className="msg-err">{error}</div>}
@@ -126,13 +139,13 @@ export default function ExamOptionsTab() {
         <input
           className="fi"
           style={{ flex: '1 1 240px' }}
-          placeholder={`New option for ${structure} (e.g. ${section === 'gonioscopy' ? 'Open Angle till SL' : 'type exactly as it should appear'})`}
+          placeholder={`New option for ${structureLabel} (e.g. ${section === 'gonioscopy' ? 'Open Angle till SL' : 'type exactly as it should appear'})`}
           value={newName}
           autoCapitalize="off" autoCorrect="off" spellCheck="false"
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
         />
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={handleAdd}><i className="ti ti-plus"></i> Add to {structure}</button>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={handleAdd}><i className="ti ti-plus"></i> Add to {structureLabel}</button>
       </div>
 
       <table className="tbl">
@@ -155,7 +168,7 @@ export default function ExamOptionsTab() {
                 ) : (
                   <span style={{ fontWeight: 600 }}>
                     {row.name}
-                    {row.id === firstActiveId && hasNormalDefault(section, structure) && (
+                    {row.id === firstActiveId && hasNormalDefault(section, structureLabel) && (
                       <span className="badge b-green" style={{ marginLeft: 8, fontWeight: 600 }}>All Normal default</span>
                     )}
                   </span>
@@ -189,7 +202,7 @@ export default function ExamOptionsTab() {
             </tr>
           ))}
           {!loading && list.length === 0 && (
-            <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No options for {structure} yet -- add one above.</td></tr>
+            <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No options for {structureLabel} yet -- add one above.</td></tr>
           )}
         </tbody>
       </table>

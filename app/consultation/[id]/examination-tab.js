@@ -314,10 +314,15 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
     const fromMaster = masterOptions?.[`${regionKey}|${struct}`];
     return fromMaster && fromMaster.length > 0 ? fromMaster : (fallback || []);
   }
-  function templatesFor(regionKey) {
+  // Posterior Segment's Without Dilatation pass has its own Disc/CDR lists
+  // in the master (stored as "Disc (Without Dilatation)" etc.).
+  function templatesFor(regionKey, stage) {
     const builtIn = REGIONS[regionKey].templates;
     const out = {};
-    Object.keys(builtIn).forEach((struct) => { out[struct] = optionsFor(regionKey, struct, builtIn[struct]); });
+    Object.keys(builtIn).forEach((struct) => {
+      const masterStruct = regionKey === 'posterior' && stage === 'without' ? `${struct} (Without Dilatation)` : struct;
+      out[struct] = optionsFor(regionKey, masterStruct, builtIn[struct]);
+    });
     return out;
   }
 
@@ -408,8 +413,8 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
   function handleAllNormal(region) {
     const regionCfg = REGIONS[region];
     const { staged } = regionCfg;
-    const templates = templatesFor(region);
     const stage = staged ? regionStage[region] : null;
+    const templates = templatesFor(region, stage);
     const structs = staged ? regionCfg.structsByStage[stage] : regionCfg.structs;
     const isOn = staged ? allNormalOn[region][stage] : allNormalOn[region];
     const multiSelectStructs = multiSelectStructsFor(regionCfg);
@@ -525,7 +530,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
           key={key}
           regionKey={key}
           region={REGIONS[key]}
-          templates={templatesFor(key)}
+          templates={templatesFor(key, regionStage[key])}
           open={open[key]}
           onToggle={() => setOpen((p) => ({ ...p, [key]: !p[key] }))}
           status={status[key]}
