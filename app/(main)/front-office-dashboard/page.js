@@ -3,7 +3,6 @@ import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import CheckInButton from '@/app/(main)/appointments/check-in-button';
 import RegisterUnregisteredButton from '@/app/(main)/appointments/register-button';
-import { isTodayOpen } from '@/app/(main)/cash-management/actions';
 import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
 
 function elapsedMin(iso) {
@@ -15,68 +14,47 @@ const APPT_STATUS_BADGE = { Booked: 'b-amber', 'Checked-in': 'b-green', Cancelle
 export default async function FrontOfficeDashboardPage({ searchParams }) {
   const params = await searchParams;
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
 
-  const [
-    { data: todaysRegistrations },
-    { data: queueEntries },
-    { count: walkInsToday },
-    { data: pendingInvoices },
-    { data: todaysVisits },
-    { data: todaysAppointments },
-    { count: surgicalPendingWorkup },
-    dayOpen,
-  ] = await Promise.all([
-    supabase.from('patients').select('*', { count: 'exact', head: true }).gte('created_at', today),
-    supabase.from('queue_entries').select('*, visits(patients(first_name, salutation, last_name, age))').neq('status', 'Done').neq('status', 'Cancelled').gte('issued_at', today).order('issued_at', { ascending: true }),
-    supabase.from('visits').select('*', { count: 'exact', head: true }).gte('created_at', today).is('appointment_id', null),
-    supabase.from('invoices').select('net, paid').in('status', ['Pending', 'Partial']),
-    // Oldest first -- this is front desk's own home page, and the
-    // whole point of looking here is "who came first". Newest-first
-    // (the old default) put the most recent arrival at the top, which
-    // is exactly backwards for that question.
-    supabase.from('visits').select('*, patients(id, first_name, salutation, last_name, uhid, age), profiles!doctor_id(full_name)').gte('created_at', today).order('created_at', { ascending: true }),
-    supabase.from('appointments').select('*, patients(first_name, salutation, last_name, uhid, mobile, age), profiles(full_name)').eq('appointment_date', today).order('appointment_time', { ascending: true }),
-    supabase.from('surgical_cases').select('*', { count: 'exact', head: true }).eq('status', 'Pending Workup'),
-    isTodayOpen(),
-  ]);
+  // Everything on this screen in ONE database call (ui_front_office_dashboard,
+  // migration 049). It used to be 8 queries + a 9th waiting on them, incl.
+  // every pending invoice ever sent back row by row just to add them up.
+  // "Today" is the IST day.
+  const { data: dash } = await supabase.rpc('ui_front_office_dashboard');
+  const d = dash || {};
+  const todaysRegistrations = d.registrationsToday ?? 0;
+  const queueEntries = d.queueEntries || [];
+  const todaysVisits = d.todaysVisits || [];
+  const todaysAppointments = d.todaysAppointments || [];
+  const surgicalPendingWorkup = d.surgicalPendingWorkup ?? 0;
+  const pendingInvoiceCount = d.pendingInvoiceCount ?? 0;
+  const outstandingTotal = Number(d.outstandingTotal || 0);
+  const dayOpen = !!d.dayOpen;
 
-  const waitingEntries = (queueEntries || []).filter((e) => e.status === 'Waiting');
+  const waitingEntries = queueEntries.filter((e) => e.status === 'Waiting');
   const avgWait = waitingEntries.length
     ? Math.round(waitingEntries.reduce((s, e) => s + elapsedMin(e.issued_at), 0) / waitingEntries.length)
     : 0;
 
-  const outstandingTotal = (pendingInvoices || []).reduce((s, i) => s + (Number(i.net) - Number(i.paid)), 0);
-  const unregisteredCount = (todaysAppointments || []).filter((a) => !a.patients).length;
+  const unregisteredCount = todaysAppointments.filter((a) => !a.patients).length;
 
-  // Billing status per visit, batched in one query rather than per-row.
-  // A visit can now have multiple invoices (Consultation, Investigation,
-  // Pharmacy...) -- aggregate properly rather than keeping whichever one
-  // happens to come back last from the query.
-  const visitIds = (todaysVisits || []).map((v) => v.id);
-  let billingByVisit = {};
-  if (visitIds.length > 0) {
-    const { data: invoices } = await supabase.from('invoices').select('visit_id, net, paid, status').in('visit_id', visitIds);
-    const grouped = {};
-    (invoices || []).forEach((inv) => {
-      if (!grouped[inv.visit_id]) grouped[inv.visit_id] = [];
-      grouped[inv.visit_id].push(inv);
-    });
-    Object.entries(grouped).forEach(([visitId, invs]) => {
-      const active = invs.filter((i) => i.status !== 'Cancelled');
-      const outstanding = active.reduce((s, i) => s + Math.max(0, Number(i.net) - Number(i.paid)), 0);
-      const allPaid = active.length > 0 && active.every((i) => i.status === 'Paid');
-      billingByVisit[visitId] = {
-        count: active.length,
-        outstanding,
-        label: active.length === 0 ? '--' : allPaid ? 'Paid' : `Rs.${outstanding.toLocaleString('en-IN')} due`,
-        badge: active.length === 0 ? 'b-gray' : allPaid ? 'b-green' : 'b-red',
-      };
-    });
-  }
+  // Billing status per visit (summed in the database): a visit can have
+  // multiple invoices (Consultation, Investigation, Pharmacy...);
+  // cancelled ones don't count.
+  const billingByVisit = {};
+  todaysVisits.forEach((v) => {
+    const b = v.billing || { count: 0, outstanding: 0, allPaid: false };
+    if (!b.count) return;
+    const outstanding = Number(b.outstanding || 0);
+    billingByVisit[v.id] = {
+      count: b.count,
+      outstanding,
+      label: b.allPaid ? 'Paid' : `Rs.${outstanding.toLocaleString('en-IN')} due`,
+      badge: b.allPaid ? 'b-green' : 'b-red',
+    };
+  });
 
   const visitTypeCounts = {};
-  (todaysVisits || []).forEach((v) => {
+  todaysVisits.forEach((v) => {
     visitTypeCounts[v.visit_type] = (visitTypeCounts[v.visit_type] || 0) + 1;
   });
   const totalVisitsToday = todaysVisits?.length || 0;
@@ -149,7 +127,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
         </div>
         <div className="card" style={{ borderTop: '3px solid var(--red)' }}>
           <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 600, textTransform: 'uppercase' }}>Billing Pending</div>
-          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{pendingInvoices?.length ?? 0}</div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{pendingInvoiceCount}</div>
           <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 2 }}>Rs.{outstandingTotal.toLocaleString('en-IN')} outstanding</div>
         </div>
       </div>
@@ -294,11 +272,11 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
             <div className="card-title" style={{ marginBottom: 10 }}>
               <i className="ti ti-alert-circle" style={{ color: 'var(--red)' }}></i> Pending Actions
             </div>
-            {(pendingInvoices?.length ?? 0) > 0 && (
+            {pendingInvoiceCount > 0 && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--g100)' }}>
                 <i className="ti ti-receipt" style={{ color: 'var(--red)' }}></i>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>{pendingInvoices.length} invoices -- payment pending</div>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>{pendingInvoiceCount} invoices -- payment pending</div>
                   <div style={{ fontSize: 11, color: 'var(--g500)' }}>Total: Rs.{outstandingTotal.toLocaleString('en-IN')}</div>
                 </div>
               </div>
@@ -323,7 +301,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                 </div>
               </div>
             )}
-            {!(pendingInvoices?.length) && !unregisteredCount && !surgicalPendingWorkup && (
+            {!pendingInvoiceCount && !unregisteredCount && !surgicalPendingWorkup && (
               <div style={{ fontSize: 12, color: 'var(--g400)' }}>Nothing pending -- all caught up.</div>
             )}
           </div>

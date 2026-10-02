@@ -1,41 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { checkInAppointment } from '../visits/actions';
+import { checkInAndOpenNext } from './check-in-actions';
 
 export default function CheckInButton({ appointmentId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const router = useRouter();
 
+  // ONE request: the check-in and the next screen come back together
+  // (see check-in-actions.js) -- Surgery / Surgery Evaluation /
+  // Investigation Only land on the patient's Surgical Journey case, OPD
+  // Procedure Only on the OPD Procedures workspace, anything else back on
+  // the Front Office Dashboard, same as before. The button stays disabled
+  // until the next screen opens, so a second click can't check in twice.
   async function handleClick() {
     setLoading(true);
     setError('');
-    const result = await checkInAppointment(appointmentId);
-    setLoading(false);
-
-    if (result.error) {
+    const result = await checkInAndOpenNext(appointmentId);
+    if (result?.error) {
+      setLoading(false);
       setError(result.error);
-      return;
     }
-
-    // Same redirect as the walk-in flow -- a Surgery/Surgery
-    // Evaluation/Investigation Only appointment lands directly on the
-    // patient's Surgical Journey case, not a generic dashboard.
-    if (result.surgicalCaseId) {
-      router.push(`/surgical-journey/${result.surgicalCaseId}`);
-      return;
-    }
-
-    // OPD Procedure Only skips the doctor queue entirely and lands on
-    // the patient's OPD Procedures workspace instead.
-    if (result.visit?.visit_type === 'OPD Procedure Only' && result.visit?.patient_id) {
-      router.push(`/opd-procedures/${result.visit.patient_id}`);
-      return;
-    }
-
-    router.push('/front-office-dashboard?visitCreated=1');
   }
 
   return (
@@ -47,4 +32,3 @@ export default function CheckInButton({ appointmentId }) {
     </div>
   );
 }
-
