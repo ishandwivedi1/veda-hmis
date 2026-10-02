@@ -2,56 +2,36 @@
 
 import { createClient } from '@/lib/supabase-server';
 
+const EMPTY_DASHBOARD = {
+  active: [], intermediate: [], completed: [], optometryWaiting: [],
+  visitTypeCounts: {}, totalVisitsToday: 0, proceduresDueToday: [],
+};
+
+// Everything the Doctor Dashboard shows -- queues, visit-type counts and
+// OPD procedures due today -- in ONE database call (ui_doctor_dashboard,
+// migration 047). Same row shape as before (queue entry + visits +
+// patients); Post-operative Review entries also carry postop_episode_id
+// so opening one needs no extra lookup. "Today" is the IST day.
 export async function getDoctorDashboardData() {
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase.rpc('ui_doctor_dashboard');
+  if (error || !data) return { ...EMPTY_DASHBOARD, error: error?.message || null };
+  return { ...EMPTY_DASHBOARD, ...data };
+}
 
-  const [{ data: active }, { data: intermediate }, { data: completed }, { data: optometryWaiting }, { data: todaysVisits }] = await Promise.all([
-    supabase
-      .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(id, first_name, salutation, last_name, uhid, age, gender))')
-      .eq('department', 'Doctor')
-      .in('status', ['Waiting', 'Ready for Review', 'In Consultation'])
-      .gte('issued_at', today)
-      .order('issued_at', { ascending: true }),
-    supabase
-      .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(first_name, salutation, last_name, uhid, age, gender))')
-      .eq('department', 'Doctor')
-      // .in() only matches exact values -- a patient sent out for more
-      // than one thing at once gets a compound status like "Awaiting
-      // Investigation & Biometry" (see doctorSendOut), so this needs to
-      // catch any status containing one of these rather than an exact
-      // match.
-      .or('status.ilike.%Dilation%,status.ilike.%Investigation%,status.ilike.%Biometry%')
-      .gte('issued_at', today)
-      .order('sent_out_at', { ascending: true }),
-    supabase
-      .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(id, first_name, salutation, last_name, uhid, age, gender))')
-      .eq('department', 'Doctor')
-      .eq('status', 'Done')
-      .gte('issued_at', today)
-      .order('completed_at', { ascending: false }),
-    supabase
-      .from('queue_entries')
-      .select('*, visits(id, visit_type, patients(first_name, salutation, last_name, uhid, age, gender))')
-      .eq('department', 'Optometry')
-      .in('status', ['Waiting', 'Calling'])
-      .gte('issued_at', today)
-      .order('issued_at', { ascending: true }),
-    supabase.from('visits').select('visit_type').gte('created_at', today),
-  ]);
-
-  const visitTypeCounts = {};
-  (todaysVisits || []).forEach((v) => {
-    visitTypeCounts[v.visit_type] = (visitTypeCounts[v.visit_type] || 0) + 1;
-  });
-
-  return {
-    active: active || [], intermediate: intermediate || [], completed: completed || [], optometryWaiting: optometryWaiting || [],
-    visitTypeCounts, totalVisitsToday: todaysVisits?.length || 0,
-  };
+// The four Doctor Dashboard queue buttons (Call Next / Call / Mark Ready /
+// Call Directly) in ONE request and ONE database call: the change, its
+// journey event, and the refreshed dashboard all come back together
+// (doctor_queue_action, migration 047). The Queue page keeps using its own
+// actions in queue/actions.js -- untouched.
+const QUEUE_ACTIONS = new Set(['call_next', 'call', 'mark_ready', 'call_direct']);
+export async function runDoctorQueueAction(action, id = null) {
+  if (!QUEUE_ACTIONS.has(action)) return { error: 'Unknown action.' };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('doctor_queue_action', { p_action: action, p_id: id });
+  if (error) return { error: error.message };
+  if (data?.error) return { error: data.error };
+  return { dashboard: { ...EMPTY_DASHBOARD, ...(data?.dashboard || {}) } };
 }
 
 // ── OPD PROCEDURES DUE TODAY ──

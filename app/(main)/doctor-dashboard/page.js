@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
-import { getDoctorDashboardData, getDoctorHistory, getProceduresDueToday } from '@/lib/rpc-reads/doctor-dashboard__actions'; // parallel reads (tools/parallel-reads)
-import { doctorCallNext, doctorCallSpecific, doctorMarkReady, doctorCallDirect } from '@/app/(main)/queue/actions';
+import { getDoctorDashboardData, getDoctorHistory } from '@/lib/rpc-reads/doctor-dashboard__actions'; // parallel reads (tools/parallel-reads)
+// Queue buttons: one request each, returns the refreshed dashboard too.
+import { runDoctorQueueAction } from '@/app/(main)/doctor-dashboard/actions';
 import PostOpWorkspace from '@/app/(main)/ot-postop/workspace';
 import { getOpenPostOpEpisodeForPatient } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
 import { useRouter } from 'next/navigation';
@@ -111,7 +112,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, proce
             <span style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--g700)' }}>Doctor Queue</span>
             <span className="badge b-gray" style={{ marginLeft: 'auto' }}>{active.length}</span>
           </div>
-          <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => onRunAction(doctorCallNext)} disabled={!!inConsultation}>
+          <button className="btn btn-primary" style={{ width: '100%', marginBottom: 12 }} onClick={() => onRunAction('call_next')} disabled={!!inConsultation}>
             <i className="ti ti-bell-ringing"></i> Call Next
           </button>
 
@@ -146,7 +147,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, proce
                   <span className={`badge ${waitBadgeClass(elapsedMin(e.issued_at))}`}><i className="ti ti-clock"></i> {elapsedMin(e.issued_at)}m</span>
                 </div>
               </div>
-              <button className="btn btn-sm" onClick={() => onRunAction(doctorCallSpecific, e.id)} disabled={!!inConsultation}>Call</button>
+              <button className="btn btn-sm" onClick={() => onRunAction('call', e.id)} disabled={!!inConsultation}>Call</button>
             </div>
           ))}
           {active.length === 0 && (
@@ -175,7 +176,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, proce
                 <VisitTypeBadge type={e.visits?.visit_type} />
                 <div style={{ fontSize: 11, color: 'var(--g500)' }}>{e.status} -- {elapsedMin(e.sent_out_at)}m</div>
               </div>
-              <button className="btn btn-sm" onClick={() => onRunAction(doctorMarkReady, e.id)}>Mark Ready</button>
+              <button className="btn btn-sm" onClick={() => onRunAction('mark_ready', e.id)}>Mark Ready</button>
             </div>
           ))}
           {intermediate.length === 0 && (
@@ -283,7 +284,7 @@ function DashboardTab({ active, intermediate, completed, optometryWaiting, proce
                 <VisitTypeBadge type={e.visits?.visit_type} />
                 <div style={{ fontSize: 11, color: 'var(--g500)' }}>{elapsedMin(e.issued_at)}m waiting in Optometry</div>
               </div>
-              <button className="btn btn-sm" onClick={() => onRunAction(doctorCallDirect, e.id)} disabled={!!inConsultation}>
+              <button className="btn btn-sm" onClick={() => onRunAction('call_direct', e.id)} disabled={!!inConsultation}>
                 <i className="ti ti-arrow-right"></i> Call Directly
               </button>
             </div>
@@ -354,39 +355,55 @@ export default function DoctorDashboardPage() {
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
 
-  const refresh = useCallback(async () => {
-    const [result, dueToday] = await Promise.all([getDoctorDashboardData(), getProceduresDueToday()]);
+  const applyDashboard = useCallback((result) => {
+    if (!result) return;
     setActive(result.active);
     setIntermediate(result.intermediate);
     setCompleted(result.completed);
     setOptometryWaiting(result.optometryWaiting);
     setVisitTypeCounts(result.visitTypeCounts);
     setTotalVisitsToday(result.totalVisitsToday);
-    setProceduresDueToday(dueToday);
+    setProceduresDueToday(result.proceduresDueToday);
   }, []);
 
+  // ONE request (one DB call) for everything on the Dashboard tab.
+  const refresh = useCallback(async () => {
+    applyDashboard(await getDoctorDashboardData());
+  }, [applyDashboard]);
+
+  // History is loaded only when the History tab is opened (it used to be
+  // fetched on every page open, 200 rows, even if never looked at).
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const refreshHistory = useCallback(async () => {
     setHistory(await getDoctorHistory());
     setLoadingHistory(false);
+    setHistoryLoaded(true);
   }, []);
 
+  useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
-    refresh();
-    refreshHistory();
-  }, [refresh, refreshHistory]);
+    if (activeTab === 'history' && !historyLoaded) refreshHistory();
+  }, [activeTab, historyLoaded, refreshHistory]);
   // every 15s while this tab is on screen (paused when hidden)
   useVisibleInterval(refresh, 15000);
 
-  async function runAction(fn, ...args) {
+  // Queue buttons: one request -- the change and the refreshed dashboard
+  // come back together, so no follow-up refresh request.
+  async function runAction(action, id) {
     setError('');
-    const result = await fn(...args);
+    const result = await runDoctorQueueAction(action, id ?? null);
+    if (result?.dashboard) { applyDashboard(result.dashboard); return; }
     if (result?.error) setError(result.error);
-    refresh();
+    refresh(); // only on error: show the current state
   }
 
   async function openConsultation(entry) {
     if (entry.visits?.visit_type === 'Post-operative Review') {
-      const episodeId = await getOpenPostOpEpisodeForPatient(entry.visits.patients.id);
+      // Dashboard rows already carry the episode id (no request); History
+      // rows don't, so those still look it up.
+      const episodeId = 'postop_episode_id' in entry
+        ? entry.postop_episode_id
+        : await getOpenPostOpEpisodeForPatient(entry.visits.patients.id);
       if (episodeId) {
         setWarning('');
         setPostOpEpisodeId(episodeId);
@@ -421,7 +438,8 @@ export default function DoctorDashboardPage() {
   }
 
   function handleBack() {
-    refresh(); refreshHistory();
+    refresh();
+    setHistoryLoaded(false); // re-fetched next time History is opened
     setPostOpEpisodeId(null);
     setActiveTab('dashboard');
   }

@@ -112,7 +112,6 @@ export const READS = {
   'doctor-dashboard-surgery.actions.getSurgeryDashboardScheduled': m11.getSurgeryDashboardScheduled,
   'doctor-dashboard.actions.getDoctorDashboardData': m12.getDoctorDashboardData,
   'doctor-dashboard.actions.getDoctorHistory': m12.getDoctorHistory,
-  'doctor-dashboard.actions.getProceduresDueToday': m12.getProceduresDueToday,
   'inventory.actions.getConsumptionReport': m13.getConsumptionReport,
   'inventory.actions.getDashboardSummary': m13.getDashboardSummary,
   'inventory.actions.getExpiryReport': m13.getExpiryReport,
