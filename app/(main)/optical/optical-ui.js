@@ -14,7 +14,7 @@ export const dateIST = (d) => (d ? new Date(String(d).length === 10 ? `${d}T00:0
 export const when = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 export const BILL_STATUS_BADGE = { Paid: 'b-green', Partial: 'b-amber', Pending: 'b-red', Cancelled: 'b-gray' };
-export const BILL_STATUS_LABEL = { Paid: 'PAID', Partial: 'PARTIALLY PAID', Pending: 'UNPAID', Cancelled: 'CANCELLED' };
+export const BILL_STATUS_LABEL = { Paid: 'PAID', Partial: 'PARTIALLY PAID', Pending: 'UNPAID', Cancelled: 'VOID' };
 export const PAYMENT_TYPE_LABEL = { sale_payment: 'Payment', advance: 'Advance', advance_adjustment: 'Advance applied', credit_note: 'Credit note', refund: 'Refund' };
 export const PAYMENT_TYPE_BADGE = { sale_payment: 'b-green', advance: 'b-blue', advance_adjustment: 'b-amber', credit_note: 'b-teal', refund: 'b-red' };
 
@@ -35,13 +35,18 @@ export function Menu({ label, icon, primary, items, align = 'right' }) {
       </button>
       {open && (
         <div style={{ position: 'absolute', [align]: 0, top: 'calc(100% + 4px)', background: '#fff', border: '1px solid var(--g200)', borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 24px rgba(0,0,0,.12))', minWidth: 250, zIndex: 50, padding: 4 }}>
-          {items.map((it) => (
+          {items.map((it) => (it.href ? (
             <Link key={it.label} href={it.href} onClick={() => setOpen(false)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, textDecoration: 'none', color: 'var(--g800)' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--g50)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
               <i className={`ti ${it.icon}`} style={{ color: 'var(--blue)', fontSize: 16 }}></i>
               <span><span style={{ fontWeight: 600, fontSize: 13 }}>{it.label}</span>{it.hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--g500)' }}>{it.hint}</span>}</span>
             </Link>
-          ))}
+          ) : (
+            <button key={it.label} type="button" onClick={() => { setOpen(false); it.onClick(); }} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--g800)', textAlign: 'left' }}>
+              <i className={`ti ${it.icon}`} style={{ color: 'var(--blue)', fontSize: 16 }}></i>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{it.label}</span>
+            </button>
+          )))}
         </div>
       )}
     </div>
@@ -51,15 +56,21 @@ export function Menu({ label, icon, primary, items, align = 'right' }) {
 // Header used on every Optical page: just the title, plus a "Back to
 // Optical Dashboard" link on the Book / Finalize pages. Navigation lives in
 // the sidebar (Optical Dashboard, Optical Bills, Optical Payments).
-export function OpticalHeader({ title, back = false }) {
+// `back`: true = back to Optical Dashboard, or { href, label }.
+// `children`: buttons on the right (e.g. "+ New Payment", "..." menu).
+export function OpticalHeader({ title, back = false, children }) {
+  const b = back === true ? { href: '/optical/dashboard', label: 'Optical Dashboard' } : back;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
-      {back && (
-        <Link href="/optical/dashboard" className="btn btn-sm" style={{ textDecoration: 'none' }}>
-          <i className="ti ti-arrow-left"></i> Optical Dashboard
-        </Link>
-      )}
-      <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display-stack)' }}>{title}</div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        {b && (
+          <Link href={b.href} className="btn btn-sm" style={{ textDecoration: 'none' }}>
+            <i className="ti ti-arrow-left"></i> {b.label}
+          </Link>
+        )}
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display-stack)' }}>{title}</div>
+      </div>
+      {children && <div style={{ display: 'flex', gap: 6 }}>{children}</div>}
     </div>
   );
 }

@@ -1,9 +1,11 @@
 'use client';
 
-// Optical Bills -- Zoho-style (like hospital Invoices): summary strip,
-// searchable list, and a bill pane on the right
-// with Edit / Record Payment / Apply Advance / Credit Note / Print / Cancel /
-// History.
+// Optical Bills -- laid out exactly like hospital Invoices (Oct 2026):
+// summary strip (outstanding, billed today, still due from today),
+// searchable list, and a bill pane with Edit (Cancel bill inside, as Void
+// is on hospital invoices) / Record Payment / PDF-Print / Credit Note /
+// History, a "Credits available -> Apply credits" strip for the customer's
+// advance, and a "Payments received (n)" strip.
 //
 // ONE request per screen load / search, ONE per click: opening a bill is one
 // call (ui_optical_bill_panel); every save sends back the refreshed bill and
@@ -14,17 +16,17 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import DayOpenBar from '@/app/components/DayOpenBar';
 import EditReasonModal from '@/app/components/EditReasonModal';
-import { saveOpticalBillEdit, recordOpticalBillPayment, applyOpticalAdvanceToBill, cancelOpticalBill } from '../screens-actions';
+import { saveOpticalBillEdit, recordOpticalBillPayment, applyOpticalAdvanceToBill, cancelOpticalBill, createOpticalCreditNoteAndRefresh } from '../screens-actions';
 import { getOpticalBillsScreen, getOpticalBillPanel } from '@/lib/rpc-reads/optical__screens-actions'; // parallel reads (tools/parallel-reads)
 import {
-  OpticalHeader, ModeRows, r2, money, dateIST, when,
-  BILL_STATUS_BADGE, BILL_STATUS_LABEL, PAYMENT_TYPE_LABEL, PAYMENT_TYPE_BADGE,
+  OpticalHeader, Menu, ModeRows, r2, money, dateIST, when,
+  BILL_STATUS_BADGE, BILL_STATUS_LABEL,
 } from '../optical-ui';
 
 // ─────────────────────────────────────────────────────────────────────
 function Summary({ s }) {
   const cell = (label, value, sub, color) => (
-    <div style={{ flex: '1 1 150px', padding: '4px 16px', borderLeft: '1px solid var(--g200)' }}>
+    <div style={{ flex: '1 1 160px', padding: '4px 16px', borderLeft: '1px solid var(--g200)' }}>
       <div style={{ fontSize: 12, color: 'var(--g500)' }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: color || 'var(--g800)', marginTop: 2 }}>{s ? value : '--'}</div>
       {sub && s && <div style={{ fontSize: 11, color: 'var(--g400)' }}>{sub}</div>}
@@ -41,8 +43,7 @@ function Summary({ s }) {
         </div>
       </div>
       {cell('Billed today', s ? money(s.todayBilled) : '', s ? `${s.todayCount} bill${s.todayCount === 1 ? '' : 's'}` : '')}
-      {cell('Billed this month', s ? money(s.monthBilled) : '')}
-      {cell('Advance held', s ? money(s.advanceHeld) : '', 'customer credit on file')}
+      {cell('Still due from today', s ? money(s.todayDue || 0) : '', null, s && s.todayDue > 0 ? 'var(--red)' : undefined)}
     </div>
   );
 }
@@ -154,6 +155,8 @@ function BillEdit({ data, refresh, onDone, onCancel }) {
         <button type="button" className="btn" onClick={onCancel} disabled={saving}>Discard</button>
       </div>
 
+      <CancelSection data={data} refresh={refresh} onDone={onDone} />
+
       {ask && (
         <EditReasonModal
           title={`Reason for editing ${sale.sale_number}`}
@@ -213,9 +216,14 @@ function RecordPayment({ data, refresh, onDone, onCancel }) {
   );
 }
 
-function ApplyAdvance({ data, refresh, onDone, onCancel }) {
-  const max = r2(Math.min(data.advanceBalance, data.sale.due));
-  const [amount, setAmount] = useState(String(max));
+// Credit Note (Zoho-style, from the bill) -- reduces what the customer
+// owes on this bill. One request; refreshed bill + list come back with it.
+function CreditNoteForm({ data, refresh, onDone, onCancel }) {
+  const due = r2(data.sale.due);
+  const [amount, setAmount] = useState(String(due));
+  const [reason, setReason] = useState('');
+  const [approvedBy, setApprovedBy] = useState('');
+  const [remarks, setRemarks] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -223,37 +231,52 @@ function ApplyAdvance({ data, refresh, onDone, onCancel }) {
     if (busy) return;
     const amt = r2(amount);
     setError('');
-    if (!(amt > 0)) { setError('Enter an amount.'); return; }
-    if (amt > max) { setError(`At most ${money(max)} can be applied (advance ${money(data.advanceBalance)}, due ${money(data.sale.due)}).`); return; }
+    if (!(amt > 0)) { setError('Enter the credit amount.'); return; }
+    if (amt > due) { setError(`A credit note can be at most the balance due (${money(due)}).`); return; }
+    if (!reason.trim()) { setError('A reason is required.'); return; }
+    if (!approvedBy) { setError('Select who approved it.'); return; }
     setBusy(true);
     try {
-      const res = await applyOpticalAdvanceToBill(data.sale, amt, refresh);
+      const res = await createOpticalCreditNoteAndRefresh(data.sale.id, { amount: amt, reason: reason.trim(), approvedBy, remarks }, refresh);
       if (res.error) { setError(res.error); return; }
-      onDone(`${money(amt)} of advance applied.`, res.refresh);
+      onDone(`Credit note of ${money(amt)} issued on ${data.sale.sale_number}.`, res.refresh);
     } catch {
-      setError('Something went wrong -- check your connection and try again.');
+      setError('Something went wrong -- check your connection and try again. Nothing was saved.');
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div style={{ border: '1.5px solid var(--amber)', borderRadius: 10, padding: 12 }}>
-      <div style={{ fontWeight: 700, marginBottom: 8 }}><i className="ti ti-wallet" style={{ color: 'var(--amber)' }}></i> Apply advance -- {money(data.advanceBalance)} on file, {money(data.sale.due)} due</div>
+    <div style={{ border: '1.5px solid var(--teal, #0d9488)', borderRadius: 10, padding: 12 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}><i className="ti ti-file-minus" style={{ color: 'var(--teal, #0d9488)' }}></i> Credit note -- balance due {money(due)}</div>
       {error && <div className="msg-err">{error}</div>}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input type="number" min="0" step="0.01" className="fi" style={{ width: 160 }} value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>{busy ? 'Applying...' : 'Apply'}</button>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+        <div><label className="flbl">Credit amount (₹) *</label><input type="number" min="0" step="0.01" className="fi" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+        <div><label className="flbl">Approved by *</label>
+          <select className="fi" value={approvedBy} onChange={(e) => setApprovedBy(e.target.value)}>
+            <option value="">-- Select --</option>
+            {(data.approvers || []).map((a) => <option key={a.id} value={a.id}>{a.full_name}{a.designation ? ` (${a.designation})` : ''}</option>)}
+          </select></div>
+        <div style={{ gridColumn: '1 / -1' }}><label className="flbl">Reason *</label><input className="fi" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Frame price adjusted after delivery" /></div>
+        <div style={{ gridColumn: '1 / -1' }}><label className="flbl">Remarks</label><input className="fi" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={save}><i className="ti ti-device-floppy"></i> {busy ? 'Saving...' : 'Save credit note'}</button>
         <button type="button" className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );
 }
 
-function CancelBill({ data, refresh, onDone, onCancel }) {
+// Inside Edit, at the bottom (like hospital's Cancel / Void section).
+// An optical bill can be cancelled only while nothing is paid on it.
+function CancelSection({ data, refresh, onDone }) {
+  const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const paid = r2(data.sale.paid);
   async function save() {
     if (busy) return;
     setError('');
@@ -270,14 +293,22 @@ function CancelBill({ data, refresh, onDone, onCancel }) {
     }
   }
   return (
-    <div style={{ border: '1.5px solid var(--red-lt, #fecaca)', borderRadius: 10, padding: 12 }}>
-      <div style={{ fontSize: 12.5, color: 'var(--g600)', marginBottom: 8 }}>The bill stays on record as <strong>Cancelled</strong> and drops out of sales and dues.</div>
-      {error && <div className="msg-err">{error}</div>}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <input className="fi" style={{ flex: 1, minWidth: 200 }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason *" />
-        <button type="button" className="btn btn-sm" style={{ background: 'var(--red)', color: '#fff', borderColor: 'transparent' }} disabled={busy} onClick={save}>{busy ? 'Working...' : 'Confirm cancel'}</button>
-        <button type="button" className="btn btn-sm" disabled={busy} onClick={onCancel}>Back</button>
-      </div>
+    <div style={{ borderTop: '1px solid var(--g200)', marginTop: 16, paddingTop: 12 }}>
+      {paid > 0 ? (
+        <div style={{ fontSize: 11, color: 'var(--g400)' }}><i className="ti ti-lock"></i> Cancel bill: {money(paid)} has been paid / applied on this bill. Delete or refund those receipts first (Optical Payments).</div>
+      ) : !open ? (
+        <button type="button" className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => setOpen(true)}><i className="ti ti-x-circle"></i> Cancel this bill</button>
+      ) : (
+        <div style={{ border: '1.5px solid var(--red-lt, #fecaca)', borderRadius: 10, padding: 12 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--g600)', marginBottom: 8 }}>The bill stays on record as <strong>Void</strong> and drops out of sales and dues.</div>
+          {error && <div className="msg-err">{error}</div>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input className="fi" style={{ flex: 1, minWidth: 200 }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason *" />
+            <button type="button" className="btn btn-sm" style={{ background: 'var(--red)', color: '#fff', borderColor: 'transparent' }} disabled={busy} onClick={save}>{busy ? 'Working...' : 'Confirm cancel'}</button>
+            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>Back</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -312,9 +343,15 @@ function BillHistory({ entries }) {
 function BillPane({ saleId, preloaded, listArgs, onScreen, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [mode, setMode] = useState('view'); // view | edit | pay | advance | cancel
+  const [mode, setMode] = useState('view'); // view | edit | pay | cn
   const [showHistory, setShowHistory] = useState(false);
+  const [showPayments, setShowPayments] = useState(false);
   const [flash, setFlash] = useState('');
+  // Credits available -> Apply credits (customer's unused advance)
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applyAmt, setApplyAmt] = useState('');
+  const [applying, setApplying] = useState(false);
+  const [applyErr, setApplyErr] = useState('');
 
   const applyPanel = useCallback((d) => {
     if (!d) return;
@@ -328,7 +365,7 @@ function BillPane({ saleId, preloaded, listArgs, onScreen, onClose }) {
 
   const refresh = { list: listArgs || null };
   function done(msg, r) {
-    setMode('view'); setFlash(msg);
+    setMode('view'); setFlash(msg); setApplyOpen(false);
     if (r?.panel) applyPanel(r.panel);
     if (r?.screen) onScreen(r.screen);
   }
@@ -339,17 +376,42 @@ function BillPane({ saleId, preloaded, listArgs, onScreen, onClose }) {
   const s = data.sale;
   const cancelled = s.status === 'Cancelled';
   const due = r2(s.due);
+  const credit = r2(data.advanceBalance);
   let editBlock = null;
-  if (cancelled) editBlock = 'This bill is cancelled.';
+  if (cancelled) editBlock = 'This bill is void.';
   else if (data.dayClosed) editBlock = 'This bill is from a closed day. An Administrator must reopen that day in Cash Management first.';
   else if (!data.canEdit) editBlock = 'You do not have permission to edit bills.';
+  const receipts = data.payments.filter((p) => p.payment_type !== 'refund');
+  const refunds = data.payments.filter((p) => p.payment_type === 'refund');
 
-  const action = (key, icon, label, show = true, disabledTitle = null) => show && (
-    <button type="button" className={mode === key ? 'btn btn-sm btn-primary' : 'btn btn-sm'} title={disabledTitle || ''}
+  const action = (key, icon, label, show = true, primary = false) => show && (
+    <button type="button" className={mode === key || primary ? 'btn btn-sm btn-primary' : 'btn btn-sm'}
       onClick={() => { setFlash(''); setMode(mode === key ? 'view' : key); }}>
       <i className={`ti ${icon}`}></i> {label}
     </button>
   );
+
+  function openApply() {
+    setApplyAmt(String(r2(Math.min(credit, due)))); setApplyErr(''); setApplyOpen(true);
+  }
+  async function applyCredits() {
+    if (applying) return;
+    const amt = r2(applyAmt);
+    setApplyErr('');
+    if (!(amt > 0)) { setApplyErr('Enter an amount to credit.'); return; }
+    if (amt > credit) { setApplyErr(`Advance credit only has ${money(credit)}.`); return; }
+    if (amt > due) { setApplyErr(`Only ${money(due)} is due on this bill.`); return; }
+    setApplying(true);
+    try {
+      const res = await applyOpticalAdvanceToBill(s, amt, refresh);
+      if (res.error) { setApplyErr(res.error); return; }
+      done(`${money(amt)} of credit applied to ${s.sale_number}.`, res.refresh);
+    } catch {
+      setApplyErr('Something went wrong -- check your connection and try again.');
+    } finally {
+      setApplying(false);
+    }
+  }
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -360,81 +422,140 @@ function BillPane({ saleId, preloaded, listArgs, onScreen, onClose }) {
         <button type="button" className="btn btn-sm" onClick={onClose} title="Close"><i className="ti ti-x"></i></button>
       </div>
 
+      {/* Action bar -- same as hospital Invoices */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 16px', background: 'var(--g50)', borderBottom: '1px solid var(--g200)' }}>
         {action('edit', 'ti-edit', 'Edit', !cancelled)}
-        {action('pay', 'ti-cash', 'Record Payment', !cancelled && due > 0)}
-        {action('advance', 'ti-wallet', `Apply Advance (${money(data.advanceBalance)})`, !cancelled && due > 0 && data.advanceBalance > 0)}
+        {!cancelled && due > 0 && (
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => { setFlash(''); setMode(mode === 'pay' ? 'view' : 'pay'); }}><i className="ti ti-cash"></i> Record Payment</button>
+        )}
         <a href={`/optical-receipt-print/${s.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-printer"></i> PDF/Print</a>
-        {action('cancel', 'ti-x-circle', 'Cancel bill', !cancelled && r2(s.paid) === 0)}
+        {action('cn', 'ti-file-minus', 'Credit Note', !cancelled && due > 0)}
         <button type="button" className={showHistory ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setShowHistory((v) => !v)}>
-          <i className="ti ti-history"></i> History{data.history?.length ? ` (${data.history.length})` : ''}
+          <i className="ti ti-history"></i> History
         </button>
       </div>
-      {flash && <div className="msg-success" style={{ margin: '8px 16px 0' }}>{flash}</div>}
+      {flash && <div className="msg-success" style={{ margin: '8px 16px 0' }}><i className="ti ti-circle-check"></i> {flash}</div>}
+
+      {/* Credits available (Zoho-style): the customer's unused advance */}
+      {!cancelled && due > 0 && credit > 0 && (
+        <div style={{ margin: '12px 16px 0', padding: '10px 12px', borderRadius: 8, background: 'var(--purple-lt)', border: '1px solid #d8b4fe' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--purple)' }}>
+              <i className="ti ti-wallet"></i> <strong>Credits available: {money(credit)}</strong> <span style={{ color: 'var(--g600)' }}>(Advance credit)</span>
+            </span>
+            {!applyOpen && (
+              <button type="button" className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={openApply}>Apply credits</button>
+            )}
+          </div>
+          {applyOpen && (
+            <div style={{ marginTop: 8, background: '#fff', borderRadius: 8, padding: 8 }}>
+              <table className="tbl" style={{ margin: 0 }}>
+                <thead><tr><th>Credit</th><th style={{ textAlign: 'right' }}>Available</th><th style={{ textAlign: 'right', width: 130 }}>Amount to credit</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td style={{ fontWeight: 600 }}>Advance credit</td>
+                    <td style={{ textAlign: 'right' }}>{money(credit)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <input className="fi fi-sm" type="number" min="0" step="0.01" style={{ width: 115, textAlign: 'right' }} value={applyAmt} onChange={(e) => setApplyAmt(e.target.value)} />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12.5 }}>Balance due {money(due)} · applying <strong>{money(r2(applyAmt))}</strong></span>
+                <span style={{ flex: 1 }}></span>
+                <button type="button" className="btn btn-sm btn-primary" disabled={applying} onClick={applyCredits}>{applying ? 'Applying...' : 'Apply credits'}</button>
+                <button type="button" className="btn btn-sm" disabled={applying} onClick={() => setApplyOpen(false)}>Cancel</button>
+              </div>
+              {applyErr && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>{applyErr}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Payments received strip (Zoho-style) */}
+      <div style={{ margin: '12px 16px 0', border: '1px solid var(--g200)', borderRadius: 8 }}>
+        <button type="button" onClick={() => setShowPayments((v) => !v)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--g700)' }}>
+          <span>Payments received <span className="badge b-blue" style={{ marginLeft: 4 }}>{receipts.length}</span>{refunds.length > 0 && <span className="badge b-red" style={{ marginLeft: 4 }}>{refunds.length} refund{refunds.length === 1 ? '' : 's'}</span>}</span>
+          <i className={`ti ti-chevron-${showPayments ? 'up' : 'down'}`}></i>
+        </button>
+        {showPayments && (
+          <table className="tbl" style={{ margin: 0 }}>
+            <thead><tr><th>Date</th><th>Receipt #</th><th>Mode</th><th style={{ textAlign: 'right' }}>Applied</th></tr></thead>
+            <tbody>
+              {receipts.map((p) => (
+                <tr key={p.id}>
+                  <td>{dateIST(p.collected_at)}</td>
+                  <td>
+                    <Link href={`/optical/payments?paymentId=${p.id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{p.receipt_number || 'Advance applied'}</Link>
+                    {p.payment_type === 'advance_adjustment' && <span className="badge b-amber" style={{ marginLeft: 6 }}>Advance</span>}
+                    {p.payment_type === 'credit_note' && <span className="badge b-teal" style={{ marginLeft: 6 }}>Credit note</span>}
+                  </td>
+                  <td>{p.modes || '--'}</td>
+                  <td style={{ textAlign: 'right' }}>{money(p.amount)}</td>
+                </tr>
+              ))}
+              {refunds.map((r) => (
+                <tr key={r.id} style={{ color: 'var(--red)', opacity: r.refundCancelled ? 0.5 : 1 }}>
+                  <td>{dateIST(r.collected_at)}</td><td>Refund{r.refundCancelled ? ' (cancelled)' : ''}</td><td>{r.modes || '--'}</td><td style={{ textAlign: 'right' }}>-{money(r.amount)}</td>
+                </tr>
+              ))}
+              {data.payments.length === 0 && <tr><td colSpan={4} style={{ color: 'var(--g400)', textAlign: 'center', padding: 12 }}>No payments yet.</td></tr>}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       <div style={{ padding: 16 }}>
         {mode === 'edit' && (editBlock
           ? <div className="msg-info" style={{ margin: 0 }}><i className="ti ti-lock"></i> {editBlock}</div>
           : <BillEdit data={data} refresh={refresh} onDone={done} onCancel={() => setMode('view')} />)}
-        {mode === 'pay' && <RecordPayment data={data} refresh={refresh} onDone={done} onCancel={() => setMode('view')} />}
-        {mode === 'advance' && <ApplyAdvance data={data} refresh={refresh} onDone={done} onCancel={() => setMode('view')} />}
-        {mode === 'cancel' && <CancelBill data={data} refresh={refresh} onDone={done} onCancel={() => setMode('view')} />}
+        {mode === 'pay' && <div style={{ marginBottom: 14 }}><RecordPayment data={data} refresh={refresh} onDone={done} onCancel={() => setMode('view')} /></div>}
+        {mode === 'cn' && <div style={{ marginBottom: 14 }}><CreditNoteForm data={data} refresh={refresh} onDone={done} onCancel={() => setMode('view')} /></div>}
 
         {mode !== 'edit' && (
-          <div style={{ marginTop: mode === 'view' ? 0 : 14 }}>
-            {cancelled && <div className="msg-err" style={{ marginBottom: 12 }}><i className="ti ti-ban"></i> Cancelled{s.cancellation_reason ? ` -- ${s.cancellation_reason}` : ''}.</div>}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12, fontSize: 13 }}>
+          <>
+            {cancelled && <div className="msg-err" style={{ marginBottom: 12 }}><i className="ti ti-ban"></i> Void{s.cancellation_reason ? ` -- ${s.cancellation_reason}` : ''}.</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, marginBottom: 12, fontSize: 13 }}>
               <div>
-                <div style={{ fontSize: 11, color: 'var(--g500)' }}>Bill to</div>
-                <div style={{ fontWeight: 700 }}>{s.customer}</div>
-                <div style={{ fontSize: 12, color: 'var(--g500)' }}>{[s.uhid, s.mobile].filter(Boolean).join(' · ')}</div>
+                <div style={{ fontSize: 11, color: 'var(--g500)', fontWeight: 700 }}>BILL TO</div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{s.customer}</div>
+                <div style={{ color: 'var(--g500)' }}>{[s.uhid, s.mobile].filter(Boolean).join(' · ')}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 11, color: 'var(--g500)' }}>Bill date</div>
-                <div style={{ fontWeight: 600 }}>{dateIST(s.sale_date)}</div>
+                <div><span style={{ color: 'var(--g500)' }}>Bill date </span><strong>{dateIST(s.sale_date)}</strong></div>
+                {s.notes && <div><span style={{ color: 'var(--g500)' }}>Notes </span>{s.notes}</div>}
               </div>
             </div>
 
             <table className="tbl">
-              <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+              <thead><tr><th>#</th><th>Description</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
               <tbody>
-                {data.items.map((i) => (
-                  <tr key={i.id}><td>{i.description}</td><td style={{ textAlign: 'right' }}>{i.qty}</td><td style={{ textAlign: 'right' }}>{money(i.unit_price)}</td><td style={{ textAlign: 'right' }}>{money(i.amount)}</td></tr>
+                {data.items.map((i, idx) => (
+                  <tr key={i.id}>
+                    <td>{idx + 1}</td>
+                    <td>{i.description}</td>
+                    <td style={{ textAlign: 'right' }}>{i.qty}</td>
+                    <td style={{ textAlign: 'right' }}>{money(i.unit_price)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{money(i.amount)}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
-            <div style={{ marginLeft: 'auto', maxWidth: 300, fontSize: 13, lineHeight: 1.9, marginTop: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Items total</span><span>{money(s.gross)}</span></div>
-              {Number(s.discount) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Discount</span><span>-{money(s.discount)}</span></div>}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Total</span><span>{money(s.net)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--green)' }}><span>Paid</span><span>{money(s.paid)}</span></div>
-              {due > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--red)', fontWeight: 700 }}><span>Balance due</span><span>{money(due)}</span></div>}
-            </div>
-            {s.notes && <div style={{ fontSize: 12, color: 'var(--g600)', marginTop: 8 }}><i className="ti ti-note"></i> {s.notes}</div>}
 
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 6 }}>Payments</div>
-              {data.payments.length === 0 ? <div style={{ fontSize: 12, color: 'var(--g400)' }}>No payments yet.</div> : (
-                <table className="tbl">
-                  <thead><tr><th>Date</th><th>Receipt</th><th>Type</th><th>Mode</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
-                  <tbody>
-                    {data.payments.map((p) => (
-                      <tr key={p.id} style={{ color: p.payment_type === 'refund' ? 'var(--red)' : undefined, opacity: p.refundCancelled ? 0.5 : 1 }}>
-                        <td>{dateIST(p.collected_at)}</td>
-                        <td>{p.receipt_number ? <Link href={`/optical/payments?paymentId=${p.id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{p.receipt_number}</Link> : '--'}</td>
-                        <td><span className={`badge ${PAYMENT_TYPE_BADGE[p.payment_type] || 'b-gray'}`}>{PAYMENT_TYPE_LABEL[p.payment_type] || p.payment_type}</span>{p.refundCancelled && <span style={{ fontSize: 10, marginLeft: 4 }}>(cancelled)</span>}</td>
-                        <td style={{ fontSize: 12 }}>{p.modes || '--'}</td>
-                        <td style={{ textAlign: 'right' }}>{p.payment_type === 'refund' ? '-' : ''}{money(p.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+              <div style={{ minWidth: 240, fontSize: 13, lineHeight: 1.9 }}>
+                {Number(s.discount) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Sub total</span><span>{money(s.gross)}</span></div>}
+                {Number(s.discount) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--g500)' }}><span>Discount</span><span>-{money(s.discount)}</span></div>}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Total</span><span>{money(s.net)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--green)' }}><span>Paid</span><span>-{money(s.paid)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, borderTop: '1px solid var(--g200)', color: due > 0 ? 'var(--red)' : 'var(--green)' }}><span>Balance due</span><span>{money(due)}</span></div>
+              </div>
             </div>
-          </div>
+          </>
         )}
 
-        {showHistory && <div style={{ marginTop: 14 }}><div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 6 }}>Change history</div><BillHistory entries={data.history} /></div>}
+        {showHistory && <div style={{ marginTop: 12 }}><div className="card-title" style={{ fontSize: 13 }}>Change history</div><BillHistory entries={data.history} /></div>}
       </div>
     </div>
   );
@@ -489,7 +610,12 @@ export default function OpticalBillsScreen() {
 
   return (
     <div>
-      <OpticalHeader title="Optical Bills" />
+      <OpticalHeader title="Optical Bills">
+        <Menu label="" icon="ti-dots" items={[
+          { href: '/optical/payments', icon: 'ti-receipt-2', label: 'Optical Payments' },
+          { href: '/optical/dashboard', icon: 'ti-eyeglass', label: 'Book / Finalize orders' },
+        ]} />
+      </OpticalHeader>
       <DayOpenBar status={screen.day} note="creating bills or collecting payments is blocked" source="Optical Shop" />
       <Summary s={screen.summary} />
 
@@ -501,7 +627,7 @@ export default function OpticalBillsScreen() {
             <option value="Pending">Unpaid</option>
             <option value="Partial">Partially paid</option>
             <option value="Paid">Paid</option>
-            <option value="Cancelled">Cancelled</option>
+            <option value="Cancelled">Void</option>
           </select>
           <input type="date" className="fi" style={{ width: 150 }} value={from} onChange={(e) => setFrom(e.target.value)} title="From" />
           <input type="date" className="fi" style={{ width: 150 }} value={to} onChange={(e) => setTo(e.target.value)} title="To" />
@@ -534,7 +660,7 @@ export default function OpticalBillsScreen() {
             </div>
           ) : (
             <table className="tbl">
-              <thead><tr><th>Date</th><th>Bill #</th><th>Customer</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Balance due</th></tr></thead>
+              <thead><tr><th>Date</th><th>Bill #</th><th>Customer</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Balance due</th><th></th></tr></thead>
               <tbody>
                 {rows.map((b) => (
                   <tr key={b.id} onClick={() => pick(b.id)} style={{ cursor: 'pointer', opacity: b.status === 'Cancelled' ? 0.55 : 1 }}>
@@ -544,10 +670,13 @@ export default function OpticalBillsScreen() {
                     <td><span className={`badge ${BILL_STATUS_BADGE[b.status] || 'b-gray'}`}>{BILL_STATUS_LABEL[b.status] || b.status}</span></td>
                     <td style={{ textAlign: 'right' }}>{money(b.net)}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: Number(b.due) > 0 ? 'var(--red)' : 'inherit' }}>{money(b.due)}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <a href={`/optical-receipt-print/${b.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" title="Print / PDF"><i className="ti ti-printer"></i></a>
+                    </td>
                   </tr>
                 ))}
-                {loading && rows.length === 0 && <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>Loading...</td></tr>}
-                {!loading && rows.length === 0 && <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No bills found.</td></tr>}
+                {loading && rows.length === 0 && <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>Loading...</td></tr>}
+                {!loading && rows.length === 0 && <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--g400)' }}>No bills found.</td></tr>}
               </tbody>
             </table>
           )}

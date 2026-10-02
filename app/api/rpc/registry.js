@@ -185,6 +185,7 @@ export const READS = {
   'optical.screens-actions.getOpticalBillPanel': m21.getOpticalBillPanel,
   'optical.screens-actions.getOpticalBillsScreen': m21.getOpticalBillsScreen,
   'optical.screens-actions.getOpticalDeletedReceipts': m21.getOpticalDeletedReceipts,
+  'optical.screens-actions.getOpticalNewPaymentContext': m21.getOpticalNewPaymentContext,
   'optical.screens-actions.getOpticalPaymentsScreen': m21.getOpticalPaymentsScreen,
   'optical.screens-actions.getOpticalReceiptPanel': m21.getOpticalReceiptPanel,
   'optometry-dashboard.actions.getOptometryDashboardData': m22.getOptometryDashboardData,
