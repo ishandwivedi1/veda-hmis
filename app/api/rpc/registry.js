@@ -30,15 +30,16 @@ import * as m25 from '@/app/(main)/patient-timeline/actions';
 import * as m26 from '@/app/(main)/payments/actions';
 import * as m27 from '@/app/(main)/payments/combined-actions';
 import * as m28 from '@/app/(main)/payments/payment-edit-actions';
-import * as m29 from '@/app/(main)/pharmacy/actions';
-import * as m30 from '@/app/print-templates/actions';
-import * as m31 from '@/app/(main)/queue/actions';
-import * as m32 from '@/app/(main)/surgical-journey/actions';
-import * as m33 from '@/app/(main)/users/actions';
-import * as m34 from '@/app/(main)/users/billing-permission-actions';
-import * as m35 from '@/app/(main)/visits/actions';
-import * as m36 from '@/app/(main)/visits/combined-actions';
-import * as m37 from '@/app/(main)/workflow-monitor/actions';
+import * as m29 from '@/app/(main)/payments/received-actions';
+import * as m30 from '@/app/(main)/pharmacy/actions';
+import * as m31 from '@/app/print-templates/actions';
+import * as m32 from '@/app/(main)/queue/actions';
+import * as m33 from '@/app/(main)/surgical-journey/actions';
+import * as m34 from '@/app/(main)/users/actions';
+import * as m35 from '@/app/(main)/users/billing-permission-actions';
+import * as m36 from '@/app/(main)/visits/actions';
+import * as m37 from '@/app/(main)/visits/combined-actions';
+import * as m38 from '@/app/(main)/workflow-monitor/actions';
 
 export const READS = {
   'appointments.actions.getDoctors': m0.getDoctors,
@@ -231,31 +232,32 @@ export const READS = {
   'payments.payment-edit-actions.getDeletedPayments': m28.getDeletedPayments,
   'payments.payment-edit-actions.getPaymentEditContext': m28.getPaymentEditContext,
   'payments.payment-edit-actions.getPaymentHistory': m28.getPaymentHistory,
-  'pharmacy.actions.getPendingPrescriptionsForFrontOffice': m29.getPendingPrescriptionsForFrontOffice,
-  'pharmacy.actions.getPharmacyDashboard': m29.getPharmacyDashboard,
-  'pharmacy.actions.getPharmacyHistory': m29.getPharmacyHistory,
-  'pharmacy.actions.getPharmacyWorkspace': m29.getPharmacyWorkspace,
-  'print-templates.actions.getHospitalSettings': m30.getHospitalSettings,
-  'print-templates.actions.getPrintTemplate': m30.getPrintTemplate,
-  'print-templates.actions.listPrintTemplates': m30.listPrintTemplates,
-  'queue.actions.getOpenQueueEntriesToday': m31.getOpenQueueEntriesToday,
-  'queue.actions.getPatientFlow': m31.getPatientFlow,
-  'queue.actions.getPatientTimeline': m31.getPatientTimeline,
-  'queue.actions.getQueues': m31.getQueues,
-  'surgical-journey.actions.getCompletedSurgicalCases': m32.getCompletedSurgicalCases,
-  'surgical-journey.actions.getDischargedTodaySurgicalCases': m32.getDischargedTodaySurgicalCases,
-  'surgical-journey.actions.getInvestigationOptionsForCase': m32.getInvestigationOptionsForCase,
-  'surgical-journey.actions.getSurgicalCaseDetail': m32.getSurgicalCaseDetail,
-  'surgical-journey.actions.getSurgicalCaseLists': m32.getSurgicalCaseLists,
-  'surgical-journey.actions.getSurgicalEvaluationArrivalsToday': m32.getSurgicalEvaluationArrivalsToday,
-  'surgical-journey.actions.getSurgicalTrackArrivalsToday': m32.getSurgicalTrackArrivalsToday,
-  'users.actions.getLoginHistory': m33.getLoginHistory,
-  'users.actions.getMyDesignation': m33.getMyDesignation,
-  'users.actions.getUsers': m33.getUsers,
-  'users.billing-permission-actions.getBillingPermissionMatrix': m34.getBillingPermissionMatrix,
-  'visits.actions.getLastVisitInfo': m35.getLastVisitInfo,
-  'visits.actions.getPatientById': m35.getPatientById,
-  'visits.actions.getSurgeryTypeOptions': m35.getSurgeryTypeOptions,
-  'visits.combined-actions.getBookVisitBootstrap': m36.getBookVisitBootstrap,
-  'workflow-monitor.actions.getWorkflowMonitorData': m37.getWorkflowMonitorData,
+  'payments.received-actions.getReceivedPaymentDetail': m29.getReceivedPaymentDetail,
+  'pharmacy.actions.getPendingPrescriptionsForFrontOffice': m30.getPendingPrescriptionsForFrontOffice,
+  'pharmacy.actions.getPharmacyDashboard': m30.getPharmacyDashboard,
+  'pharmacy.actions.getPharmacyHistory': m30.getPharmacyHistory,
+  'pharmacy.actions.getPharmacyWorkspace': m30.getPharmacyWorkspace,
+  'print-templates.actions.getHospitalSettings': m31.getHospitalSettings,
+  'print-templates.actions.getPrintTemplate': m31.getPrintTemplate,
+  'print-templates.actions.listPrintTemplates': m31.listPrintTemplates,
+  'queue.actions.getOpenQueueEntriesToday': m32.getOpenQueueEntriesToday,
+  'queue.actions.getPatientFlow': m32.getPatientFlow,
+  'queue.actions.getPatientTimeline': m32.getPatientTimeline,
+  'queue.actions.getQueues': m32.getQueues,
+  'surgical-journey.actions.getCompletedSurgicalCases': m33.getCompletedSurgicalCases,
+  'surgical-journey.actions.getDischargedTodaySurgicalCases': m33.getDischargedTodaySurgicalCases,
+  'surgical-journey.actions.getInvestigationOptionsForCase': m33.getInvestigationOptionsForCase,
+  'surgical-journey.actions.getSurgicalCaseDetail': m33.getSurgicalCaseDetail,
+  'surgical-journey.actions.getSurgicalCaseLists': m33.getSurgicalCaseLists,
+  'surgical-journey.actions.getSurgicalEvaluationArrivalsToday': m33.getSurgicalEvaluationArrivalsToday,
+  'surgical-journey.actions.getSurgicalTrackArrivalsToday': m33.getSurgicalTrackArrivalsToday,
+  'users.actions.getLoginHistory': m34.getLoginHistory,
+  'users.actions.getMyDesignation': m34.getMyDesignation,
+  'users.actions.getUsers': m34.getUsers,
+  'users.billing-permission-actions.getBillingPermissionMatrix': m35.getBillingPermissionMatrix,
+  'visits.actions.getLastVisitInfo': m36.getLastVisitInfo,
+  'visits.actions.getPatientById': m36.getPatientById,
+  'visits.actions.getSurgeryTypeOptions': m36.getSurgeryTypeOptions,
+  'visits.combined-actions.getBookVisitBootstrap': m37.getBookVisitBootstrap,
+  'workflow-monitor.actions.getWorkflowMonitorData': m38.getWorkflowMonitorData,
 };

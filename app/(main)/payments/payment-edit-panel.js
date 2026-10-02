@@ -18,6 +18,7 @@ const when = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkat
 const HISTORY_LABEL = {
   payment_edited: 'Edited',
   older_edit: 'Edited (older record)',
+  payment_modes_corrected_closed_day: 'Mode corrected (closed day)',
 };
 
 function PaymentHistory({ entries }) {

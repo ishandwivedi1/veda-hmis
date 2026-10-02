@@ -10,7 +10,7 @@ const TABS = [
   { href: '/payments/collect', label: 'Collect Payment', icon: 'ti-cash' },
   { href: '/payments/advance', label: 'Advance', icon: 'ti-wallet' },
   { href: '/payments/adjustments', label: 'Adjustments', icon: 'ti-adjustments' },
-  { href: '/payments/receipt', label: 'Receipt', icon: 'ti-receipt-2' },
+  { href: '/payments/received', label: 'Payments Received', icon: 'ti-receipt-2' },
   { href: '/payments/reports', label: 'Reports', icon: 'ti-file-report' },
 ];
 
