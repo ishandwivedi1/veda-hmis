@@ -19,6 +19,8 @@ import { formatPatientName } from '@/lib/patientName';
 import { openPrintPopup } from '@/lib/printPopup';
 import { resendInvoiceBillWhatsApp, setManualSurgeryDetails } from '../actions';
 import { searchInvoices, getInvoicesForVisit, getSurgeryBillingOptions } from '@/lib/rpc-reads/billing__actions';
+import { applyAdjustment } from '@/app/(main)/payments/actions';
+import { getAdvanceBalance } from '@/lib/rpc-reads/payments__actions';
 import { getInvoicePanel, getInvoicesSummary } from '@/lib/rpc-reads/billing__invoices-screen-actions'; // parallel reads (tools/parallel-reads)
 import InvoiceEditPanel from '../invoice-edit-panel';
 import InvoiceHistory from '../invoice-history';
@@ -258,12 +260,20 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
   const [historyKey, setHistoryKey] = useState(0);
   const [wa, setWa] = useState({ status: '', msg: '' });
   const [flash, setFlash] = useState('');
+  // Zoho-style "Credits available -- Apply": the patient's unused advance
+  // credit, applied to this invoice via apply_advance_adjustment.
+  const [credit, setCredit] = useState(0);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applyAmt, setApplyAmt] = useState('');
+  const [applying, setApplying] = useState(false);
+  const [applyErr, setApplyErr] = useState('');
 
   const load = useCallback(async () => {
     setError('');
     const d = await getInvoicePanel(invoiceId);
     if (d?.error) { setError(d.error); return; }
     setData(d);
+    if (d.invoice?.patient_id) getAdvanceBalance(d.invoice.patient_id).then((b) => setCredit(r2(b))).catch(() => {});
   }, [invoiceId]);
   useEffect(() => { load(); }, [load]);
 
@@ -278,6 +288,20 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
     } catch {
       setWa({ status: 'error', msg: 'Could not send -- check the connection and try again.' });
     }
+  }
+
+  async function applyCredits(maxApply) {
+    if (applying) return;
+    const amt = r2(applyAmt);
+    setApplyErr('');
+    if (!amt || amt <= 0) { setApplyErr('Enter an amount.'); return; }
+    if (amt > maxApply) { setApplyErr(`At most ${money(maxApply)} can be applied.`); return; }
+    setApplying(true);
+    const res = await applyAdjustment(data.invoice.patient_id, data.invoice.id, amt);
+    setApplying(false);
+    if (res?.error) { setApplyErr(res.error); return; }
+    setApplyOpen(false);
+    afterChange(`${money(amt)} of advance credit applied to ${data.invoice.invoice_number}.`);
   }
 
   function afterChange(msg) {
@@ -323,6 +347,36 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
       </div>
       {wa.msg && <div className={wa.status === 'error' ? 'msg-err' : 'msg-success'} style={{ margin: '8px 16px 0' }}>{wa.msg}</div>}
       {flash && <div className="msg-success" style={{ margin: '8px 16px 0' }}><i className="ti ti-circle-check"></i> {flash}</div>}
+
+      {/* Credits available (Zoho-style) */}
+      {!cancelled && due > 0 && credit > 0 && (() => {
+        const maxApply = r2(Math.min(credit, due));
+        return (
+          <div style={{ margin: '12px 16px 0', padding: '10px 12px', borderRadius: 8, background: 'var(--purple-lt)', border: '1px solid #d8b4fe' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: 'var(--purple)' }}>
+                <i className="ti ti-wallet"></i> <strong>Credits available: {money(credit)}</strong> <span style={{ color: 'var(--g600)' }}>(patient&apos;s unused advance)</span>
+              </span>
+              {!applyOpen && (
+                <button type="button" className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }}
+                  onClick={() => { setApplyOpen(true); setApplyAmt(String(maxApply)); setApplyErr(''); }}>
+                  Apply credits
+                </button>
+              )}
+            </div>
+            {applyOpen && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12.5 }}>Amount to apply ₹</span>
+                <input className="fi fi-sm" type="number" min="0" step="0.01" style={{ width: 120 }} value={applyAmt} onChange={(e) => setApplyAmt(e.target.value)} />
+                <span style={{ fontSize: 11.5, color: 'var(--g500)' }}>max {money(maxApply)}</span>
+                <button type="button" className="btn btn-sm btn-primary" disabled={applying} onClick={() => applyCredits(maxApply)}>{applying ? 'Applying...' : 'Apply'}</button>
+                <button type="button" className="btn btn-sm" disabled={applying} onClick={() => setApplyOpen(false)}>Cancel</button>
+                {applyErr && <span style={{ fontSize: 12, color: 'var(--red)', width: '100%' }}>{applyErr}</span>}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Payments received strip (Zoho-style) */}
       <div style={{ margin: '12px 16px 0', border: '1px solid var(--g200)', borderRadius: 8 }}>
