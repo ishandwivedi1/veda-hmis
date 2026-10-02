@@ -478,7 +478,7 @@ export default function InvoicesScreen({ fullyPaidUnbilled = [], todaysVisits = 
         <div style={{ display: 'flex', gap: 6 }}>
           <Menu label="New" icon="ti-plus" primary items={[
             { href: '/billing/new', icon: 'ti-file-plus', label: 'New Invoice', hint: 'OPD, investigation, procedure, pharmacy' },
-            { href: '/payments/collect', icon: 'ti-cash', label: 'Record Payment', hint: 'Against an invoice' },
+            { href: '/payments/collect', icon: 'ti-cash', label: 'Record Payment', hint: 'For bills, or as an advance' },
           ]} />
           <Menu label="" icon="ti-dots" items={[
             { href: '/payments', icon: 'ti-receipt-2', label: 'Payments Received' },

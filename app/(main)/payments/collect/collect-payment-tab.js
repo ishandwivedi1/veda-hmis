@@ -3,13 +3,18 @@
 import { useState, useEffect } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { collectPayment, applyAdjustment } from '../actions';
+import { collectPayment, applyAdjustment, collectAdvance } from '../actions';
 import { searchPatientsForPayment } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import { getCollectPaymentBootstrap, getPatientPaymentContext } from '@/lib/rpc-reads/payments__combined-actions'; // parallel reads (tools/parallel-reads)
 import BackdateControl from '@/app/components/BackdateControl';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 const STATUS_BADGE = { Partial: 'b-amber', Pending: 'b-red' };
+// Record Payment is one form (2 Oct 2026): tick the bills being paid --
+// anything above their balance goes to the patient's advance credit
+// (collect_payment already does this). Tick none and the money is saved
+// as an advance (collect_advance), so no separate Advance form is needed.
+const ADVANCE_TYPES = ['General Advance', 'Surgery Advance', 'Package Advance', 'Other'];
 
 export default function CollectPaymentTab() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,6 +31,8 @@ export default function CollectPaymentTab() {
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
   const [backdate, setBackdate] = useState({ backdateTo: '', backdateReason: '' });
+  const [advanceType, setAdvanceType] = useState('General Advance');
+  const [savedAsAdvance, setSavedAsAdvance] = useState(false);
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -77,6 +84,13 @@ export default function CollectPaymentTab() {
     .reduce((s, inv) => s + (Number(inv.net) - Number(inv.paid)), 0);
 
   const modesTotal = modeRows.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0);
+
+  // No bill ticked -> this is an advance. Otherwise anything above the
+  // ticked bills' balance becomes advance credit.
+  const isAdvanceOnly = Boolean(selectedPatient) && selectedInvoiceIds.length === 0;
+  const amtNum = parseFloat(amount) || 0;
+  const toInvoices = isAdvanceOnly ? 0 : Math.min(amtNum, totalSelectedOutstanding);
+  const toAdvance = isAdvanceOnly ? amtNum : Math.max(0, amtNum - totalSelectedOutstanding);
 
   async function handleSearch() {
     if (!searchQuery.trim()) return;
@@ -204,12 +218,13 @@ export default function CollectPaymentTab() {
     setReceipt(null);
     setOverpaidAmount(0);
     setAdvancePaidInvoices(null);
+    setSavedAsAdvance(false);
     setError('');
   }
 
   async function handleCollect() {
     setError('');
-    if (selectedInvoiceIds.length === 0) { setError('Select at least one invoice to pay.'); return; }
+    if (loading) return;
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setError('Enter a valid amount collecting.'); return; }
     if (Math.abs(modesTotal - amt) > 0.01) {
@@ -220,6 +235,18 @@ export default function CollectPaymentTab() {
     setLoading(true);
     try {
       const modesPayload = modeRows.filter((m) => parseFloat(m.amount) > 0).map((m) => ({ mode: m.mode, amount: parseFloat(m.amount) }));
+      if (isAdvanceOnly) {
+        const adv = await collectAdvance(
+          selectedPatient.id, advanceType, amt, modesPayload, reference, remarks,
+          backdate.backdateTo || null, backdate.backdateReason,
+        );
+        if (adv.error) { setError(adv.error); return; }
+        setOverpaidAmount(0);
+        setSavedAsAdvance(true);
+        setReceipt(adv.payment);
+        setBackdate({ backdateTo: '', backdateReason: '' });
+        return;
+      }
       const result = await collectPayment(
         selectedPatient.id, selectedInvoiceIds, amt, modesPayload, reference, remarks,
         backdate.backdateTo || null, backdate.backdateReason,
@@ -271,12 +298,12 @@ export default function CollectPaymentTab() {
           {urlInvoiceId ? (
             <>
               <button className="btn btn-primary" onClick={() => router.push('/billing')}>
-                <i className="ti ti-arrow-left"></i> Back to Billing Dashboard
+                <i className="ti ti-arrow-left"></i> Back to Invoices
               </button>
               <span style={{ fontSize: 11, color: 'var(--g400)', alignSelf: 'center' }}>Returning automatically...</span>
             </>
           ) : (
-            <button className="btn btn-primary" onClick={reset}>Collect another payment</button>
+            <button className="btn btn-primary" onClick={reset}>Record another payment</button>
           )}
         </div>
       </div>
@@ -287,7 +314,7 @@ export default function CollectPaymentTab() {
     return (
       <div className="card">
         <div className="msg-success">
-          <i className="ti ti-circle-check"></i> Payment collected -- Receipt <strong>{receipt.receipt_number}</strong> -- Rs.{receipt.total_amount}
+          <i className="ti ti-circle-check"></i> {savedAsAdvance ? `Advance (${advanceType}) recorded` : 'Payment recorded'} -- Receipt <strong>{receipt.receipt_number}</strong> -- Rs.{receipt.total_amount}
         </div>
         {overpaidAmount > 0 && (
           <div className="msg-info" style={{ background: 'var(--purple-lt)', color: 'var(--purple)', padding: '8px 12px', borderRadius: 8, fontSize: 12 }}>
@@ -303,12 +330,12 @@ export default function CollectPaymentTab() {
           {urlInvoiceId ? (
             <>
               <button className="btn btn-primary" onClick={() => router.push('/billing')}>
-                <i className="ti ti-arrow-left"></i> Back to Billing Dashboard
+                <i className="ti ti-arrow-left"></i> Back to Invoices
               </button>
               <span style={{ fontSize: 11, color: 'var(--g400)', alignSelf: 'center' }}>Returning automatically...</span>
             </>
           ) : (
-            <button className="btn btn-primary" onClick={reset}>Collect another payment</button>
+            <button className="btn btn-primary" onClick={reset}>Record another payment</button>
           )}
         </div>
       </div>
@@ -319,7 +346,8 @@ export default function CollectPaymentTab() {
     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
       <div className="card">
         <div className="card-title" style={{ marginBottom: 10 }}>
-          <i className="ti ti-cash" style={{ color: 'var(--green)' }}></i> Collect Payment
+          <i className="ti ti-cash" style={{ color: 'var(--green)' }}></i> Record Payment
+          <span style={{ fontSize: 11.5, fontWeight: 400, color: 'var(--g500)', marginLeft: 8 }}>for bills and/or as advance</span>
         </div>
 
         {error && <div className="msg-err">{error}</div>}
@@ -358,8 +386,8 @@ export default function CollectPaymentTab() {
               </div>
             </div>
 
-            <label className="flbl">Select invoice(s) to pay *</label>
-            {invoices.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', marginBottom: 14 }}>No outstanding invoices for this patient.</div>}
+            <label className="flbl">Bills being paid <span style={{ fontWeight: 400, color: 'var(--g500)' }}>-- untick all to record an advance</span></label>
+            {invoices.length === 0 && <div style={{ fontSize: 12, color: 'var(--g500)', marginBottom: 14 }}>No unpaid bills for this patient -- this will be saved as an advance (patient credit).</div>}
             <div style={{ marginBottom: 14 }}>
               {invoices.map((inv) => (
                 <label
@@ -382,17 +410,30 @@ export default function CollectPaymentTab() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
               <div>
-                <label className="flbl">Amount collecting (Rs.) *</label>
+                <label className="flbl">Amount received (Rs.) *</label>
                 <input type="number" className="fi" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
               </div>
               <div>
-                <label className="flbl">Total selected outstanding</label>
-                <input className="fi" value={`Rs.${totalSelectedOutstanding.toFixed(2)}`} readOnly style={{ background: 'var(--g50)', fontWeight: 700, color: 'var(--red)' }} />
+                <label className="flbl">{isAdvanceOnly ? 'Advance type' : 'Balance of ticked bills'}</label>
+                {isAdvanceOnly ? (
+                  <select className="fi" value={advanceType} onChange={(e) => setAdvanceType(e.target.value)}>
+                    {ADVANCE_TYPES.map((t) => <option key={t}>{t}</option>)}
+                  </select>
+                ) : (
+                  <input className="fi" value={`Rs.${totalSelectedOutstanding.toFixed(2)}`} readOnly style={{ background: 'var(--g50)', fontWeight: 700, color: 'var(--red)' }} />
+                )}
               </div>
             </div>
+            {amtNum > 0 && (
+              <div style={{ fontSize: 12.5, marginBottom: 10, padding: '6px 10px', borderRadius: 8, background: toAdvance > 0.009 ? 'var(--purple-lt)' : 'var(--g50)', color: toAdvance > 0.009 ? 'var(--purple)' : 'var(--g600)' }}>
+                {isAdvanceOnly
+                  ? <><i className="ti ti-piggy-bank"></i> Rs.{toAdvance.toFixed(2)} will be saved as <strong>{advanceType}</strong> (patient credit).</>
+                  : <>Rs.{toInvoices.toFixed(2)} to {selectedInvoiceIds.length} bill{selectedInvoiceIds.length === 1 ? '' : 's'}{toAdvance > 0.009 && <> · <i className="ti ti-piggy-bank"></i> Rs.{toAdvance.toFixed(2)} extra goes to the patient&apos;s advance credit</>}</>}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-              <button className="btn btn-sm" onClick={useFullOutstanding}>Use full outstanding amount</button>
-              {advanceBalance > 0 && (
+              {!isAdvanceOnly && <button className="btn btn-sm" onClick={useFullOutstanding}>Use full outstanding amount</button>}
+              {advanceBalance > 0 && !isAdvanceOnly && (
                 <button className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={handleApplyAdvanceAndCollect} disabled={applyingAdvance}>
                   <i className="ti ti-piggy-bank"></i> {applyingAdvance ? 'Applying advance...' : 'Apply Advance & Auto-fill Remaining'}
                 </button>
@@ -434,7 +475,7 @@ export default function CollectPaymentTab() {
             <BackdateControl value={backdate} onChange={setBackdate} />
 
             <button className="btn btn-green" style={{ marginTop: 10 }} onClick={handleCollect} disabled={loading}>
-              <i className="ti ti-circle-check"></i> {loading ? 'Finalizing...' : 'Finalize Payment'}
+              <i className="ti ti-circle-check"></i> {loading ? 'Saving...' : (isAdvanceOnly ? 'Save as Advance' : 'Save Payment')}
             </button>
           </div>
         )}
@@ -475,9 +516,11 @@ export default function CollectPaymentTab() {
             <div style={{ textAlign: 'center', padding: 20, color: 'var(--g400)', fontSize: 13 }}>Select patient and invoice</div>
           ) : (
             <div style={{ fontSize: 13, lineHeight: 1.9 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoices selected</span><span>{selectedInvoiceIds.length}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total outstanding</span><span>Rs.{totalSelectedOutstanding.toFixed(2)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Amount collecting</span><span>Rs.{(parseFloat(amount) || 0).toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Bills ticked</span><span>{selectedInvoiceIds.length}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Balance of ticked bills</span><span>Rs.{totalSelectedOutstanding.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Amount received</span><span>Rs.{amtNum.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>To bills</span><span>Rs.{toInvoices.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--purple)' }}><span>To advance</span><span>Rs.{toAdvance.toFixed(2)}</span></div>
             </div>
           )}
         </div>
