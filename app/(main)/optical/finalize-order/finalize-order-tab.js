@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
-import { finalizeOpticalOrder, cancelOpticalOrder } from '../actions';
-import { getOpenOpticalOrders } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
+// One request per click: the list arrives with the page (server render);
+// Finalize / Cancel send back the refreshed list in the same response.
+import { finalizeOpticalOrderAndRefresh, cancelOpticalOrderAndRefresh } from '../book-finalize-actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
 function fmt(n) {
@@ -14,12 +15,12 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export default function FinalizeOrderTab() {
+export default function FinalizeOrderTab({ initialOrders = [] }) {
   const searchParams = useSearchParams();
   const initialOrderId = searchParams.get('orderId');
   const autoOpenedRef = useRef(false);
 
-  const [orders, setOrders] = useState([]);
+  const [orders, setOrders] = useState(initialOrders);
   const [selected, setSelected] = useState(null);
   const [lines, setLines] = useState([]);
   const [discount, setDiscount] = useState('');
@@ -31,13 +32,7 @@ export default function FinalizeOrderTab() {
   const [showCancelForm, setShowCancelForm] = useState(false);
   const nextTempId = useRef(1);
 
-  const refresh = useCallback(async () => {
-    setOrders(await getOpenOpticalOrders());
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  // Deep link from the dashboard's "Existing Bookings" widget (?orderId=...)
+  // Deep link from the Optical Dashboard's "Finalize Existing Order" box (?orderId=...)
   // opens that order's edit/finalize panel directly instead of landing on the
   // bare list and making the person find and click it again. Runs once per
   // orderId -- autoOpenedRef stops it from re-forcing the selection back open
@@ -82,11 +77,11 @@ export default function FinalizeOrderTab() {
     setSaving(true);
     try {
       const cleanItems = lines.map((l) => ({ description: l.description, qty: l.qty, unit_price: l.unit_price }));
-      const res = await finalizeOpticalOrder(selected.id, { items: cleanItems, discount, notes });
+      const res = await finalizeOpticalOrderAndRefresh(selected.id, { items: cleanItems, discount, notes });
       if (res.error) { setError(res.error); return; }
       setResult(res.sale);
       setSelected(null);
-      refresh();
+      setOrders(res.orders || []);
     } catch (e) {
       setError('Something went wrong finalizing this order -- check your connection and try again.');
     } finally {
@@ -99,12 +94,12 @@ export default function FinalizeOrderTab() {
     if (!cancelReason.trim()) { setError('A reason is required to cancel this order.'); return; }
     setSaving(true);
     try {
-      const res = await cancelOpticalOrder(selected.id, cancelReason);
+      const res = await cancelOpticalOrderAndRefresh(selected.id, cancelReason);
       if (res.error) { setError(res.error); return; }
       setSelected(null);
       setCancelReason('');
       setShowCancelForm(false);
-      refresh();
+      setOrders(res.orders || []);
     } catch (e) {
       setError('Something went wrong cancelling this order -- check your connection and try again.');
     } finally {
@@ -235,7 +230,7 @@ export default function FinalizeOrderTab() {
                 <button className="btn btn-sm" onClick={() => setShowCancelForm(false)}>Back</button>
               </div>
               <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 6 }}>
-                <i className="ti ti-info-circle"></i> Cancelling only marks this order cancelled -- any advance already collected stays on the customer's balance and isn't touched here (use Refund if they want it back).
+                <i className="ti ti-info-circle"></i> Cancelling only marks this order cancelled -- any advance already collected stays on the customer's advance balance and can be applied to their next bill.
               </div>
             </div>
           )}

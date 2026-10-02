@@ -309,7 +309,7 @@ function BillHistory({ entries }) {
 // ─────────────────────────────────────────────────────────────────────
 // Right-hand bill pane
 // ─────────────────────────────────────────────────────────────────────
-function BillPane({ saleId, listArgs, onScreen, onClose }) {
+function BillPane({ saleId, preloaded, listArgs, onScreen, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [mode, setMode] = useState('view'); // view | edit | pay | advance | cancel
@@ -321,7 +321,10 @@ function BillPane({ saleId, listArgs, onScreen, onClose }) {
     if (d.error) { setError(d.error); return; }
     setError(''); setData(d);
   }, []);
-  useEffect(() => { getOpticalBillPanel(saleId).then(applyPanel); }, [saleId, applyPanel]);
+  // preloaded: undefined = load it here (one request); null = it is coming
+  // with the screen's own load request (deep link); object = use it.
+  useEffect(() => { if (preloaded === undefined) getOpticalBillPanel(saleId).then(applyPanel); }, [saleId, applyPanel]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (preloaded) applyPanel(preloaded); }, [preloaded, applyPanel]);
 
   const refresh = { list: listArgs || null };
   function done(msg, r) {
@@ -448,6 +451,10 @@ export default function OpticalBillsScreen() {
   const [screen, setScreen] = useState({ day: null, summary: null, bookings: [] });
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(searchParams.get('saleId') || null);
+  // Deep-linked bill: its pane is fetched together with the list (one request).
+  const [deepId, setDeepId] = useState(searchParams.get('saleId') || null);
+  const [deepPanel, setDeepPanel] = useState(null);
+  const deepPending = useRef(!!searchParams.get('saleId'));
   const reqId = useRef(0);
   const needFull = useRef(true);
 
@@ -462,11 +469,15 @@ export default function OpticalBillsScreen() {
     setLoading(true);
     const full = needFull.current;
     needFull.current = false;
-    const res = await getOpticalBillsScreen({ query, status, from, to, full });
+    const linkId = deepPending.current ? deepId : null;
+    const res = await getOpticalBillsScreen({ query, status, from, to, full, saleId: linkId });
     if (my !== reqId.current) { if (full) needFull.current = true; return; }
+    if (linkId) { deepPending.current = false; setDeepPanel(res?.panel || { error: 'Bill not found.' }); }
     applyScreen(res, full);
     setLoading(false);
-  }, [query, status, from, to]);
+  }, [query, status, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pick = (id) => { setDeepId(null); setSelectedId(id); };
 
   useEffect(() => {
     const t = setTimeout(runSearch, query ? 300 : 0);
@@ -506,7 +517,7 @@ export default function OpticalBillsScreen() {
           {split ? (
             <div>
               {rows.map((b) => (
-                <div key={b.id} onClick={() => setSelectedId(b.id)}
+                <div key={b.id} onClick={() => pick(b.id)}
                   style={{ padding: '10px 12px', borderBottom: '1px solid var(--g100)', cursor: 'pointer', background: selectedId === b.id ? 'var(--blue-lt)' : 'transparent', opacity: b.status === 'Cancelled' ? 0.55 : 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.customer}</span>
@@ -526,7 +537,7 @@ export default function OpticalBillsScreen() {
               <thead><tr><th>Date</th><th>Bill #</th><th>Customer</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Balance due</th></tr></thead>
               <tbody>
                 {rows.map((b) => (
-                  <tr key={b.id} onClick={() => setSelectedId(b.id)} style={{ cursor: 'pointer', opacity: b.status === 'Cancelled' ? 0.55 : 1 }}>
+                  <tr key={b.id} onClick={() => pick(b.id)} style={{ cursor: 'pointer', opacity: b.status === 'Cancelled' ? 0.55 : 1 }}>
                     <td>{dateIST(b.sale_date)}</td>
                     <td style={{ color: 'var(--blue)', fontWeight: 600 }}>{b.sale_number}</td>
                     <td style={{ fontWeight: 600 }}>{b.customer} <span style={{ fontSize: 11, color: 'var(--g400)', fontWeight: 400 }}>{b.uhid || b.mobile || ''}</span></td>
@@ -547,9 +558,10 @@ export default function OpticalBillsScreen() {
             <BillPane
               key={selectedId}
               saleId={selectedId}
+              preloaded={deepId && selectedId === deepId ? deepPanel : undefined}
               listArgs={{ query, status, from, to }}
               onScreen={(res) => { reqId.current += 1; applyScreen(res, true); setLoading(false); }}
-              onClose={() => setSelectedId(null)}
+              onClose={() => pick(null)}
             />
           </div>
         )}

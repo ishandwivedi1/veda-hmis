@@ -175,7 +175,7 @@ function ReceiptHistory({ entries }) {
   );
 }
 
-function ReceiptPane({ paymentId, listArgs, onScreen, onClose }) {
+function ReceiptPane({ paymentId, preloaded, listArgs, onScreen, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [mode, setMode] = useState('view'); // view | edit | delete
@@ -189,7 +189,10 @@ function ReceiptPane({ paymentId, listArgs, onScreen, onClose }) {
     if (d.error) { setError(d.error); return; }
     setError(''); setData(d);
   }, []);
-  useEffect(() => { getOpticalReceiptPanel(paymentId).then(applyDetail); }, [paymentId, applyDetail]);
+  // preloaded: undefined = load it here (one request); null = it is coming
+  // with the screen's own load request (deep link); object = use it.
+  useEffect(() => { if (preloaded === undefined) getOpticalReceiptPanel(paymentId).then(applyDetail); }, [paymentId, applyDetail]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (preloaded) applyDetail(preloaded); }, [preloaded, applyDetail]);
 
   const refresh = { list: listArgs || null };
   function done(msg, r, deleted) {
@@ -320,6 +323,10 @@ export default function OpticalPaymentsScreen() {
   const [screen, setScreen] = useState({ day: null, summary: null });
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(searchParams.get('paymentId') || null);
+  // Deep-linked receipt: its pane is fetched together with the list (one request).
+  const [deepId, setDeepId] = useState(searchParams.get('paymentId') || null);
+  const [deepDetail, setDeepDetail] = useState(null);
+  const deepPending = useRef(!!searchParams.get('paymentId'));
   const [view, setView] = useState('list'); // list | deleted
   const [flash, setFlash] = useState('');
   const reqId = useRef(0);
@@ -335,11 +342,15 @@ export default function OpticalPaymentsScreen() {
     setLoading(true);
     const full = needFull.current;
     needFull.current = false;
-    const res = await getOpticalPaymentsScreen({ query, type, from, to, full });
+    const linkId = deepPending.current ? deepId : null;
+    const res = await getOpticalPaymentsScreen({ query, type, from, to, full, paymentId: linkId });
     if (my !== reqId.current) { if (full) needFull.current = true; return; }
+    if (linkId) { deepPending.current = false; setDeepDetail(res?.detail || { error: 'Receipt not found.' }); }
     applyScreen(res, full);
     setLoading(false);
-  }, [query, type, from, to]);
+  }, [query, type, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pick = (id) => { setDeepId(null); setSelectedId(id); };
 
   useEffect(() => {
     const t = setTimeout(runSearch, query ? 300 : 0);
@@ -370,7 +381,7 @@ export default function OpticalPaymentsScreen() {
               </select>
               <input type="date" className="fi" style={{ width: 150 }} value={from} onChange={(e) => setFrom(e.target.value)} title="From" />
               <input type="date" className="fi" style={{ width: 150 }} value={to} onChange={(e) => setTo(e.target.value)} title="To" />
-              <button type="button" className="btn btn-sm" onClick={() => { setSelectedId(null); setView('deleted'); }}><i className="ti ti-trash"></i> Deleted receipts</button>
+              <button type="button" className="btn btn-sm" onClick={() => { pick(null); setView('deleted'); }}><i className="ti ti-trash"></i> Deleted receipts</button>
             </div>
             <div style={{ fontSize: 11, color: 'var(--g400)', marginTop: 6 }}>
               {!query && !type && !from && !to ? 'Latest 100 receipts. Search or filter to see older ones. ' : ''}{rows.length} shown
@@ -382,7 +393,7 @@ export default function OpticalPaymentsScreen() {
               {split ? (
                 <div>
                   {rows.map((p) => (
-                    <div key={p.id} onClick={() => setSelectedId(p.id)}
+                    <div key={p.id} onClick={() => pick(p.id)}
                       style={{ padding: '10px 12px', borderBottom: '1px solid var(--g100)', cursor: 'pointer', background: selectedId === p.id ? 'var(--blue-lt)' : 'transparent', opacity: p.refundCancelled ? 0.5 : 1 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                         <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.customer}</span>
@@ -399,7 +410,7 @@ export default function OpticalPaymentsScreen() {
                   <thead><tr><th>Date</th><th>Receipt #</th><th>Customer</th><th>Bill #</th><th>Type</th><th>Mode</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
                   <tbody>
                     {rows.map((p) => (
-                      <tr key={p.id} onClick={() => setSelectedId(p.id)} style={{ cursor: 'pointer', opacity: p.refundCancelled ? 0.5 : 1 }}>
+                      <tr key={p.id} onClick={() => pick(p.id)} style={{ cursor: 'pointer', opacity: p.refundCancelled ? 0.5 : 1 }}>
                         <td>{dateIST(p.collected_at)}</td>
                         <td style={{ color: 'var(--blue)', fontWeight: 600 }}>{p.receipt_number || '--'}</td>
                         <td style={{ fontWeight: 600 }}>{p.customer}</td>
@@ -421,9 +432,10 @@ export default function OpticalPaymentsScreen() {
                 <ReceiptPane
                   key={selectedId}
                   paymentId={selectedId}
+                  preloaded={deepId && selectedId === deepId ? deepDetail : undefined}
                   listArgs={{ query, type, from, to }}
                   onScreen={(res, msg) => { reqId.current += 1; applyScreen(res, true); setLoading(false); if (msg) setFlash(msg); }}
-                  onClose={() => setSelectedId(null)}
+                  onClose={() => pick(null)}
                 />
               </div>
             )}

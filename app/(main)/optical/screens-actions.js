@@ -19,13 +19,18 @@ import { collectOpticalPayment, applyOpticalAdvanceAdjustment, cancelOpticalSale
 
 // ── Reads ─────────────────────────────────────────────────────────────
 
-export async function getOpticalBillsScreen({ query = '', status = '', from = '', to = '', full = true } = {}) {
+// `saleId` (deep link, e.g. /optical?saleId=...): that bill's pane comes
+// back in the SAME response, so opening a linked bill is one request.
+export async function getOpticalBillsScreen({ query = '', status = '', from = '', to = '', full = true, saleId = null } = {}) {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('ui_optical_bills', {
-    p_query: query || null, p_status: status || null, p_from: from || null, p_to: to || null, p_full: !!full,
-  });
-  if (error) return { error: error.message, bills: [] };
-  return data || { bills: [] };
+  const [{ data, error }, panel] = await Promise.all([
+    supabase.rpc('ui_optical_bills', {
+      p_query: query || null, p_status: status || null, p_from: from || null, p_to: to || null, p_full: !!full,
+    }),
+    saleId ? getOpticalBillPanel(saleId) : Promise.resolve(undefined),
+  ]);
+  if (error) return { error: error.message, bills: [], ...(panel !== undefined ? { panel } : {}) };
+  return { ...(data || { bills: [] }), ...(panel !== undefined ? { panel } : {}) };
 }
 
 export async function getOpticalBillPanel(saleId) {
@@ -36,13 +41,18 @@ export async function getOpticalBillPanel(saleId) {
   return data;
 }
 
-export async function getOpticalPaymentsScreen({ query = '', type = '', from = '', to = '', full = true } = {}) {
+// `paymentId` (deep link): that receipt's pane comes back in the SAME
+// response.
+export async function getOpticalPaymentsScreen({ query = '', type = '', from = '', to = '', full = true, paymentId = null } = {}) {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('ui_optical_payments', {
-    p_query: query || null, p_type: type || null, p_from: from || null, p_to: to || null, p_full: !!full,
-  });
-  if (error) return { error: error.message, payments: [] };
-  return data || { payments: [] };
+  const [{ data, error }, detail] = await Promise.all([
+    supabase.rpc('ui_optical_payments', {
+      p_query: query || null, p_type: type || null, p_from: from || null, p_to: to || null, p_full: !!full,
+    }),
+    paymentId ? getOpticalReceiptPanel(paymentId) : Promise.resolve(undefined),
+  ]);
+  if (error) return { error: error.message, payments: [], ...(detail !== undefined ? { detail } : {}) };
+  return { ...(data || { payments: [] }), ...(detail !== undefined ? { detail } : {}) };
 }
 
 export async function getOpticalReceiptPanel(paymentId) {

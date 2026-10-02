@@ -21,10 +21,10 @@ import * as m16 from '@/app/(main)/master-data/actions';
 import * as m17 from '@/app/(main)/medical-fitness/actions';
 import * as m18 from '@/app/(main)/opd-procedures/actions';
 import * as m19 from '@/app/(main)/optical/actions';
-import * as m20 from '@/app/(main)/optical/screens-actions';
-import * as m21 from '@/app/(main)/optometry-dashboard/actions';
-import * as m22 from '@/app/(main)/optometry-history/actions';
-import * as m23 from '@/app/(main)/optometry/actions';
+import * as m20 from '@/app/(main)/optical/book-finalize-actions';
+import * as m21 from '@/app/(main)/optical/screens-actions';
+import * as m22 from '@/app/(main)/optometry-dashboard/actions';
+import * as m23 from '@/app/(main)/optometry-history/actions';
 import * as m24 from '@/app/(main)/ot-intraop/actions';
 import * as m25 from '@/app/(main)/ot-postop/actions';
 import * as m26 from '@/app/(main)/ot-recovery/actions';
@@ -172,26 +172,24 @@ export const READS = {
   'opd-procedures.actions.getPatientOpdProcedureJourney': m18.getPatientOpdProcedureJourney,
   'opd-procedures.actions.getPostProcedurePrescriptions': m18.getPostProcedurePrescriptions,
   'optical.actions.findOpticalSaleByNumber': m19.findOpticalSaleByNumber,
-  'optical.actions.getOpenOpticalOrders': m19.getOpenOpticalOrders,
   'optical.actions.getOpticalAdvanceBalance': m19.getOpticalAdvanceBalance,
   'optical.actions.getOpticalCreditNoteRegister': m19.getOpticalCreditNoteRegister,
   'optical.actions.getOpticalPaymentsForCustomer': m19.getOpticalPaymentsForCustomer,
   'optical.actions.getOpticalRefundRegister': m19.getOpticalRefundRegister,
   'optical.actions.getOpticalSaleDetail': m19.getOpticalSaleDetail,
-  'optical.actions.getOpticalSaleEditHistory': m19.getOpticalSaleEditHistory,
   'optical.actions.getOpticalSalesForCustomer': m19.getOpticalSalesForCustomer,
   'optical.actions.getRecentOpticalAdvances': m19.getRecentOpticalAdvances,
   'optical.actions.getRecentOpticalItemNames': m19.getRecentOpticalItemNames,
   'optical.actions.searchOpticalCustomers': m19.searchOpticalCustomers,
-  'optical.screens-actions.getOpticalBillPanel': m20.getOpticalBillPanel,
-  'optical.screens-actions.getOpticalBillsScreen': m20.getOpticalBillsScreen,
-  'optical.screens-actions.getOpticalDeletedReceipts': m20.getOpticalDeletedReceipts,
-  'optical.screens-actions.getOpticalPaymentsScreen': m20.getOpticalPaymentsScreen,
-  'optical.screens-actions.getOpticalReceiptPanel': m20.getOpticalReceiptPanel,
-  'optometry-dashboard.actions.getOptometryDashboardData': m21.getOptometryDashboardData,
-  'optometry-history.actions.getAssessmentDetail': m22.getAssessmentDetail,
-  'optometry-history.actions.getOptometryHistory': m22.getOptometryHistory,
-  'optometry.actions.getLatestGlassesPrescription': m23.getLatestGlassesPrescription,
+  'optical.book-finalize-actions.getOpticalBookingContext': m20.getOpticalBookingContext,
+  'optical.screens-actions.getOpticalBillPanel': m21.getOpticalBillPanel,
+  'optical.screens-actions.getOpticalBillsScreen': m21.getOpticalBillsScreen,
+  'optical.screens-actions.getOpticalDeletedReceipts': m21.getOpticalDeletedReceipts,
+  'optical.screens-actions.getOpticalPaymentsScreen': m21.getOpticalPaymentsScreen,
+  'optical.screens-actions.getOpticalReceiptPanel': m21.getOpticalReceiptPanel,
+  'optometry-dashboard.actions.getOptometryDashboardData': m22.getOptometryDashboardData,
+  'optometry-history.actions.getAssessmentDetail': m23.getAssessmentDetail,
+  'optometry-history.actions.getOptometryHistory': m23.getOptometryHistory,
   'ot-intraop.actions.getCheckinHistory': m24.getCheckinHistory,
   'ot-intraop.actions.getConsumableOptions': m24.getConsumableOptions,
   'ot-intraop.actions.getOTCaseDetail': m24.getOTCaseDetail,
