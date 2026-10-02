@@ -7,6 +7,8 @@ import { formatPatientName } from '@/lib/patientName';
 // Finalize / Cancel send back the refreshed list in the same response.
 import { finalizeOpticalOrderAndRefresh, cancelOpticalOrderAndRefresh } from '../book-finalize-actions';
 import { openPrintPopup } from '@/lib/printPopup';
+import { collectOpticalPayment } from '../actions';
+import { ModeRows, r2 } from '../optical-ui';
 
 function fmt(n) {
   return `\u20b9${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -116,19 +118,19 @@ export default function FinalizeOrderTab({ initialOrders = [] }) {
           </div>
           <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 22, fontWeight: 700, color: 'var(--g900)' }}>{result.sale_number}</div>
           <div style={{ fontSize: 13, color: 'var(--g600)', marginTop: 2 }}>
-            Total: {fmt(result.net)} -- Paid/applied: {fmt(result.paid)} -- Balance due: {fmt(Number(result.net) - Number(result.paid))}
+            Total: {fmt(result.net)} -- Paid/applied: {fmt(Number(result.paid) + (result.collectedNow || 0))} -- Balance due: {fmt(Math.max(0, Number(result.net) - Number(result.paid) - (result.collectedNow || 0)))}
           </div>
           <div style={{ display: 'flex', gap: 14, marginTop: 10 }}>
             <a href={`/optical-receipt-print/${result.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ textDecoration: 'none' }}>
               <i className="ti ti-printer"></i> Print Bill
             </a>
-            {Number(result.net) - Number(result.paid) > 0 && (
-              <a href={`/optical?saleId=${result.id}`} className="btn" style={{ textDecoration: 'none' }}>
-                <i className="ti ti-cash"></i> Collect Remaining Balance
-              </a>
-            )}
           </div>
         </div>
+        {/* Collect the balance right here -- no trip to Optical Bills. ONE request. */}
+        {r2(Number(result.net) - Number(result.paid)) > 0 && (
+          <CollectBalance sale={result} onPaid={(paidNow) => setResult((r) => ({ ...r, collectedNow: paidNow }))} />
+        )}
+
         <span onClick={() => setResult(null)} style={{ fontSize: 12, color: 'var(--g500)', textDecoration: 'underline', cursor: 'pointer', display: 'inline-block', marginTop: 14 }}>
           Finalize another order
         </span>
@@ -236,6 +238,74 @@ export default function FinalizeOrderTab({ initialOrders = [] }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Collect Remaining Balance, shown right after the bill is created.
+// ONE request (collect_optical_payment); same rules as everywhere else
+// (day must be open, modes must add up). Anything above the balance is
+// kept as the customer's advance credit.
+function CollectBalance({ sale, onPaid }) {
+  const due = r2(Number(sale.net) - Number(sale.paid));
+  const [amount, setAmount] = useState(String(due));
+  const [modes, setModes] = useState([{ mode: 'Cash', amount: String(due) }]);
+  const [reference, setReference] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(null);
+  const amt = r2(amount);
+
+  async function save() {
+    if (busy) return;
+    setError('');
+    if (!(amt > 0)) { setError('Enter the amount received.'); return; }
+    const sum = r2(modes.reduce((t, m) => t + (Number(m.amount) || 0), 0));
+    if (Math.abs(sum - amt) >= 0.01) { setError(`Payment modes (${fmt(sum)}) must add up to the amount (${fmt(amt)}).`); return; }
+    setBusy(true);
+    try {
+      const res = await collectOpticalPayment({ saleId: sale.id, amount: amt, modes: modes.map((m) => ({ mode: m.mode, amount: r2(m.amount) })), reference, remarks });
+      if (res?.error) { setError(res.error); return; }
+      setDone({ amount: amt, receipt: res.payment?.receipt_number, paymentId: res.payment?.id, extra: r2(amt - due) });
+      onPaid(Math.min(amt, due));
+    } catch {
+      setError('Something went wrong -- check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <div style={{ marginTop: 14, background: 'var(--green-lt)', padding: '12px 16px', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>
+        <i className="ti ti-check"></i> {fmt(done.amount)} received{done.receipt ? ` -- receipt ${done.receipt}` : ''}.{done.extra > 0 ? ` ${fmt(done.extra)} over the balance is kept as advance credit.` : ' Bill fully paid.'}
+        {done.paymentId && (
+          <div style={{ marginTop: 6 }}>
+            <a href={`/optical-payment-receipt-print/${done.paymentId}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 400 }}><i className="ti ti-printer"></i> Print Receipt</a>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 14, padding: 16, background: 'var(--blue-lt)', borderRadius: 'var(--r)' }}>
+      <div style={{ fontFamily: 'var(--font-display-stack)', fontSize: 14, fontWeight: 700, color: 'var(--blue-dk)', marginBottom: 10 }}>
+        <i className="ti ti-cash"></i> Collect Remaining Balance -- {fmt(due)}
+      </div>
+      {error && <div className="msg-err" style={{ marginBottom: 10 }}>{error}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 10 }}>
+        <div><label className="flbl">Amount received (₹)</label>
+          <input type="number" min="0" step="0.01" className="fi" style={{ background: '#fff' }} value={amount} onChange={(e) => { setAmount(e.target.value); if (modes.length === 1) setModes([{ ...modes[0], amount: e.target.value }]); }} /></div>
+        <div><label className="flbl">Reference</label><input className="fi" style={{ background: '#fff' }} value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UPI ref, card last 4..." /></div>
+        <div><label className="flbl">Remarks</label><input className="fi" style={{ background: '#fff' }} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
+      </div>
+      <label className="flbl">Payment mode(s)</label>
+      <ModeRows modes={modes} setModes={setModes} total={amt} />
+      <button type="button" className="btn btn-primary" style={{ marginTop: 12 }} disabled={busy} onClick={save}>
+        <i className="ti ti-cash"></i> {busy ? 'Saving...' : 'Collect Payment'}
+      </button>
     </div>
   );
 }
