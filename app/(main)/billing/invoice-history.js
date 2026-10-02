@@ -25,7 +25,7 @@ const SIDE_EFFECT_TEXT = {
 const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--');
 
 function describeLine(l) {
-  return `${l.service_name} x${l.qty}${Number(l.disc) > 0 ? ` (disc ${money(l.disc)})` : ''} = ${money(l.net)}`;
+  return `${l.service_name} ${money(l.rate)} x${l.qty}${Number(l.disc) > 0 ? ` (disc ${money(l.disc)})` : ''} = ${money(l.net)}`;
 }
 
 function diffLines(before, after) {
@@ -34,8 +34,9 @@ function diffLines(before, after) {
   const out = [];
   for (const id of Object.keys(b)) {
     if (!a[id]) out.push({ kind: 'removed', text: describeLine(b[id]) });
-    else if (b[id].qty !== a[id].qty || Number(b[id].disc) !== Number(a[id].disc) || Number(b[id].net) !== Number(a[id].net)) {
-      out.push({ kind: 'changed', text: `${describeLine(b[id])}  →  x${a[id].qty}${Number(a[id].disc) > 0 ? ` (disc ${money(a[id].disc)})` : ''} = ${money(a[id].net)}` });
+    else if (b[id].qty !== a[id].qty || Number(b[id].disc) !== Number(a[id].disc) || Number(b[id].net) !== Number(a[id].net)
+             || Number(b[id].rate) !== Number(a[id].rate) || b[id].service_name !== a[id].service_name) {
+      out.push({ kind: 'changed', text: `${describeLine(b[id])}  →  ${describeLine(a[id])}` });
     }
   }
   for (const id of Object.keys(a)) if (!b[id]) out.push({ kind: 'added', text: describeLine(a[id]) });
@@ -48,14 +49,18 @@ const KIND_STYLE = {
   changed: { icon: 'ti-arrows-exchange', color: 'var(--amber)', label: 'Changed' },
 };
 
-export default function InvoiceHistory({ invoiceId, refreshKey }) {
-  const [entries, setEntries] = useState(null);
+// `entries` (optional): history that already came back with a save -- shown
+// as-is, no request. Without it, the box loads its own on open.
+export default function InvoiceHistory({ invoiceId, refreshKey, entries: given }) {
+  const [entries, setEntries] = useState(given || null);
 
   useEffect(() => {
+    if (given) { setEntries(given); return undefined; }
     let live = true;
     getInvoiceHistory(invoiceId).then((e) => { if (live) setEntries(e); }).catch(() => { if (live) setEntries([]); });
     return () => { live = false; };
-  }, [invoiceId, refreshKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoiceId, refreshKey, given]);
 
   if (!entries || entries.length === 0) return null;
 
@@ -93,6 +98,11 @@ export default function InvoiceHistory({ invoiceId, refreshKey }) {
           )}
           {e.action === 'invoice_edited' && (
             <>
+              {e.before?.date && e.after?.date && e.before.date !== e.after.date && (
+                <div style={{ marginTop: 4, color: 'var(--g600)' }}>
+                  <i className="ti ti-calendar-event"></i> Date {fmtDate(e.before.date)} → <strong>{fmtDate(e.after.date)}</strong>
+                </div>
+              )}
               <div style={{ marginTop: 4 }}>
                 {diffLines(e.before, e.after).map((d, i) => (
                   <div key={i} style={{ color: KIND_STYLE[d.kind].color }}>

@@ -7,7 +7,7 @@
 // screen shows.
 
 import { createClient } from '@/lib/supabase-server';
-import { getServiceCatalog } from './actions';
+import { getServiceCatalog, getSurgeryBillingOptions } from './actions';
 
 // Everything the Edit screen needs in ONE request: the invoice context in
 // one database call (ui_invoice_edit_context, migration 051) alongside the
@@ -17,9 +17,12 @@ import { getServiceCatalog } from './actions';
 // everything again on save.
 export async function getInvoiceEditContext(invoiceId) {
   const supabase = await createClient();
-  const [{ data: c, error }, services] = await Promise.all([
+  // (surgery + surgeon lists ride along for the Surgery Billing Details box
+  // shown under Edit on surgery bills -- it used to be its own request)
+  const [{ data: c, error }, services, surgeryOptions] = await Promise.all([
     supabase.rpc('ui_invoice_edit_context', { p_invoice_id: invoiceId }),
     getServiceCatalog(),
+    getSurgeryBillingOptions(),
   ]);
   if (error) return { error: error.message };
   if (!c) return { error: 'Invoice not found.' };
@@ -50,6 +53,7 @@ export async function getInvoiceEditContext(invoiceId) {
     lockReasons: c.lockReasons || {},
     removeHints: c.removeHints || {},
     services: services || [],
+    surgeryOptions: surgeryOptions || { surgeries: [], doctors: [] },
     lines: c.lines || [],
     invoice,
     invoiceDate: c.invoiceDate,

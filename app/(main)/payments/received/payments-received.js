@@ -18,7 +18,9 @@ import { resendPaymentReceiptWhatsApp } from '../actions';
 import { getReceivedPaymentDetail } from '@/lib/rpc-reads/payments__received-actions'; // parallel reads (tools/parallel-reads)
 import { getPaymentsScreenData } from '@/lib/rpc-reads/payments__received-actions'; // parallel reads (tools/parallel-reads)
 import DayOpenBar from '@/app/components/DayOpenBar';
-import { correctClosedDayModes } from '../received-actions';
+// Saves that send back the refreshed payment + list in the same response --
+// one request per click, no reloads afterwards.
+import { correctClosedDayModesAndRefresh } from '../payment-change-actions';
 import PaymentEditPanel from '../payment-edit-panel';
 import DeletedPayments from '../deleted-payments';
 
@@ -47,7 +49,7 @@ const HISTORY_LABEL = {
 // ─────────────────────────────────────────────────────────────────────
 // Closed-day mode correction (Administrator only)
 // ─────────────────────────────────────────────────────────────────────
-function ClosedDayModeFix({ detail, onDone, onCancel }) {
+function ClosedDayModeFix({ detail, onDone, onCancel, refresh }) {
   const p = detail.payment;
   const total = r2(p.total_amount);
   const [rows, setRows] = useState((p.payment_modes || []).map((m) => ({ mode: m.mode, amount: String(r2(m.amount)) })));
@@ -75,15 +77,15 @@ function ClosedDayModeFix({ detail, onDone, onCancel }) {
     if (sum !== total) { setError(`Modes must add up to ${money(total)} (now ${money(sum)}).`); return; }
     if (!reason.trim()) { setError('Enter a reason.'); return; }
     setSaving(true);
-    const res = await correctClosedDayModes({
+    const res = await correctClosedDayModesAndRefresh({
       paymentId: p.id,
       modes: rows.filter((r) => Number(r.amount) > 0).map((r) => ({ mode: r.mode, amount: r2(r.amount) })),
       reference, remarks, reason, expectedAmount: total,
-    });
+    }, refresh);
     setSaving(false);
     if (res.error) { setError(res.error); return; }
     const moved = Object.entries(res.result?.moved || {}).map(([m, d]) => `${m} ${d > 0 ? '+' : ''}${money(d)}`).join(', ');
-    onDone(`${p.receipt_number} corrected on closed day ${dateIST(p.collected_at)}${moved ? ` -- reconciliation moved: ${moved}` : ''}.`);
+    onDone(`${p.receipt_number} corrected on closed day ${dateIST(p.collected_at)}${moved ? ` -- reconciliation moved: ${moved}` : ''}.`, res.refresh);
   }
 
   return (
@@ -139,7 +141,7 @@ function ClosedDayModeFix({ detail, onDone, onCancel }) {
 // ─────────────────────────────────────────────────────────────────────
 // Right-hand detail pane
 // ─────────────────────────────────────────────────────────────────────
-function PaymentDetail({ paymentId, onChanged, onClose }) {
+function PaymentDetail({ paymentId, onChanged, onClose, listArgs, onScreen }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState('');
   const [mode, setMode] = useState('view'); // view | edit | fix
@@ -161,6 +163,18 @@ function PaymentDetail({ paymentId, onChanged, onClose }) {
     setDetail(d);
   }, [paymentId]);
   useEffect(() => { load(); }, [load]);
+
+  // A save sends back the refreshed payment (+ list) with it -- use that
+  // instead of reloading. Deleted -> close the pane.
+  function afterSave(msg, refresh, deleted) {
+    setMode('view');
+    if (!refresh) { onChanged(msg); load(); return; } // (no refreshed data: reload as before)
+    if (refresh.screen) onScreen?.(refresh.screen, msg); else onChanged(msg);
+    if (deleted || !refresh.detail) { onCloseRef.current(); return; }
+    if (refresh.detail.error) { setError(refresh.detail.error); return; }
+    setDetail(refresh.detail);
+  }
+  const refreshArgs = { list: listArgs || null };
 
   async function sendWhatsApp() {
     if (wa.status === 'sending') return;
@@ -224,7 +238,8 @@ function PaymentDetail({ paymentId, onChanged, onClose }) {
             key={`edit-${p.id}`}
             paymentId={p.id}
             onClose={() => setMode('view')}
-            onChanged={(msg) => { setMode('view'); onChanged(msg); load(); }}
+            refresh={refreshArgs}
+            onChanged={(msg, extra) => afterSave(msg, extra?.refresh, extra?.deleted)}
           />
         )}
 
@@ -232,7 +247,8 @@ function PaymentDetail({ paymentId, onChanged, onClose }) {
           <ClosedDayModeFix
             detail={detail}
             onCancel={() => setMode('view')}
-            onDone={(msg) => { setMode('view'); onChanged(msg); load(); }}
+            refresh={refreshArgs}
+            onDone={(msg, refresh) => afterSave(msg, refresh, false)}
           />
         )}
 
@@ -399,12 +415,18 @@ export default function PaymentsReceived() {
     setLoading(true);
     // ONE request: list + today's summary + day status, in parallel server-side.
     const res = await getPaymentsScreenData({ query, mode: modeFilter, dateFrom, dateTo });
-    const data = res?.receipts;
-    if (my === reqId.current) { setSummary(res?.summary || null); setDay(res?.day || null); }
     if (my !== reqId.current) return; // a newer search already started
-    setRows(data || []);
+    applyScreen(res);
     setLoading(false);
   }, [query, modeFilter, dateFrom, dateTo]);
+
+  // Same screen data, whether from the screen's own request or sent back
+  // with a save in the payment pane.
+  function applyScreen(res) {
+    setSummary(res?.summary || null);
+    setDay(res?.day || null);
+    setRows(res?.receipts || []);
+  }
 
   useEffect(() => {
     const t = setTimeout(runSearch, query ? 300 : 0);
@@ -530,6 +552,8 @@ export default function PaymentsReceived() {
                   paymentId={selectedId}
                   onClose={() => setSelectedId(null)}
                   onChanged={(msg) => { setFlash(msg); runSearch(); }}
+                  listArgs={{ query, mode: modeFilter, dateFrom, dateTo }}
+                  onScreen={(res, msg) => { reqId.current += 1; setFlash(msg); applyScreen(res); setLoading(false); }}
                 />
               </div>
             )}

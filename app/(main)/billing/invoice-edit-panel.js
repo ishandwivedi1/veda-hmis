@@ -10,6 +10,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { saveInvoiceEdit, saveInvoiceVoid } from './invoice-edit-actions';
+// One-request saves (change + refreshed screen in the same response) -- used
+// when the caller passes `refresh` (the Invoices screen does).
+import { saveInvoiceEditAndRefresh, voidInvoiceAndRefresh } from './invoice-change-actions';
 import EditReasonModal from '@/app/components/EditReasonModal';
 import { getInvoiceEditContext } from '@/lib/rpc-reads/billing__invoice-edit-actions'; // parallel reads (tools/parallel-reads)
 
@@ -17,7 +20,7 @@ const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleSt
 const fmtDay = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '--');
 
 // Cancel / Void the whole invoice (void_invoice() in Postgres).
-function VoidSection({ ctx, invoiceId, onVoided }) {
+function VoidSection({ ctx, invoiceId, onVoided, refresh }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,9 +34,11 @@ function VoidSection({ ctx, invoiceId, onVoided }) {
     if (!reason.trim()) { setError('Please give a reason.'); return; }
     setBusy(true);
     try {
-      const res = await saveInvoiceVoid(invoiceId, reason.trim(), Number(ctx.invoice.net));
+      const res = refresh
+        ? await voidInvoiceAndRefresh(invoiceId, reason.trim(), Number(ctx.invoice.net), refresh)
+        : await saveInvoiceVoid(invoiceId, reason.trim(), Number(ctx.invoice.net));
       if (res.error) { setError(res.error); return; }
-      onVoided(res.invoice, Number(ctx.appliedTotal) || 0);
+      onVoided(res.invoice, Number(ctx.appliedTotal) || 0, res.refresh);
     } catch (e) {
       setError('Something went wrong -- check your connection and try again. Nothing was changed.');
     } finally {
@@ -80,7 +85,7 @@ function lineTotals(rate, gstPct, qty, discType, discValue) {
   return { gross, disc, net: gross - disc + gst };
 }
 
-export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided, embedded = false }) {
+export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided, embedded = false, refresh = null, onContext }) {
   const [ctx, setCtx] = useState(null);
   const [rows, setRows] = useState([]);
   const [added, setAdded] = useState([]);
@@ -96,6 +101,7 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
     getInvoiceEditContext(invoiceId).then((c) => {
       if (c.error) { setError(c.error); return; }
       setCtx(c);
+      onContext?.(c);
       setRows(c.lines.map((l) => ({
         line: l, name: l.service_name, rate: Number(l.rate), qty: l.qty,
         discType: 'fixed', discValue: Number(l.disc) || 0, removed: false,
@@ -117,7 +123,7 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
         <div className="msg-info" style={{ margin: 0 }}>
           <i className="ti ti-lock"></i> {ctx.blockReason}
         </div>
-        <VoidSection ctx={ctx} invoiceId={invoiceId} onVoided={(inv, credited) => onVoided?.(inv, credited)} />
+        <VoidSection ctx={ctx} invoiceId={invoiceId} onVoided={(inv, credited, r) => onVoided?.(inv, credited, r)} refresh={refresh} />
         {onClose && <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={onClose}>Close</button>}
       </div>
     );
@@ -196,11 +202,13 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
 
     setSaving(true);
     try {
-      const res = await saveInvoiceEdit(invoiceId, changes, reason, Number(inv.net));
+      const res = refresh
+        ? await saveInvoiceEditAndRefresh(invoiceId, changes, reason, Number(inv.net), refresh)
+        : await saveInvoiceEdit(invoiceId, changes, reason, Number(inv.net));
       if (res.error) { setReasonError(res.error); return; }
       setAskReason(false);
       if (embedded) load();
-      onSaved?.(res.invoice, 0);
+      onSaved?.(res.invoice, 0, res.refresh);
     } catch (e) {
       setReasonError('Something went wrong saving this edit -- check your connection and try again. Nothing was saved.');
     } finally {
@@ -354,7 +362,7 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
         <button className="btn" onClick={embedded ? load : onClose} disabled={saving || (embedded && !anyChange)}>Discard</button>
       </div>
 
-      <VoidSection ctx={ctx} invoiceId={invoiceId} onVoided={(inv, credited) => onVoided?.(inv, credited)} />
+      <VoidSection ctx={ctx} invoiceId={invoiceId} onVoided={(inv, credited, r) => onVoided?.(inv, credited, r)} refresh={refresh} />
 
       {askReason && (
         <EditReasonModal

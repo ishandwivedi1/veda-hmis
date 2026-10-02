@@ -17,10 +17,10 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { openPrintPopup } from '@/lib/printPopup';
-import { resendInvoiceBillWhatsApp, setManualSurgeryDetails } from '../actions';
-import { getSurgeryBillingOptions } from '@/lib/rpc-reads/billing__actions';
-import { applyAdjustment } from '@/app/(main)/payments/actions';
-import { applyCreditNote } from '@/app/(main)/credit-notes/actions';
+import { resendInvoiceBillWhatsApp } from '../actions';
+// Saves that send back the refreshed invoice / list / history in the same
+// response -- one request per click, no reloads afterwards.
+import { applyCreditsAndRefresh, saveSurgeryDetailsAndRefresh } from '../invoice-change-actions';
 import { getInvoicePanel, getBillingScreenData } from '@/lib/rpc-reads/billing__invoices-screen-actions'; // parallel reads (tools/parallel-reads)
 import DayOpenBar from '@/app/components/DayOpenBar';
 import InvoiceEditPanel from '../invoice-edit-panel';
@@ -201,22 +201,21 @@ function ToBill({ fullyPaidUnbilled, todaysVisits, billingByVisit, pending, onSh
 // Surgery Billing Details (prints on the Surgery Bill) -- moved here from
 // the retired Invoice Modification tab.
 // ─────────────────────────────────────────────────────────────────────
-function SurgeryDetails({ invoice, onSaved }) {
-  const [opts, setOpts] = useState({ surgeries: [], doctors: [] });
+function SurgeryDetails({ invoice, opts = { surgeries: [], doctors: [] }, refresh, onSaved }) {
   const [name, setName] = useState(invoice.manual_surgery_name || '');
   const [eye, setEye] = useState(invoice.manual_surgery_eye || '');
   const [doctorId, setDoctorId] = useState(invoice.manual_surgeon_id || '');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  useEffect(() => { getSurgeryBillingOptions().then((o) => setOpts(o || { surgeries: [], doctors: [] })).catch(() => {}); }, []);
+  // (surgery + surgeon lists arrive with the Edit screen's single load)
   async function save() {
     if (saving) return;
     setSaving(true); setMsg('');
-    const res = await setManualSurgeryDetails(invoice.id, name, eye, doctorId);
+    const res = await saveSurgeryDetailsAndRefresh(invoice.id, name, eye, doctorId, refresh);
     setSaving(false);
     if (res?.error) { setMsg(res.error); return; }
     setMsg('Saved.');
-    onSaved();
+    onSaved(res.refresh);
   }
   return (
     <div style={{ border: '1px solid var(--g200)', borderRadius: 8, padding: '10px 12px', marginTop: 12 }}>
@@ -248,13 +247,17 @@ function SurgeryDetails({ invoice, onSaved }) {
 // ─────────────────────────────────────────────────────────────────────
 // Right-hand invoice pane
 // ─────────────────────────────────────────────────────────────────────
-function InvoiceDetail({ invoiceId, onChanged, onClose }) {
+function InvoiceDetail({ invoiceId, onChanged, onClose, listArgs, onScreen }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [mode, setMode] = useState('view'); // view | edit
   const [showPayments, setShowPayments] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
+  // History entries that came back with a save (no separate reload).
+  const [historyEntries, setHistoryEntries] = useState(undefined);
+  // Surgery / surgeon lists, from the Edit screen's single load.
+  const [surgeryOpts, setSurgeryOpts] = useState({ surgeries: [], doctors: [] });
   const [wa, setWa] = useState({ status: '', msg: '' });
   const [flash, setFlash] = useState('');
   // Zoho-style "Credits available -- Apply credits": the patient's unused
@@ -267,15 +270,19 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
   const [applying, setApplying] = useState(false);
   const [applyErr, setApplyErr] = useState('');
 
-  const load = useCallback(async () => {
+  const applyPanel = useCallback((d) => {
+    if (!d) return;
+    if (d.error) { setError(d.error); return; }
     setError('');
-    const d = await getInvoicePanel(invoiceId);
-    if (d?.error) { setError(d.error); return; }
     setData(d);
     // Credits arrive with the invoice (same request) -- no follow-up calls.
     setCredit(r2(d.advanceBalance));
     setOpenCNs(d.openCreditNotes || []);
-  }, [invoiceId]);
+  }, []);
+
+  const load = useCallback(async () => {
+    applyPanel(await getInvoicePanel(invoiceId));
+  }, [invoiceId, applyPanel]);
   useEffect(() => { load(); }, [load]);
 
   async function sendWhatsApp() {
@@ -319,19 +326,41 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
     if (over) { setApplyErr(`${over.x.label} only has ${money(over.x.balance)}.`); return; }
     if (sum > due) { setApplyErr(`Only ${money(due)} is due on this invoice.`); return; }
     setApplying(true);
-    for (const r of rows) {
-      const res = r.x.cn
-        ? await applyCreditNote(r.x.key, data.invoice.id, r.amt)
-        : await applyAdjustment(data.invoice.patient_id, data.invoice.id, r.amt);
-      if (res?.error) { setApplying(false); setApplyErr(`${r.x.label}: ${res.error}`); load(); return; }
-    }
+    // ONE request: every chosen credit applied on the server, then the
+    // refreshed invoice / list / history come back with it.
+    const res = await applyCreditsAndRefresh(
+      data.invoice.id, data.invoice.patient_id,
+      rows.map((r) => ({ cn: !!r.x.cn, id: r.x.key, amount: r.amt, label: r.x.label })),
+      refreshArgs(),
+    );
     setApplying(false);
+    if (res?.error) { setApplyErr(res.error); applyRefresh(res.refresh); return; }
     setApplyOpen(false);
-    afterChange(`${money(sum)} of credit applied to ${data.invoice.invoice_number}.`);
+    afterChange(`${money(sum)} of credit applied to ${data.invoice.invoice_number}.`, res.refresh);
   }
 
-  function afterChange(msg) {
-    setMode('view'); setFlash(msg); setHistoryKey((k) => k + 1);
+  // What a save should send back with it: the list (with the screen's
+  // current filters) and, if it's open, the history.
+  function refreshArgs() {
+    return { list: listArgs || null, history: showHistory };
+  }
+
+  // Use what came back with the save -- no reload requests.
+  function applyRefresh(refresh) {
+    if (!refresh) return false;
+    applyPanel(refresh.panel);
+    if (refresh.screen) onScreen?.(refresh.screen);
+    if (refresh.history) setHistoryEntries(refresh.history);
+    // history closed: forget what we had, it loads fresh when opened
+    else { setHistoryEntries(undefined); setHistoryKey((k) => k + 1); }
+    return true;
+  }
+
+  function afterChange(msg, refresh) {
+    setMode('view'); setFlash(msg);
+    if (applyRefresh(refresh)) return;
+    // (older callers without refreshed data: reload as before)
+    setHistoryEntries(undefined); setHistoryKey((k) => k + 1);
     load(); onChanged(msg);
   }
 
@@ -453,11 +482,13 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
             <InvoiceEditPanel
               key={`edit-${inv.id}`}
               invoiceId={inv.id}
+              refresh={refreshArgs()}
+              onContext={(c) => setSurgeryOpts(c.surgeryOptions || { surgeries: [], doctors: [] })}
               onClose={() => setMode('view')}
-              onSaved={(_, credited) => afterChange(credited > 0 ? `Invoice updated. ${money(credited)} already paid is now kept as patient credit.` : 'Invoice updated.')}
-              onVoided={(_, credited) => afterChange(credited > 0 ? `Invoice voided. ${money(credited)} already paid is now kept as patient credit.` : 'Invoice voided.')}
+              onSaved={(_, credited, refresh) => afterChange(credited > 0 ? `Invoice updated. ${money(credited)} already paid is now kept as patient credit.` : 'Invoice updated.', refresh)}
+              onVoided={(_, credited, refresh) => afterChange(credited > 0 ? `Invoice voided. ${money(credited)} already paid is now kept as patient credit.` : 'Invoice voided.', refresh)}
             />
-            {hasSurgeryLine && <SurgeryDetails invoice={inv} onSaved={() => { setHistoryKey((k) => k + 1); load(); }} />}
+            {hasSurgeryLine && <SurgeryDetails invoice={inv} opts={surgeryOpts} refresh={{ list: null, history: showHistory }} onSaved={(refresh) => applyRefresh(refresh)} />}
           </>
         )}
 
@@ -513,7 +544,7 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
           </>
         )}
 
-        {showHistory && <div style={{ marginTop: 12 }}><InvoiceHistory invoiceId={inv.id} refreshKey={historyKey} /></div>}
+        {showHistory && <div style={{ marginTop: 12 }}><InvoiceHistory invoiceId={inv.id} refreshKey={historyKey} entries={historyEntries} /></div>}
       </div>
     </div>
   );
@@ -547,6 +578,13 @@ export default function InvoicesScreen() {
     needFull.current = false;
     const res = await getBillingScreenData({ query, dept: deptFilter, dateFrom, dateTo, visitId: visitFilter?.id || null, full });
     if (my !== reqId.current) { if (full) needFull.current = true; return; }
+    applyScreen(res, full);
+    setLoading(false);
+  }, [query, deptFilter, dateFrom, dateTo, visitFilter]);
+
+  // Same screen data, whether from the screen's own request or sent back
+  // with a save in the invoice pane.
+  function applyScreen(res, full = true) {
     if (full && res) {
       setScreen({
         day: res.day, summary: res.summary, todaysVisits: res.todaysVisits || [], billingByVisit: res.billingByVisit || {},
@@ -554,8 +592,7 @@ export default function InvoicesScreen() {
       });
     }
     setRows(res?.invoices || []);
-    setLoading(false);
-  }, [query, deptFilter, dateFrom, dateTo, visitFilter]);
+  }
 
   useEffect(() => {
     const t = setTimeout(runSearch, query ? 300 : 0);
@@ -678,6 +715,8 @@ export default function InvoicesScreen() {
               invoiceId={selectedId}
               onClose={() => setSelectedId(null)}
               onChanged={() => { needFull.current = true; runSearch(); }}
+              listArgs={{ query, dept: deptFilter, dateFrom, dateTo, visitId: visitFilter?.id || null }}
+              onScreen={(res) => { reqId.current += 1; applyScreen(res, true); setLoading(false); }}
             />
           </div>
         )}

@@ -10,6 +10,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { savePaymentEdit, removePayment } from './payment-edit-actions';
 import EditReasonModal from '@/app/components/EditReasonModal';
+// One-request saves (change + refreshed payment/list in the same response) --
+// used when the caller passes `refresh` (the Payments screen does).
+import { savePaymentEditAndRefresh, removePaymentAndRefresh } from './payment-change-actions';
 import { getPaymentEditContext } from '@/lib/rpc-reads/payments__payment-edit-actions'; // parallel reads (tools/parallel-reads)
 
 const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -50,7 +53,7 @@ function PaymentHistory({ entries }) {
   );
 }
 
-export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
+export default function PaymentEditPanel({ paymentId, onChanged, onClose, refresh = null }) {
   const [ctx, setCtx] = useState(null);
   const [history, setHistory] = useState([]);
   const [amount, setAmount] = useState('');
@@ -120,7 +123,7 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
   async function saveWithReason(reason) {
     setSaving(true);
     try {
-      const res = await savePaymentEdit({
+      const args = {
         paymentId,
         amount: amt,
         date: date !== ctx.paymentDate ? date : null,
@@ -132,10 +135,11 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
           : [],
         reason,
         expectedAmount: Number(p.total_amount),
-      });
+      };
+      const res = refresh ? await savePaymentEditAndRefresh(args, refresh) : await savePaymentEdit(args);
       if (res.error) { setReasonError(res.error); return; }
       setAskReason(false);
-      onChanged?.(`${p.receipt_number} updated.${creditChange > 0 ? ` ${money(creditChange)} added to patient credit.` : creditChange < 0 ? ` Patient credit reduced by ${money(-creditChange)}.` : ''}`);
+      onChanged?.(`${p.receipt_number} updated.${creditChange > 0 ? ` ${money(creditChange)} added to patient credit.` : creditChange < 0 ? ` Patient credit reduced by ${money(-creditChange)}.` : ''}`, { refresh: res.refresh });
     } catch (e) {
       setReasonError('Something went wrong saving -- check your connection and try again. Nothing was saved.');
     } finally {
@@ -148,11 +152,13 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
     if (!deleteReason.trim()) { setError('Please give a reason for deleting.'); return; }
     setDeleting(true);
     try {
-      const res = await removePayment(paymentId, deleteReason.trim(), Number(p.total_amount));
+      const res = refresh
+        ? await removePaymentAndRefresh(paymentId, deleteReason.trim(), Number(p.total_amount), refresh)
+        : await removePayment(paymentId, deleteReason.trim(), Number(p.total_amount));
       if (res.error) { setError(res.error); return; }
       onChanged?.(p.payment_type === 'advance_adjustment'
         ? `Credit application removed. ${money(p.total_amount)} is back in the patient's credit.`
-        : `${p.receipt_number} deleted. It is kept under "Deleted receipts".`, { deleted: true });
+        : `${p.receipt_number} deleted. It is kept under "Deleted receipts".`, { deleted: true, refresh: res.refresh });
     } catch (e) {
       setError('Something went wrong deleting -- check your connection and try again. Nothing was changed.');
     } finally {
