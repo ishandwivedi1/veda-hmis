@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase-server';
-import { getDoctorOptionsForVisit } from './actions';
 import VisitActions from './visit-actions';
 import SortSelect from '@/app/components/SortSelect';
 import { VISIT_TYPE_COLOR } from '@/lib/visit-types';
@@ -34,30 +33,21 @@ export default async function VisitsPage({ searchParams }) {
   const tab = params?.tab === 'all' ? 'all' : 'today';
   const sort = params?.sort || 'newest';
 
+  // ONE database call (ui_visits_list, migration 050): the visits (today
+  // in IST, or the most recent 100), the doctor list for the Edit form,
+  // and each visit's billing status. Used to be three steps one after
+  // another (visits, then doctors, then invoices).
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const { data: listData, error } = await supabase.rpc('ui_visits_list', { p_tab: tab });
+  const visits = sortVisits(listData?.visits || [], sort);
+  const doctors = listData?.doctors || [];
 
-  let query = supabase
-    .from('visits')
-    .select('*, patients(first_name, salutation, last_name, uhid, mobile), profiles!doctor_id(full_name)')
-    .order('created_at', { ascending: false });
-
-  if (tab === 'today') {
-    query = query.gte('created_at', today);
-  } else {
-    query = query.limit(100); // most recent 100 -- avoids loading the entire visit history at once
-  }
-
-  const { data: rawVisits, error } = await query;
-  const visits = sortVisits(rawVisits || [], sort);
-  const doctors = await getDoctorOptionsForVisit();
-
-  const visitIds = (visits || []).map((v) => v.id);
-  let billingByVisit = {};
-  if (visitIds.length > 0) {
-    const { data: invoices } = await supabase.from('invoices').select('visit_id, status').in('visit_id', visitIds);
-    (invoices || []).forEach((inv) => { billingByVisit[inv.visit_id] = inv.status; });
-  }
+  // Billing badge now summarises ALL of a visit's invoices (cancelled ones
+  // ignored): all Paid -> Paid, anything paid so far -> Partial, otherwise
+  // Pending. Before, a visit with several invoices showed whichever one
+  // happened to come back last.
+  const billingByVisit = {};
+  visits.forEach((v) => { if (v.billingStatus) billingByVisit[v.id] = v.billingStatus; });
 
   return (
     <div className="card">

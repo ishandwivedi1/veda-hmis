@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { updateVisit, cancelVisit, resendVisitWhatsApp, sendReviewRequestForVisit } from './actions';
 import { getSurgeryTypeOptions } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
 
@@ -24,7 +23,6 @@ export default function VisitActions({ visit, doctors }) {
   // each with its own button and its own success/failure feedback.
   const [reviewStatus, setReviewStatus] = useState('');
   const [reviewMsg, setReviewMsg] = useState('');
-  const router = useRouter();
 
   async function handleResendWhatsApp() {
     setWaStatus('sending');
@@ -63,8 +61,7 @@ export default function VisitActions({ visit, doctors }) {
     const result = await updateVisit(visit.id, { doctorId, visitType, priority, surgeryType });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
-    setMode(null);
-    router.refresh();
+    setMode(null); // refreshed list already came back with the save (revalidatePath)
   }
 
   async function handleConfirmCancel() {
@@ -74,8 +71,7 @@ export default function VisitActions({ visit, doctors }) {
     const result = await cancelVisit(visit.id, cancelReason);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
-    setMode(null);
-    router.refresh();
+    setMode(null); // refreshed list already came back with the save (revalidatePath)
   }
 
   const waButton = (

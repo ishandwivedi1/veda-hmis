@@ -1,8 +1,11 @@
 'use server';
 
 import { after } from 'next/server';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
+import { getCurrentUserId } from '@/lib/authUser';
 import { sendVisitConfirmationWhatsApp, sendReviewRequestWhatsApp, formatVisitDateIST } from '@/lib/whatsapp';
 
 // Fetches a single patient for pre-filling the New Visit form when
@@ -161,7 +164,7 @@ export async function checkInAppointment(appointmentId) {
     return { error: error.message };
   }
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = { id: await getCurrentUserId(supabase) }; // local check, no Auth round trip
   deferVisitWhatsApp(data, user?.id);
 
   let surgicalCaseId = null;
@@ -210,7 +213,7 @@ export async function createWalkInVisit(values) {
     return { error: error.message };
   }
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = { id: await getCurrentUserId(supabase) }; // local check, no Auth round trip
   deferVisitWhatsApp(data, user?.id);
 
   // create_walk_in_visit's Surgery branch only ATTACHES this visit to an
@@ -258,7 +261,7 @@ export async function resendVisitWhatsApp(visitId) {
   if (error) return { error: error.message };
   if (!visit) return { error: 'Visit not found.' };
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = { id: await getCurrentUserId(supabase) }; // local check, no Auth round trip
   const whatsapp = await sendVisitWhatsAppCore(visit, user?.id);
 
   if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
@@ -292,7 +295,7 @@ export async function sendReviewRequestForVisit(visitId) {
     .single();
   if (!patient || !patient.mobile) return { error: 'Patient has no mobile number on file.' };
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = { id: await getCurrentUserId(supabase) }; // local check, no Auth round trip
   const whatsapp = await sendReviewRequestWhatsApp({
     firstName: patient.first_name,
     mobile: patient.mobile,
@@ -373,6 +376,9 @@ export async function updateVisit(visitId, values) {
       .not('status', 'in', '("Done","Cancelled")');
   }
 
+  // Visits list (the only caller) gets its refreshed rows back in this
+  // same response -- no separate reload request afterwards.
+  revalidatePath('/visits');
   return { success: true };
 }
 
@@ -396,7 +402,7 @@ export async function cancelVisit(visitId, reason) {
     return { error: 'This visit already has payment collected against it -- cancel or modify the invoice first, via Invoice Modification.' };
   }
 
-  const { data: userData } = await supabase.auth.getUser();
+  const userData = { user: { id: await getCurrentUserId(supabase) } }; // local check, no Auth round trip
 
   const { error } = await supabase.from('visits').update({
     status: 'Cancelled',
@@ -412,5 +418,30 @@ export async function cancelVisit(visitId, reason) {
     .eq('visit_id', visitId)
     .not('status', 'in', '("Done","Cancelled")');
 
+  revalidatePath('/visits'); // refreshed list comes back in this same response
   return { success: true };
+}
+
+// New Visit form's "Create Visit" in ONE request: creates the visit (same
+// createWalkInVisit as before) and, for the visit types that leave this
+// screen, sends back the next screen in the same response via redirect()
+// instead of a 2nd request afterwards. Same destinations as before:
+//   Surgery / Surgery Evaluation -> the patient's Surgical Journey case,
+//     or Patient Check-In's resolver if no case exists at all
+//   OPD Procedure Only -> the patient's OPD Procedures workspace
+//   Post-operative Review -> Front Office Dashboard (no invoice prompt)
+// Every other type returns the result so the form shows its
+// "Visit Created" popup, exactly as before.
+export async function createVisitAndOpenNext(values) {
+  const result = await createWalkInVisit(values);
+  if (result.error) return result;
+
+  if (['Surgery', 'Surgery Evaluation'].includes(values.visitType)) {
+    redirect(result.surgicalCaseId
+      ? `/surgical-journey/${result.surgicalCaseId}`
+      : `/patient-checkin?patientId=${values.patientId}`);
+  }
+  if (values.visitType === 'OPD Procedure Only') redirect(`/opd-procedures/${values.patientId}`);
+  if (values.visitType === 'Post-operative Review') redirect('/front-office-dashboard?visitCreated=1');
+  return result;
 }

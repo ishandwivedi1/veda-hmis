@@ -33,40 +33,18 @@ export default async function PatientsPage({ searchParams }) {
   const q = params?.q || '';
   const sort = params?.sort || 'newest';
 
+  // ONE database call (ui_patients_list, migration 050): patients matching
+  // the search, each with last visit time and whether a visit is Open.
+  // Used to be all patients, then a 2nd query sending every patient id
+  // back (capped at 1,000 rows by the API). The search text is passed as
+  // a parameter now, so commas/brackets in it can't break the filter.
   const supabase = await createClient();
-  let query = supabase.from('patients').select('*').order('created_at', { ascending: false });
-
-  if (q) {
-    query = query.or(
-      `uhid.ilike.%${q}%,mobile.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`
-    );
-  }
-
-  const { data: rawPatients, error } = await query;
-  const patients = sortPatients(rawPatients || [], sort);
-
-  // Richer search results, matching M20's "Find Patient" screen -- shows
-  // each patient's last visit date and whether they currently have an
-  // open (active) visit, computed in one batched query rather than one
-  // query per row.
-  const patientIds = (patients || []).map((p) => p.id);
-  let visitInfo = {};
-  if (patientIds.length > 0) {
-    const { data: visits } = await supabase
-      .from('visits')
-      .select('patient_id, status, created_at')
-      .in('patient_id', patientIds)
-      .order('created_at', { ascending: false });
-
-    (visits || []).forEach((v) => {
-      if (!visitInfo[v.patient_id]) {
-        visitInfo[v.patient_id] = { lastVisit: v.created_at, hasActive: false };
-      }
-      if (v.status === 'Open') {
-        visitInfo[v.patient_id].hasActive = true;
-      }
-    });
-  }
+  const { data: list, error } = await supabase.rpc('ui_patients_list', { p_q: q || null });
+  const patients = sortPatients(list || [], sort);
+  const visitInfo = {};
+  patients.forEach((p) => {
+    if (p.lastVisit) visitInfo[p.id] = { lastVisit: p.lastVisit, hasActive: !!p.hasActive };
+  });
 
   return (
     <div className="card">

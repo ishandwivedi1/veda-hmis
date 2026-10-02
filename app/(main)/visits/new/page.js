@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { searchPatientsForBooking } from '@/lib/rpc-reads/appointments__actions'; // parallel reads (tools/parallel-reads)
-import { createWalkInVisit } from '@/app/(main)/visits/actions';
+import { createVisitAndOpenNext } from '@/app/(main)/visits/actions';
 import { getLastVisitInfo } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
 import { getBookVisitBootstrap } from '@/lib/rpc-reads/visits__combined-actions'; // parallel reads (tools/parallel-reads)
 import VisitCreatedModal from '@/app/components/VisitCreatedModal';
@@ -195,8 +195,15 @@ function NewVisitForm() {
       return;
     }
 
+    // ONE request (createVisitAndOpenNext in visits/actions.js): creates
+    // the visit and, for types that leave this screen, the next screen
+    // comes back in the same response -- Surgery / Surgery Evaluation ->
+    // the patient's Surgical Journey case (or Patient Check-In's
+    // resolver if no case exists); OPD Procedure Only -> OPD Procedures
+    // workspace; Post-operative Review -> dashboard (no invoice prompt).
+    // Other types come back here and show the "Visit Created" popup.
     setLoading(true);
-    const result = await createWalkInVisit({
+    const result = await createVisitAndOpenNext({
       patientId: selectedPatient.id,
       doctorId: doctorId || null,
       visitType,
@@ -204,43 +211,11 @@ function NewVisitForm() {
       priority,
       surgeryType,
     });
-    setLoading(false);
 
+    if (!result) return; // navigating to the next screen
+    setLoading(false);
     if (result.error) {
       setError(result.error);
-      return;
-    }
-
-    // Surgery and Surgery Evaluation both land directly on the
-    // patient's Surgical Journey case -- that's the one place a
-    // front-desk executive can see exactly what's needed next
-    // (booking, payment, check-in status, awaiting confirmation),
-    // rather than a generic Patient Check-In screen. Falls back to
-    // Patient Check-In's own "Register Surgery Directly" resolver only
-    // if genuinely no case exists at all for this patient.
-    if (['Surgery', 'Surgery Evaluation'].includes(visitType)) {
-      if (result.surgicalCaseId) {
-        router.push(`/surgical-journey/${result.surgicalCaseId}`);
-      } else {
-        router.push(`/patient-checkin?patientId=${selectedPatient.id}`);
-      }
-      return;
-    }
-
-    // OPD Procedure Only skips the doctor queue entirely (see
-    // create_walk_in_visit) and lands straight on the patient's OPD
-    // Procedures workspace, where Check-In is now unlocked since an
-    // active visit exists.
-    if (visitType === 'OPD Procedure Only') {
-      router.push(`/opd-procedures/${selectedPatient.id}`);
-      return;
-    }
-
-    // Post-operative Review never needs an invoice created at front
-    // desk -- skip the Create Invoice prompt entirely and go straight
-    // back to the dashboard.
-    if (visitType === 'Post-operative Review') {
-      router.push('/front-office-dashboard?visitCreated=1');
       return;
     }
 

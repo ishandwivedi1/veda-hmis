@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { registerPatient, registerAndCreateVisit, registerAndCreateInhouseCampVisit, checkDuplicateMobile } from '../actions';
-import { linkPatientToAppointment } from '@/app/(main)/appointments/actions';
+// The *AndOpen* / *AndNext* actions save and send back the next screen in
+// ONE request (see patients/actions.js).
+import { registerAndCreateVisit, checkDuplicateMobile, registerAndOpenDashboard, registerLinkAppointmentAndOpenDashboard, registerInhouseCampAndNext } from '../actions';
 import VisitCreatedModal from '@/app/components/VisitCreatedModal';
 
 function calcAge(dob) {
@@ -96,6 +97,7 @@ export default function RegistrationForm() {
     });
     setDuplicates([]);
     setError('');
+    setLoading(false); // the camp button's request ends by reopening this same page
   }, [searchParams]);
 
   function validate() {
@@ -118,10 +120,9 @@ export default function RegistrationForm() {
     setError('');
     if (!validate()) return;
     setLoading(true);
-    const result = await registerPatient(values);
-    setLoading(false);
-    if (result.error) { setError(result.error); return; }
-    router.push(`/front-office-dashboard?registered=${result.patient.uhid}`);
+    // one request: registers and opens the dashboard; stays disabled until it does
+    const result = await registerAndOpenDashboard(values);
+    if (result?.error) { setLoading(false); setError(result.error); }
   }
 
   async function handleRegisterAndVisit() {
@@ -142,29 +143,22 @@ export default function RegistrationForm() {
     setError('');
     if (!validate()) return;
     setLoading(true);
-    const result = await registerAndCreateInhouseCampVisit(values);
-    setLoading(false);
-    if (result.error) { setError(result.error); return; }
-    if (result.visitError) {
-      setError(`Patient registered (UHID: ${result.patient.uhid}), but creating the camp visit failed: ${result.visitError}`);
-      return;
-    }
     // Straight back to a blank registration form -- no success modal --
     // since an in-house camp means registering the next person right
-    // away, not reviewing this one's visit details.
-    router.push(`/patients/new?campRegistered=${result.patient.uhid}`);
+    // away, not reviewing this one's visit details. One request: the
+    // registration + camp visit and the blank form come back together.
+    const result = await registerInhouseCampAndNext(values);
+    setLoading(false);
+    if (result?.error) setError(result.error);
   }
 
   async function handleRegisterAndLinkAppointment() {
     setError('');
     if (!validate()) return;
     setLoading(true);
-    const result = await registerPatient(values);
-    if (result.error) { setLoading(false); setError(result.error); return; }
-    const linkResult = await linkPatientToAppointment(appointmentId, result.patient.id);
-    setLoading(false);
-    if (linkResult.error) { setError(`Patient registered (UHID: ${result.patient.uhid}), but linking to the appointment failed: ${linkResult.error}`); return; }
-    router.push('/front-office-dashboard?linked=1');
+    // one request: register + link to the appointment + open the dashboard
+    const result = await registerLinkAppointmentAndOpenDashboard(values, appointmentId);
+    if (result?.error) { setLoading(false); setError(result.error); }
   }
 
   return (

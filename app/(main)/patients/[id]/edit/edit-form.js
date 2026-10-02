@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { updatePatient, resendRegistrationWhatsApp } from '../../actions';
+import { updatePatientAndOpenList, resendRegistrationWhatsApp } from '../../actions';
 
 function calcAge(dob) {
   if (!dob) return '';
@@ -99,10 +99,9 @@ export default function EditForm({ patient }) {
     setError('');
     if (!validate()) return;
     setLoading(true);
-    const result = await updatePatient(patient.id, values);
-    setLoading(false);
-    if (result.error) { setError(result.error); return; }
-    router.push('/patients');
+    // one request: saves and opens the Patients list
+    const result = await updatePatientAndOpenList(patient.id, values);
+    if (result?.error) { setLoading(false); setError(result.error); }
   }
 
   return (

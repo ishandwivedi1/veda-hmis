@@ -1,9 +1,12 @@
 'use server';
 
 import { after } from 'next/server';
+import { redirect } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
+import { getCurrentUserId } from '@/lib/authUser';
 import { createWalkInVisit } from '@/app/(main)/visits/actions';
+import { linkPatientToAppointment } from '@/app/(main)/appointments/actions';
 import { sendRegistrationWhatsApp, sendReviewRequestWhatsApp } from '@/lib/whatsapp';
 
 export async function registerPatient(values) {
@@ -40,7 +43,7 @@ export async function registerPatient(values) {
     // possible failure mode, e.g. a mid-transaction server crash) has
     // an explanation instead of being a mystery.
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = { id: await getCurrentUserId(supabase) }; // local check, no Auth round trip
       await supabase.from('registration_attempt_log').insert({
         error_message: error.message,
         input_first_name: values.firstName || null,
@@ -58,7 +61,7 @@ export async function registerPatient(values) {
   // fails registration. Previously this was awaited inline (comment said
   // "fire-and-forget" but it wasn't) -- after() makes that true, so
   // registration returns immediately and the message sends afterward.
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = { id: await getCurrentUserId(supabase) }; // local check, no Auth round trip
   const triggeredBy = user?.id || null;
   after(async () => {
     try {
@@ -93,7 +96,7 @@ export async function resendRegistrationWhatsApp(patientId) {
   if (error) return { error: error.message };
   if (!patient.mobile) return { error: 'This patient has no mobile number on file.' };
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = { id: await getCurrentUserId(supabase) }; // local check, no Auth round trip
   const whatsapp = await sendRegistrationWhatsApp({
     name: `${formatPatientName(patient)}`.trim(),
     patientUhid: patient.uhid,
@@ -246,7 +249,7 @@ export async function sendReviewRequestForPatient(patientId) {
   if (!patient) return { error: 'Patient not found.' };
   if (!patient.mobile) return { error: 'Patient has no mobile number on file.' };
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = { id: await getCurrentUserId(supabase) }; // local check, no Auth round trip
   const whatsapp = await sendReviewRequestWhatsApp({
     firstName: patient.first_name,
     mobile: patient.mobile,
@@ -259,3 +262,46 @@ export async function sendReviewRequestForPatient(patientId) {
   return { success: true };
 }
 
+// ── One-request buttons for the Registration and Edit Patient screens ──
+// Each does the same work as before and then sends back the next screen in
+// the SAME response via redirect(), instead of the screen waiting for the
+// save and then making another request to open the next page. On an error
+// they return { error } exactly like the functions they wrap.
+
+// "Register" -> Front Office Dashboard ("Registered successfully -- UHID").
+export async function registerAndOpenDashboard(values) {
+  const result = await registerPatient(values);
+  if (result.error) return result;
+  redirect(`/front-office-dashboard?registered=${encodeURIComponent(result.patient.uhid)}`);
+}
+
+// Registering someone who had booked an appointment without being
+// registered: register + link to the appointment in ONE request (was two
+// requests one after the other, then a third to open the dashboard).
+export async function registerLinkAppointmentAndOpenDashboard(values, appointmentId) {
+  const result = await registerPatient(values);
+  if (result.error) return result;
+  const linkResult = await linkPatientToAppointment(appointmentId, result.patient.id);
+  if (linkResult.error) {
+    return { error: `Patient registered (UHID: ${result.patient.uhid}), but linking to the appointment failed: ${linkResult.error}` };
+  }
+  redirect('/front-office-dashboard?linked=1');
+}
+
+// "Register and Create Inhouse Camp Visit" -> straight back to a blank
+// registration form for the next person (same as before).
+export async function registerInhouseCampAndNext(values) {
+  const result = await registerAndCreateInhouseCampVisit(values);
+  if (result.error) return result;
+  if (result.visitError) {
+    return { error: `Patient registered (UHID: ${result.patient.uhid}), but creating the camp visit failed: ${result.visitError}` };
+  }
+  redirect(`/patients/new?campRegistered=${encodeURIComponent(result.patient.uhid)}`);
+}
+
+// Edit Patient "Save" -> back to the Patients list.
+export async function updatePatientAndOpenList(patientId, values) {
+  const result = await updatePatient(patientId, values);
+  if (result.error) return result;
+  redirect('/patients');
+}
