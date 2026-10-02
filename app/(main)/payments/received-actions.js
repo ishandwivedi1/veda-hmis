@@ -7,43 +7,50 @@
 // PaymentEditPanel, and correct_closed_day_payment_modes below).
 
 import { createClient } from '@/lib/supabase-server';
-import { getPaymentEditContext, getPaymentHistory } from './payment-edit-actions';
+import { buildPaymentHistory, paymentEditFlags } from '@/lib/paymentHistory';
+import { searchReceipts } from './actions';
+import { getTodayCollectionSummary } from '@/app/(main)/cash-management/actions';
 
-// Everything the detail pane needs in one round trip.
+const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+// Everything the detail pane needs: ONE database call (ui_payment_detail,
+// migration 046) -- payment, day status, permissions, credits, cash
+// handed over and history -- instead of ~6 calls one after another.
 export async function getReceivedPaymentDetail(paymentId) {
   const supabase = await createClient();
-  const [ctx, history, { data: userData }] = await Promise.all([
-    getPaymentEditContext(paymentId),
-    getPaymentHistory(paymentId),
-    supabase.auth.getUser(),
-  ]);
-  if (ctx?.error) return { error: ctx.error };
+  const { data: base, error } = await supabase.rpc('ui_payment_detail', { p_payment_id: paymentId });
+  if (error) return { error: error.message };
+  if (!base) return { error: 'Payment not found.' };
 
-  const p = ctx.payment;
-  const [{ data: me }, { data: closed }, { data: counter }, { data: collector }, { data: refunds }] = await Promise.all([
-    supabase.from('profiles').select('designation').eq('id', userData?.user?.id || '00000000-0000-0000-0000-000000000000').maybeSingle(),
-    supabase.from('day_closings').select('closing_date, closed_at').eq('closing_date', ctx.paymentDate).maybeSingle(),
-    supabase.from('cash_counter').select('amount_handed_over').eq('counter_date', ctx.paymentDate).maybeSingle(),
-    p.collected_by
-      ? supabase.from('profiles').select('full_name').eq('id', p.collected_by).maybeSingle()
-      : Promise.resolve({ data: null }),
-    supabase.from('payment_refunds').select('id').eq('payment_id', paymentId).is('cancelled_at', null),
-  ]);
-
-  const isAdmin = me?.designation === 'Administrator';
-  const dayClosed = !!closed;
-  const hasRefund = (refunds || []).length > 0;
-  const canCorrectClosedDay = dayClosed && isAdmin && !hasRefund && ['invoice_payment', 'advance'].includes(p.payment_type);
+  const p = base.payment;
+  const canCorrectClosedDay = !!base.dayClosed && !!base.isAdmin && !base.hasRefund && ['invoice_payment', 'advance'].includes(p.payment_type);
 
   return {
-    ...ctx,
-    history,
-    isAdmin,
-    dayClosed,
+    payment: p,
+    paymentDate: base.paymentDate,
+    today: base.today,
+    patientCredit: r2(base.patientCredit),
+    paymentCredit: r2(base.paymentCredit),
+    ...paymentEditFlags(base),
+    history: buildPaymentHistory(base.audit, base.edits),
+    isAdmin: !!base.isAdmin,
+    dayClosed: !!base.dayClosed,
     canCorrectClosedDay,
-    cashHandedOver: counter?.amount_handed_over ?? null,
-    collectedBy: collector?.full_name || null,
+    cashHandedOver: base.cashHandedOver ?? null,
+    collectedBy: base.collectedBy || null,
   };
+}
+
+// The Payments screen's ONE request: day status, today's summary strip and
+// the payments list, run in parallel on the server.
+export async function getPaymentsScreenData({ query = '', mode = '', dateFrom = '', dateTo = '' } = {}) {
+  const supabase = await createClient();
+  const [day, summary, receipts] = await Promise.all([
+    supabase.rpc('ui_day_status').then((r) => r.data || null),
+    getTodayCollectionSummary(),
+    searchReceipts(query, mode, dateFrom, dateTo),
+  ]);
+  return { day, summary, receipts };
 }
 
 // Closed day, Administrator only: re-split the modes (total unchanged).

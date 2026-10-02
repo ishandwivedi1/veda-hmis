@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { savePaymentEdit, removePayment } from './payment-edit-actions';
-import { getPaymentEditContext, getPaymentHistory } from '@/lib/rpc-reads/payments__payment-edit-actions'; // parallel reads (tools/parallel-reads)
+import { getPaymentEditContext } from '@/lib/rpc-reads/payments__payment-edit-actions'; // parallel reads (tools/parallel-reads)
 
 const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -66,10 +66,11 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
 
   const load = useCallback(async () => {
     setError('');
-    const [c, h] = await Promise.all([getPaymentEditContext(paymentId), getPaymentHistory(paymentId)]);
+    // One request: context and history come back together.
+    const c = await getPaymentEditContext(paymentId);
     if (c.error) { setError(c.error); return; }
     setCtx(c);
-    setHistory(h);
+    setHistory(c.history || []);
     const p = c.payment;
     setAmount(String(r2(p.total_amount)));
     setDate(c.paymentDate);

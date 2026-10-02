@@ -72,7 +72,8 @@ for (const f of files) {
   mods[f] = m;
 }
 
-const READ_RPC = /\.rpc\(\s*['"](get_|search_|list_|count_|billing_reconciliation|has_billing_permission|is_)/;
+// ui_* = read-only screen loaders (migration 046) -- by convention they never write.
+const READ_RPC = /\.rpc\(\s*['"](get_|search_|list_|count_|ui_|billing_reconciliation|has_billing_permission|is_)/;
 const WRITE_RE = [
   /\.(insert|update|upsert|delete)\s*\(/, /revalidate(Path|Tag)\s*\(/, /\bredirect\s*\(/, /\bnotFound\s*\(/,
   /\bafter\s*\(/, /createAdminClient/, /\.storage\b/, /\bfetch\s*\(/, /auth\.(signOut|admin|signIn|updateUser|resetPassword)/,

@@ -18,12 +18,11 @@ import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { openPrintPopup } from '@/lib/printPopup';
 import { resendInvoiceBillWhatsApp, setManualSurgeryDetails } from '../actions';
-import { searchInvoices, getInvoicesForVisit, getSurgeryBillingOptions } from '@/lib/rpc-reads/billing__actions';
+import { getSurgeryBillingOptions } from '@/lib/rpc-reads/billing__actions';
 import { applyAdjustment } from '@/app/(main)/payments/actions';
 import { applyCreditNote } from '@/app/(main)/credit-notes/actions';
-import { getOpenCreditNotesForPatient } from '@/lib/rpc-reads/credit-notes__actions'; // parallel reads (tools/parallel-reads)
-import { getAdvanceBalance } from '@/lib/rpc-reads/payments__actions';
-import { getInvoicePanel, getInvoicesSummary } from '@/lib/rpc-reads/billing__invoices-screen-actions'; // parallel reads (tools/parallel-reads)
+import { getInvoicePanel, getBillingScreenData } from '@/lib/rpc-reads/billing__invoices-screen-actions'; // parallel reads (tools/parallel-reads)
+import DayOpenBar from '@/app/components/DayOpenBar';
 import InvoiceEditPanel from '../invoice-edit-panel';
 import InvoiceHistory from '../invoice-history';
 import PendingBillingWidget from '../pending-billing-widget';
@@ -71,13 +70,8 @@ function Menu({ label, icon, primary, items }) {
   );
 }
 
-function Summary({ refreshKey }) {
-  const [s, setS] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    getInvoicesSummary().then((d) => { if (alive) setS(d); }).catch(() => {});
-    return () => { alive = false; };
-  }, [refreshKey]);
+// Data comes from the screen's single load request (no request of its own).
+function Summary({ s }) {
   const cell = (label, value, sub, color) => (
     <div style={{ flex: '1 1 160px', padding: '4px 16px', borderLeft: '1px solid var(--g200)' }}>
       <div style={{ fontSize: 12, color: 'var(--g500)' }}>{label}</div>
@@ -104,7 +98,7 @@ function Summary({ refreshKey }) {
 // ─────────────────────────────────────────────────────────────────────
 // "To bill" -- the front-office work lists from the old dashboard.
 // ─────────────────────────────────────────────────────────────────────
-function ToBill({ fullyPaidUnbilled, todaysVisits, billingByVisit, onShowVisit }) {
+function ToBill({ fullyPaidUnbilled, todaysVisits, billingByVisit, pending, onShowVisit }) {
   const router = useRouter();
   const [open, setOpen] = useState(null); // null | surgery | investigations | opdProcedures | pharmacy | visits
   const [todayOnly, setTodayOnly] = useState(true);
@@ -142,6 +136,7 @@ function ToBill({ fullyPaidUnbilled, todaysVisits, billingByVisit, onShowVisit }
       {/* Kept mounted (hidden when closed) so the chip counts stay live. */}
       <div className="card" style={{ marginTop: 8, display: ['investigations', 'opdProcedures', 'pharmacy'].includes(open) ? 'block' : 'none' }}>
         <PendingBillingWidget
+          initialData={pending}
           bare todayOnly={todayOnly} onCounts={setCounts}
           visibleCategories={open === 'investigations' ? ['Investigation', 'Biometry'] : open === 'opdProcedures' ? ['Procedure'] : open === 'pharmacy' ? ['Pharmacy'] : []}
         />
@@ -277,10 +272,9 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
     const d = await getInvoicePanel(invoiceId);
     if (d?.error) { setError(d.error); return; }
     setData(d);
-    if (d.invoice?.patient_id) {
-      getAdvanceBalance(d.invoice.patient_id).then((b) => setCredit(r2(b))).catch(() => {});
-      getOpenCreditNotesForPatient(d.invoice.patient_id).then((c) => setOpenCNs(c || [])).catch(() => {});
-    }
+    // Credits arrive with the invoice (same request) -- no follow-up calls.
+    setCredit(r2(d.advanceBalance));
+    setOpenCNs(d.openCreditNotes || []);
   }, [invoiceId]);
   useEffect(() => { load(); }, [load]);
 
@@ -528,7 +522,7 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
 // ─────────────────────────────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────────────────────────────
-export default function InvoicesScreen({ fullyPaidUnbilled = [], todaysVisits = [], billingByVisit = {} }) {
+export default function InvoicesScreen() {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
   const [deptFilter, setDeptFilter] = useState('');
@@ -539,21 +533,27 @@ export default function InvoicesScreen({ fullyPaidUnbilled = [], todaysVisits = 
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(searchParams.get('invoiceId') || null);
   const [visitFilter, setVisitFilter] = useState(searchParams.get('visitId') ? { id: searchParams.get('visitId'), label: '' } : null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [screen, setScreen] = useState({ day: null, summary: null, todaysVisits: [], billingByVisit: {}, fullyPaidUnbilled: [], pending: null });
   const reqId = useRef(0);
+  // First load and after any change: the full screen (day, summary, To
+  // bill lists, invoices) in ONE request. A search/filter change: just the
+  // list, still one request.
+  const needFull = useRef(true);
 
   const runSearch = useCallback(async () => {
     const my = ++reqId.current;
     setLoading(true);
-    let data;
-    if (visitFilter) {
-      const res = await getInvoicesForVisit(visitFilter.id);
-      data = res?.invoices || [];
-    } else {
-      data = await searchInvoices(query, deptFilter, dateFrom, dateTo);
+    const full = needFull.current;
+    needFull.current = false;
+    const res = await getBillingScreenData({ query, dept: deptFilter, dateFrom, dateTo, visitId: visitFilter?.id || null, full });
+    if (my !== reqId.current) { if (full) needFull.current = true; return; }
+    if (full && res) {
+      setScreen({
+        day: res.day, summary: res.summary, todaysVisits: res.todaysVisits || [], billingByVisit: res.billingByVisit || {},
+        fullyPaidUnbilled: res.fullyPaidUnbilled || [], pending: res.pending || null,
+      });
     }
-    if (my !== reqId.current) return;
-    setRows(data || []);
+    setRows(res?.invoices || []);
     setLoading(false);
   }, [query, deptFilter, dateFrom, dateTo, visitFilter]);
 
@@ -587,8 +587,9 @@ export default function InvoicesScreen({ fullyPaidUnbilled = [], todaysVisits = 
         </div>
       </div>
 
-      <Summary refreshKey={refreshKey} />
-      <ToBill fullyPaidUnbilled={fullyPaidUnbilled} todaysVisits={todaysVisits} billingByVisit={billingByVisit}
+      <DayOpenBar status={screen.day} note="collecting money (incl. package advances) is blocked" source="Billing" />
+      <Summary s={screen.summary} />
+      <ToBill fullyPaidUnbilled={screen.fullyPaidUnbilled} todaysVisits={screen.todaysVisits} billingByVisit={screen.billingByVisit} pending={screen.pending}
         onShowVisit={(id, label) => { autoOpened.current = false; setSelectedId(null); setVisitFilter({ id, label }); }} />
 
       <div className="card" style={{ marginBottom: 12, padding: '10px 12px' }}>
@@ -676,7 +677,7 @@ export default function InvoicesScreen({ fullyPaidUnbilled = [], todaysVisits = 
               key={selectedId}
               invoiceId={selectedId}
               onClose={() => setSelectedId(null)}
-              onChanged={() => { setRefreshKey((k) => k + 1); runSearch(); }}
+              onChanged={() => { needFull.current = true; runSearch(); }}
             />
           </div>
         )}

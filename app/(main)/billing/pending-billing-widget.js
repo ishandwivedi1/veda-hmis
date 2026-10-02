@@ -141,7 +141,7 @@ function unbilledCount(groups) {
   return groups.filter((g) => g.items.some((i) => i.billing_status !== 'Billed' && i.billing_status !== 'Denied')).length;
 }
 
-export default function PendingBillingWidget({ onCounts, bare = false, todayOnly = false, visibleCategories = ['Investigation', 'Biometry', 'Procedure', 'Pharmacy'] }) {
+export default function PendingBillingWidget({ onCounts, bare = false, todayOnly = false, visibleCategories = ['Investigation', 'Biometry', 'Procedure', 'Pharmacy'], initialData = undefined }) {
   const [investigations, setInvestigations] = useState([]);
   const [procedures, setProcedures] = useState([]);
   const [pharmacy, setPharmacy] = useState([]);
@@ -177,7 +177,19 @@ export default function PendingBillingWidget({ onCounts, bare = false, todayOnly
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // initialData: the Invoices screen already fetched these four lists in
+  // its single load request -- use them instead of fetching again. While
+  // that request is still in flight it passes null (wait); screens that
+  // don't pass anything (undefined) fetch here as before.
+  useEffect(() => {
+    if (initialData === undefined) { load(); return; }
+    if (!initialData) return;
+    setInvestigations(initialData.inv || []);
+    setProcedures(initialData.proc || []);
+    setPharmacy(initialData.rx || []);
+    setBiometry(initialData.bio || []);
+    setLoading(false);
+  }, [initialData, load]);
 
   async function withBusy(id, fn) {
     setBusyId(id);

@@ -7,38 +7,19 @@
 // decides what the screen shows.
 
 import { createClient } from '@/lib/supabase-server';
-import { getMyBillingPermissions } from '@/lib/billingPermissions';
+import { buildPaymentHistory, paymentEditFlags } from '@/lib/paymentHistory';
 
 const istDate = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 export async function getPaymentEditContext(paymentId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
-  const [{ data: payment, error }, perms, { data: me }] = await Promise.all([
-    supabase.from('payments')
-      .select('*, patients(id, first_name, salutation, last_name, uhid), payment_modes(mode, amount), payment_allocations(invoice_id, amount, invoices(invoice_number))')
-      .eq('id', paymentId).single(),
-    getMyBillingPermissions(supabase),
-    supabase.from('profiles').select('designation').eq('id', userData?.user?.id || '00000000-0000-0000-0000-000000000000').maybeSingle(),
-  ]);
+  // One database call for the payment, its day, permissions, credits and
+  // history (ui_payment_detail, migration 046) instead of ~5 in a row.
+  const { data: base, error } = await supabase.rpc('ui_payment_detail', { p_payment_id: paymentId });
   if (error) return { error: error.message };
-
-  const paymentDate = istDate(payment.collected_at);
-  const today = istDate(new Date());
-
-  const [{ data: closed }, { data: refunds }, { data: ledger }, { data: ownCredit }] = await Promise.all([
-    supabase.from('day_closings').select('closing_date').eq('closing_date', paymentDate).maybeSingle(),
-    supabase.from('payment_refunds').select('id').eq('payment_id', paymentId).is('cancelled_at', null),
-    supabase.from('patient_ledger').select('amount').eq('patient_id', payment.patient_id),
-    supabase.from('patient_ledger').select('amount')
-      .eq('payment_id', paymentId)
-      .in('entry_type', ['Advance Collected', 'Correction: Credit Added', 'Correction: Credit Removed']),
-  ]);
-  const patientCredit = r2((ledger || []).reduce((s, l) => s + Number(l.amount), 0));
-  const paymentCredit = r2((ownCredit || []).reduce((s, l) => s + Number(l.amount), 0));
-  const hasRefund = (refunds || []).length > 0;
+  if (!base) return { error: 'Payment not found.' };
+  const payment = base.payment;
 
   // Invoices this payment could pay: ones it already pays + the patient's
   // unpaid ones. "room" = what's left after everyone else's payments.
@@ -46,24 +27,17 @@ export async function getPaymentEditContext(paymentId) {
   if (payment.payment_type === 'invoice_payment') {
     const currentIds = (payment.payment_allocations || []).map((a) => a.invoice_id);
     const { data: candidates } = await supabase.from('invoices')
-      .select('id, invoice_number, net, paid, status, created_at')
+      .select('id, invoice_number, net, paid, status, created_at, payment_allocations(payment_id, amount), payment_refunds(amount, cancelled_at)')
       .eq('patient_id', payment.patient_id)
       .neq('status', 'Cancelled')
       .or(`status.in.(Pending,Partial)${currentIds.length ? `,id.in.(${currentIds.join(',')})` : ''}`)
       .order('created_at', { ascending: false })
       .limit(50);
-    const ids = (candidates || []).map((i) => i.id);
-    const [{ data: allocs }, { data: invRefunds }] = ids.length
-      ? await Promise.all([
-        supabase.from('payment_allocations').select('invoice_id, payment_id, amount').in('invoice_id', ids),
-        supabase.from('payment_refunds').select('invoice_id, amount').in('invoice_id', ids).is('cancelled_at', null),
-      ])
-      : [{ data: [] }, { data: [] }];
     invoices = (candidates || [])
       .filter((i) => Number(i.net) > 0 || currentIds.includes(i.id))
       .map((i) => {
-        const others = (allocs || []).filter((a) => a.invoice_id === i.id && a.payment_id !== paymentId).reduce((s, a) => s + Number(a.amount), 0)
-          - (invRefunds || []).filter((r) => r.invoice_id === i.id).reduce((s, r) => s + Number(r.amount), 0);
+        const others = (i.payment_allocations || []).filter((a) => a.payment_id !== paymentId).reduce((s, a) => s + Number(a.amount), 0)
+          - (i.payment_refunds || []).filter((r) => !r.cancelled_at).reduce((s, r) => s + Number(r.amount), 0);
         const current = (payment.payment_allocations || []).find((a) => a.invoice_id === i.id);
         return {
           id: i.id, invoice_number: i.invoice_number, net: Number(i.net), date: istDate(i.created_at),
@@ -73,36 +47,15 @@ export async function getPaymentEditContext(paymentId) {
       .filter((i) => i.room > 0 || i.current > 0);
   }
 
-  const editable = ['invoice_payment', 'advance'].includes(payment.payment_type);
-  const deletable = ['invoice_payment', 'advance', 'advance_adjustment'].includes(payment.payment_type);
-
-  let editBlock = null;
-  if (!editable) editBlock = payment.payment_type === 'advance_adjustment'
-    ? 'This is an application of existing credit, not money received. It can only be removed (the credit goes back to the patient).'
-    : 'Credit notes and refunds are cancelled from their own screens, not edited here.';
-  else if (closed) editBlock = 'This payment is from a closed day. An Administrator must reopen that day in Cash Management first.';
-  else if (hasRefund) editBlock = 'This payment has a refund recorded against it. Cancel that refund first (Payments > Refund).';
-  else if (!perms['payment.edit']) editBlock = 'You do not have permission to edit payments.';
-  else if (paymentDate < today && !perms['payment.edit_past']) editBlock = 'You can only edit payments dated today. Ask an Administrator.';
-
-  let deleteBlock = null;
-  if (!deletable) deleteBlock = 'Credit notes and refunds are cancelled from their own screens.';
-  else if (closed) deleteBlock = 'This payment is from a closed day.';
-  else if (hasRefund) deleteBlock = 'Cancel the refund on this payment first.';
-  else if (!perms['payment.delete']) deleteBlock = 'You do not have permission to delete payments.';
-
   return {
     payment,
-    paymentDate,
-    today,
+    paymentDate: base.paymentDate,
+    today: base.today,
     invoices,
-    patientCredit,
-    paymentCredit,
-    canEdit: !editBlock,
-    editBlock,
-    canDelete: !deleteBlock,
-    deleteBlock,
-    canChangeDate: !!perms['payment.edit_past'] || me?.designation === 'Administrator',
+    patientCredit: r2(base.patientCredit),
+    paymentCredit: r2(base.paymentCredit),
+    history: buildPaymentHistory(base.audit, base.edits),
+    ...paymentEditFlags(base),
   };
 }
 

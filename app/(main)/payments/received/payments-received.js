@@ -15,9 +15,9 @@ import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { openPrintPopup } from '@/lib/printPopup';
 import { resendPaymentReceiptWhatsApp } from '../actions';
-import { searchReceipts } from '@/lib/rpc-reads/payments__actions';
 import { getReceivedPaymentDetail } from '@/lib/rpc-reads/payments__received-actions'; // parallel reads (tools/parallel-reads)
-import { getTodayCollectionSummary } from '@/lib/rpc-reads/cash-management__actions';
+import { getPaymentsScreenData } from '@/lib/rpc-reads/payments__received-actions'; // parallel reads (tools/parallel-reads)
+import DayOpenBar from '@/app/components/DayOpenBar';
 import { correctClosedDayModes } from '../received-actions';
 import PaymentEditPanel from '../payment-edit-panel';
 import DeletedPayments from '../deleted-payments';
@@ -348,13 +348,8 @@ function Menu({ label, icon, primary, items, align = 'right' }) {
   );
 }
 
-function TodaySummary({ refreshKey }) {
-  const [s, setS] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    getTodayCollectionSummary().then((d) => { if (alive) setS(d); }).catch(() => {});
-    return () => { alive = false; };
-  }, [refreshKey]);
+// Data comes from the screen's single load request (no request of its own).
+function TodaySummary({ s }) {
   const byMode = s?.byMode || {};
   const other = r2(Object.entries(byMode).filter(([m]) => m !== 'Cash' && m !== 'UPI').reduce((a, [, v]) => a + Number(v), 0));
   const cell = (label, value, color) => (
@@ -391,6 +386,8 @@ export default function PaymentsReceived() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [rows, setRows] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [day, setDay] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(searchParams.get('paymentId') || null);
   const [view, setView] = useState('register'); // register | deleted
@@ -400,7 +397,10 @@ export default function PaymentsReceived() {
   const runSearch = useCallback(async () => {
     const my = ++reqId.current;
     setLoading(true);
-    const data = await searchReceipts(query, modeFilter, dateFrom, dateTo);
+    // ONE request: list + today's summary + day status, in parallel server-side.
+    const res = await getPaymentsScreenData({ query, mode: modeFilter, dateFrom, dateTo });
+    const data = res?.receipts;
+    if (my === reqId.current) { setSummary(res?.summary || null); setDay(res?.day || null); }
     if (my !== reqId.current) return; // a newer search already started
     setRows(data || []);
     setLoading(false);
@@ -443,7 +443,8 @@ export default function PaymentsReceived() {
 
       {flash && <div className="msg-success" style={{ marginBottom: 10 }}><i className="ti ti-circle-check"></i> {flash}</div>}
 
-      {view === 'register' && <TodaySummary refreshKey={flash} />}
+      <DayOpenBar status={day} note="payments are blocked" source="Payments" />
+      {view === 'register' && <TodaySummary s={summary} />}
 
       {view === 'deleted' && <DeletedPayments />}
 
