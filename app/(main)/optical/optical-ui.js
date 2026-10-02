@@ -1,12 +1,11 @@
 'use client';
 
-// Shared pieces for the Zoho-style Optical Shop screens (Bills, Payments)
-// and the "+ New" pages: header with Bills / Payments / "+ New", the
-// dropdown menu, and money / date helpers. Makes no requests of its own.
+// Shared pieces for the Optical Shop screens (Dashboard, Bills, Payments,
+// Book / Finalize): header, dropdown menu, payment-mode rows, and money /
+// date helpers. Makes no requests of its own.
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 
 export const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 export const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -19,14 +18,6 @@ export const BILL_STATUS_LABEL = { Paid: 'PAID', Partial: 'PARTIALLY PAID', Pend
 export const PAYMENT_TYPE_LABEL = { sale_payment: 'Payment', advance: 'Advance', advance_adjustment: 'Advance applied', credit_note: 'Credit note', refund: 'Refund' };
 export const PAYMENT_TYPE_BADGE = { sale_payment: 'b-green', advance: 'b-blue', advance_adjustment: 'b-amber', credit_note: 'b-teal', refund: 'b-red' };
 
-export const NEW_ITEMS = [
-  { href: '/optical/book', icon: 'ti-eyeglass', label: 'Book Spectacles', hint: 'Take an order + advance; bill at delivery' },
-  { href: '/optical/finalize-order', icon: 'ti-package', label: 'Finalize Order', hint: 'Deliver a booked order and create its bill' },
-  { href: '/optical/new', icon: 'ti-file-plus', label: 'New Bill', hint: 'Bill an over-the-counter sale now' },
-  { href: '/optical/advance', icon: 'ti-piggy-bank', label: 'Advance', hint: 'Collect advance from a customer' },
-  { href: '/optical/credit-note', icon: 'ti-file-minus', label: 'Credit Note', hint: 'Reduce what a customer owes on a bill' },
-  { href: '/optical/refund', icon: 'ti-receipt-refund', label: 'Refund', hint: 'Return money paid or advance held' },
-];
 
 export function Menu({ label, icon, primary, items, align = 'right' }) {
   const [open, setOpen] = useState(false);
@@ -57,30 +48,18 @@ export function Menu({ label, icon, primary, items, align = 'right' }) {
   );
 }
 
-// Header used on every Optical page: title, Bills | Payments switch, "+ New".
-// (Replaces the old 7-tab bar, which also made its own "is today open?"
-// request on every page -- the Bills / Payments screens now get that in
-// their single load request.)
-export function OpticalHeader({ title }) {
-  const pathname = usePathname();
-  const tab = (href, label, icon) => {
-    const active = href === '/optical' ? pathname === '/optical' : pathname.startsWith(href);
-    return (
-      <Link href={href} className={active ? 'btn btn-sm btn-primary' : 'btn btn-sm'} style={{ textDecoration: 'none' }}>
-        <i className={`ti ${icon}`}></i> {label}
-      </Link>
-    );
-  };
+// Header used on every Optical page: just the title, plus a "Back to
+// Optical Dashboard" link on the Book / Finalize pages. Navigation lives in
+// the sidebar (Optical Dashboard, Optical Bills, Optical Payments).
+export function OpticalHeader({ title, back = false }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display-stack)' }}>{title}</div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {tab('/optical', 'Bills', 'ti-file-invoice')}
-          {tab('/optical/payments', 'Payments', 'ti-receipt-2')}
-        </div>
-      </div>
-      <Menu label="New" icon="ti-plus" primary items={NEW_ITEMS} />
+    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
+      {back && (
+        <Link href="/optical/dashboard" className="btn btn-sm" style={{ textDecoration: 'none' }}>
+          <i className="ti ti-arrow-left"></i> Optical Dashboard
+        </Link>
+      )}
+      <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display-stack)' }}>{title}</div>
     </div>
   );
 }

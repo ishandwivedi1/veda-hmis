@@ -1,7 +1,7 @@
 'use client';
 
 // Optical Bills -- Zoho-style (like hospital Invoices): summary strip,
-// bookings awaiting delivery, searchable list, and a bill pane on the right
+// searchable list, and a bill pane on the right
 // with Edit / Record Payment / Apply Advance / Credit Note / Print / Cancel /
 // History.
 //
@@ -43,39 +43,6 @@ function Summary({ s }) {
       {cell('Billed today', s ? money(s.todayBilled) : '', s ? `${s.todayCount} bill${s.todayCount === 1 ? '' : 's'}` : '')}
       {cell('Billed this month', s ? money(s.monthBilled) : '')}
       {cell('Advance held', s ? money(s.advanceHeld) : '', 'customer credit on file')}
-    </div>
-  );
-}
-
-// Booked orders not yet delivered / billed (from the same load request).
-function Bookings({ list }) {
-  const [open, setOpen] = useState(false);
-  if (!list || list.length === 0) return null;
-  const total = r2(list.reduce((s, b) => s + Number(b.net || 0), 0));
-  return (
-    <div className="card" style={{ marginBottom: 12, padding: '10px 12px' }}>
-      <button type="button" onClick={() => setOpen((v) => !v)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: '1px solid var(--g200)', background: open ? 'var(--blue-lt)' : '#fff' }}>
-        <i className="ti ti-package" style={{ color: 'var(--blue)' }}></i> {list.length} booking{list.length === 1 ? '' : 's'} awaiting delivery · {money(total)}
-        <i className={`ti ti-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: 12 }}></i>
-      </button>
-      {open && (
-        <table className="tbl" style={{ marginTop: 10 }}>
-          <thead><tr><th>Order</th><th>Customer</th><th>Booked</th><th style={{ textAlign: 'right' }}>Est. total</th><th style={{ textAlign: 'right' }}>Advance on file</th><th></th></tr></thead>
-          <tbody>
-            {list.map((b) => (
-              <tr key={b.id}>
-                <td style={{ fontWeight: 600 }}>{b.order_number}</td>
-                <td>{b.customer}</td>
-                <td>{dateIST(b.created_at)}</td>
-                <td style={{ textAlign: 'right' }}>{money(b.net)}</td>
-                <td style={{ textAlign: 'right' }}>{money(b.advanceOnFile)}</td>
-                <td><Link href={`/optical/finalize-order?orderId=${b.id}`} className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>Finalize</Link></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </div>
   );
 }
@@ -394,7 +361,6 @@ function BillPane({ saleId, listArgs, onScreen, onClose }) {
         {action('edit', 'ti-edit', 'Edit', !cancelled)}
         {action('pay', 'ti-cash', 'Record Payment', !cancelled && due > 0)}
         {action('advance', 'ti-wallet', `Apply Advance (${money(data.advanceBalance)})`, !cancelled && due > 0 && data.advanceBalance > 0)}
-        {!cancelled && due > 0 && <Link href={`/optical/credit-note?saleId=${s.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-file-minus"></i> Credit Note</Link>}
         <a href={`/optical-receipt-print/${s.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-printer"></i> PDF/Print</a>
         {action('cancel', 'ti-x-circle', 'Cancel bill', !cancelled && r2(s.paid) === 0)}
         <button type="button" className={showHistory ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setShowHistory((v) => !v)}>
@@ -512,10 +478,9 @@ export default function OpticalBillsScreen() {
 
   return (
     <div>
-      <OpticalHeader title="Optical Shop" />
+      <OpticalHeader title="Optical Bills" />
       <DayOpenBar status={screen.day} note="creating bills or collecting payments is blocked" source="Optical Shop" />
       <Summary s={screen.summary} />
-      <Bookings list={screen.bookings} />
 
       <div className="card" style={{ marginBottom: 12, padding: '10px 12px' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>

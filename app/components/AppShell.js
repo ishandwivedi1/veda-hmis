@@ -28,14 +28,9 @@ const NAV_ITEMS = [
   { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
 
   // ── OPTICAL SHOP ──
+  { href: '/optical/dashboard', label: 'Optical Dashboard', icon: 'ti-eyeglass', group: 'Optical Shop', also: ['/optical/book', '/optical/finalize-order'] },
   { href: '/optical', label: 'Optical Bills', icon: 'ti-file-invoice', group: 'Optical Shop' },
   { href: '/optical/payments', label: 'Optical Payments', icon: 'ti-receipt-2', group: 'Optical Shop' },
-  { href: '/optical/book', label: 'Book Spectacles', icon: 'ti-eyeglass', group: 'Optical Shop' },
-  { href: '/optical/finalize-order', label: 'Finalize Order', icon: 'ti-package', group: 'Optical Shop' },
-  { href: '/optical/new', label: 'New Bill', icon: 'ti-file-plus', group: 'Optical Shop' },
-  { href: '/optical/advance', label: 'Advance', icon: 'ti-piggy-bank', group: 'Optical Shop' },
-  { href: '/optical/credit-note', label: 'Credit Note', icon: 'ti-file-minus', group: 'Optical Shop' },
-  { href: '/optical/refund', label: 'Refund', icon: 'ti-receipt-refund', group: 'Optical Shop' },
 
   // ── OPD ──
   { href: '/optometry-dashboard', label: 'Optometry', icon: 'ti-eye-check', group: 'OPD' },
@@ -89,12 +84,7 @@ const PAGE_TITLES = [
   { match: /^\/investigation/, title: 'Investigation' },
   { match: /^\/billing/, title: 'Billing' },
   { match: /^\/optical\/payments/, title: 'Optical Shop · Payments' },
-  { match: /^\/optical\/book/, title: 'Optical Shop · Book Spectacles' },
-  { match: /^\/optical\/finalize-order/, title: 'Optical Shop · Finalize Order' },
-  { match: /^\/optical\/new/, title: 'Optical Shop · New Bill' },
-  { match: /^\/optical\/advance/, title: 'Optical Shop · Advance' },
-  { match: /^\/optical\/credit-note/, title: 'Optical Shop · Credit Note' },
-  { match: /^\/optical\/refund/, title: 'Optical Shop · Refund' },
+  { match: /^\/optical\/(dashboard|book|finalize-order)/, title: 'Optical Shop · Dashboard' },
   { match: /^\/optical/, title: 'Optical Shop · Bills' },
   { match: /^\/payments/, title: 'Payments' },
   { match: /^\/credit-notes/, title: 'Credit Notes' },
@@ -217,10 +207,12 @@ export default function AppShell({ children }) {
   // Pick the single longest matching href across all items, so nested
   // routes (e.g. /payments and /payments/advance both being valid nav
   // targets) never highlight more than one item at once.
+  // An item can also own other paths (`also`), e.g. Optical Dashboard
+  // stays highlighted on its Book / Finalize pages.
   const activeHref = visibleNavItems
-    .map((i) => i.href)
-    .filter((href) => pathname.startsWith(href))
-    .sort((a, b) => b.length - a.length)[0];
+    .flatMap((i) => [i.href, ...(i.also || [])].map((p) => ({ p, href: i.href })))
+    .filter(({ p }) => pathname.startsWith(p))
+    .sort((a, b) => b.p.length - a.p.length)[0]?.href;
 
   return (
     <div className="app-layout">

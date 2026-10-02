@@ -231,9 +231,6 @@ function ReceiptPane({ paymentId, listArgs, onScreen, onClose }) {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 16px', background: 'var(--g50)', borderBottom: '1px solid var(--g200)' }}>
         <button type="button" className={mode === 'edit' ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => { setFlash(''); setMode(mode === 'edit' ? 'view' : 'edit'); }}><i className="ti ti-edit"></i> Edit</button>
         <button type="button" className={mode === 'delete' ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => { setFlash(''); setMode(mode === 'delete' ? 'view' : 'delete'); }}><i className="ti ti-trash"></i> Delete</button>
-        {['sale_payment', 'advance', 'advance_adjustment'].includes(p.payment_type) && (
-          <Link href="/optical/refund" className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-receipt-refund"></i> Refund</Link>
-        )}
         {p.receipt_number && <a href={`/optical-payment-receipt-print/${p.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-printer"></i> PDF/Print</a>}
         <button type="button" className={showHistory ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setShowHistory((v) => !v)}>
           <i className="ti ti-history"></i> History{data.history?.length ? ` (${data.history.length})` : ''}
@@ -353,7 +350,7 @@ export default function OpticalPaymentsScreen() {
 
   return (
     <div>
-      <OpticalHeader title="Optical Shop" />
+      <OpticalHeader title="Optical Payments" />
       <DayOpenBar status={screen.day} note="collecting payments is blocked" source="Optical Shop" />
       {flash && <div className="msg-success" style={{ marginBottom: 12 }}>{flash}</div>}
 
