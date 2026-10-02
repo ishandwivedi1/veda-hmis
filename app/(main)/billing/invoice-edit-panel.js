@@ -1,12 +1,16 @@
 'use client';
 
-// Edit an issued invoice. Used by Invoice Details (as a pop-open panel) and
-// by the Invoice Modification tab (embedded). The preview here is only a
-// preview -- edit_invoice() in Postgres recalculates everything and is the
-// only thing that saves.
+// Edit an issued invoice, Zoho-style (migration 051): date, description,
+// price, quantity and discount are all editable inline, items can be added
+// or removed; Save asks for one reason in a popup and records it with the
+// change. A paid invoice can't drop below what's been paid. Used by Invoice
+// Details (as a pop-open panel) and by the Invoice Modification tab
+// (embedded). The preview here is only a preview -- edit_invoice() in
+// Postgres recalculates everything and is the only thing that saves.
 
 import { useState, useEffect, useCallback } from 'react';
-import { saveInvoiceEdit, saveInvoiceDate, saveInvoiceVoid } from './invoice-edit-actions';
+import { saveInvoiceEdit, saveInvoiceVoid } from './invoice-edit-actions';
+import EditReasonModal from '@/app/components/EditReasonModal';
 import { getInvoiceEditContext } from '@/lib/rpc-reads/billing__invoice-edit-actions'; // parallel reads (tools/parallel-reads)
 
 const money = (n) => `Rs.${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -82,24 +86,23 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
   const [added, setAdded] = useState([]);
   const [newDept, setNewDept] = useState('');
   const [newCode, setNewCode] = useState('');
-  const [reason, setReason] = useState('');
+  const [newDate, setNewDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [newDate, setNewDate] = useState('');
-  const [dateReason, setDateReason] = useState('');
-  const [savingDate, setSavingDate] = useState(false);
+  const [askReason, setAskReason] = useState(false);
+  const [reasonError, setReasonError] = useState('');
 
   const load = useCallback(() => {
     getInvoiceEditContext(invoiceId).then((c) => {
       if (c.error) { setError(c.error); return; }
       setCtx(c);
       setRows(c.lines.map((l) => ({
-        line: l, qty: l.qty, discType: 'fixed', discValue: Number(l.disc) || 0, discReason: '', removed: false,
+        line: l, name: l.service_name, rate: Number(l.rate), qty: l.qty,
+        discType: 'fixed', discValue: Number(l.disc) || 0, removed: false,
       })));
       setAdded([]);
-      setReason('');
       setNewDate(c.invoiceDate);
-      setDateReason('');
+      setError('');
     });
   }, [invoiceId]);
 
@@ -124,18 +127,23 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
   const paid = Number(inv.paid) || 0;
 
   const rowCalc = rows.map((r) => {
-    const t = lineTotals(r.line.rate, r.line.gst_pct, r.qty, r.discType, r.discValue);
-    const changed = !r.removed && (parseInt(r.qty, 10) !== r.line.qty || Math.round(t.disc * 100) !== Math.round(Number(r.line.disc) * 100));
+    const t = lineTotals(r.rate, r.line.gst_pct, r.qty, r.discType, r.discValue);
+    const changed = !r.removed && (
+      (r.name || '').trim() !== r.line.service_name
+      || Math.round((Number(r.rate) || 0) * 100) !== Math.round(Number(r.line.rate) * 100)
+      || parseInt(r.qty, 10) !== r.line.qty
+      || Math.round(t.disc * 100) !== Math.round(Number(r.line.disc) * 100));
     return { ...r, ...t, changed, lock: ctx.lockReasons[r.line.id] };
   });
   const addedCalc = added.map((a) => {
     const svc = ctx.services.find((s) => s.code === a.code);
-    return { ...a, svc, ...lineTotals(svc?.rate, svc?.gst_pct, a.qty, a.discType, a.discValue) };
+    return { ...a, svc, ...lineTotals(a.rate, svc?.gst_pct, a.qty, a.discType, a.discValue) };
   });
 
+  const dateChanged = newDate && newDate !== ctx.invoiceDate;
   const newNet = rowCalc.filter((r) => !r.removed).reduce((s, r) => s + r.net, 0) + addedCalc.reduce((s, a) => s + a.net, 0);
-  const anyChange = rowCalc.some((r) => r.changed || r.removed) || added.length > 0;
-  const toCredit = Math.max(0, Math.round((paid - newNet) * 100) / 100);
+  const anyChange = rowCalc.some((r) => r.changed || r.removed) || added.length > 0 || dateChanged;
+  const belowPaid = Math.round(newNet * 100) < Math.round(paid * 100);
   const due = Math.max(0, Math.round((newNet - paid) * 100) / 100);
   const keptLines = rowCalc.filter((r) => !r.removed).length + added.length;
 
@@ -144,71 +152,63 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
   function setRow(i, patch) { setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r))); }
   function setAdd(i, patch) { setAdded((as) => as.map((a, j) => (j === i ? { ...a, ...patch } : a))); }
 
-  async function handleSave() {
+  // Save -> checks, then the reason popup; the popup's Save sends the edit.
+  function handleSave() {
     setError('');
-    if (!reason.trim()) { setError('Please give a reason for this edit.'); return; }
-    if (keptLines === 0) { setError('An invoice must keep at least one item.'); return; }
+    if (keptLines === 0) { setError('An invoice must keep at least one item. To cancel the whole bill, use Cancel/Void below.'); return; }
     for (const r of rowCalc) {
-      if (r.changed && r.disc > Number(r.line.disc) && !r.discReason.trim()) {
-        setError(`"${r.line.service_name}": give a reason for the discount.`); return;
-      }
+      if (r.removed) continue;
+      if (!(r.name || '').trim()) { setError('Every item needs a description.'); return; }
+      if (!(Number(r.rate) >= 0)) { setError(`"${r.name}": enter a valid price.`); return; }
+      if (!(parseInt(r.qty, 10) >= 1)) { setError(`"${r.name}": quantity must be at least 1.`); return; }
     }
     for (const a of addedCalc) {
-      if (a.discType !== 'none' && Number(a.discValue) > 0 && !a.discReason.trim()) {
-        setError(`"${a.svc?.name}": give a reason for the discount.`); return;
+      if (!(Number(a.rate) >= 0)) { setError(`"${a.name || a.svc?.name}": enter a valid price.`); return; }
+    }
+    if (dateChanged) {
+      if (newDate > ctx.today) { setError('An invoice cannot be dated in the future.'); return; }
+      if (ctx.visitDate && newDate < ctx.visitDate) {
+        setError(`This invoice belongs to visit ${ctx.visitNumber || ''} dated ${fmtDay(ctx.visitDate)}. It cannot be dated before the visit.`);
+        return;
       }
     }
+    if (belowPaid) {
+      setError(`The new total (${money(newNet)}) is less than the ${money(paid)} already paid on this invoice. Adjust or remove the payment first, then edit the invoice.`);
+      return;
+    }
+    setReasonError('');
+    setAskReason(true);
+  }
 
+  async function saveWithReason(reason) {
     const changes = {
+      ...(dateChanged ? { date: newDate } : {}),
       remove: rowCalc.filter((r) => r.removed).map((r) => r.line.id),
       update: rowCalc.filter((r) => r.changed).map((r) => ({
-        id: r.line.id, qty: parseInt(r.qty, 10), disc_type: r.discType, disc_value: Number(r.discValue) || 0, disc_reason: r.discReason.trim(),
+        id: r.line.id, service_name: r.name.trim(), rate: Number(r.rate) || 0, qty: parseInt(r.qty, 10),
+        disc_type: r.discType, disc_value: Number(r.discValue) || 0,
       })),
       add: addedCalc.map((a) => ({
-        service_code: a.code, qty: parseInt(a.qty, 10) || 1, disc_type: a.discType, disc_value: Number(a.discValue) || 0, disc_reason: a.discReason.trim(),
+        service_code: a.code, service_name: (a.name || '').trim() || undefined, rate: Number(a.rate) || 0,
+        qty: parseInt(a.qty, 10) || 1, disc_type: a.discType, disc_value: Number(a.discValue) || 0,
       })),
     };
 
     setSaving(true);
     try {
-      const res = await saveInvoiceEdit(invoiceId, changes, reason.trim(), Number(inv.net));
-      if (res.error) { setError(res.error); return; }
+      const res = await saveInvoiceEdit(invoiceId, changes, reason, Number(inv.net));
+      if (res.error) { setReasonError(res.error); return; }
+      setAskReason(false);
       if (embedded) load();
-      onSaved?.(res.invoice, toCredit);
+      onSaved?.(res.invoice, 0);
     } catch (e) {
-      setError('Something went wrong saving this edit -- check your connection and try again. Nothing was saved.');
+      setReasonError('Something went wrong saving this edit -- check your connection and try again. Nothing was saved.');
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleSaveDate() {
-    setError('');
-    if (!newDate || newDate === ctx.invoiceDate) { setError('Choose a different date.'); return; }
-    if (ctx.visitDate && newDate < ctx.visitDate) {
-      setError(`This invoice belongs to visit ${ctx.visitNumber || ''} dated ${fmtDay(ctx.visitDate)}. It cannot be dated before the visit.`);
-      return;
-    }
-    if (newDate > ctx.today) { setError('An invoice cannot be dated in the future.'); return; }
-    if (!dateReason.trim()) { setError('Please give a reason for changing the invoice date.'); return; }
-    const ok = window.confirm(
-      `Move ${ctx.invoice.invoice_number} from ${fmtDay(ctx.invoiceDate)} to ${fmtDay(newDate)}?\n\n`
-      + `Its amount moves out of ${fmtDay(ctx.invoiceDate)}'s revenue and into ${fmtDay(newDate)}'s. `
-      + 'Payments keep their own dates. The change is recorded in the invoice history.',
-    );
-    if (!ok) return;
-    setSavingDate(true);
-    try {
-      const res = await saveInvoiceDate(invoiceId, newDate, dateReason.trim());
-      if (res.error) { setError(res.error); return; }
-      load();
-      onSaved?.(res.invoice, 0);
-    } catch (e) {
-      setError('Something went wrong changing the date -- check your connection and try again. Nothing was saved.');
-    } finally {
-      setSavingDate(false);
-    }
-  }
+  const changedStyle = (on) => (on ? { borderColor: 'var(--amber)', background: 'var(--amber-lt)' } : undefined);
 
   return (
     <div className={embedded ? '' : 'card'} style={embedded ? undefined : { border: '1.5px solid var(--blue)' }}>
@@ -223,14 +223,25 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
 
       {error && <div className="msg-err">{error}</div>}
 
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        <label className="flbl" style={{ margin: 0 }}>Invoice date</label>
+        <input type="date" className="fi fi-sm" style={{ width: 160, ...changedStyle(dateChanged) }} value={newDate}
+          min={ctx.visitDate || undefined} max={ctx.today} onChange={(e) => setNewDate(e.target.value)} />
+        {ctx.visitDate && <span style={{ fontSize: 11, color: 'var(--g500)' }}>Visit {ctx.visitNumber} on {fmtDay(ctx.visitDate)} -- can&apos;t be dated before it.</span>}
+      </div>
+
       <div style={{ overflowX: 'auto' }}>
         <table className="tbl">
-          <thead><tr><th>Service</th><th style={{ width: 70 }}>Qty</th><th>Rate</th><th style={{ width: 170 }}>Discount</th><th>Net</th><th></th></tr></thead>
+          <thead><tr><th>Item</th><th style={{ width: 110 }}>Price (Rs.)</th><th style={{ width: 70 }}>Qty</th><th style={{ width: 160 }}>Discount</th><th>Net</th><th></th></tr></thead>
           <tbody>
             {rowCalc.map((r, i) => (
               <tr key={r.line.id} style={{ opacity: r.removed ? 0.45 : 1, background: r.changed ? 'var(--amber-lt)' : undefined }}>
-                <td>
-                  <div style={{ textDecoration: r.removed ? 'line-through' : 'none', fontWeight: 600 }}>{r.line.service_name}</div>
+                <td style={{ minWidth: 180 }}>
+                  {r.removed ? (
+                    <div style={{ textDecoration: 'line-through', fontWeight: 600 }}>{r.line.service_name}</div>
+                  ) : (
+                    <input className="fi fi-sm" value={r.name} onChange={(e) => setRow(i, { name: e.target.value })} style={{ fontWeight: 600 }} />
+                  )}
                   <div style={{ fontSize: 10.5, color: 'var(--g400)' }}>{r.line.dept}</div>
                   {r.lock && <div style={{ fontSize: 10.5, color: 'var(--g500)' }}><i className="ti ti-lock"></i> {r.lock}</div>}
                   {r.removed && ctx.removeHints[r.line.id] && (
@@ -238,25 +249,24 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
                   )}
                 </td>
                 <td>
+                  {r.removed ? money(r.line.rate) : (
+                    <input type="number" min={0} step="0.01" className="fi fi-sm" value={r.rate} onChange={(e) => setRow(i, { rate: e.target.value })} style={{ width: 95 }} />
+                  )}
+                </td>
+                <td>
                   {r.lock || r.removed ? r.qty : (
                     <input type="number" min={1} className="fi fi-sm" value={r.qty} onChange={(e) => setRow(i, { qty: e.target.value })} style={{ width: 60 }} />
                   )}
                 </td>
-                <td>{money(r.line.rate)}</td>
                 <td>
-                  {r.lock || r.removed ? (Number(r.line.disc) > 0 ? money(r.line.disc) : '--') : (
-                    <div>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <select className="fi fi-sm" value={r.discType} onChange={(e) => setRow(i, { discType: e.target.value, discValue: e.target.value === 'none' ? 0 : r.discValue })} style={{ width: 70 }}>
-                          <option value="fixed">Rs.</option>
-                          <option value="pct">%</option>
-                          <option value="none">None</option>
-                        </select>
-                        <input type="number" min={0} className="fi fi-sm" value={r.discValue} disabled={r.discType === 'none'} onChange={(e) => setRow(i, { discValue: e.target.value })} style={{ width: 80 }} />
-                      </div>
-                      {r.changed && r.disc > Number(r.line.disc) && (
-                        <input className="fi fi-sm" placeholder="Discount reason *" value={r.discReason} onChange={(e) => setRow(i, { discReason: e.target.value })} style={{ marginTop: 4 }} />
-                      )}
+                  {r.removed ? (Number(r.line.disc) > 0 ? money(r.line.disc) : '--') : (
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <select className="fi fi-sm" value={r.discType} onChange={(e) => setRow(i, { discType: e.target.value, discValue: e.target.value === 'none' ? 0 : r.discValue })} style={{ width: 66 }}>
+                        <option value="fixed">Rs.</option>
+                        <option value="pct">%</option>
+                        <option value="none">None</option>
+                      </select>
+                      <input type="number" min={0} className="fi fi-sm" value={r.discValue} disabled={r.discType === 'none'} onChange={(e) => setRow(i, { discValue: e.target.value })} style={{ width: 76 }} />
                     </div>
                   )}
                 </td>
@@ -266,7 +276,8 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
                 </td>
                 <td>
                   {!r.lock && (
-                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => setRow(i, { removed: !r.removed, qty: r.line.qty, discType: 'fixed', discValue: Number(r.line.disc) || 0 })}>
+                    <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }}
+                      onClick={() => setRow(i, { removed: !r.removed, name: r.line.service_name, rate: Number(r.line.rate), qty: r.line.qty, discType: 'fixed', discValue: Number(r.line.disc) || 0 })}>
                       {r.removed ? 'Undo' : 'Remove'}
                     </button>
                   )}
@@ -275,24 +286,21 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
             ))}
             {addedCalc.map((a, i) => (
               <tr key={`add-${i}`} style={{ background: 'var(--green-lt)' }}>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{a.svc?.name}</div>
+                <td style={{ minWidth: 180 }}>
+                  <input className="fi fi-sm" value={a.name} onChange={(e) => setAdd(i, { name: e.target.value })} style={{ fontWeight: 600 }} />
                   <div style={{ fontSize: 10.5, color: 'var(--green)' }}>New -- {a.svc?.dept}</div>
                 </td>
+                <td><input type="number" min={0} step="0.01" className="fi fi-sm" value={a.rate} onChange={(e) => setAdd(i, { rate: e.target.value })} style={{ width: 95 }} /></td>
                 <td><input type="number" min={1} className="fi fi-sm" value={a.qty} onChange={(e) => setAdd(i, { qty: e.target.value })} style={{ width: 60 }} /></td>
-                <td>{money(a.svc?.rate)}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 4 }}>
-                    <select className="fi fi-sm" value={a.discType} onChange={(e) => setAdd(i, { discType: e.target.value, discValue: e.target.value === 'none' ? 0 : a.discValue })} style={{ width: 70 }}>
+                    <select className="fi fi-sm" value={a.discType} onChange={(e) => setAdd(i, { discType: e.target.value, discValue: e.target.value === 'none' ? 0 : a.discValue })} style={{ width: 66 }}>
                       <option value="none">None</option>
                       <option value="fixed">Rs.</option>
                       <option value="pct">%</option>
                     </select>
-                    <input type="number" min={0} className="fi fi-sm" value={a.discValue} disabled={a.discType === 'none'} onChange={(e) => setAdd(i, { discValue: e.target.value })} style={{ width: 80 }} />
+                    <input type="number" min={0} className="fi fi-sm" value={a.discValue} disabled={a.discType === 'none'} onChange={(e) => setAdd(i, { discValue: e.target.value })} style={{ width: 76 }} />
                   </div>
-                  {a.discType !== 'none' && Number(a.discValue) > 0 && (
-                    <input className="fi fi-sm" placeholder="Discount reason *" value={a.discReason} onChange={(e) => setAdd(i, { discReason: e.target.value })} style={{ marginTop: 4 }} />
-                  )}
                 </td>
                 <td>{money(a.net)}</td>
                 <td><button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => setAdded((as) => as.filter((_, j) => j !== i))}>Remove</button></td>
@@ -311,7 +319,11 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
           <option value="">-- Add an item --</option>
           {ctx.services.filter((s) => s.dept === newDept).map((s) => <option key={s.code} value={s.code}>{s.name} -- Rs.{s.rate}</option>)}
         </select>
-        <button className="btn btn-sm" disabled={!newCode} onClick={() => { setAdded((as) => [...as, { code: newCode, qty: 1, discType: 'none', discValue: 0, discReason: '' }]); setNewCode(''); }}>
+        <button className="btn btn-sm" disabled={!newCode} onClick={() => {
+          const svc = ctx.services.find((s) => s.code === newCode);
+          setAdded((as) => [...as, { code: newCode, name: svc?.name || '', rate: Number(svc?.rate) || 0, qty: 1, discType: 'none', discValue: 0 }]);
+          setNewCode('');
+        }}>
           <i className="ti ti-plus"></i> Add
         </button>
       </div>
@@ -320,52 +332,40 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Invoice total</span>
           <span>
-            {anyChange && <span style={{ color: 'var(--g400)', textDecoration: 'line-through', marginRight: 8 }}>{money(inv.net)}</span>}
+            {anyChange && Math.round(newNet * 100) !== Math.round(Number(inv.net) * 100) && <span style={{ color: 'var(--g400)', textDecoration: 'line-through', marginRight: 8 }}>{money(inv.net)}</span>}
             <strong>{money(newNet)}</strong>
           </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--green)' }}><span>Already paid</span><span>{money(paid)}</span></div>
-        {anyChange && toCredit > 0 && (
-          <div className="msg-info" style={{ margin: '6px 0 0' }}>
-            <i className="ti ti-wallet"></i> {money(toCredit)} already paid will be kept as <strong>&nbsp;patient credit&nbsp;</strong> (usable on future bills or refundable). No cash changes hands.
+        {anyChange && belowPaid && (
+          <div className="msg-err" style={{ margin: '6px 0 0' }}>
+            <i className="ti ti-alert-triangle"></i> The total can&apos;t be less than the {money(paid)} already paid. Adjust or remove the payment first, then edit the invoice.
           </div>
         )}
-        {anyChange && due > 0 && (
+        {anyChange && !belowPaid && due > 0 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--red)', fontWeight: 700 }}><span>Balance due after edit</span><span>{money(due)}</span></div>
         )}
       </div>
 
-      <label className="flbl" style={{ marginTop: 12 }}>Reason for this edit *</label>
-      <input className="fi" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Senior citizen discount missed / test not done" />
-
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving || !anyChange}>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving || !anyChange || belowPaid}>
           <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save changes'}
         </button>
         <button className="btn" onClick={embedded ? load : onClose} disabled={saving || (embedded && !anyChange)}>Discard</button>
       </div>
 
-      {ctx.isAdmin && (
-        <div style={{ border: '1px dashed var(--g300, #cbd5e1)', borderRadius: 8, padding: '10px 12px', marginTop: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--g600)', marginBottom: 6 }}>
-            <i className="ti ti-calendar-event"></i> Invoice date <span style={{ fontWeight: 400, color: 'var(--g400)' }}>(Administrator only -- both days must be open)</span>
-          </div>
-          {ctx.visitDate && (
-            <div style={{ fontSize: 11.5, color: 'var(--amber)', marginBottom: 6 }}>
-              <i className="ti ti-info-circle"></i> This invoice belongs to visit {ctx.visitNumber} on {fmtDay(ctx.visitDate)}, so it can only be dated from {fmtDay(ctx.visitDate)} to today.
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input type="date" className="fi fi-sm" style={{ width: 150 }} value={newDate} min={ctx.visitDate || undefined} max={ctx.today} onChange={(e) => setNewDate(e.target.value)} />
-            <input className="fi fi-sm" style={{ flex: 1, minWidth: 180 }} value={dateReason} onChange={(e) => setDateReason(e.target.value)} placeholder="Reason for changing the date *" />
-            <button className="btn btn-sm" onClick={handleSaveDate} disabled={savingDate || newDate === ctx.invoiceDate}>
-              {savingDate ? 'Saving...' : 'Change date'}
-            </button>
-          </div>
-        </div>
-      )}
-
       <VoidSection ctx={ctx} invoiceId={invoiceId} onVoided={(inv, credited) => onVoided?.(inv, credited)} />
+
+      {askReason && (
+        <EditReasonModal
+          title={`Reason for editing ${inv.invoice_number}`}
+          summary={`New total ${money(newNet)}${dateChanged ? `, dated ${fmtDay(newDate)}` : ''}. The reason is saved with this change in the invoice history.`}
+          saving={saving}
+          error={reasonError}
+          onSave={saveWithReason}
+          onCancel={() => { if (!saving) setAskReason(false); }}
+        />
+      )}
     </div>
   );
 }

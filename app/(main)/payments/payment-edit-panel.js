@@ -1,13 +1,15 @@
 'use client';
 
-// Edit / delete one payment (Billing Phase 3). Opened from the Receipt
-// Register. The figures here are a preview -- edit_payment() /
+// Edit / delete one payment (Billing Phase 3), Zoho-style (migration 051):
+// every field editable for any date; Save asks for the reason in a popup.
+// Opened from the Receipt Register. The figures here are a preview -- edit_payment() /
 // delete_payment() in Postgres recheck everything and are the only thing
 // that saves.
 
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { savePaymentEdit, removePayment } from './payment-edit-actions';
+import EditReasonModal from '@/app/components/EditReasonModal';
 import { getPaymentEditContext } from '@/lib/rpc-reads/payments__payment-edit-actions'; // parallel reads (tools/parallel-reads)
 
 const MODE_OPTIONS = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -57,7 +59,8 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
   const [reference, setReference] = useState('');
   const [remarks, setRemarks] = useState('');
   const [applied, setApplied] = useState({}); // invoice_id -> amount string
-  const [reason, setReason] = useState('');
+  const [askReason, setAskReason] = useState(false);
+  const [reasonError, setReasonError] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showDelete, setShowDelete] = useState(false);
@@ -78,7 +81,7 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
     setReference(p.reference || '');
     setRemarks(p.remarks || '');
     setApplied(Object.fromEntries(c.invoices.map((i) => [i.id, i.current ? String(r2(i.current)) : ''])));
-    setReason('');
+    setAskReason(false);
     setShowDelete(false);
     setDeleteReason('');
   }, [paymentId]);
@@ -99,7 +102,8 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
 
   function setMode(i, patch) { setModes((ms) => ms.map((m, j) => (j === i ? { ...m, ...patch } : m))); }
 
-  async function handleSave() {
+  // Save -> checks, then the reason popup; the popup's Save sends the edit.
+  function handleSave() {
     setError('');
     if (!(amt > 0)) { setError('Amount must be greater than zero. To remove the payment, use Delete.'); return; }
     if (Math.abs(modesSum - amt) >= 0.01) { setError(`Payment modes (${money(modesSum)}) must add up to the amount (${money(amt)}).`); return; }
@@ -109,8 +113,11 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
     if (creditChange < 0 && ctx.patientCredit + creditChange < -0.001) {
       setError(`This takes back ${money(-creditChange)} of patient credit, but only ${money(ctx.patientCredit)} is unused.`); return;
     }
-    if (!reason.trim()) { setError('Please give a reason for this edit.'); return; }
+    setReasonError('');
+    setAskReason(true);
+  }
 
+  async function saveWithReason(reason) {
     setSaving(true);
     try {
       const res = await savePaymentEdit({
@@ -123,13 +130,14 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
         allocations: isInvoicePayment
           ? Object.entries(applied).filter(([, v]) => Number(v) > 0).map(([invoiceId, v]) => ({ invoice_id: invoiceId, amount: r2(v) }))
           : [],
-        reason: reason.trim(),
+        reason,
         expectedAmount: Number(p.total_amount),
       });
-      if (res.error) { setError(res.error); return; }
+      if (res.error) { setReasonError(res.error); return; }
+      setAskReason(false);
       onChanged?.(`${p.receipt_number} updated.${creditChange > 0 ? ` ${money(creditChange)} added to patient credit.` : creditChange < 0 ? ` Patient credit reduced by ${money(-creditChange)}.` : ''}`);
     } catch (e) {
-      setError('Something went wrong saving -- check your connection and try again. Nothing was saved.');
+      setReasonError('Something went wrong saving -- check your connection and try again. Nothing was saved.');
     } finally {
       setSaving(false);
     }
@@ -182,7 +190,7 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
             <div>
               <label className="flbl">Date received</label>
               <input type="date" className="fi" value={date} max={ctx.today} disabled={!ctx.canChangeDate} onChange={(e) => setDate(e.target.value)}
-                title={ctx.canChangeDate ? '' : 'Changing the date needs "Edit payments (earlier days)" permission'} />
+                title={ctx.canChangeDate ? '' : 'You do not have permission to edit payments'} />
             </div>
             <div>
               <label className="flbl">Reference / Transaction ID</label>
@@ -258,8 +266,6 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
             )}
           </div>
 
-          <label className="flbl" style={{ marginTop: 10 }}>Reason for this edit *</label>
-          <input className="fi" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Entered Cash, was UPI / amount typed wrong / applied to wrong bill" />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
               <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save changes'}
@@ -303,6 +309,16 @@ export default function PaymentEditPanel({ paymentId, onChanged, onClose }) {
       </div>
 
       <PaymentHistory entries={history} />
+      {askReason && (
+        <EditReasonModal
+          title={`Reason for editing ${p.receipt_number || 'this payment'}`}
+          summary={`Amount ${money(amt)}${date !== ctx.paymentDate ? `, dated ${date}` : ''}. The reason is saved with this change in the payment history.`}
+          saving={saving}
+          error={reasonError}
+          onSave={saveWithReason}
+          onCancel={() => { if (!saving) setAskReason(false); }}
+        />
+      )}
     </div>
   );
 }

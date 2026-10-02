@@ -7,94 +7,60 @@
 // screen shows.
 
 import { createClient } from '@/lib/supabase-server';
-import { getMyBillingPermissions } from '@/lib/billingPermissions';
 import { getServiceCatalog } from './actions';
 
-const istDate = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-
+// Everything the Edit screen needs in ONE request: the invoice context in
+// one database call (ui_invoice_edit_context, migration 051) alongside the
+// price catalogue for "Add an item". Used to be 4 steps one after another.
+// Zoho-style rules (migration 051): anyone with "Edit invoices" can edit
+// any date; closed cash days stay locked; Postgres (edit_invoice) checks
+// everything again on save.
 export async function getInvoiceEditContext(invoiceId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const [{ data: invoice, error }, { data: lines }, perms, services, { data: packages }, { data: me }] = await Promise.all([
-    supabase.from('invoices').select('id, status, net, paid, created_at, invoice_number, visits(visit_number, created_at)').eq('id', invoiceId).single(),
-    supabase.from('invoice_line_items').select('*').eq('invoice_id', invoiceId).order('id'),
-    getMyBillingPermissions(supabase),
+  const [{ data: c, error }, services] = await Promise.all([
+    supabase.rpc('ui_invoice_edit_context', { p_invoice_id: invoiceId }),
     getServiceCatalog(),
-    supabase.from('master_packages').select('code'),
-    supabase.from('profiles').select('designation').eq('id', userData?.user?.id || '00000000-0000-0000-0000-000000000000').maybeSingle(),
   ]);
   if (error) return { error: error.message };
+  if (!c) return { error: 'Invoice not found.' };
 
-  const invoiceDate = istDate(invoice.created_at);
-  const today = istDate(new Date());
-  // Everything that only needs the invoice, fetched in one parallel wave
-  // (these used to run one after another).
-  const lineIds = (lines || []).map((l) => l.id);
-  const [{ data: closed }, { data: rxRows }, { data: allocs }, { data: invRefunds }, { data: cns }] = await Promise.all([
-    supabase.from('day_closings').select('closing_date').eq('closing_date', invoiceDate).maybeSingle(),
-    lineIds.length
-      ? supabase.from('prescriptions').select('id, invoice_line_item_id').in('invoice_line_item_id', lineIds)
-      : Promise.resolve({ data: [] }),
-    supabase.from('payment_allocations').select('amount').eq('invoice_id', invoiceId),
-    supabase.from('payment_refunds').select('id').eq('invoice_id', invoiceId).is('cancelled_at', null),
-    supabase.from('credit_notes').select('id').eq('invoice_id', invoiceId),
-  ]);
+  const invoice = c.invoice;
+  const cancelled = invoice.status === 'Cancelled' || invoice.status === 'Void';
 
   let blockReason = null;
-  if (invoice.status === 'Cancelled' || invoice.status === 'Void') blockReason = `This invoice is ${invoice.status.toLowerCase()}.`;
-  else if (closed) blockReason = 'This invoice is from a closed day. An Administrator must reopen that day in Cash Management first.';
-  else if (!perms['invoice.edit']) blockReason = 'You do not have permission to edit invoices.';
-  else if (invoiceDate < today && !perms['invoice.edit_past']) blockReason = 'You can only edit invoices dated today. Ask an Administrator.';
-
-  // What removing a line will also do (shown to staff before they save),
-  // and the one case that stays locked: a medicine whose stock was
-  // actually deducted (mirrors invoice_line_lock_reason() in Postgres).
-  const rxIds = (rxRows || []).map((r) => r.id);
-  const { data: moves } = rxIds.length
-    ? await supabase.from('inventory_movements').select('reference_id').in('reference_id', rxIds)
-    : { data: [] };
-  const rxWithStock = new Set((moves || []).map((m) => m.reference_id));
-
-  const packageCodes = new Set((packages || []).map((p) => p.code));
-  const lockReasons = {};
-  const removeHints = {};
-  for (const l of lines || []) {
-    const rxForLine = (rxRows || []).filter((r) => r.invoice_line_item_id === l.id);
-    if (rxForLine.some((r) => rxWithStock.has(r.id))) lockReasons[l.id] = 'Stock was deducted -- return it in Inventory first';
-    else if (rxForLine.length) removeHints[l.id] = 'Prescription goes back to Pending in Pharmacy';
-    else if (l.service_code && packageCodes.has(l.service_code)) removeHints[l.id] = 'Surgical case will show as not billed';
-  }
+  if (cancelled) blockReason = `This invoice is ${invoice.status.toLowerCase()}.`;
+  else if (c.dayClosed) blockReason = 'This invoice is from a closed day. An Administrator must reopen that day in Cash Management first.';
+  else if (!c.canEditRight) blockReason = 'You do not have permission to edit invoices.';
 
   // Cancel / Void (mirrors void_invoice() in Postgres): an unpaid invoice
   // from today only needs edit rights; a paid or past-day one needs
   // "Void invoices".
-  const appliedTotal = (allocs || []).reduce((s, a) => s + Number(a.amount), 0);
-  const needsVoidPermission = (allocs || []).length > 0 || invoiceDate < today;
+  const needsVoidPermission = c.hasAllocations || c.invoiceDate < c.today;
   let voidBlock = null;
-  if (invoice.status === 'Cancelled' || invoice.status === 'Void') voidBlock = 'This invoice is already cancelled.';
-  else if (closed) voidBlock = 'This invoice is from a closed day.';
-  else if ((invRefunds || []).length) voidBlock = 'This invoice has a refund against it. Cancel the refund first (Payments > Refund).';
-  else if ((cns || []).length) voidBlock = 'This invoice has a credit note against it, so it cannot be voided. Contact an Administrator.';
-  else if (needsVoidPermission && !perms['invoice.void']) voidBlock = 'Voiding a paid or past-day invoice needs the "Void invoices" permission. Ask an Administrator.';
-  else if (!needsVoidPermission && !perms['invoice.edit']) voidBlock = 'You do not have permission to cancel invoices.';
+  if (cancelled) voidBlock = 'This invoice is already cancelled.';
+  else if (c.dayClosed) voidBlock = 'This invoice is from a closed day.';
+  else if (c.hasRefund) voidBlock = 'This invoice has a refund against it. Cancel the refund first (Payments > Refund).';
+  else if (c.hasCreditNote) voidBlock = 'This invoice has a credit note against it, so it cannot be voided. Contact an Administrator.';
+  else if (needsVoidPermission && !c.canVoidRight) voidBlock = 'Voiding a paid or past-day invoice needs the "Void invoices" permission. Ask an Administrator.';
+  else if (!needsVoidPermission && !c.canEditRight) voidBlock = 'You do not have permission to cancel invoices.';
 
   return {
     canEdit: !blockReason,
     blockReason,
-    lockReasons,
-    removeHints,
+    lockReasons: c.lockReasons || {},
+    removeHints: c.removeHints || {},
     services: services || [],
-    lines: lines || [],
+    lines: c.lines || [],
     invoice,
-    invoiceDate,
-    today,
-    // a visit's invoice can't be dated before the visit (change_invoice_date enforces it)
-    visitDate: invoice.visits?.created_at ? istDate(invoice.visits.created_at) : null,
-    visitNumber: invoice.visits?.visit_number || null,
-    isAdmin: me?.designation === 'Administrator',
+    invoiceDate: c.invoiceDate,
+    today: c.today,
+    // a visit's invoice can't be dated before the visit (edit_invoice enforces it)
+    visitDate: c.visitDate || null,
+    visitNumber: c.visitNumber || null,
+    isAdmin: !!c.isAdmin,
     canVoid: !voidBlock,
     voidBlock,
-    appliedTotal,
+    appliedTotal: Number(c.appliedTotal) || 0,
   };
 }
 
