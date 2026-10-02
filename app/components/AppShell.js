@@ -14,10 +14,10 @@ const CHECK_INTERVAL_MS = 60 * 1000;
 
 const NAV_ITEMS = [
   // ── FRONT OFFICE ──
-  { href: '/front-office-dashboard', label: 'Front Office Dashboard', icon: 'ti-user-check', group: 'Front Office' },
-  { href: '/patients', label: 'Patients', icon: 'ti-users', group: 'Front Office' },
-  { href: '/appointments', label: 'Appointments', icon: 'ti-calendar-event', group: 'Front Office' },
-  { href: '/visits', label: 'Visits', icon: 'ti-door-enter', group: 'Front Office' },
+  { href: '/front-office-dashboard', dynamic: true, label: 'Front Office Dashboard', icon: 'ti-user-check', group: 'Front Office' },
+  { href: '/patients', dynamic: true, label: 'Patients', icon: 'ti-users', group: 'Front Office' },
+  { href: '/appointments', dynamic: true, label: 'Appointments', icon: 'ti-calendar-event', group: 'Front Office' },
+  { href: '/visits', dynamic: true, label: 'Visits', icon: 'ti-door-enter', group: 'Front Office' },
 
   // ── OUTREACH ──
   { href: '/camps', label: 'Camps', icon: 'ti-map-pin', group: 'Outreach' },
@@ -25,10 +25,10 @@ const NAV_ITEMS = [
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', group: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
   { href: '/credit-notes', label: 'Credit Notes', icon: 'ti-file-minus', group: 'Finance' },
-  { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
+  { href: '/cash-management', dynamic: true, label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
 
   // ── OPTICAL SHOP ──
-  { href: '/optical/dashboard', label: 'Optical Dashboard', icon: 'ti-eyeglass', group: 'Optical Shop', also: ['/optical/book', '/optical/finalize-order'] },
+  { href: '/optical/dashboard', dynamic: true, label: 'Optical Dashboard', icon: 'ti-eyeglass', group: 'Optical Shop', also: ['/optical/book', '/optical/finalize-order'] },
   { href: '/optical', label: 'Optical Bills', icon: 'ti-file-invoice', group: 'Optical Shop' },
   { href: '/optical/payments', label: 'Optical Payments', icon: 'ti-receipt-2', group: 'Optical Shop' },
 
@@ -59,7 +59,7 @@ const NAV_ITEMS = [
   { href: '/master-data/financial', label: 'Financial Masters', icon: 'ti-currency-rupee', group: 'Administration' },
   { href: '/print-templates', label: 'Print Templates', icon: 'ti-file-invoice', group: 'Administration' },
   { href: '/users', label: 'User Management', icon: 'ti-users-group', group: 'Administration', adminOnly: true },
-  { href: '/reports', label: 'Reports', icon: 'ti-chart-bar', group: 'Administration' },
+  { href: '/reports', dynamic: true, label: 'Reports', icon: 'ti-chart-bar', group: 'Administration' },
 ];
 
 const PAGE_TITLES = [
@@ -244,6 +244,12 @@ export default function AppShell({ children }) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  // Server-rendered pages (dynamic: true) are not prefetched:
+                  // the sidebar is on every screen, so prefetching them meant
+                  // hidden server renders + DB queries on every page load,
+                  // competing with what the user actually clicked. They load
+                  // in one request when clicked. Static pages still prefetch.
+                  prefetch={item.dynamic ? false : undefined}
                   className={`sb-item ${item.href === activeHref ? 'active' : ''}`}
                 >
                   <span className="sb-icon-wrap"><i className={`ti ${item.icon}`}></i></span>

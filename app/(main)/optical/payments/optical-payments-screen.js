@@ -500,7 +500,7 @@ export default function OpticalPaymentsScreen() {
           Deleted Receipts
         </span>
       ) : 'Optical Payments'}>
-        <Link href="/optical/payments/new" className="btn btn-primary" style={{ textDecoration: 'none' }}><i className="ti ti-plus"></i> New Payment</Link>
+        <Link href="/optical/payments/new" prefetch={false} className="btn btn-primary" style={{ textDecoration: 'none' }}><i className="ti ti-plus"></i> New Payment</Link>
         <Menu label="" icon="ti-dots" items={[
           { href: '/optical', icon: 'ti-file-invoice', label: 'Optical Bills' },
           { icon: 'ti-trash', label: 'Deleted Receipts', onClick: () => { pick(null); setView('deleted'); } },

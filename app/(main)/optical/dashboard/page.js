@@ -8,6 +8,11 @@ export const dynamic = 'force-dynamic';
 // Optical Dashboard (Oct 2026): two boxes -- Book New Order and Finalize
 // Existing Order. Bills and Payments have their own screens.
 //
+// Links here use prefetch={false}: Book / Finalize are server-rendered
+// pages, and Next.js would otherwise pre-render one of them for EVERY
+// order in the list (plus Book) as soon as the dashboard opened -- 10+
+// hidden server requests competing with the click you actually make.
+//
 // ONE database call, made while the page renders on the server (nothing
 // extra from the browser): ui_optical_bills with a status that matches no
 // bill, so it returns just the day-open status and the bookings awaiting
@@ -42,7 +47,7 @@ export default async function OpticalDashboardPage() {
             Take a spectacle order for a patient or walk-in customer, with prescription, frame / lens details and advance. It is billed when you finalize it at delivery.
           </div>
           <div style={{ flex: 1 }}></div>
-          <Link href="/optical/book" className="btn btn-primary" style={{ textDecoration: 'none', justifyContent: 'center', padding: '12px 16px', fontSize: 15 }}>
+          <Link href="/optical/book" prefetch={false} className="btn btn-primary" style={{ textDecoration: 'none', justifyContent: 'center', padding: '12px 16px', fontSize: 15 }}>
             <i className="ti ti-plus"></i> Book New Order
           </Link>
         </div>
@@ -64,7 +69,7 @@ export default async function OpticalDashboardPage() {
           ) : (
             <div style={{ maxHeight: 420, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
               {bookings.map((b) => (
-                <Link key={b.id} href={`/optical/finalize-order?orderId=${b.id}`}
+                <Link key={b.id} href={`/optical/finalize-order?orderId=${b.id}`} prefetch={false}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid var(--g200)', borderRadius: 10, background: 'var(--g50)', textDecoration: 'none', color: 'var(--g800)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13.5 }}>{b.customer}</div>
