@@ -1,15 +1,10 @@
-import { Suspense } from 'react';
-import CreditNoteTab from './credit-note-tab';
-import PaymentsTabs from '../payments-tabs';
+import { redirect } from 'next/navigation';
 
-export default function CreditNotePage() {
-  return (
-    <div>
-      <PaymentsTabs />
-      <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>}>
-        <CreditNoteTab />
-      </Suspense>
-    </div>
-  );
+// Credit notes are their own Zoho-style module now (/credit-notes, 2 Oct
+// 2026). Old links (e.g. ?patientId=&invoiceId=) open the new form.
+export default async function Page({ searchParams }) {
+  const params = (await searchParams) || {};
+  const qs = new URLSearchParams();
+  ['patientId', 'invoiceId'].forEach((k) => { if (params[k]) qs.set(k, String(params[k])); });
+  redirect(qs.toString() ? `/credit-notes/new?${qs}` : '/credit-notes');
 }
-

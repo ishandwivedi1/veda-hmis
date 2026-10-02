@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   // ── FINANCE ──
   { href: '/billing', label: 'Billing', icon: 'ti-receipt', group: 'Finance' },
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
+  { href: '/credit-notes', label: 'Credit Notes', icon: 'ti-file-minus', group: 'Finance' },
   { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
   { href: '/optical/dashboard', label: 'Optical Shop', icon: 'ti-sunglasses', group: 'Finance' },
 
@@ -80,6 +81,7 @@ const PAGE_TITLES = [
   { match: /^\/billing/, title: 'Billing' },
   { match: /^\/optical/, title: 'Optical Shop' },
   { match: /^\/payments/, title: 'Payments' },
+  { match: /^\/credit-notes/, title: 'Credit Notes' },
   { match: /^\/cash-management/, title: 'Daily Cash Management' },
   { match: /^\/pharmacy/, title: 'Pharmacy' },
   { match: /^\/inventory/, title: 'Inventory' },

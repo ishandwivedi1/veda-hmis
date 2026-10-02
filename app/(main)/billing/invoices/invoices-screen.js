@@ -20,6 +20,8 @@ import { openPrintPopup } from '@/lib/printPopup';
 import { resendInvoiceBillWhatsApp, setManualSurgeryDetails } from '../actions';
 import { searchInvoices, getInvoicesForVisit, getSurgeryBillingOptions } from '@/lib/rpc-reads/billing__actions';
 import { applyAdjustment } from '@/app/(main)/payments/actions';
+import { applyCreditNote } from '@/app/(main)/credit-notes/actions';
+import { getOpenCreditNotesForPatient } from '@/lib/rpc-reads/credit-notes__actions'; // parallel reads (tools/parallel-reads)
 import { getAdvanceBalance } from '@/lib/rpc-reads/payments__actions';
 import { getInvoicePanel, getInvoicesSummary } from '@/lib/rpc-reads/billing__invoices-screen-actions'; // parallel reads (tools/parallel-reads)
 import InvoiceEditPanel from '../invoice-edit-panel';
@@ -260,11 +262,13 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
   const [historyKey, setHistoryKey] = useState(0);
   const [wa, setWa] = useState({ status: '', msg: '' });
   const [flash, setFlash] = useState('');
-  // Zoho-style "Credits available -- Apply": the patient's unused advance
-  // credit, applied to this invoice via apply_advance_adjustment.
+  // Zoho-style "Credits available -- Apply credits": the patient's unused
+  // advance credit (apply_advance_adjustment) and any Open credit notes
+  // (cn_apply), each with its own "amount to credit".
   const [credit, setCredit] = useState(0);
+  const [openCNs, setOpenCNs] = useState([]);
   const [applyOpen, setApplyOpen] = useState(false);
-  const [applyAmt, setApplyAmt] = useState('');
+  const [applyAmts, setApplyAmts] = useState({}); // sourceKey -> amount string
   const [applying, setApplying] = useState(false);
   const [applyErr, setApplyErr] = useState('');
 
@@ -273,7 +277,10 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
     const d = await getInvoicePanel(invoiceId);
     if (d?.error) { setError(d.error); return; }
     setData(d);
-    if (d.invoice?.patient_id) getAdvanceBalance(d.invoice.patient_id).then((b) => setCredit(r2(b))).catch(() => {});
+    if (d.invoice?.patient_id) {
+      getAdvanceBalance(d.invoice.patient_id).then((b) => setCredit(r2(b))).catch(() => {});
+      getOpenCreditNotesForPatient(d.invoice.patient_id).then((c) => setOpenCNs(c || [])).catch(() => {});
+    }
   }, [invoiceId]);
   useEffect(() => { load(); }, [load]);
 
@@ -290,18 +297,43 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
     }
   }
 
-  async function applyCredits(maxApply) {
+  // Credit sources shown in the Apply credits table.
+  const creditSources = [
+    ...(credit > 0 ? [{ key: 'advance', label: 'Advance credit', balance: credit }] : []),
+    ...openCNs.map((c) => ({ key: c.id, label: c.credit_note_number, date: c.created_at, balance: c.balance, cn: true })),
+  ];
+  const totalCredit = r2(creditSources.reduce((s, x) => s + x.balance, 0));
+
+  function openApply(due) {
+    // Pre-fill oldest-first up to the balance due (credit notes, then advance).
+    let left = due;
+    const next = {};
+    [...creditSources.filter((x) => x.cn), ...creditSources.filter((x) => !x.cn)].forEach((x) => {
+      const a = r2(Math.min(left, x.balance));
+      if (a > 0) { next[x.key] = String(a); left = r2(left - a); }
+    });
+    setApplyAmts(next); setApplyErr(''); setApplyOpen(true);
+  }
+
+  async function applyCredits(due) {
     if (applying) return;
-    const amt = r2(applyAmt);
     setApplyErr('');
-    if (!amt || amt <= 0) { setApplyErr('Enter an amount.'); return; }
-    if (amt > maxApply) { setApplyErr(`At most ${money(maxApply)} can be applied.`); return; }
+    const rows = creditSources.map((x) => ({ x, amt: r2(applyAmts[x.key]) })).filter((r) => r.amt > 0);
+    const sum = r2(rows.reduce((s, r) => s + r.amt, 0));
+    if (rows.length === 0) { setApplyErr('Enter an amount against at least one credit.'); return; }
+    const over = rows.find((r) => r.amt > r.x.balance);
+    if (over) { setApplyErr(`${over.x.label} only has ${money(over.x.balance)}.`); return; }
+    if (sum > due) { setApplyErr(`Only ${money(due)} is due on this invoice.`); return; }
     setApplying(true);
-    const res = await applyAdjustment(data.invoice.patient_id, data.invoice.id, amt);
+    for (const r of rows) {
+      const res = r.x.cn
+        ? await applyCreditNote(r.x.key, data.invoice.id, r.amt)
+        : await applyAdjustment(data.invoice.patient_id, data.invoice.id, r.amt);
+      if (res?.error) { setApplying(false); setApplyErr(`${r.x.label}: ${res.error}`); load(); return; }
+    }
     setApplying(false);
-    if (res?.error) { setApplyErr(res.error); return; }
     setApplyOpen(false);
-    afterChange(`${money(amt)} of advance credit applied to ${data.invoice.invoice_number}.`);
+    afterChange(`${money(sum)} of credit applied to ${data.invoice.invoice_number}.`);
   }
 
   function afterChange(msg) {
@@ -336,7 +368,7 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
         )}
         <button type="button" className="btn btn-sm" onClick={() => openPrintPopup(`/invoice-print/${inv.id}`)}><i className="ti ti-printer"></i> PDF/Print</button>
         {!cancelled && (
-          <Link href={`/payments/credit-note?patientId=${inv.patient_id}&invoiceId=${inv.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-file-minus"></i> Credit Note</Link>
+          <Link href={`/credit-notes/new?patientId=${inv.patient_id}&invoiceId=${inv.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-file-minus"></i> Credit Note</Link>
         )}
         {!cancelled && (
           <button type="button" className="btn btn-sm" disabled={wa.status === 'sending'} onClick={sendWhatsApp}>
@@ -348,35 +380,49 @@ function InvoiceDetail({ invoiceId, onChanged, onClose }) {
       {wa.msg && <div className={wa.status === 'error' ? 'msg-err' : 'msg-success'} style={{ margin: '8px 16px 0' }}>{wa.msg}</div>}
       {flash && <div className="msg-success" style={{ margin: '8px 16px 0' }}><i className="ti ti-circle-check"></i> {flash}</div>}
 
-      {/* Credits available (Zoho-style) */}
-      {!cancelled && due > 0 && credit > 0 && (() => {
-        const maxApply = r2(Math.min(credit, due));
-        return (
-          <div style={{ margin: '12px 16px 0', padding: '10px 12px', borderRadius: 8, background: 'var(--purple-lt)', border: '1px solid #d8b4fe' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: 'var(--purple)' }}>
-                <i className="ti ti-wallet"></i> <strong>Credits available: {money(credit)}</strong> <span style={{ color: 'var(--g600)' }}>(patient&apos;s unused advance)</span>
-              </span>
-              {!applyOpen && (
-                <button type="button" className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }}
-                  onClick={() => { setApplyOpen(true); setApplyAmt(String(maxApply)); setApplyErr(''); }}>
-                  Apply credits
-                </button>
-              )}
-            </div>
-            {applyOpen && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12.5 }}>Amount to apply ₹</span>
-                <input className="fi fi-sm" type="number" min="0" step="0.01" style={{ width: 120 }} value={applyAmt} onChange={(e) => setApplyAmt(e.target.value)} />
-                <span style={{ fontSize: 11.5, color: 'var(--g500)' }}>max {money(maxApply)}</span>
-                <button type="button" className="btn btn-sm btn-primary" disabled={applying} onClick={() => applyCredits(maxApply)}>{applying ? 'Applying...' : 'Apply'}</button>
-                <button type="button" className="btn btn-sm" disabled={applying} onClick={() => setApplyOpen(false)}>Cancel</button>
-                {applyErr && <span style={{ fontSize: 12, color: 'var(--red)', width: '100%' }}>{applyErr}</span>}
-              </div>
+      {/* Credits available (Zoho-style): advance credit + open credit notes */}
+      {!cancelled && due > 0 && totalCredit > 0 && (
+        <div style={{ margin: '12px 16px 0', padding: '10px 12px', borderRadius: 8, background: 'var(--purple-lt)', border: '1px solid #d8b4fe' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--purple)' }}>
+              <i className="ti ti-wallet"></i> <strong>Credits available: {money(totalCredit)}</strong>{' '}
+              <span style={{ color: 'var(--g600)' }}>({creditSources.map((x) => x.label).join(', ')})</span>
+            </span>
+            {!applyOpen && (
+              <button type="button" className="btn btn-sm" style={{ background: 'var(--purple)', color: '#fff', border: 'none' }} onClick={() => openApply(due)}>
+                Apply credits
+              </button>
             )}
           </div>
-        );
-      })()}
+          {applyOpen && (
+            <div style={{ marginTop: 8, background: '#fff', borderRadius: 8, padding: 8 }}>
+              <table className="tbl" style={{ margin: 0 }}>
+                <thead><tr><th>Credit</th><th>Date</th><th style={{ textAlign: 'right' }}>Available</th><th style={{ textAlign: 'right', width: 130 }}>Amount to credit</th></tr></thead>
+                <tbody>
+                  {creditSources.map((x) => (
+                    <tr key={x.key}>
+                      <td style={{ fontWeight: 600 }}>{x.label}</td>
+                      <td>{x.date ? dateIST(x.date) : '--'}</td>
+                      <td style={{ textAlign: 'right' }}>{money(x.balance)}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <input className="fi fi-sm" type="number" min="0" step="0.01" style={{ width: 115, textAlign: 'right' }}
+                          value={applyAmts[x.key] || ''} onChange={(e) => setApplyAmts((a) => ({ ...a, [x.key]: e.target.value }))} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12.5 }}>Balance due {money(due)} · applying <strong>{money(r2(Object.values(applyAmts).reduce((t, v) => t + (Number(v) || 0), 0)))}</strong></span>
+                <span style={{ flex: 1 }}></span>
+                <button type="button" className="btn btn-sm btn-primary" disabled={applying} onClick={() => applyCredits(due)}>{applying ? 'Applying...' : 'Apply credits'}</button>
+                <button type="button" className="btn btn-sm" disabled={applying} onClick={() => setApplyOpen(false)}>Cancel</button>
+              </div>
+              {applyErr && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>{applyErr}</div>}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Payments received strip (Zoho-style) */}
       <div style={{ margin: '12px 16px 0', border: '1px solid var(--g200)', borderRadius: 8 }}>
