@@ -17,6 +17,7 @@ import { openPrintPopup } from '@/lib/printPopup';
 import { resendPaymentReceiptWhatsApp } from '../actions';
 import { searchReceipts } from '@/lib/rpc-reads/payments__actions';
 import { getReceivedPaymentDetail } from '@/lib/rpc-reads/payments__received-actions'; // parallel reads (tools/parallel-reads)
+import { getTodayCollectionSummary } from '@/lib/rpc-reads/cash-management__actions';
 import { correctClosedDayModes } from '../received-actions';
 import PaymentEditPanel from '../payment-edit-panel';
 import DeletedPayments from '../deleted-payments';
@@ -306,6 +307,85 @@ function PaymentDetail({ paymentId, onChanged, onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// "+ New" and "..." menus -- everything the old tabs did, from one place.
+// Each item opens the existing form full-width with a "<- Payments" link
+// back (same routes as before, so links from other screens keep working).
+// ─────────────────────────────────────────────────────────────────────
+const NEW_ITEMS = [
+  { href: '/payments/collect', icon: 'ti-cash', label: 'Record Payment', hint: 'Against a bill' },
+  { href: '/payments/advance', icon: 'ti-wallet', label: 'Advance', hint: 'Money before billing' },
+  { href: '/payments/adjustments', icon: 'ti-adjustments', label: 'Apply Advance', hint: 'Use credit on a bill' },
+  { href: '/payments/refund', icon: 'ti-rotate-clockwise', label: 'Refund', hint: 'Return money' },
+  { href: '/payments/credit-note', icon: 'ti-file-minus', label: 'Credit Note', hint: 'Write-off / concession' },
+];
+
+function Menu({ label, icon, primary, items, align = 'right' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" className={primary ? 'btn btn-primary' : 'btn'} onClick={() => setOpen((v) => !v)}>
+        {icon && <i className={`ti ${icon}`}></i>} {label} {primary && <i className="ti ti-chevron-down" style={{ fontSize: 12 }}></i>}
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', [align]: 0, top: 'calc(100% + 4px)', background: '#fff', border: '1px solid var(--g200)', borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 24px rgba(0,0,0,.12))', minWidth: 230, zIndex: 50, padding: 4 }}>
+          {items.map((it) => (it.href ? (
+            <Link key={it.label} href={it.href} onClick={() => setOpen(false)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, textDecoration: 'none', color: 'var(--g800)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--g50)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+              <i className={`ti ${it.icon}`} style={{ color: 'var(--blue)', fontSize: 16 }}></i>
+              <span><span style={{ fontWeight: 600, fontSize: 13 }}>{it.label}</span>{it.hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--g500)' }}>{it.hint}</span>}</span>
+            </Link>
+          ) : (
+            <button key={it.label} type="button" onClick={() => { setOpen(false); it.onClick(); }} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--g800)', textAlign: 'left' }}>
+              <i className={`ti ${it.icon}`} style={{ color: 'var(--blue)', fontSize: 16 }}></i>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{it.label}</span>
+            </button>
+          )))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TodaySummary({ refreshKey }) {
+  const [s, setS] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getTodayCollectionSummary().then((d) => { if (alive) setS(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [refreshKey]);
+  const byMode = s?.byMode || {};
+  const other = r2(Object.entries(byMode).filter(([m]) => m !== 'Cash' && m !== 'UPI').reduce((a, [, v]) => a + Number(v), 0));
+  const cell = (label, value, color) => (
+    <div style={{ flex: '1 1 140px', padding: '4px 16px', borderLeft: '1px solid var(--g200)' }}>
+      <div style={{ fontSize: 12, color: 'var(--g500)' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: color || 'var(--g800)', marginTop: 2 }}>{s ? value : '--'}</div>
+    </div>
+  );
+  return (
+    <div className="card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', padding: '12px 4px', marginBottom: 12, gap: '8px 0' }}>
+      <div style={{ flex: '1 1 180px', padding: '4px 16px', display: 'flex', gap: 10, alignItems: 'center' }}>
+        <span style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--green-lt, #dcfce7)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><i className="ti ti-arrow-down-left" style={{ color: 'var(--green)', fontSize: 18 }}></i></span>
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--g500)' }}>Collected today</div>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>{s ? money(s.total) : '--'}</div>
+        </div>
+      </div>
+      {cell('Cash', money(byMode.Cash || 0))}
+      {cell('UPI', money(byMode.UPI || 0))}
+      {cell('Card / Other', money(other))}
+      {cell('Transactions', s ? String(s.count) : '--')}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────────────────────────────
 export default function PaymentsReceived() {
@@ -344,18 +424,31 @@ export default function PaymentsReceived() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-display-stack)' }}>
-          {view === 'deleted' ? 'Deleted Receipts' : 'Payments Received'}
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display-stack)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {view === 'deleted' ? (
+            <>
+              <button type="button" className="btn btn-sm" onClick={() => setView('register')} title="Back to payments"><i className="ti ti-arrow-left"></i></button>
+              Deleted Receipts
+            </>
+          ) : 'Payments'}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" className={view === 'register' ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => setView('register')}>All payments</button>
-          <button type="button" className={view === 'deleted' ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => { setView('deleted'); setSelectedId(null); }}><i className="ti ti-trash"></i> Deleted</button>
-          <Link href="/payments/collect" className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}><i className="ti ti-plus"></i> New Payment</Link>
-          <Link href="/payments/advance" className="btn btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-wallet"></i> New Advance</Link>
+          <Menu label="New" icon="ti-plus" primary items={NEW_ITEMS} />
+          <Menu
+            label=""
+            icon="ti-dots"
+            items={[
+              { href: '/payments/reports', icon: 'ti-file-report', label: 'Reports' },
+              { href: '/payments/ledger', icon: 'ti-book', label: 'Patient Ledger' },
+              { icon: 'ti-trash', label: 'Deleted Receipts', onClick: () => { setView('deleted'); setSelectedId(null); } },
+            ]}
+          />
         </div>
       </div>
 
       {flash && <div className="msg-success" style={{ marginBottom: 10 }}><i className="ti ti-circle-check"></i> {flash}</div>}
+
+      {view === 'register' && <TodaySummary refreshKey={flash} />}
 
       {view === 'deleted' && <DeletedPayments />}
 

@@ -1,12 +1,7 @@
-import PaymentsTabs from '../payments-tabs';
-import ReceiptTab from './receipt-tab';
+import { redirect } from 'next/navigation';
 
-export default function ReceiptPage() {
-  return (
-    <div>
-      <PaymentsTabs />
-      <ReceiptTab />
-    </div>
-  );
+// Merged into the single Payments screen at /payments (2 Oct 2026).
+export default async function Page({ searchParams }) {
+  const params = await searchParams;
+  redirect(params?.paymentId ? `/payments?paymentId=${encodeURIComponent(params.paymentId)}` : '/payments');
 }
-

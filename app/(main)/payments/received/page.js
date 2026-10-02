@@ -1,14 +1,7 @@
-import { Suspense } from 'react';
-import PaymentsTabs from '../payments-tabs';
-import PaymentsReceived from './payments-received';
+import { redirect } from 'next/navigation';
 
-export default function PaymentsReceivedPage() {
-  return (
-    <div>
-      <PaymentsTabs />
-      <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>}>
-        <PaymentsReceived />
-      </Suspense>
-    </div>
-  );
+// Merged into the single Payments screen at /payments (2 Oct 2026).
+export default async function Page({ searchParams }) {
+  const params = await searchParams;
+  redirect(params?.paymentId ? `/payments?paymentId=${encodeURIComponent(params.paymentId)}` : '/payments');
 }
