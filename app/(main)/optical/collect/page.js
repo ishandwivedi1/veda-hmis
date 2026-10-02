@@ -1,14 +1,8 @@
-import { Suspense } from 'react';
-import OpticalTabs from '../optical-tabs';
-import CollectOpticalPaymentTab from './collect-optical-payment-tab';
+import { redirect } from 'next/navigation';
 
-export default function CollectOpticalPaymentPage() {
-  return (
-    <div>
-      <OpticalTabs />
-      <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>}>
-        <CollectOpticalPaymentTab />
-      </Suspense>
-    </div>
-  );
+// Collect Payment now happens on the bill itself (Bills screen -> open a
+// bill -> Record Payment). Old links with ?saleId= open that bill.
+export default async function CollectOpticalPaymentPage({ searchParams }) {
+  const params = await searchParams;
+  redirect(params?.saleId ? `/optical?saleId=${encodeURIComponent(params.saleId)}` : '/optical');
 }

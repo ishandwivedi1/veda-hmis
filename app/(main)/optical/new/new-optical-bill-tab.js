@@ -105,7 +105,7 @@ export default function NewOpticalBillTab() {
                 <i className="ti ti-check"></i> Bill {created.sale_number} created
               </div>
               <div style={{ fontSize: 13, color: 'var(--g600)' }}>Total: {fmt(created.net)} -- nothing collected yet.</div>
-              <button className="btn btn-primary" style={{ marginTop: 14, width: '100%' }} onClick={() => router.push(`/optical/collect?saleId=${created.id}`)}>
+              <button className="btn btn-primary" style={{ marginTop: 14, width: '100%' }} onClick={() => router.push(`/optical?saleId=${created.id}`)}>
                 <i className="ti ti-cash"></i> Collect Payment
               </button>
             </div>

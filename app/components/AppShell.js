@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { href: '/payments', label: 'Payments', icon: 'ti-cash', group: 'Finance' },
   { href: '/credit-notes', label: 'Credit Notes', icon: 'ti-file-minus', group: 'Finance' },
   { href: '/cash-management', label: 'Daily Cash Management', icon: 'ti-cash-register', group: 'Finance' },
-  { href: '/optical/dashboard', label: 'Optical Shop', icon: 'ti-sunglasses', group: 'Finance' },
+  { href: '/optical', label: 'Optical Shop', icon: 'ti-sunglasses', group: 'Finance' },
 
   // ── OPD ──
   { href: '/optometry-dashboard', label: 'Optometry', icon: 'ti-eye-check', group: 'OPD' },

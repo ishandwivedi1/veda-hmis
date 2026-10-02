@@ -1,11 +1,6 @@
-import OpticalTabs from '../optical-tabs';
-import OpticalHistoryTab from './optical-history-tab';
+import { redirect } from 'next/navigation';
 
+// Bills History is now the Bills screen itself (search, status, dates).
 export default function OpticalHistoryPage() {
-  return (
-    <div>
-      <OpticalTabs />
-      <OpticalHistoryTab />
-    </div>
-  );
+  redirect('/optical');
 }

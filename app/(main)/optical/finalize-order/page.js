@@ -1,11 +1,12 @@
 import { Suspense } from 'react';
-import OpticalTabs from '../optical-tabs';
+// Header: Bills | Payments | + New (no requests of its own).
+import { OpticalHeader } from '../optical-ui';
 import FinalizeOrderTab from './finalize-order-tab';
 
 export default function FinalizeOrderPage() {
   return (
     <div>
-      <OpticalTabs />
+      <OpticalHeader title="Finalize Order" />
       <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>}>
         <FinalizeOrderTab />
       </Suspense>

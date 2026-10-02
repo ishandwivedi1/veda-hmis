@@ -128,7 +128,7 @@ export default function FinalizeOrderTab() {
               <i className="ti ti-printer"></i> Print Bill
             </a>
             {Number(result.net) - Number(result.paid) > 0 && (
-              <a href={`/optical/collect?saleId=${result.id}`} className="btn" style={{ textDecoration: 'none' }}>
+              <a href={`/optical?saleId=${result.id}`} className="btn" style={{ textDecoration: 'none' }}>
                 <i className="ti ti-cash"></i> Collect Remaining Balance
               </a>
             )}
