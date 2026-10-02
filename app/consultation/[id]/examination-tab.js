@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { saveExamination } from '@/app/(main)/consultation/actions';
+import { getActiveExamOptions } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 
 const EXT_STRUCTS = ['Lids', 'Adnexa', 'Lacrimal', 'Motility'];
 const EXT_TEMPLATES = {
@@ -159,7 +160,12 @@ function normalizeStagedFindings(raw, structsByStage, multiSelectStructs) {
 const STRUCT_DISPLAY_LABEL = { CDR: 'C.D Ratio' };
 
 function StructRow({ struct, templates, eyeState, onSelect, onCustom, asSelect }) {
-  const options = templates[struct] || [];
+  const baseOptions = templates[struct] || [];
+  // A value saved on this record but since renamed/removed in Clinical
+  // Masters still shows (and can be un-ticked), so nothing silently
+  // disappears from an old examination when it is reopened.
+  const saved = Array.isArray(eyeState.value) ? eyeState.value : (eyeState.value ? [eyeState.value] : []);
+  const options = [...baseOptions, ...saved.filter((v) => !baseOptions.includes(v))];
   const displayLabel = STRUCT_DISPLAY_LABEL[struct] || struct;
   const isSelected = (opt) => (Array.isArray(eyeState.value) ? eyeState.value.includes(opt) : eyeState.value === opt);
 
@@ -228,7 +234,7 @@ function StageToggle({ stage, onChange }) {
   );
 }
 
-function RegionSection({ regionKey, region, open, onToggle, status, stagedState, stage, onStageChange, onSelect, onCustom, onAllNormal, allNormalOn }) {
+function RegionSection({ regionKey, region, templates, open, onToggle, status, stagedState, stage, onStageChange, onSelect, onCustom, onAllNormal, allNormalOn }) {
   const staged = region.staged;
   const state = staged ? stagedState[stage] : stagedState;
   const structs = staged ? region.structsByStage[stage] : region.structs;
@@ -277,7 +283,7 @@ function RegionSection({ regionKey, region, open, onToggle, status, stagedState,
                     <StructRow
                       key={struct}
                       struct={struct}
-                      templates={region.templates}
+                      templates={templates}
                       asSelect={selectStructs.includes(struct)}
                       eyeState={{ value: state[struct]?.[eye] ?? (isMultiStruct ? [] : ''), custom: state[struct]?.[`${eye}_custom`] || '' }}
                       onSelect={(val) => onSelect(struct, eye, val)}
@@ -295,6 +301,26 @@ function RegionSection({ regionKey, region, open, onToggle, status, stagedState,
 }
 
 export default function ExaminationTab({ examination, encounterId, onSaved }) {
+  // Options come from Clinical Masters > Examination Options. Until they
+  // load -- or if they can't be read, or a structure has none -- the
+  // built-in lists above are used, so the tab is never left empty.
+  const [masterOptions, setMasterOptions] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getActiveExamOptions().then((res) => { if (alive && res) setMasterOptions(res); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  function optionsFor(regionKey, struct, fallback) {
+    const fromMaster = masterOptions?.[`${regionKey}|${struct}`];
+    return fromMaster && fromMaster.length > 0 ? fromMaster : (fallback || []);
+  }
+  function templatesFor(regionKey) {
+    const builtIn = REGIONS[regionKey].templates;
+    const out = {};
+    Object.keys(builtIn).forEach((struct) => { out[struct] = optionsFor(regionKey, struct, builtIn[struct]); });
+    return out;
+  }
+
   const [regionState, setRegionState] = useState({
     external: emptyRegionState(EXT_STRUCTS, multiSelectStructsFor(REGIONS.external)),
     anterior: emptyRegionState(ANT_STRUCTS, multiSelectStructsFor(REGIONS.anterior)),
@@ -381,7 +407,8 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
   // status reverts to Not started, rather than being a one-way action.
   function handleAllNormal(region) {
     const regionCfg = REGIONS[region];
-    const { templates, staged } = regionCfg;
+    const { staged } = regionCfg;
+    const templates = templatesFor(region);
     const stage = staged ? regionStage[region] : null;
     const structs = staged ? regionCfg.structsByStage[stage] : regionCfg.structs;
     const isOn = staged ? allNormalOn[region][stage] : allNormalOn[region];
@@ -498,6 +525,7 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
           key={key}
           regionKey={key}
           region={REGIONS[key]}
+          templates={templatesFor(key)}
           open={open[key]}
           onToggle={() => setOpen((p) => ({ ...p, [key]: !p[key] }))}
           status={status[key]}
@@ -575,7 +603,13 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
                               onChange={(e) => setGonioField(f.key, eye, e.target.value)}
                             >
                               <option value="">--</option>
-                              {f.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                              {(() => {
+                                const opts = optionsFor('gonioscopy', f.label, f.options);
+                                const current = gonioState[`${f.key}_${eye}`];
+                                // keep a saved value visible even if it was removed from the master
+                                const all = current && !opts.includes(current) ? [...opts, current] : opts;
+                                return all.map((opt) => <option key={opt} value={opt}>{opt}</option>);
+                              })()}
                             </select>
                           </div>
                         ))}

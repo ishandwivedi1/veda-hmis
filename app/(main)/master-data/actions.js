@@ -392,6 +392,114 @@ export async function getActiveHistoryOptions() {
   return grouped;
 }
 
+// ── EXAMINATION OPTIONS (Clinical Master -- the pill/dropdown options in
+// the doctor's Examination tab: External, Anterior Segment, Posterior
+// Segment, Gonioscopy). One row per option, scoped to region+structure.
+// sort_order is meaningful: the first ACTIVE option of a structure is what
+// "All Normal" fills in. Saved examinations store the chosen text, so
+// edits here never rewrite past records. ──
+export async function getExamOptions() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_exam_options').select('*').order('region').order('structure').order('sort_order');
+  return data || [];
+}
+
+// Active-only, keyed "region|structure" -> [names in order] -- what the
+// Examination tab renders (app/consultation/[id]/examination-tab.js).
+// Returns null on a read error so the tab keeps its built-in lists.
+export async function getActiveExamOptions() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('master_exam_options')
+    .select('region, structure, name, sort_order')
+    .eq('status', 'Active')
+    .order('sort_order');
+  if (error || !data) return null;
+  const grouped = {};
+  data.forEach((row) => {
+    const key = `${row.region}|${row.structure}`;
+    (grouped[key] = grouped[key] || []).push(row.name);
+  });
+  return grouped;
+}
+
+export async function addExamOption(values) {
+  const supabase = await createClient();
+  // Clinical terms keep the case the doctor typed (IMSC, KP's, PPA+).
+  const name = preserveCase(values.name);
+  if (!name) return { error: 'Option name is required.' };
+  if (!values.region || !values.structure) return { error: 'Choose a section and structure first.' };
+  const { data: siblings } = await supabase
+    .from('master_exam_options')
+    .select('name, sort_order')
+    .eq('region', values.region)
+    .eq('structure', values.structure);
+  if ((siblings || []).some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+    return { error: `"${name}" already exists under ${values.structure}.` };
+  }
+  const sortOrder = (siblings || []).reduce((m, s) => Math.max(m, s.sort_order || 0), 0) + 1;
+  const code = await generateCategoryCode(supabase, 'master_exam_options', 'EXO');
+  const { error } = await supabase.from('master_exam_options').insert({
+    region: values.region, structure: values.structure, name, sort_order: sortOrder, code, status: 'Active',
+  });
+  if (error) return { error: error.message };
+  await logMasterAudit(supabase, 'master_exam_options', code, 'Create', `${name} (${values.structure}) created`);
+  return { success: true };
+}
+
+export async function updateExamOption(id, oldValues, values) {
+  const supabase = await createClient();
+  const name = preserveCase(values.name);
+  if (!name) return { error: 'Option name is required.' };
+  const { data: clash } = await supabase
+    .from('master_exam_options')
+    .select('id')
+    .eq('region', oldValues.region)
+    .eq('structure', oldValues.structure)
+    .ilike('name', name)
+    .neq('id', id);
+  if (clash && clash.length > 0) return { error: `"${name}" already exists under ${oldValues.structure}.` };
+  const { error } = await supabase.from('master_exam_options').update({ name }).eq('id', id);
+  if (error) return { error: error.message };
+  if (oldValues.name !== name) await logMasterAudit(supabase, 'master_exam_options', oldValues.code, 'Edit', `Name ${oldValues.name} -> ${name}`);
+  return { success: true };
+}
+
+export async function deleteExamOption(id, code) {
+  const supabase = await createClient();
+  return deleteMasterRecord(supabase, 'master_exam_options', id, code);
+}
+
+// Swaps an option with its neighbour (up = -1, down = +1) within the same
+// structure. Renumbers the whole structure 1..n first so gaps/duplicates
+// in sort_order can never make a move silently do nothing.
+export async function moveExamOption(id, direction) {
+  const supabase = await createClient();
+  const { data: row } = await supabase.from('master_exam_options').select('region, structure, code, name').eq('id', id).maybeSingle();
+  if (!row) return { error: 'Option not found.' };
+  const { data: siblings } = await supabase
+    .from('master_exam_options')
+    .select('id, sort_order, name')
+    .eq('region', row.region)
+    .eq('structure', row.structure)
+    .order('sort_order')
+    .order('name');
+  const list = siblings || [];
+  const idx = list.findIndex((s) => s.id === id);
+  const target = idx + (direction < 0 ? -1 : 1);
+  if (idx < 0 || target < 0 || target >= list.length) return { success: true };
+  [list[idx], list[target]] = [list[target], list[idx]];
+  const updates = list
+    .map((s, i) => ({ id: s.id, sort_order: i + 1, old: s.sort_order }))
+    .filter((u) => u.sort_order !== u.old);
+  for (const u of updates) {
+    const { error } = await supabase.from('master_exam_options').update({ sort_order: u.sort_order }).eq('id', u.id);
+    if (error) return { error: error.message };
+  }
+  await logMasterAudit(supabase, 'master_exam_options', row.code, 'Edit', `${row.name} moved ${direction < 0 ? 'up' : 'down'} (${row.structure})`);
+  return { success: true };
+}
+
 // ── DOCTORS (Clinical Master) ──
 // Deliberately NOT a separate table -- doctors are profiles (same
 // source User Management and Appointments' doctor dropdown already

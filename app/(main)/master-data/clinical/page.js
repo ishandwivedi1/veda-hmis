@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toggleStatus, addDiagnosisMaster, updateDiagnosisMaster, deleteDiagnosisMaster, getDoctorsMaster, addSurgery, updateSurgery, deleteSurgery, addIopMethod, updateIopMethod, deleteIopMethod, addClinicalObservation, updateClinicalObservation, deleteClinicalObservation, addPatientInstructionTemplate, updatePatientInstructionTemplate, deletePatientInstructionTemplate, addHistoryOption, updateHistoryOption, deleteHistoryOption, addIolCatalogItem, updateIolCatalogItem, deleteIolCatalogItem, addSurgicalConsumable, updateSurgicalConsumable, deleteSurgicalConsumable } from '../actions';
 import { getDiagnosesMaster, getSurgeries, getIopMethods, getClinicalObservations, getPatientInstructionTemplates, getHistoryOptions, getIolCatalog, getSurgicalConsumablesMaster } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
+import ExamOptionsTab from './exam-options-tab';
 
 const TABS = [
   { key: 'doctors', label: 'Doctor' },
@@ -12,6 +13,7 @@ const TABS = [
   { key: 'observations', label: 'Clinical Observations' },
   { key: 'patientInstructions', label: 'Patient Instructions' },
   { key: 'historyOptions', label: 'Patient History' },
+  { key: 'examOptions', label: 'Examination Options' },
   { key: 'iolCatalog', label: 'IOL Catalog' },
   { key: 'surgicalConsumables', label: 'Surgical Consumables' },
 ];
@@ -195,7 +197,7 @@ export default function ClinicalMastersPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -361,6 +363,8 @@ export default function ClinicalMastersPage() {
             </table>
           </>
         )}
+
+        {activeTab === 'examOptions' && <ExamOptionsTab />}
 
         {activeTab === 'historyOptions' && (
           <>
