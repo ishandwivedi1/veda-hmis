@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
+import { getSigningKeys } from '@/lib/authUser';
 
 // --- Silent bot filter ------------------------------------------------
 // Blocks common scanner/crawler tools by their user-agent string.
@@ -86,10 +87,18 @@ export async function middleware(request) {
     }
   );
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  // Login check WITHOUT a round trip to Supabase Auth on every page open.
+  // getClaims() verifies the session token's signature locally against the
+  // project's public signing key (ES256), cached per server instance
+  // (see getSigningKeys in lib/authUser.js). Expired tokens are still refreshed with Supabase
+  // exactly as before (that's the one case that needs the network), and a
+  // tampered / expired / missing token still fails -> login page. If the
+  // key can't be fetched, getClaims() falls back to the old getUser()
+  // network check by itself. Server actions and /api/rpc (above) already
+  // skipped this check entirely; this only affects page navigations.
+  const keys = await getSigningKeys();
+  const { data: claimsData, error: userError } = await supabase.auth.getClaims(undefined, keys ? { keys } : {});
+  const user = claimsData?.claims?.sub ? { id: claimsData.claims.sub } : null;
 
   const isLoginPage = request.nextUrl.pathname.startsWith('/login');
   const isPublicPage =
