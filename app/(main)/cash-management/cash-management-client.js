@@ -2,15 +2,20 @@
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { formatPatientName } from '@/lib/patientName';
-import { saveReconciliation, closeDay, reopenDay, openDay, updateOpeningBalance, recordClosingCash, confirmCashCounter, unlockCashCounter, lockReconciliation, unlockReconciliation, addExpense, deleteExpense } from './actions';
-import { getTodayCollectionSummary, getReconciliationData, getCloseDayReadiness, getDayClosingHistory, getDailyReport, getDayClosedAt, getDayOpening, getSuggestedOpeningBalance, getRevenueByDepartmentToday, getUnclosedPastDays, getExpenseCategoriesActive, getExpensesForDate, getPettyCashTotal, getCashCounterForDate, getCashCounterHistory, getReconciliationLockStatus } from '@/lib/rpc-reads/cash-management__actions'; // parallel reads (tools/parallel-reads)
-import { addExpenseCategory } from '@/app/(main)/master-data/actions';
-import { getApprovers } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
-import { bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
-import { getOpenQueueEntriesToday } from '@/lib/rpc-reads/queue__actions'; // parallel reads (tools/parallel-reads)
+// One request per click (Oct 2026): the page arrives with all its data
+// (page.js -> getCashScreen); every save below sends back the refreshed
+// screen in the same response (screen-actions.js) -- no reloads after.
+import {
+  openDayAndRefresh, updateOpeningAndRefresh, saveReconAndRefresh, lockReconAndRefresh, unlockReconAndRefresh,
+  recordClosingAndRefresh, confirmCounterAndRefresh, unlockCounterAndRefresh, bulkForceCloseAndRefresh,
+  reopenDayAndRefresh, deleteExpenseAndRefresh, addCategoryAndRefresh, closeDayAndRefresh, addExpenseAndRefresh,
+  savePastReconAndRefresh, lockPastReconAndRefresh, unlockPastReconAndRefresh, recordPastClosingAndRefresh,
+  confirmPastCounterAndRefresh, unlockPastCounterAndRefresh, closePastDayAndRefresh,
+} from './screen-actions';
+import { getDailyReport, getCashCounterForDate } from '@/lib/rpc-reads/cash-management__actions'; // parallel reads (tools/parallel-reads)
+import { getPastDayClosing } from '@/lib/rpc-reads/cash-management__screen-actions'; // parallel reads (tools/parallel-reads)
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import BackdateControl from '@/app/components/BackdateControl';
-import { uploadAttachment } from '@/lib/attachments';
 import { openPrintPopup } from '@/lib/printPopup';
 
 // Fixed column order for Payment Mode Summary's Type x Mode grid --
@@ -36,11 +41,10 @@ function fmt(n) {
   return `Rs.${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function CashCounterTab({ onStatusChange }) {
-  const [today, setToday] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-
+// Data comes with the page / with each save (no request of its own);
+// Record / Confirm / Unlock are one request each and hand the refreshed
+// screen to the parent.
+function CashCounterTab({ today, history = [], onScreen }) {
   const [closingInput, setClosingInput] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -48,45 +52,20 @@ function CashCounterTab({ onStatusChange }) {
   const [lookupDate, setLookupDate] = useState('');
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupLoading, setLookupLoading] = useState(false);
+  const loading = false;
 
-  const refresh = useCallback(async () => {
-    const [t, h] = await Promise.all([getCashCounterForDate(), getCashCounterHistory(2)]);
-    setToday(t);
-    setHistory(h);
-    setLoading(false);
-    onStatusChange?.(t.amountHandedOver != null);
-  }, [onStatusChange]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  async function handleRecordClosing() {
+  async function run(fn, after) {
     setError('');
     setSaving(true);
-    const result = await recordClosingCash(closingInput);
+    const result = await fn();
     setSaving(false);
     if (result.error) { setError(result.error); return; }
-    setClosingInput('');
-    refresh();
+    if (after) after();
+    onScreen(result.screen);
   }
-
-  async function handleConfirm() {
-    setError('');
-    setSaving(true);
-    const result = await confirmCashCounter();
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    refresh();
-  }
-
-  async function handleUnlockCounter() {
-    setError('');
-    setSaving(true);
-    const result = await unlockCashCounter();
-    setSaving(false);
-    if (result.error) { setError(result.error); return; }
-    setClosingInput('');
-    refresh();
-  }
+  const handleRecordClosing = () => run(() => recordClosingAndRefresh(closingInput), () => setClosingInput(''));
+  const handleConfirm = () => run(() => confirmCounterAndRefresh());
+  const handleUnlockCounter = () => run(() => unlockCounterAndRefresh(), () => setClosingInput(''));
 
   async function handleLookup() {
     if (!lookupDate) return;
@@ -217,20 +196,8 @@ function CashCounterTab({ onStatusChange }) {
 
 export default function CashManagementClient({ initialData }) {
   const [activeTab, setActiveTab] = useState('summary');
-  // Seeded from the server-fetched initialData prop below instead of
-  // empty/zero defaults -- this page used to always render its
-  // landing view (today's collection totals, the open/closed status
-  // banner) at zero first, then replace it with real numbers ~7-8
-  // seconds later once refresh()'s ~11 Server Action round trips
-  // finished, because this was a 'use client' component whose useState
-  // calls always start from hardcoded literals no matter what. Billing
-  // Dashboard never has this problem because its page.js is a plain
-  // Server Component that fetches once before the page is ever sent to
-  // the browser. Moving the identical refresh() fetch server-side
-  // (see page.js) and seeding state from its result here closes that
-  // gap without changing refresh() itself at all -- it still re-runs
-  // after mount exactly as before, just as a real-to-real refresh
-  // instead of a zero-to-real one.
+  // Seeded from the server-rendered page (getCashScreen) -- nothing is
+  // fetched again after the page opens.
   const [summary, setSummary] = useState(initialData.summary);
   const [revenueByDept, setRevenueByDept] = useState(initialData.revenueByDept);
   const [reconRows, setReconRows] = useState(initialData.reconRows);
@@ -240,13 +207,6 @@ export default function CashManagementClient({ initialData }) {
   const [closedToday, setClosedToday] = useState(initialData.closedToday);
   const [reconLock, setReconLock] = useState(initialData.reconLock);
   const [cashCounterConfirmed, setCashCounterConfirmed] = useState(initialData.cashCounterConfirmed);
-  // Stable identity across every re-render of this (large, frequently
-  // re-rendering) component -- CashCounterTab's own refresh effect
-  // depends on this prop's reference, so an inline arrow here would
-  // give it a new identity on every keystroke anywhere on this page
-  // (report notes, past-day recon fields, etc.), re-triggering its
-  // Cash Counter fetch each time instead of only when status changes.
-  const handleCashCounterStatusChange = useCallback((confirmed) => setCashCounterConfirmed(confirmed), []);
   const [opening, setOpening] = useState(initialData.opening);
   const [openingBalance, setOpeningBalance] = useState('');
   const [suggestedOpening, setSuggestedOpening] = useState(initialData.suggestedOpening);
@@ -285,9 +245,11 @@ export default function CashManagementClient({ initialData }) {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const [expenseCategories, setExpenseCategories] = useState([]);
-  const [todayExpenses, setTodayExpenses] = useState([]);
-  const [pettyCashTotal, setPettyCashTotal] = useState(0);
+  const [expenseCategories, setExpenseCategories] = useState(initialData.expenseCategories || []);
+  const [todayExpenses, setTodayExpenses] = useState(initialData.todayExpenses || []);
+  const [pettyCashTotal, setPettyCashTotal] = useState(initialData.pettyCashTotal || 0);
+  const [counter, setCounter] = useState(initialData.counter || null);
+  const [counterHistory, setCounterHistory] = useState(initialData.counterHistory || []);
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
   const [newExpenseRemarks, setNewExpenseRemarks] = useState('');
@@ -299,134 +261,72 @@ export default function CashManagementClient({ initialData }) {
   const [expandedExpenseId, setExpandedExpenseId] = useState(null);
   const billInputRef = useRef(null);
 
-  const refreshPettyCash = useCallback(async () => {
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    const [cats, expenses, total] = await Promise.all([
-      getExpenseCategoriesActive(),
-      getExpensesForDate(today),
-      getPettyCashTotal(today),
-    ]);
-    setExpenseCategories(cats);
-    setTodayExpenses(expenses);
-    setPettyCashTotal(total);
+  // The whole screen, whether it came with the page or back with a save.
+  const applyScreen = useCallback((d) => {
+    if (!d) return;
+    setSummary(d.summary);
+    setRevenueByDept(d.revenueByDept);
+    setReadiness(d.readiness);
+    setReconRows(d.reconRows);
+    setHistory(d.history);
+    if (d.approvers) setApprovers(d.approvers);
+    setClosedToday(d.closedToday);
+    setReconLock(d.reconLock);
+    setCashCounterConfirmed(d.cashCounterConfirmed);
+    setOpening(d.opening);
+    setSuggestedOpening(d.suggestedOpening);
+    setOpenQueueEntries(d.openQueueEntries);
+    setUnclosedPastDays(d.unclosedPastDays);
+    setTodayClosingInfo(d.todayClosingInfo);
+    setExpenseCategories(d.expenseCategories || []);
+    setTodayExpenses(d.todayExpenses || []);
+    setPettyCashTotal(d.pettyCashTotal || 0);
+    setCounter(d.counter || null);
+    setCounterHistory(d.counterHistory || []);
   }, []);
-
-  useEffect(() => { refreshPettyCash(); }, [refreshPettyCash]);
 
   async function handleAddExpense() {
     setError(''); setSuccess('');
     if (!newExpenseCategory) { setError('Select an expense category.'); return; }
     if (!newExpenseAmount || parseFloat(newExpenseAmount) <= 0) { setError('Enter a valid amount.'); return; }
     setExpenseSaving(true);
-    const result = await addExpense(
-      newExpenseCategory, parseFloat(newExpenseAmount), newExpenseRemarks, '',
-      expenseBackdate.backdateTo || null, expenseBackdate.backdateReason
-    );
-    if (result.error) { setExpenseSaving(false); setError(result.error); return; }
-
-    if (newExpenseBill && result.expense) {
-      const formData = new FormData();
-      formData.append('file', newExpenseBill);
-      formData.append('entityType', 'petty_cash_expense');
-      formData.append('entityId', result.expense.id);
-      const uploadResult = await uploadAttachment(formData);
-      if (uploadResult.error) setError(`Expense saved, but the bill upload failed: ${uploadResult.error}`);
-    }
-
+    // ONE request: the expense, its bill (if attached) and the refreshed screen.
+    const fd = new FormData();
+    fd.append('categoryId', newExpenseCategory);
+    fd.append('amount', String(parseFloat(newExpenseAmount)));
+    fd.append('remarks', newExpenseRemarks || '');
+    if (expenseBackdate.backdateTo) fd.append('backdateTo', expenseBackdate.backdateTo);
+    if (expenseBackdate.backdateReason) fd.append('backdateReason', expenseBackdate.backdateReason);
+    if (newExpenseBill) fd.append('file', newExpenseBill);
+    const result = await addExpenseAndRefresh(fd);
     setExpenseSaving(false);
+    if (result.error) { setError(result.error); return; }
+    if (result.uploadError) setError(`Expense saved, but the bill upload failed: ${result.uploadError}`);
     setNewExpenseCategory(''); setNewExpenseAmount(''); setNewExpenseRemarks(''); setNewExpenseBill(null);
     setExpenseBackdate({ backdateTo: '', backdateReason: '' });
     if (billInputRef.current) billInputRef.current.value = '';
     setSuccess(expenseBackdate.backdateTo ? `Expense recorded against ${new Date(expenseBackdate.backdateTo).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })}.` : 'Expense recorded.');
-    refreshPettyCash();
-    refreshReconciliation();
+    applyScreen(result.screen);
   }
 
   async function handleDeleteExpense(exp) {
     if (!window.confirm(`Delete this ${fmt(exp.amount)} expense?`)) return;
     setError(''); setSuccess('');
-    const result = await deleteExpense(exp.id, exp.expense_date);
+    const result = await deleteExpenseAndRefresh(exp.id, exp.expense_date);
     if (result.error) { setError(result.error); return; }
-    refreshPettyCash();
-    refreshReconciliation();
+    applyScreen(result.screen);
   }
 
   async function handleAddCategory() {
     setError('');
     if (!newCategoryName.trim()) return;
-    const result = await addExpenseCategory({ name: newCategoryName });
+    const result = await addCategoryAndRefresh(newCategoryName);
     if (result.error) { setError(result.error); return; }
     setNewCategoryName('');
     setShowAddCategory(false);
-    refreshPettyCash();
+    applyScreen(result.screen);
   }
 
-  const refresh = useCallback(async () => {
-    // Was previously a sequential await-then-Promise.all -- the other
-    // 5 fetches don't depend on the summary at all, only readiness
-    // does, so there's no reason to make them wait behind it.
-    const [
-      summaryData, revenueByDeptData, historyData,
-      openingData, openQueueData, unclosedPastDaysData, suggestedOpeningData,
-    ] = await Promise.all([
-      getTodayCollectionSummary(),
-      getRevenueByDepartmentToday(),
-      getDayClosingHistory(),
-      getDayOpening(),
-      getOpenQueueEntriesToday(),
-      getUnclosedPastDays(),
-      getSuggestedOpeningBalance(),
-    ]);
-    const readinessData = await getCloseDayReadiness(undefined, summaryData);
-    // readiness.alreadyClosed is the same day_closings check
-    // isTodayClosed() used to make as a separate RPC round trip.
-    const isClosed = readinessData.alreadyClosed;
-    const [lockStatus, counterStatus] = await Promise.all([getReconciliationLockStatus(), getCashCounterForDate()]);
-    setReconLock(lockStatus);
-    setCashCounterConfirmed(counterStatus.amountHandedOver != null);
-    setSummary(summaryData);
-    setRevenueByDept(revenueByDeptData);
-    setReadiness(readinessData);
-    setReconRows(readinessData.reconciliation); // already computed inside getCloseDayReadiness -- no need to fetch again
-    setHistory(historyData);
-    setClosedToday(isClosed);
-    setOpening(openingData);
-    setSuggestedOpening(suggestedOpeningData);
-    setOpenQueueEntries(openQueueData);
-    setUnclosedPastDays(unclosedPastDaysData);
-    if (isClosed) {
-      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-      // getDayClosedAt(), not getDailyReport() -- this status banner only
-      // ever reads todayClosingInfo.closing.closed_at (see render below),
-      // so there's no reason to run the full report on every refresh.
-      setTodayClosingInfo({ closing: await getDayClosedAt(todayStr) });
-    } else {
-      setTodayClosingInfo(null);
-    }
-  }, []);
-
-  // Scoped refresh for the actual closing ritual -- saving one payment
-  // mode's reconciliation (or adding/removing a petty cash expense,
-  // which changes Cash's expected figure) doesn't change the
-  // underlying transactions for the day at all, so there's no reason
-  // to re-run the heavy payments+joins query, revenue-by-department,
-  // 30-row closing history, day opening, open queue, and unclosed-past-
-  // days checks every single time. Closing a day with 5 payment modes
-  // used to mean 5 full-page-equivalent reloads back to back -- this
-  // is the fix for that. Reuses the summary already in state (petty
-  // cash total is always fetched fresh inside getReconciliationData
-  // regardless, so Cash's expected figure still updates correctly).
-  const refreshReconciliation = useCallback(async () => {
-    if (!summary) { await refresh(); return; }
-    const readinessData = await getCloseDayReadiness(undefined, summary);
-    setReadiness(readinessData);
-    setReconRows(readinessData.reconciliation);
-    setClosedToday(readinessData.alreadyClosed);
-    setReconLock(await getReconciliationLockStatus());
-  }, [summary, refresh]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => { getApprovers().then(setApprovers); }, []);
   // Pre-fill Opening Cash with the last recorded Closing Cash (retained)
   // once, when the day hasn't been opened yet and the field is still
   // untouched -- staff can still edit it if the drawer's float actually
@@ -457,35 +357,35 @@ export default function CashManagementClient({ initialData }) {
       return;
     }
 
-    const result = await saveReconciliation(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? reconApprover : null);
+    const result = await saveReconAndRefresh(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? reconApprover : null);
     if (result.error) { setError(result.error); return; }
     setSuccess(`${row.mode} reconciled.`);
-    refreshReconciliation();
+    applyScreen(result.screen);
   }
 
   async function handleLockReconciliation() {
     setError(''); setSuccess('');
-    const result = await lockReconciliation();
+    const result = await lockReconAndRefresh();
     if (result.error) { setError(result.error); return; }
     setSuccess('Reconciliation closed for the day.');
-    refreshReconciliation();
+    applyScreen(result.screen);
   }
 
   async function handleUnlockReconciliation() {
     setError(''); setSuccess('');
-    const result = await unlockReconciliation();
+    const result = await unlockReconAndRefresh();
     if (result.error) { setError(result.error); return; }
     setSuccess('Reconciliation unlocked -- you can edit it again.');
-    refreshReconciliation();
+    applyScreen(result.screen);
   }
 
   async function handleOpenDay() {
     setError(''); setSuccess('');
-    const result = await openDay(parseFloat(openingBalance) || 0, openingRemarks);
+    const result = await openDayAndRefresh(parseFloat(openingBalance) || 0, openingRemarks);
     if (result.error) { setError(result.error); return; }
     setSuccess('Day opened.');
     setOpeningBalance(''); setOpeningRemarks('');
-    refresh();
+    applyScreen(result.screen);
   }
 
   // Soft warning, not a hard block -- Close Day can still proceed with
@@ -497,88 +397,52 @@ export default function CashManagementClient({ initialData }) {
     if (!bulkCloseReason.trim()) { setError('A reason is required to close these visits.'); return; }
     setBulkClosing(true);
     const ids = openQueueEntries.map((e) => e.id);
-    const result = await bulkForceCloseQueueEntries(ids, bulkCloseReason);
+    const result = await bulkForceCloseAndRefresh(ids, bulkCloseReason);
     setBulkClosing(false);
     if (result.error) { setError(result.error); return; }
     setSuccess(`Closed ${result.count} visit(s).`);
     setBulkCloseReason('');
-    refresh();
+    applyScreen(result.screen);
   }
 
   // ── CLOSE A PAST DAY -- self-contained, mirrors the main
   // Reconciliation/Close Day flow but scoped to a specific backdated
-  // date instead of today, with its own state so it can't collide with
-  // whatever's happening on today's tabs at the same time. ──
+  // date. Opening it is ONE request (getPastDayClosing); each save below
+  // sends back that date's refreshed reconciliation / counter / lock. ──
+  function applyPast(p) {
+    if (!p) return;
+    setPastSummary(p.summary);
+    setPastReconRows(p.reconRows || []);
+    setPastCounter(p.counter || null);
+    setPastReconLock(p.lock || { locked: false });
+  }
+
   async function openPastDayClosing(date) {
     setError(''); setSuccess('');
     setClosingPastDate(date);
     setPastReconEdits({});
     setPastCloseNotes('');
     setPastClosingInput('');
-    // Fetched once per session and reused on every mode save below --
-    // the underlying transactions for a past, already-finished day
-    // never change mid-session, so there's no reason to re-run the
-    // heavy payments+joins query after every single save (same fix as
-    // the main today's-reconciliation flow above).
-    const summaryData = await getTodayCollectionSummary(date);
-    setPastSummary(summaryData);
-    setPastReconRows(await getReconciliationData(date, summaryData));
-    setPastCounter(await getCashCounterForDate(date));
-    setPastReconLock(await getReconciliationLockStatus(date));
+    setPastReconRows([]); setPastCounter(null); setPastReconLock({ locked: false });
+    applyPast(await getPastDayClosing(date));
   }
 
-  async function refreshPastReconciliation() {
-    setPastReconRows(await getReconciliationData(closingPastDate, pastSummary));
-    setPastReconLock(await getReconciliationLockStatus(closingPastDate));
-  }
-
-  async function handleLockPastReconciliation() {
+  async function runPast(fn, okMsg, after) {
     setError(''); setSuccess('');
-    const result = await lockReconciliation(closingPastDate);
-    if (result.error) { setError(result.error); return; }
-    setSuccess(`Reconciliation closed for ${closingPastDate}.`);
-    refreshPastReconciliation();
-  }
-
-  async function handleUnlockPastReconciliation() {
-    setError(''); setSuccess('');
-    const result = await unlockReconciliation(closingPastDate);
-    if (result.error) { setError(result.error); return; }
-    refreshPastReconciliation();
-  }
-
-  async function refreshPastCounter() {
-    setPastCounter(await getCashCounterForDate(closingPastDate));
-  }
-
-  async function handleRecordPastClosing() {
-    setError('');
     setPastLoading(true);
-    const result = await recordClosingCash(pastClosingInput, closingPastDate);
+    const result = await fn();
     setPastLoading(false);
     if (result.error) { setError(result.error); return; }
-    setPastClosingInput('');
-    refreshPastCounter();
+    if (okMsg) setSuccess(okMsg);
+    if (after) after();
+    applyPast(result.past);
   }
 
-  async function handleConfirmPastCounter() {
-    setError('');
-    setPastLoading(true);
-    const result = await confirmCashCounter(closingPastDate);
-    setPastLoading(false);
-    if (result.error) { setError(result.error); return; }
-    refreshPastCounter();
-  }
-
-  async function handleUnlockPastCounter() {
-    setError('');
-    setPastLoading(true);
-    const result = await unlockCashCounter(closingPastDate);
-    setPastLoading(false);
-    if (result.error) { setError(result.error); return; }
-    setPastClosingInput('');
-    refreshPastCounter();
-  }
+  const handleLockPastReconciliation = () => runPast(() => lockPastReconAndRefresh(closingPastDate), `Reconciliation closed for ${closingPastDate}.`);
+  const handleUnlockPastReconciliation = () => runPast(() => unlockPastReconAndRefresh(closingPastDate));
+  const handleRecordPastClosing = () => runPast(() => recordPastClosingAndRefresh(closingPastDate, pastClosingInput), null, () => setPastClosingInput(''));
+  const handleConfirmPastCounter = () => runPast(() => confirmPastCounterAndRefresh(closingPastDate));
+  const handleUnlockPastCounter = () => runPast(() => unlockPastCounterAndRefresh(closingPastDate), null, () => setPastClosingInput(''));
 
   function updatePastReconField(mode, field, value) {
     setPastReconEdits((prev) => ({ ...prev, [mode]: { ...prev[mode], [field]: value } }));
@@ -599,11 +463,10 @@ export default function CashManagementClient({ initialData }) {
       setError('Select a supervisor to approve this variance.');
       return;
     }
-
-    const result = await saveReconciliation(row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? pastReconApprover : null, closingPastDate);
-    if (result.error) { setError(result.error); return; }
-    setSuccess(`${row.mode} reconciled for ${closingPastDate}.`);
-    setPastReconRows(await getReconciliationData(closingPastDate, pastSummary));
+    await runPast(
+      () => savePastReconAndRefresh(closingPastDate, row.mode, row.expected, actual, reason, Math.abs(variance) > 0.01 ? pastReconApprover : null),
+      `${row.mode} reconciled for ${closingPastDate}.`,
+    );
   }
 
   async function handleClosePastDay() {
@@ -612,25 +475,29 @@ export default function CashManagementClient({ initialData }) {
     if (!allSaved) { setError('Complete reconciliation for every payment mode before closing this day.'); return; }
     if (pastCounter && pastCounter.amountHandedOver == null) { setError('Confirm Cash Counter (Step 2) for this date before closing it.'); return; }
     setPastLoading(true);
-    const result = await closeDay(pastCloseNotes, closingPastDate);
+    const result = await closePastDayAndRefresh(closingPastDate, pastCloseNotes);
     setPastLoading(false);
     if (result.error) { setError(result.error); return; }
     setSuccess(`${closingPastDate} closed successfully.`);
     setClosingPastDate(null);
-    refresh();
+    applyScreen(result.screen);
   }
 
   async function handleCloseDay() {
     setError(''); setSuccess('');
     if (!readiness?.reconciliationComplete) { setError('Complete reconciliation for every payment mode before closing.'); return; }
     setLoading(true);
-    const result = await closeDay(closeNotes);
+    // ONE request: close, refreshed screen, and today's Daily Report.
+    const result = await closeDayAndRefresh(closeNotes);
     setLoading(false);
     if (result.error) { setError(result.error); return; }
     setSuccess('Day closed successfully. Daily report generated.');
-    refresh();
+    applyScreen(result.screen);
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    skipReportLoad.current = todayStr;
+    setReport(result.report || null);
+    setReportDate(todayStr);
     setActiveTab('report');
-    loadReport(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
   }
 
   async function loadReport(date) {
@@ -641,25 +508,32 @@ export default function CashManagementClient({ initialData }) {
     }
   }
 
-  useEffect(() => { if (activeTab === 'report') loadReport(reportDate); }, [activeTab, reportDate]);
+  // Daily Report tab: one request per date picked. (Skipped right after
+  // Close Day, which already brought today's report back with it.)
+  const skipReportLoad = useRef(null);
+  useEffect(() => {
+    if (activeTab !== 'report') return;
+    if (skipReportLoad.current === reportDate) { skipReportLoad.current = null; return; }
+    loadReport(reportDate);
+  }, [activeTab, reportDate]);
 
   async function handleReopen() {
     if (!reopenReason.trim()) { setError('A reason is required to reopen.'); return; }
     setError('');
-    const result = await reopenDay(reopenTarget, reopenReason);
+    const result = await reopenDayAndRefresh(reopenTarget, reopenReason);
     if (result.error) { setError(result.error); return; }
     setSuccess(`${reopenTarget} reopened.`);
     setReopenTarget(null);
     setReopenReason('');
-    refresh();
+    applyScreen(result.screen);
   }
 
   async function handleUpdateOpeningBalance() {
     setEditOpeningError('');
-    const result = await updateOpeningBalance(editOpeningInput);
+    const result = await updateOpeningAndRefresh(editOpeningInput);
     if (result.error) { setEditOpeningError(result.error); return; }
     setEditingOpening(false);
-    refresh();
+    applyScreen(result.screen);
   }
 
   return (
@@ -1134,7 +1008,7 @@ export default function CashManagementClient({ initialData }) {
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <CashCounterTab onStatusChange={handleCashCounterStatusChange} />
+          <CashCounterTab today={counter} history={counterHistory} onScreen={applyScreen} />
         </div>
 
         {!cashCounterConfirmed ? (
