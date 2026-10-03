@@ -85,6 +85,42 @@ function emptyBilledRow() {
   return { billed: 0, netCash: 0, netUPI: 0, advanceSettled: 0, creditNoteSettled: 0, outstanding: 0 };
 }
 
+// Optical bills that became fully paid on `date`, worked out LIVE from
+// their payments (same rule as recompute_optical_sale_status: the date of
+// the last bill payment not fully refunded; else the last advance applied;
+// else the bill date) -- instead of the stored optical_sales.finalized_at.
+// So when a payment is edited to another date, deleted or refunded, the
+// Daily Report follows automatically, with nothing to recompute or re-run.
+async function opticalSalesFullyPaidOn(supabase, date, startUTC, endUTC) {
+  const [{ data: dayPays }, { data: datedSales }] = await Promise.all([
+    supabase.from('optical_payments').select('sale_id')
+      .in('payment_type', ['sale_payment', 'advance_adjustment']).not('sale_id', 'is', null)
+      .gte('collected_at', startUTC).lte('collected_at', endUTC),
+    supabase.from('optical_sales').select('id').eq('status', 'Paid').eq('sale_date', date),
+  ]);
+  const ids = [...new Set([...(dayPays || []).map((p) => p.sale_id), ...(datedSales || []).map((x) => x.id)])];
+  if (ids.length === 0) return { data: [] };
+  const [{ data: sales }, { data: pays }] = await Promise.all([
+    supabase.from('optical_sales').select('id, net, paid, sale_date').eq('status', 'Paid').in('id', ids),
+    supabase.from('optical_payments')
+      .select('id, sale_id, payment_type, total_amount, collected_at, optical_payment_refunds!optical_payment_refunds_payment_id_fkey(amount, cancelled_at)')
+      .in('sale_id', ids).in('payment_type', ['sale_payment', 'advance_adjustment']),
+  ]);
+  const toDay = (ts) => new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const bySale = {};
+  (pays || []).forEach((p) => { (bySale[p.sale_id] = bySale[p.sale_id] || []).push(p); });
+  const latest = (list) => list.reduce((m, p) => (!m || new Date(p.collected_at) > new Date(m) ? p.collected_at : m), null);
+  const result = (sales || []).filter((sale) => {
+    const list = bySale[sale.id] || [];
+    const live = list.filter((p) => p.payment_type === 'sale_payment'
+      && Number(p.total_amount) > (p.optical_payment_refunds || []).filter((r) => !r.cancelled_at).reduce((t, r) => t + Number(r.amount), 0));
+    const at = latest(live) || latest(list.filter((p) => p.payment_type === 'advance_adjustment'));
+    const day = at ? toDay(at) : sale.sale_date;
+    return day === date;
+  }).map(({ id, net, paid }) => ({ id, net, paid }));
+  return { data: result };
+}
+
 async function getBilledIncomeByCategory(supabase, date) {
   const { startUTC, endUTC } = istDayBoundsUTC(date);
   const [{ data: invoices }, { data: opticalSales }] = await Promise.all([
@@ -99,7 +135,7 @@ async function getBilledIncomeByCategory(supabase, date) {
     // actually finished (status reached Paid) shows here, on the day
     // it finished -- see recompute_optical_sale_status for where
     // finalized_at gets set.
-    supabase.from('optical_sales').select('id, net, paid').not('finalized_at', 'is', null).gte('finalized_at', startUTC).lte('finalized_at', endUTC),
+    opticalSalesFullyPaidOn(supabase, date, startUTC, endUTC),
   ]);
   const invoiceById = {};
   (invoices || []).forEach((i) => { invoiceById[i.id] = i; });
