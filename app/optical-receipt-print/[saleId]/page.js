@@ -1,5 +1,4 @@
 import { getOpticalSaleDetail } from '@/app/(main)/optical/actions';
-import { getLatestGlassesPrescription } from '@/app/(main)/optometry/actions';
 import { getHospitalSettings } from '@/app/print-templates/actions';
 import PrintButton from '../../invoice-print/[invoiceId]/print-button';
 
@@ -23,8 +22,10 @@ function fmtDate(iso) {
 
 export default async function OpticalReceiptPrintPage({ params }) {
   const { saleId } = await params;
-  const [{ sale, items, payments, error }, settings] = await Promise.all([
-    getOpticalSaleDetail(saleId),
+  // Bill, items, payments, advance sources and the glasses Rx come back
+  // from one call (getOpticalSaleDetail withRx), alongside the letterhead.
+  const [{ sale, items, payments, prescriptionRx, error }, settings] = await Promise.all([
+    getOpticalSaleDetail(saleId, { withRx: true }),
     getHospitalSettings(),
   ]);
 
@@ -32,12 +33,6 @@ export default async function OpticalReceiptPrintPage({ params }) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#b3261e' }}>{error || 'Bill not found.'}</div>;
   }
 
-  // Walk-in optical customers (no patient_id) have no optometry record
-  // to pull a prescription from -- prescriptionRx stays null for them,
-  // same as it would for a patient with no completed refraction on
-  // file. Fetched after confirming the sale exists so an invalid
-  // saleId doesn't cost an extra query.
-  const prescriptionRx = sale.patient_id ? await getLatestGlassesPrescription(sale.patient_id) : null;
 
   // A booking isn't a bill until the customer has actually settled it
   // in full -- billing happens at final payment, not at the moment of

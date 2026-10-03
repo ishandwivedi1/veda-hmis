@@ -7,6 +7,7 @@ import { searchPatientsForInvoice } from '@/app/(main)/billing/actions';
 import { getApprovers } from '@/app/(main)/payments/actions';
 import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
 import { requireAdministrator } from '@/lib/adminGuard';
+import { getLatestGlassesPrescription } from '@/app/(main)/optometry/actions';
 
 export { searchPatientsForInvoice, getApprovers };
 
@@ -178,36 +179,47 @@ export async function getOpticalSalesForCustomer({ patientId, opticalCustomerId 
   return { sales: (data || []).map(shapeSale) };
 }
 
-export async function getOpticalSaleDetail(saleId) {
+// Bill + items + payments (with each refund's cancellation) in ONE query;
+// then -- only when advance was applied -- the customer's advance ledger
+// (with each credit's receipt) in one more, run alongside the glasses Rx
+// when the caller asks for it (bill print). Was 4-6 queries one after
+// another.
+export async function getOpticalSaleDetail(saleId, { withRx = false } = {}) {
   const supabase = await createClient();
-  const { data: sale, error } = await supabase.from('optical_sales').select(SALE_SELECT).eq('id', saleId).maybeSingle();
-  if (error || !sale) return { error: error?.message || 'Sale not found' };
-  const [{ data: items }, { data: payments }] = await Promise.all([
-    supabase.from('optical_sale_items').select('*').eq('sale_id', saleId).order('created_at', { ascending: true }),
-    supabase.from('optical_payments').select('*, optical_payment_modes(*)').eq('sale_id', saleId).order('collected_at', { ascending: true }),
-  ]);
-
-  // A refund's cancellation status lives on optical_payment_refunds
-  // (keyed by refund_payment_id), not on the optical_payments row
-  // itself -- cancelling a refund never touches or hides the original
-  // receipt, it's flagged here so the bill can show "(Cancelled)"
-  // next to it instead of silently including or excluding the amount.
-  const refundPaymentIds = (payments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
-  let cancelledByRefundPaymentId = {};
-  if (refundPaymentIds.length > 0) {
-    const { data: refundRows } = await supabase
-      .from('optical_payment_refunds')
-      .select('refund_payment_id, cancelled_at, cancellation_reason')
-      .in('refund_payment_id', refundPaymentIds);
-    (refundRows || []).forEach((r) => {
-      if (r.cancelled_at) cancelledByRefundPaymentId[r.refund_payment_id] = r.cancellation_reason;
-    });
+  const { data: row, error } = await supabase.from('optical_sales')
+    .select(`${SALE_SELECT}, optical_sale_items!optical_sale_items_sale_id_fkey(*), optical_payments!optical_payments_sale_id_fkey(*, optical_payment_modes(*), refund_rows:optical_payment_refunds!optical_payment_refunds_refund_payment_id_fkey(cancelled_at, cancellation_reason))`)
+    .eq('id', saleId).maybeSingle();
+  let sale; let rawItems; let rawPayments;
+  if (error) {
+    // Safety net: if the combined query is ever rejected, fall back to
+    // the separate queries this function used before (same result).
+    const { data: s1, error: e1 } = await supabase.from('optical_sales').select(SALE_SELECT).eq('id', saleId).maybeSingle();
+    if (e1 || !s1) return { error: e1?.message || error.message || 'Sale not found' };
+    const [{ data: it }, { data: pays }] = await Promise.all([
+      supabase.from('optical_sale_items').select('*').eq('sale_id', saleId),
+      supabase.from('optical_payments').select('*, optical_payment_modes(*)').eq('sale_id', saleId),
+    ]);
+    const refundIds = (pays || []).filter((x) => x.payment_type === 'refund').map((x) => x.id);
+    const { data: rr } = refundIds.length
+      ? await supabase.from('optical_payment_refunds').select('refund_payment_id, cancelled_at, cancellation_reason').in('refund_payment_id', refundIds)
+      : { data: [] };
+    sale = s1; rawItems = it;
+    rawPayments = (pays || []).map((x) => ({ ...x, refund_rows: (rr || []).filter((r) => r.refund_payment_id === x.id) }));
+  } else {
+    if (!row) return { error: 'Sale not found' };
+    ({ optical_sale_items: rawItems, optical_payments: rawPayments, ...sale } = row);
   }
-  const paymentsWithCancellation = (payments || []).map((p) => (
-    cancelledByRefundPaymentId[p.id] !== undefined
-      ? { ...p, cancelledRefundReason: cancelledByRefundPaymentId[p.id] }
-      : p
-  ));
+  const items = [...(rawItems || [])].sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)));
+
+  // A refund's cancellation lives on optical_payment_refunds (keyed by
+  // refund_payment_id) -- flagged here so the bill can show
+  // "(Cancelled)" next to it instead of silently including or excluding it.
+  const paymentsWithCancellation = [...(rawPayments || [])]
+    .sort((x, y) => String(x.collected_at).localeCompare(String(y.collected_at)))
+    .map(({ refund_rows: rr, ...p }) => {
+      const cancelled = (rr || []).find((r) => r.cancelled_at);
+      return p.payment_type === 'refund' && cancelled ? { ...p, cancelledRefundReason: cancelled.cancellation_reason } : p;
+    });
 
   // Which advance receipt(s) paid for each "advance applied" line, and how
   // much of each was used here. Worked out first-in-first-out over the
@@ -217,42 +229,45 @@ export async function getOpticalSaleDetail(saleId) {
   // bill shows e.g. "OPTRCT-0012, paid 01 Oct, advance 1,000 -- used 600"
   // when only part of that advance went into this bill.
   const hasAdjustment = paymentsWithCancellation.some((p) => p.payment_type === 'advance_adjustment');
-  let sourcesByAdjustment = {};
-  if (hasAdjustment && (sale.patient_id || sale.optical_customer_id)) {
-    let lq = supabase.from('optical_customer_ledger').select('id, payment_id, entry_type, amount, recorded_at').order('recorded_at', { ascending: true }).order('id', { ascending: true });
+  const ledgerQuery = (async () => {
+    if (!hasAdjustment || !(sale.patient_id || sale.optical_customer_id)) return [];
+    let lq = supabase.from('optical_customer_ledger')
+      .select('id, payment_id, entry_type, amount, recorded_at, src:optical_payments!optical_customer_ledger_payment_id_fkey(receipt_number, collected_at)')
+      .order('recorded_at', { ascending: true }).order('id', { ascending: true });
     lq = sale.patient_id ? lq.eq('patient_id', sale.patient_id) : lq.eq('optical_customer_id', sale.optical_customer_id);
-    const { data: ledger } = await lq;
-    const creditIds = [...new Set((ledger || []).filter((l) => Number(l.amount) > 0 && l.payment_id).map((l) => l.payment_id))];
-    const { data: creditPays } = creditIds.length
-      ? await supabase.from('optical_payments').select('id, receipt_number, collected_at, payment_type').in('id', creditIds)
-      : { data: [] };
-    const payById = Object.fromEntries((creditPays || []).map((x) => [x.id, x]));
-    const queue = []; // open credits, oldest first: { receipt_number, collected_at, advance, left }
-    (ledger || []).forEach((l) => {
-      const amt = Math.round(Number(l.amount) * 100) / 100;
-      if (amt > 0) {
-        const src = payById[l.payment_id] || {};
-        queue.push({ receipt_number: src.receipt_number || null, collected_at: src.collected_at || l.recorded_at, advance: amt, left: amt });
-        return;
-      }
-      let need = -amt;
-      const used = [];
-      while (need > 0.004 && queue.length) {
-        const c = queue[0];
-        const take = Math.round(Math.min(c.left, need) * 100) / 100;
-        if (take > 0) used.push({ receipt_number: c.receipt_number, collected_at: c.collected_at, advance: c.advance, used: take });
-        c.left = Math.round((c.left - take) * 100) / 100;
-        need = Math.round((need - take) * 100) / 100;
-        if (c.left <= 0.004) queue.shift();
-      }
-      if (l.payment_id) sourcesByAdjustment[l.payment_id] = [...(sourcesByAdjustment[l.payment_id] || []), ...used];
-    });
-  }
-  const paymentsWithAdvanceSource = paymentsWithCancellation.map((p) => (
+    const { data } = await lq;
+    return data || [];
+  })();
+  const [ledger, prescriptionRx] = await Promise.all([
+    ledgerQuery,
+    withRx && sale.patient_id ? getLatestGlassesPrescription(sale.patient_id).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  const sourcesByAdjustment = {};
+  const queue = []; // open credits, oldest first
+  ledger.forEach((l) => {
+    const amt = Math.round(Number(l.amount) * 100) / 100;
+    if (amt > 0) {
+      queue.push({ receipt_number: l.src?.receipt_number || null, collected_at: l.src?.collected_at || l.recorded_at, advance: amt, left: amt });
+      return;
+    }
+    let need = -amt;
+    const used = [];
+    while (need > 0.004 && queue.length) {
+      const c = queue[0];
+      const take = Math.round(Math.min(c.left, need) * 100) / 100;
+      if (take > 0) used.push({ receipt_number: c.receipt_number, collected_at: c.collected_at, advance: c.advance, used: take });
+      c.left = Math.round((c.left - take) * 100) / 100;
+      need = Math.round((need - take) * 100) / 100;
+      if (c.left <= 0.004) queue.shift();
+    }
+    if (l.payment_id) sourcesByAdjustment[l.payment_id] = [...(sourcesByAdjustment[l.payment_id] || []), ...used];
+  });
+  const payments = paymentsWithCancellation.map((p) => (
     p.payment_type === 'advance_adjustment' ? { ...p, sourceAdvances: sourcesByAdjustment[p.id] || [] } : p
   ));
 
-  return { sale: shapeSale(sale), items: items || [], payments: paymentsWithAdvanceSource };
+  return { sale: shapeSale(sale), items, payments, ...(withRx ? { prescriptionRx } : {}) };
 }
 
 // Browsable default list for the Collect Payment tab's sidebar -- every
