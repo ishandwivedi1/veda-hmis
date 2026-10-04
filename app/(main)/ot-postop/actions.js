@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip per save
 
 // Used by Doctor Dashboard: a Post-operative Review visit routes here
 // instead of the normal Consultation form -- find the patient's most
@@ -243,7 +244,7 @@ export async function openFollowupReview(followupId) {
 export async function addRecoveryComplication(episodeId, values) {
   const supabase = await createClient();
   if (!values.name?.trim()) return { error: 'Complication name is required.' };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('recovery_complications').insert({
     recovery_episode_id: episodeId, name: values.name.trim(), severity: values.severity,
     management: values.management?.trim() || null, outcome: values.outcome?.trim() || null,
@@ -285,7 +286,7 @@ export async function closeEpisode(episodeId, values) {
   const unmanaged = (complications || []).filter((c) => !c.management);
   if (unmanaged.length > 0) return { error: 'VAL-POST-004: Unmanaged complications exist -- episode cannot close.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('recovery_episodes').update({
     closure_status: values.status, closure_outcome: values.outcome, closure_remarks: values.remarks || null,
     closed_by: userData?.user?.id || null, closed_at: new Date().toISOString(),

@@ -1,6 +1,8 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { after } from 'next/server'; // audit rows written after the reply is sent
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip per save
 import { doctorSendOut } from '@/app/(main)/queue/actions';
 import { addInvestigation } from '@/app/(main)/consultation/actions';
 
@@ -88,7 +90,7 @@ export async function getAssessmentWorkspaceData(queueEntryId) {
 // second request after the save). Autosave doesn't pass it.
 export async function saveDraft(assessmentId, fields, reloadQueueEntryId = null) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase
     .from('optometry_assessments')
@@ -97,7 +99,9 @@ export async function saveDraft(assessmentId, fields, reloadQueueEntryId = null)
 
   if (error) return { error: error.message };
 
-  await addAudit(supabase, assessmentId, 'Draft saved -- patient remains in Optometry Queue', userData?.user?.id);
+  // Autosave (~1s after typing stops) calls this too: the audit row is
+  // written after the reply is sent, so the optometrist never waits on it.
+  after(() => addAudit(supabase, assessmentId, 'Draft saved -- patient remains in Optometry Queue', userData?.user?.id));
   if (reloadQueueEntryId) return { success: true, workspace: await getAssessmentWorkspaceData(reloadQueueEntryId) };
   return { success: true };
 }
@@ -109,7 +113,7 @@ export async function saveDraft(assessmentId, fields, reloadQueueEntryId = null)
 // already relies on.
 export async function completeAssessment(assessmentId, queueEntryId, fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const vaFields = ['re_dist_unaided', 're_dist_glasses', 're_dist_ph', 're_near_unaided', 'le_dist_unaided', 'le_dist_glasses', 'le_dist_ph', 'le_near_unaided'];
   const hasVa = vaFields.some((k) => fields[k]);
@@ -175,7 +179,7 @@ async function routeToDoctorAwaiting(supabase, queueEntryId, kind) {
 // ends the moment this succeeds.
 export async function sendForDilation(assessmentId, queueEntryId, fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error: updateError } = await supabase
     .from('optometry_assessments')
@@ -204,7 +208,7 @@ export async function sendForDilation(assessmentId, queueEntryId, fields) {
 // parallel, optometry-only list.
 export async function sendForInvestigation(assessmentId, queueEntryId, encounterId, fields, investigationValues) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   if (!investigationValues?.name?.trim()) {
     return { error: 'Select an investigation before sending.' };
@@ -236,7 +240,7 @@ export async function sendForInvestigation(assessmentId, queueEntryId, encounter
 // button gets the refreshed workspace in the same request.
 export async function updateCompletedAssessment(assessmentId, fields, reloadQueueEntryId = null) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase
     .from('optometry_assessments')
@@ -245,7 +249,7 @@ export async function updateCompletedAssessment(assessmentId, fields, reloadQueu
 
   if (error) return { error: error.message };
 
-  await addAudit(supabase, assessmentId, 'Assessment updated post-completion -- not yet seen by doctor', userData?.user?.id);
+  after(() => addAudit(supabase, assessmentId, 'Assessment updated post-completion -- not yet seen by doctor', userData?.user?.id)); // after the reply, as above
   if (reloadQueueEntryId) return { success: true, workspace: await getAssessmentWorkspaceData(reloadQueueEntryId) };
   return { success: true };
 }
@@ -261,7 +265,7 @@ export async function updateCompletedAssessment(assessmentId, fields, reloadQueu
 // audit trail, same as every other clinical edit here.
 export async function updateIopReading(readingId, assessmentId, value) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const numericValue = parseFloat(value);
   if (!numericValue || numericValue <= 0 || numericValue > 80) {
@@ -293,7 +297,7 @@ export async function updateIopReading(readingId, assessmentId, value) {
 
 export async function addIopReading(assessmentId, eye, value) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const numericValue = parseFloat(value);
   if (!numericValue || numericValue <= 0 || numericValue > 80) {

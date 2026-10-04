@@ -1,6 +1,8 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { after } from 'next/server'; // audit rows written after the reply is sent
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip per save
 import { doctorComplete, doctorSendOut } from '@/app/(main)/queue/actions';
 import { isCurrentUserAdmin } from '@/lib/authz';
 
@@ -63,7 +65,7 @@ export async function getConsultationData(queueEntryId) {
     encounter = activeEncounter;
   }
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   if (!encounter) {
     // For a completed (Done) queue entry there's nothing to auto-create --
@@ -107,7 +109,12 @@ export async function getConsultationData(queueEntryId) {
   // convenience -- the real boundary is the RLS policy on
   // encounter_audit_log itself, which already blocks SELECT for
   // non-admins at the database level).
-  const isAdmin = await isCurrentUserAdmin(supabase);
+  // Same answer as isCurrentUserAdmin(), using the user id already
+  // verified above instead of another round trip to Supabase Auth.
+  const { data: me } = userData?.user?.id
+    ? await supabase.from('profiles').select('designation').eq('id', userData.user.id).maybeSingle()
+    : { data: null };
+  const isAdmin = me?.designation === 'Administrator';
 
   const [
     { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
@@ -314,7 +321,7 @@ export async function carryForwardDiagnosis(encounterId, diagnosis) {
 }
 export async function saveExamination(examinationId, encounterId, fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase
     .from('clinical_examinations')
@@ -322,7 +329,9 @@ export async function saveExamination(examinationId, encounterId, fields) {
     .eq('id', examinationId);
 
   if (error) return { error: error.message };
-  await addAudit(supabase, encounterId, 'Examination saved', userData?.user?.id);
+  // Autosave runs ~1s after typing stops: write the audit row after the
+  // reply is sent so the doctor never waits on it (same row as before).
+  after(() => addAudit(supabase, encounterId, 'Examination saved', userData?.user?.id));
   return { success: true };
 }
 
@@ -330,7 +339,7 @@ export async function saveExamination(examinationId, encounterId, fields) {
 // Batched save, same pattern as Examination -- not per-keystroke.
 export async function saveHistory(encounterId, fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase
     .from('encounters')
@@ -356,7 +365,7 @@ export async function saveHistory(encounterId, fields) {
     .eq('id', encounterId);
 
   if (error) return { error: error.message };
-  await addAudit(supabase, encounterId, 'History saved', userData?.user?.id);
+  after(() => addAudit(supabase, encounterId, 'History saved', userData?.user?.id)); // after the reply, as above
   return { success: true };
 }
 
@@ -386,7 +395,7 @@ const OPTOM_FIELD_LABELS = {
 
 export async function updateOptometryFindings(assessmentId, encounterId, fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const doctorId = userData?.user?.id || null;
 
   const { data: current, error: fetchError } = await supabase
@@ -437,7 +446,7 @@ export async function updateOptometryFindings(assessmentId, encounterId, fields)
 // initially owned from the consultation side instead of the queue.
 export async function createOptometryAssessmentForVisit(visitId, encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const doctorId = userData?.user?.id || null;
 
   const { data: assessment, error } = await supabase
@@ -458,7 +467,7 @@ export async function createOptometryAssessmentForVisit(visitId, encounterId) {
 export async function addDiagnosis(encounterId, values) {
   const supabase = await createClient();
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase.from('diagnoses').insert({
     encounter_id: encounterId,
@@ -473,7 +482,7 @@ export async function addDiagnosis(encounterId, values) {
 
 export async function removeDiagnosis(id, encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('diagnoses').delete().eq('id', id);
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, 'Diagnosis removed', userData?.user?.id);
@@ -490,7 +499,7 @@ export async function updateDiagnosisNotes(id, notes) {
 // ── PRESCRIPTIONS ──
 export async function addPrescription(encounterId, values) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('prescriptions').insert({
     encounter_id: encounterId,
     drug_name: values.drugName,
@@ -513,7 +522,7 @@ export async function addPrescription(encounterId, values) {
 // lib/pharmacyQuantity.js and app/(main)/pharmacy/actions.js.
 export async function addTaperedPrescription(encounterId, values) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const steps = (values.steps || []).filter((s) => s.frequency && s.duration && s.dosage);
   if (steps.length < 2) return { error: 'A tapering schedule needs at least 2 steps.' };
 
@@ -538,7 +547,7 @@ export async function addTaperedPrescription(encounterId, values) {
 
 export async function removeTaperGroup(taperGroupId, encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { data: rows } = await supabase.from('prescriptions').select('drug_name, eye').eq('taper_group_id', taperGroupId).limit(1);
   const { error } = await supabase.from('prescriptions').delete().eq('taper_group_id', taperGroupId);
   if (error) return { error: error.message };
@@ -548,7 +557,7 @@ export async function removeTaperGroup(taperGroupId, encounterId) {
 
 export async function removePrescription(id, encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('prescriptions').delete().eq('id', id);
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, 'Prescription removed', userData?.user?.id);
@@ -558,7 +567,7 @@ export async function removePrescription(id, encounterId) {
 // ── INVESTIGATIONS ──
 export async function addInvestigation(encounterId, values) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   // Don't let the same investigation get ordered twice for this
   // encounter while an earlier order is still open (Ordered/In
@@ -647,7 +656,7 @@ export async function addInvestigation(encounterId, values) {
 
 export async function removeInvestigation(id, encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('investigation_orders').delete().eq('id', id);
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, 'Investigation removed', userData?.user?.id);
@@ -660,7 +669,7 @@ export async function removeInvestigation(id, encounterId) {
 // entry itself. Toggling an already-open request cancels it.
 export async function toggleWorkflowRequest(visitId, encounterId, kind) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: existing } = await supabase
     .from('workflow_requests')
@@ -693,7 +702,7 @@ export async function toggleWorkflowRequest(visitId, encounterId, kind) {
 // counsellor marking a Counselling request resolved).
 export async function completeWorkflowRequest(id, encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase
     .from('workflow_requests')
     .update({ status: 'Completed', resolved_at: new Date().toISOString(), resolved_by: userData?.user?.id || null })
@@ -706,7 +715,7 @@ export async function completeWorkflowRequest(id, encounterId) {
 // ── MANAGEMENT PLAN EXPANSION (Ch.14) ──
 export async function addOpticalAdvice(encounterId, advice) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('plan_optical_advice').insert({ encounter_id: encounterId, advice, created_by: userData?.user?.id || null });
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, `Optical advice added: ${advice}`, userData?.user?.id);
@@ -728,7 +737,7 @@ export async function removeOpticalAdvice(id, encounterId) {
 // reads from (see getProceduresDueToday in doctor-dashboard/actions.js).
 export async function addProcedure(encounterId, name, eye, notes, scheduledDate) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const effectiveDate = scheduledDate || todayIst;
   const { error } = await supabase.from('plan_procedures').insert({ encounter_id: encounterId, name, eye, notes: notes || null, scheduled_date: effectiveDate, created_by: userData?.user?.id || null });
@@ -748,7 +757,7 @@ export async function removeProcedure(id, encounterId) {
 
 export async function addReferral(encounterId, destination, reason) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('plan_referrals').insert({ encounter_id: encounterId, destination, reason, created_by: userData?.user?.id || null });
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, `Referral added: ${destination}`, userData?.user?.id);
@@ -765,7 +774,7 @@ export async function removeReferral(id, encounterId) {
 
 export async function addCounsellingItem(encounterId, topic) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('plan_counselling_items').insert({ encounter_id: encounterId, topic, created_by: userData?.user?.id || null });
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, `Counselling topic added: ${topic}`, userData?.user?.id);
@@ -793,7 +802,7 @@ export async function completePlanItem(table, id, encounterId) {
 // Follow-up is one record per encounter -- upsert by encounter_id.
 export async function saveFollowup(encounterId, fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase
     .from('plan_followups')
     .upsert(
@@ -815,7 +824,7 @@ export async function savePatientInstructions(encounterId, instructions) {
 // ── ENCOUNTER ACTIONS ──
 export async function completeConsultation(encounterId, queueEntryId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase
     .from('encounters')
@@ -830,7 +839,7 @@ export async function completeConsultation(encounterId, queueEntryId) {
 
 export async function sendForDilationFromConsultation(queueEntryId, encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const result = await doctorSendOut(queueEntryId, 'dilate');
   if (!result.error) await addAudit(supabase, encounterId, 'Sent for Dilation', userData?.user?.id);
   return result;
@@ -838,7 +847,7 @@ export async function sendForDilationFromConsultation(queueEntryId, encounterId)
 
 export async function sendForInvestigationFromConsultation(queueEntryId, encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const result = await doctorSendOut(queueEntryId, 'investigate');
   if (!result.error) await addAudit(supabase, encounterId, 'Sent for Investigation', userData?.user?.id);
   return result;
@@ -852,7 +861,7 @@ export async function sendForInvestigationFromConsultation(queueEntryId, encount
 // doesn't change that.
 export async function sendForProcedureFromConsultation(encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await addAudit(supabase, encounterId, 'Sent for Procedure', userData?.user?.id);
   return { success: true };
 }
@@ -904,7 +913,7 @@ async function ensureBiometryRecord(supabase, patientId, visitId, encounterId, i
 // explicitly confirmed that despite an existing "Measured" record.
 export async function adviseBiometry(patientId, visitId, encounterId, instructions, forceNew = false) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await ensureBiometryRecord(supabase, patientId, visitId, encounterId, instructions, forceNew);
   await addAudit(supabase, encounterId, forceNew ? 'Biometry advised (fresh measurement requested despite existing record)' : 'Biometry advised', userData?.user?.id);
   return { success: true };
@@ -912,7 +921,7 @@ export async function adviseBiometry(patientId, visitId, encounterId, instructio
 
 export async function sendForBiometryFromConsultation(queueEntryId, patientId, encounterId, instructions) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const result = await doctorSendOut(queueEntryId, 'biometry');
   if (result.error) return result;
   await addAudit(supabase, encounterId, 'Sent for Biometry', userData?.user?.id);
@@ -940,7 +949,7 @@ export async function removeBiometryRecord(id, encounterId) {
   if (record.billing_status === 'Billed') {
     return { error: 'This has already been billed and cannot be removed here -- use Billing to modify the invoice first.' };
   }
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('biometry_records').delete().eq('id', id);
   if (error) return { error: error.message };
   await addAudit(supabase, encounterId, 'Biometry request removed', userData?.user?.id);
@@ -956,7 +965,7 @@ export async function updateBiometryInstructions(id, instructions) {
 
 export async function saveDraft(encounterId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await addAudit(supabase, encounterId, 'Consultation saved as draft', userData?.user?.id);
   return { success: true };
 }

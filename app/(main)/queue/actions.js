@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip per save
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { logJourneyEvent } from '@/lib/journey-events';
 
@@ -57,7 +58,7 @@ export async function getQueues() {
 export async function forceCloseQueueEntry(id, reason) {
   if (!reason || !reason.trim()) return { error: 'A reason is required to force-close a visit.' };
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getUserFast(supabase);
 
   const { error } = await supabase
     .from('queue_entries')
@@ -97,7 +98,7 @@ export async function bulkForceCloseQueueEntries(ids, reason) {
   if (!ids || ids.length === 0) return { error: 'No entries to close.' };
   if (!reason || !reason.trim()) return { error: 'A reason is required.' };
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getUserFast(supabase);
 
   const { error } = await supabase
     .from('queue_entries')
