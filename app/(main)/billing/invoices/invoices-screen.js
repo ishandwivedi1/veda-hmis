@@ -58,7 +58,7 @@ function Menu({ label, icon, primary, items }) {
       {open && (
         <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', background: '#fff', border: '1px solid var(--g200)', borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 24px rgba(0,0,0,.12))', minWidth: 230, zIndex: 50, padding: 4 }}>
           {items.map((it) => (
-            <Link key={it.label} href={it.href} onClick={() => setOpen(false)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, textDecoration: 'none', color: 'var(--g800)' }}
+            <Link prefetch={false} key={it.label} href={it.href} onClick={() => setOpen(false)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, textDecoration: 'none', color: 'var(--g800)' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--g50)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
               <i className={`ti ${it.icon}`} style={{ color: 'var(--blue)', fontSize: 16 }}></i>
               <span><span style={{ fontWeight: 600, fontSize: 13 }}>{it.label}</span>{it.hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--g500)' }}>{it.hint}</span>}</span>
@@ -181,7 +181,7 @@ function ToBill({ fullyPaidUnbilled, todaysVisits, billingByVisit, pending, onSh
                     <td><span className={`badge ${billing.badge}`}>{billing.label}</span>{billing.count > 1 && <span style={{ fontSize: 10, color: 'var(--g400)', marginLeft: 4 }}>({billing.count})</span>}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-receipt"></i> New Invoice</Link>
+                        <Link prefetch={false} href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}><i className="ti ti-receipt"></i> New Invoice</Link>
                         {billing.count > 0 && <button type="button" className="btn btn-sm" onClick={() => { setOpen(null); onShowVisit(v.id, v.visit_number); }}><i className="ti ti-list"></i> Invoices</button>}
                       </div>
                     </td>
@@ -460,7 +460,7 @@ function InvoiceDetail({ invoiceId, onChanged, onClose, listArgs, onScreen }) {
               {data.payments.map((p) => (
                 <tr key={p.id}>
                   <td>{dateIST(p.collected_at)}</td>
-                  <td><Link href={`/payments?paymentId=${p.id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{p.receipt_number}</Link>{p.payment_type === 'advance_adjustment' && <span className="badge b-amber" style={{ marginLeft: 6 }}>Advance</span>}{p.payment_type === 'credit_note' && <span className="badge b-teal" style={{ marginLeft: 6 }}>Credit note</span>}</td>
+                  <td><Link prefetch={false} href={`/payments?paymentId=${p.id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{p.receipt_number}</Link>{p.payment_type === 'advance_adjustment' && <span className="badge b-amber" style={{ marginLeft: 6 }}>Advance</span>}{p.payment_type === 'credit_note' && <span className="badge b-teal" style={{ marginLeft: 6 }}>Credit note</span>}</td>
                   <td>{p.modes || '--'}</td>
                   <td style={{ textAlign: 'right' }}>{money(p.applied)}</td>
                 </tr>

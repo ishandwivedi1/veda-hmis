@@ -7,6 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import { approveIol } from './actions';
 import { getPendingIolApprovals, getApprovedToday, getIolApprovalHistory, getIolApprovalDetail } from '@/lib/rpc-reads/iol-approval__actions'; // parallel reads (tools/parallel-reads)
 import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
+import { getIolApprovalQueueBundle } from '@/lib/rpc-reads/iol-approval__combined-actions'; // parallel reads (tools/parallel-reads)
 
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
@@ -370,7 +371,8 @@ function IolApprovalInner() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [pendingList, approvedList] = await Promise.all([getPendingIolApprovals(), getApprovedToday()]);
+    // ONE request for both lists (see combined-actions.js).
+    const { pending: pendingList, approvedToday: approvedList } = await getIolApprovalQueueBundle();
     setPending(pendingList);
     setApprovedToday(approvedList);
     setLoading(false);

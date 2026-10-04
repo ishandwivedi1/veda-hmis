@@ -121,7 +121,7 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
               {canOpen ? (
                 <button className="btn btn-sm btn-primary"><i className="ti ti-arrow-right"></i> Open</button>
               ) : noVisitToday ? (
-                <Link
+                <Link prefetch={false}
                   href={`/visits/new?patientId=${sc.patient_id}&visitType=Surgery`}
                   onClick={(e) => e.stopPropagation()}
                   className="btn btn-sm"
@@ -131,7 +131,7 @@ export function DashboardTab({ cases, loading, onOpen, onRefresh, returnTo = 'ot
                   <i className="ti ti-door-enter"></i> Create Visit
                 </Link>
               ) : (
-                <Link
+                <Link prefetch={false}
                   href={`/payments/advance?patientId=${sc.patient_id}&amount=${c.amountPayable.toFixed(2)}&returnTo=${returnTo}`}
                   onClick={(e) => e.stopPropagation()}
                   className="btn btn-sm"

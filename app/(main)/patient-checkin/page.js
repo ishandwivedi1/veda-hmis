@@ -7,6 +7,7 @@ import { getOTCaseList, getCheckinHistory, getSurgeryLandingForPatient } from '@
 import { getPatientById } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
 import { DashboardTab, TabButton } from '../ot-intraop/page';
 import Workspace from '../ot-intraop/workspace';
+import { getCheckinLandingBundle } from '@/lib/rpc-reads/patient-checkin__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 // Every check-in completed before today -- distinct from Intraoperative
 // Management's History (which tracks completed SURGERIES). A patient
@@ -144,7 +145,7 @@ function PatientCheckinInner() {
     if (!landingPatientId || deepLinkId) return;
     let cancelled = false;
     (async () => {
-      const [result, patient] = await Promise.all([getSurgeryLandingForPatient(landingPatientId), getPatientById(landingPatientId)]);
+      const [result, patient] = await getCheckinLandingBundle(landingPatientId); // ONE request (was 2)
       if (cancelled) return;
       setLandingPatient(patient);
       if (result.otScheduleId && !result.needsReschedule) {

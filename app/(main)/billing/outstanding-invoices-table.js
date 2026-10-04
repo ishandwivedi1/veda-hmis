@@ -51,7 +51,7 @@ export default function OutstandingInvoicesTable({ invoices, todayOnly }) {
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
                       {inv.patient_id && (
-                        <Link
+                        <Link prefetch={false}
                           href={`/payments/collect?patientId=${inv.patient_id}&invoiceId=${inv.id}`}
                           className="btn btn-primary btn-sm"
                           style={{ textDecoration: 'none' }}
@@ -60,7 +60,7 @@ export default function OutstandingInvoicesTable({ invoices, todayOnly }) {
                           <i className="ti ti-cash"></i> Collect
                         </Link>
                       )}
-                      <Link href={`/billing/details?q=${inv.patients?.uhid || ''}`} className="btn btn-sm" style={{ textDecoration: 'none' }} title="View">
+                      <Link prefetch={false} href={`/billing/details?q=${inv.patients?.uhid || ''}`} className="btn btn-sm" style={{ textDecoration: 'none' }} title="View">
                         <i className="ti ti-eye"></i>
                       </Link>
                       <button onClick={() => openPrintPopup(`/invoice-print/${inv.id}`)} className="btn btn-sm" title="Print">

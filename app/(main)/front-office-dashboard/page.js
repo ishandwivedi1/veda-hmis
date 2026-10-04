@@ -193,7 +193,7 @@ export default async function FrontOfficeDashboardPage({ searchParams }) {
                     <td><span className={`badge ${v.status === 'Open' ? 'b-blue' : 'b-gray'}`}>{v.status}</span></td>
                     <td>
                       {billing.badge === 'b-red' && v.patients?.id ? (
-                        <Link href={`/payments/collect?patientId=${v.patients.id}`} className="badge b-red" style={{ textDecoration: 'none', cursor: 'pointer' }}>
+                        <Link prefetch={false} href={`/payments/collect?patientId=${v.patients.id}`} className="badge b-red" style={{ textDecoration: 'none', cursor: 'pointer' }}>
                           {billing.label}
                         </Link>
                       ) : (

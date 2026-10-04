@@ -491,7 +491,7 @@ function OngoingOrdersSection({ bills, loading }) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span className="badge" style={{ background: 'var(--red-lt)', color: 'var(--red)', fontSize: 13, fontWeight: 700, padding: '6px 12px' }}>Due {fmt(b.outstanding)}</span>
-            <Link href={`/optical?saleId=${b.id}`} className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>
+            <Link prefetch={false} href={`/optical?saleId=${b.id}`} className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>
               <i className="ti ti-cash"></i> Open bill to collect
             </Link>
           </div>
@@ -512,7 +512,7 @@ function PreviousOrdersSection({ bills, loading }) {
           <span><strong>{b.sale_number}</strong> -- {fmtDate(b.sale_date)}</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ color: b.status === 'Cancelled' ? 'var(--red)' : 'var(--green)' }}>{b.status === 'Cancelled' ? 'Cancelled' : fmt(b.net)}</span>
-            <Link href={`/optical?saleId=${b.id}`} style={{ fontSize: 12, color: 'var(--blue)' }}>Open</Link>
+            <Link prefetch={false} href={`/optical?saleId=${b.id}`} style={{ fontSize: 12, color: 'var(--blue)' }}>Open</Link>
             <a href={`/optical-receipt-print/${b.id}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--blue)' }}>Print</a>
           </span>
         </div>

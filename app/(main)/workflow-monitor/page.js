@@ -94,7 +94,7 @@ export default function WorkflowMonitorPage() {
                 <td style={{ textAlign: 'center' }}><span className="badge b-gray">{e.transitions}</span></td>
                 <td>
                   {e.queueEntryId && (
-                    <Link href={`/consultation/${e.queueEntryId}`} className="btn btn-sm" style={{ textDecoration: 'none' }}>Open</Link>
+                    <Link prefetch={false} href={`/consultation/${e.queueEntryId}`} className="btn btn-sm" style={{ textDecoration: 'none' }}>Open</Link>
                   )}
                 </td>
               </tr>

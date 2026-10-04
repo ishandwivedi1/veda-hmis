@@ -9,6 +9,7 @@ import { getPendingIolApprovals } from '@/lib/rpc-reads/iol-approval__actions'; 
 import { getPostOpTurnedUpToday } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
 import { getSurgicalCaseLists, getSurgicalEvaluationArrivalsToday } from '@/lib/rpc-reads/surgical-journey__actions'; // parallel reads (tools/parallel-reads)
 import { getMedicalFitnessQueue } from '@/lib/rpc-reads/medical-fitness__actions'; // parallel reads (tools/parallel-reads)
+import { getSurgeryDashboardBundle } from '@/lib/rpc-reads/doctor-dashboard-surgery__combined-actions'; // parallel reads (tools/parallel-reads)
 
 function patientName(sc) {
   const p = sc?.patients;
@@ -360,16 +361,8 @@ export default function DoctorSurgeryDashboardPage() {
   // contributor to this dashboard feeling slow.
   const refresh = useCallback(async () => {
     try {
-      const [s, a, dischargedTodayResult, iol, postOp, surgicalCaseLists, medFitness, surgicalEvalArrivalsData] = await Promise.all([
-        getSurgeryDashboardScheduled(),
-        getSurgeryDashboardActive(),
-        getSurgeryDashboardDischargedToday(),
-        getPendingIolApprovals(),
-        getPostOpTurnedUpToday(),
-        getSurgicalCaseLists(),
-        getMedicalFitnessQueue(),
-        getSurgicalEvaluationArrivalsToday(),
-      ]);
+      // ONE request for all 8 lists (see combined-actions.js).
+      const [s, a, dischargedTodayResult, iol, postOp, surgicalCaseLists, medFitness, surgicalEvalArrivalsData] = await getSurgeryDashboardBundle();
       const firstError = s.error || a.error || dischargedTodayResult.error;
       setScheduled(s.rows); setActive(a.rows); setDischargedToday(dischargedTodayResult.rows);
       setIolApprovals(iol || []);

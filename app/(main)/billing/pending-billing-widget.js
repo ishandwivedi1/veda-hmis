@@ -10,6 +10,7 @@ import { markPrescriptionDenied, markPrescriptionDeferred, resetPrescriptionBill
 import { getPendingPrescriptionsForFrontOffice } from '@/lib/rpc-reads/pharmacy__actions'; // parallel reads (tools/parallel-reads)
 import { markBiometryDenied, markBiometryDeferred, resetBiometryBilling } from '@/app/(main)/biometry/actions';
 import { getPendingBiometryBilling } from '@/lib/rpc-reads/biometry__actions'; // parallel reads (tools/parallel-reads)
+import { getPendingBillingBundle } from '@/lib/rpc-reads/billing__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 const BILLING_BADGE = { Pending: 'b-amber', Deferred: 'b-indigo', Denied: 'b-gray', Billed: 'b-green' };
 
@@ -160,12 +161,7 @@ export default function PendingBillingWidget({ onCounts, bare = false, todayOnly
   // visibleCategories below).
   const load = useCallback(async () => {
     try {
-      const [inv, proc, rx, bio] = await Promise.all([
-        getPendingInvestigationBilling({ includeBilled: true }),
-        getPendingProcedureBilling({ includeBilled: true }),
-        getPendingPrescriptionsForFrontOffice({ includeBilled: true }),
-        getPendingBiometryBilling({ includeBilled: true }),
-      ]);
+      const [inv, proc, rx, bio] = await getPendingBillingBundle({ includeBilled: true }); // ONE request (was 4)
       setInvestigations(inv);
       setProcedures(proc);
       setPharmacy(rx);

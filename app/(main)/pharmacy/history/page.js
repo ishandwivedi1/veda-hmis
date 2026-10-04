@@ -54,7 +54,7 @@ export default function PharmacyHistoryPage() {
               <div style={{ fontSize: 15, fontWeight: 800 }}>Rs {g.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 2 }}>
                 {g.invoiceId && (
-                  <Link href={`/billing/details?invoiceId=${g.invoiceId}`} style={{ fontSize: 12 }}>
+                  <Link prefetch={false} href={`/billing/details?invoiceId=${g.invoiceId}`} style={{ fontSize: 12 }}>
                     View Invoice <i className="ti ti-external-link"></i>
                   </Link>
                 )}

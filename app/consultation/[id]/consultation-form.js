@@ -16,6 +16,7 @@ import { matchInvestigationType, summarizeResultData } from '@/app/(main)/invest
 import { PatientSnapshotBar, CarryForwardDiagnoses, VisitOutcomeSelector, NewInvestigationsSinceLastVisit, ContextSidebar } from './follow-up-panel';
 import { openPrintPopup } from '@/lib/printPopup';
 import ConfirmActionModal from '@/app/components/ConfirmActionModal';
+import { getConsultationMastersBundle } from '@/lib/rpc-reads/master-data__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 const WF_ITEMS = {
   Biometry: { icon: 'ti-ruler-measure', color: '#818cf8' },
@@ -238,7 +239,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   useEffect(() => {
     (async () => {
-      const [dx, dr, sv, sg, dg, pit] = await Promise.all([getDiagnosesMaster(), getDrugs(), getServices(), getSurgeries(), getDosageOptions(), getActivePatientInstructionTemplates()]);
+      const [dx, dr, sv, sg, dg, pit] = await getConsultationMastersBundle(); // ONE request (was 6)
       setDiagnosisOptions(dx.filter((d) => d.status === 'Active'));
       setDrugOptions(dr.filter((d) => d.status === 'Active'));
       setDosageOptions(dg);

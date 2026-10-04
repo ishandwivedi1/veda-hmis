@@ -228,7 +228,7 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
                   <td><span className={`badge ${v.status === 'Open' ? 'b-blue' : 'b-gray'}`}>{v.status}</span></td>
                   <td>
                     {billing.badge === 'b-red' && v.patients?.id ? (
-                      <Link href={`/payments/collect?patientId=${v.patients.id}`} className="badge b-red" style={{ textDecoration: 'none', cursor: 'pointer' }}>
+                      <Link prefetch={false} href={`/payments/collect?patientId=${v.patients.id}`} className="badge b-red" style={{ textDecoration: 'none', cursor: 'pointer' }}>
                         {billing.label}
                       </Link>
                     ) : (
@@ -238,11 +238,11 @@ export default function BillingDashboardClient({ fullyPaidUnbilled, todaysVisits
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                      <Link prefetch={false} href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
                         <i className="ti ti-receipt"></i> New Invoice
                       </Link>
                       {billing.count > 0 && (
-                        <Link href={`/billing/cancel?visitId=${v.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}>
+                        <Link prefetch={false} href={`/billing/cancel?visitId=${v.id}`} className="btn btn-sm" style={{ textDecoration: 'none' }}>
                           <i className="ti ti-edit"></i> Modify
                         </Link>
                       )}

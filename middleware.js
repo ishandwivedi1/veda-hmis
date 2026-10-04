@@ -144,7 +144,12 @@ export async function middleware(request) {
   // structurally cannot detect on its own.
   if (user && !isPublicPage) {
     const lastCheckedAt = request.cookies.get('idle_checked_at')?.value;
-    const needsCheck = !lastCheckedAt || Date.now() - parseInt(lastCheckedAt, 10) > IDLE_CHECK_INTERVAL_MS;
+    // Background prefetches (Next.js pre-loading a link nobody clicked yet)
+    // skip the database idle lookup -- a burst of them used to each run
+    // it at once. The login token is still verified above, and the real
+    // navigation when someone clicks runs the full idle check as before.
+    const isPrefetch = request.headers.has('next-router-prefetch') || request.headers.get('purpose') === 'prefetch';
+    const needsCheck = !isPrefetch && (!lastCheckedAt || Date.now() - parseInt(lastCheckedAt, 10) > IDLE_CHECK_INTERVAL_MS);
 
     if (needsCheck) {
       const { data: profile } = await supabase.from('profiles').select('last_active_at').eq('id', user.id).single();

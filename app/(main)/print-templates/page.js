@@ -121,6 +121,29 @@ const SETTINGS_FIELDS = [
   { key: 'terms_text', label: 'Terms & Conditions text' },
 ];
 
+// Resizes a logo (data URL) to at most 480 px on its longest side --
+// sharp at the ~2-3 cm it prints -- keeping transparency (PNG). SVGs and
+// images that wouldn't get smaller are returned unchanged.
+function shrinkLogo(dataUrl, maxSide = 480) {
+  return new Promise((resolve) => {
+    if (!dataUrl || dataUrl.startsWith('data:image/svg')) { resolve(dataUrl); return; }
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const out = canvas.toDataURL('image/png');
+      resolve(out.length < dataUrl.length ? out : dataUrl);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 function HospitalSettingsPanel() {
   const [settings, setSettings] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -140,8 +163,19 @@ function HospitalSettingsPanel() {
     if (!file) return;
     if (file.size > 1024 * 1024) { setSaveMsg('Logo image should be under 1MB.'); return; }
     const reader = new FileReader();
-    reader.onload = () => update('logo_data_url', reader.result);
+    reader.onload = async () => update('logo_data_url', await shrinkLogo(reader.result));
     reader.readAsDataURL(file);
+  }
+
+  // The logo is embedded in every printout (invoice, receipt, case sheet,
+  // WhatsApp bill PDF...) but shown only ~2-3 cm wide. A full-size photo
+  // made each print ~0.5 MB heavier. Shrinking it once here fixes that.
+  const logoKB = settings?.logo_data_url ? Math.round(settings.logo_data_url.length * 0.75 / 1024) : 0;
+  async function optimizeLogo() {
+    const smaller = await shrinkLogo(settings.logo_data_url);
+    if (smaller === settings.logo_data_url) { setSaveMsg('Logo is already as small as it can be.'); return; }
+    update('logo_data_url', smaller);
+    setSaveMsg(`Logo reduced from ${logoKB} KB to ${Math.round(smaller.length * 0.75 / 1024)} KB -- click Save to keep it.`);
   }
 
   async function handleSave() {
@@ -183,6 +217,11 @@ function HospitalSettingsPanel() {
           <div style={{ fontSize: 10.5, color: 'var(--g400)', marginTop: 4 }}>PNG, JPG, or SVG -- under 1MB. Falls back to a default mark if none is uploaded.</div>
           {settings.logo_data_url && (
             <button className="btn" style={{ padding: '2px 8px', fontSize: 11, marginTop: 6 }} onClick={() => update('logo_data_url', null)}>Remove logo</button>
+          )}
+          {logoKB > 120 && (
+            <button className="btn btn-primary" style={{ padding: '2px 8px', fontSize: 11, marginTop: 6, marginLeft: 6 }} onClick={optimizeLogo}>
+              Optimize logo ({logoKB} KB -- makes every print faster)
+            </button>
           )}
         </div>
       </div>

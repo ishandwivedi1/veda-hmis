@@ -6,6 +6,7 @@ import { rescheduleOTSlot, completeOT, undoCompleteOT, registerSurgeryDirect } f
 import { getScheduledOT, getOTHistory, getOTAvailability, searchPatientsForDirectSurgery, getPackagesForDirectSurgery, getSurgeonsForDirectSurgery } from '@/lib/rpc-reads/ot-schedule__actions'; // parallel reads (tools/parallel-reads)
 import { getSurgeries } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import OTCalendar from './ot-calendar';
+import { getOTListBundle } from '@/lib/rpc-reads/ot-schedule__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 const STATUS_BADGE = { Scheduled: 'b-blue', 'In Progress': 'b-amber', Completed: 'b-green', Cancelled: 'b-red' };
 
@@ -114,7 +115,7 @@ function ScheduledOTTab() {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
   const refresh = useCallback(async () => {
-    const [scheduled, history] = await Promise.all([getScheduledOT(), getOTHistory()]);
+    const [scheduled, history] = await getOTListBundle(); // ONE request (was 2)
     setSchedule(scheduled);
     // getScheduledOT only returns status='Scheduled' -- a case that's
     // actually in surgery right now has already moved to 'In Progress'

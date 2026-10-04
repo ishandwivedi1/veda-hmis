@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { optometryCallNext, optometryCallSpecific, doctorCallNext, doctorCallSpecific, doctorMarkReady } from './actions';
 import { getQueues, getPatientFlow, getPatientTimeline } from '@/lib/rpc-reads/queue__actions'; // parallel reads (tools/parallel-reads)
+import { getPatientFlowBundle } from '@/lib/rpc-reads/queue__combined-actions'; // parallel reads (tools/parallel-reads)
 
 function elapsedMin(isoString) {
   if (!isoString) return 0;
@@ -206,7 +207,8 @@ export default function QueuePage() {
   const [timelineVisitId, setTimelineVisitId] = useState(null);
 
   const refresh = useCallback(async () => {
-    const [flowData, queues] = await Promise.all([getPatientFlow(), getQueues()]);
+    // ONE request for the board + queues (see combined-actions.js).
+    const { flow: flowData, queues } = await getPatientFlowBundle();
     setFlow(flowData);
     setOptometry(queues.optometry);
     setDoctor(queues.doctor);
@@ -278,7 +280,7 @@ export default function QueuePage() {
                   <button className="btn btn-sm" onClick={() => runAction(optometryCallSpecific, e.id)}>Call</button>
                 )}
                 {e.status === 'Calling' && (
-                  <Link href={`/optometry-dashboard?queueEntryId=${e.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                  <Link prefetch={false} href={`/optometry-dashboard?queueEntryId=${e.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
                     Enter Findings
                   </Link>
                 )}

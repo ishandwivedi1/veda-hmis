@@ -208,7 +208,7 @@ function CreditNoteDetail({ id, onChanged, onClose }) {
                 {cn.credit_note_applications.map((a) => (
                   <tr key={a.id}>
                     <td>{dateIST(a.applied_at)}</td>
-                    <td><Link href={`/billing?invoiceId=${a.invoice_id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{a.invoices?.invoice_number}</Link></td>
+                    <td><Link prefetch={false} href={`/billing?invoiceId=${a.invoice_id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{a.invoices?.invoice_number}</Link></td>
                     <td style={{ fontSize: 12, color: 'var(--g500)' }}>{a.payments?.receipt_number || ''}</td>
                     <td style={{ textAlign: 'right' }}>{money(a.amount)}</td>
                   </tr>

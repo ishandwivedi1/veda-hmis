@@ -7,6 +7,7 @@ import { getPatientById } from '@/lib/rpc-reads/visits__actions'; // parallel re
 import { openTab } from '@/lib/popup';
 import { addPostProcedureMedicine, removePostProcedureMedicine, addPostProcedureTaperedMedicine, removePostProcedureTaperGroup, setOpdProcedureDecision, scheduleOpdProcedure, checkInOpdProcedure, completeOpdProcedure, cancelOpdProcedure, updateCompletedProcedureNotes } from '../actions';
 import { getPatientOpdProcedureJourney, getOpdProcedureMonthSummary, getPostProcedurePrescriptions, getDrugCatalogForOpdProcedures } from '@/lib/rpc-reads/opd-procedures__actions'; // parallel reads (tools/parallel-reads)
+import { getOpdPatientJourneyBundle, getPostProcedureRxBundle } from '@/lib/rpc-reads/opd-procedures__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 
@@ -323,7 +324,7 @@ function MedicineSection({ procedureId }) {
   const [taperSteps, setTaperSteps] = useState([{ frequency: 'OD', duration: '1 week', dosage: '' }]);
 
   const refresh = useCallback(async () => {
-    const [pres, cat] = await Promise.all([getPostProcedurePrescriptions(procedureId), getDrugCatalogForOpdProcedures()]);
+    const [pres, cat] = await getPostProcedureRxBundle(procedureId); // ONE request (was 2)
     setPrescriptions(pres.prescriptions);
     setCatalog(cat);
     setLoading(false);
@@ -669,7 +670,7 @@ export default function Workspace({ patientId }) {
   const [editingId, setEditingId] = useState(null);
 
   const refresh = useCallback(async () => {
-    const [patientData, journeyData] = await Promise.all([getPatientById(patientId), getPatientOpdProcedureJourney(patientId)]);
+    const [patientData, journeyData] = await getOpdPatientJourneyBundle(patientId); // ONE request (was 2)
     setPatient(patientData);
     setJourney(journeyData);
     return journeyData;

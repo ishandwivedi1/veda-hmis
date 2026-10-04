@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { registerAttendee, updateRegistration, deleteScreening, recordEyeCheckup, recordDoctorExamination, checkExistingPatientByPhone, linkScreeningToPatient, convertScreeningToPatient, sendCampScreeningWhatsApp, bulkSendCampScreeningWhatsApp } from '../actions';
 import { getCampEvent, listScreenings } from '@/lib/rpc-reads/camps__actions'; // parallel reads (tools/parallel-reads)
+import { getCampBundle } from '@/lib/rpc-reads/camps__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 function fmtDate(d) {
   if (!d) return '--';
@@ -586,7 +587,7 @@ function CampDetailInner() {
   const [bulkResult, setBulkResult] = useState('');
 
   const refresh = useCallback(async () => {
-    const [campResult, screeningsResult] = await Promise.all([getCampEvent(campEventId), listScreenings(campEventId)]);
+    const [campResult, screeningsResult] = await getCampBundle(campEventId); // ONE request (was 2)
     if (campResult.error) { setError(campResult.error); setLoading(false); return; }
     setCamp(campResult.camp);
     setScreenings(screeningsResult.rows || []);

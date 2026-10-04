@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { recordManualReminder } from './actions';
 import { getSurgicalCaseLists, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, getSurgicalTrackArrivalsToday } from '@/lib/rpc-reads/surgical-journey__actions'; // parallel reads (tools/parallel-reads)
 import { getScheduledOT, getOTHistory } from '@/lib/rpc-reads/ot-schedule__actions'; // parallel reads (tools/parallel-reads)
+import { getSurgicalCasesBundle } from '@/lib/rpc-reads/surgical-journey__bundle-actions'; // parallel reads (tools/parallel-reads)
+import { getOTListBundle } from '@/lib/rpc-reads/ot-schedule__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 const STAGE_LABEL = {
   'Pending Workup': 'Working Up',
@@ -133,7 +135,7 @@ export default function SurgicalJourneyPage() {
   const router = useRouter();
 
   const refresh = useCallback(async () => {
-    const [{ active: activeCases, awaitingConfirmation: awaitingCases }, arrivals] = await Promise.all([getSurgicalCaseLists(), getSurgicalTrackArrivalsToday()]);
+    const [{ active: activeCases, awaitingConfirmation: awaitingCases }, arrivals] = await getSurgicalCasesBundle(); // ONE request (was 2)
     setCases(activeCases);
     setAwaiting(awaitingCases);
     setArrivedToday(new Set(arrivals));
@@ -149,7 +151,7 @@ export default function SurgicalJourneyPage() {
   }, []);
   const refreshSurgeriesToday = useCallback(async () => {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    const [scheduled, otHistory] = await Promise.all([getScheduledOT(), getOTHistory()]);
+    const [scheduled, otHistory] = await getOTListBundle(); // ONE request (was 2)
     // Same merge as OT Schedule's own "Today's OT List": getScheduledOT
     // only returns status='Scheduled', so a case already in surgery
     // (In Progress) has to be pulled in from OT History separately or

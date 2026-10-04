@@ -4,7 +4,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase-browser';
-import { updateHeartbeat } from '@/app/(main)/users/actions';
 
 // 30 minutes of no mouse/keyboard/touch activity -> automatic sign-out.
 // Balances security (unattended shared terminals in a hospital) against
@@ -147,6 +146,7 @@ export default function AppShell({ children }) {
 
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return;
+      userIdRef.current = user.id;
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       setProfile(data);
     });
@@ -162,6 +162,23 @@ export default function AppShell({ children }) {
   // catches what the interval missed. It doesn't count as "activity"
   // itself -- only real mouse/keyboard/touch input resets the clock.
   const lastActivityRef = useRef(Date.now());
+  const userIdRef = useRef(null);
+  const lastBeatRef = useRef(0);
+  // Heartbeat straight from the browser to the database (own row only,
+  // allowed by profiles RLS -- same write the login page makes). It used
+  // to be a server action: Next.js runs a page's server actions one at a
+  // time, so a heartbeat that fired just before a click made the click
+  // wait behind it, and each one also asked Supabase Auth "who is this?"
+  // over the network. Throttled to one per ~minute even when staff flip
+  // between tabs (every tab switch used to send one).
+  const sendHeartbeat = () => {
+    const now = Date.now();
+    if (!userIdRef.current || now - lastBeatRef.current < 50 * 1000) return;
+    lastBeatRef.current = now;
+    supabase.from('profiles').update({ last_active_at: new Date(now).toISOString() })
+      .eq('id', userIdRef.current)
+      .then(() => {}, () => {}); // non-critical: a missed beat is never an error
+  };
   useEffect(() => {
     const markActive = () => { lastActivityRef.current = Date.now(); };
     const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'];
@@ -174,7 +191,7 @@ export default function AppShell({ children }) {
         router.push('/login?reason=idle');
         router.refresh();
       } else {
-        updateHeartbeat();
+        sendHeartbeat();
       }
     };
 
@@ -185,7 +202,7 @@ export default function AppShell({ children }) {
     // net beyond the login-page write. Delayed a few seconds because
     // Next.js runs a page's server calls one at a time: firing this
     // immediately put it in the queue ahead of the page's own data.
-    const firstBeat = setTimeout(updateHeartbeat, 8000);
+    const firstBeat = setTimeout(sendHeartbeat, 8000);
 
     const interval = setInterval(checkIdle, CHECK_INTERVAL_MS);
 

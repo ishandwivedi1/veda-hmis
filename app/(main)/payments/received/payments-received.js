@@ -285,7 +285,7 @@ function PaymentDetail({ paymentId, onChanged, onClose, listArgs, onScreen }) {
                   <tbody>
                     {p.payment_allocations.map((a) => (
                       <tr key={a.invoice_id}>
-                        <td><Link href={`/billing?invoiceId=${a.invoice_id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{a.invoices?.invoice_number || 'Invoice'}</Link></td>
+                        <td><Link prefetch={false} href={`/billing?invoiceId=${a.invoice_id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{a.invoices?.invoice_number || 'Invoice'}</Link></td>
                         <td style={{ textAlign: 'right' }}>{money(a.amount)}</td>
                       </tr>
                     ))}
@@ -347,7 +347,7 @@ function Menu({ label, icon, primary, items, align = 'right' }) {
       {open && (
         <div style={{ position: 'absolute', [align]: 0, top: 'calc(100% + 4px)', background: '#fff', border: '1px solid var(--g200)', borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 24px rgba(0,0,0,.12))', minWidth: 230, zIndex: 50, padding: 4 }}>
           {items.map((it) => (it.href ? (
-            <Link key={it.label} href={it.href} onClick={() => setOpen(false)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, textDecoration: 'none', color: 'var(--g800)' }}
+            <Link prefetch={false} key={it.label} href={it.href} onClick={() => setOpen(false)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, textDecoration: 'none', color: 'var(--g800)' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--g50)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
               <i className={`ti ${it.icon}`} style={{ color: 'var(--blue)', fontSize: 16 }}></i>
               <span><span style={{ fontWeight: 600, fontSize: 13 }}>{it.label}</span>{it.hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--g500)' }}>{it.hint}</span>}</span>

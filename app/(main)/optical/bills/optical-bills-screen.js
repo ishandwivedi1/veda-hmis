@@ -487,7 +487,7 @@ function BillPane({ saleId, preloaded, listArgs, onScreen, onClose }) {
                 <tr key={p.id}>
                   <td>{dateIST(p.collected_at)}</td>
                   <td>
-                    <Link href={`/optical/payments?paymentId=${p.id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{p.receipt_number || 'Advance applied'}</Link>
+                    <Link prefetch={false} href={`/optical/payments?paymentId=${p.id}`} style={{ color: 'var(--blue)', fontWeight: 600 }}>{p.receipt_number || 'Advance applied'}</Link>
                     {p.payment_type === 'advance_adjustment' && <span className="badge b-amber" style={{ marginLeft: 6 }}>Advance</span>}
                     {p.payment_type === 'credit_note' && <span className="badge b-teal" style={{ marginLeft: 6 }}>Credit note</span>}
                   </td>

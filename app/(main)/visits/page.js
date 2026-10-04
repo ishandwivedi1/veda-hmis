@@ -116,7 +116,7 @@ export default async function VisitsPage({ searchParams }) {
                 <td>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                     {v.status === 'Open' && (
-                      <Link href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+                      <Link prefetch={false} href={`/billing/new?visitId=${v.id}`} className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
                         <i className="ti ti-receipt"></i> Bill
                       </Link>
                     )}

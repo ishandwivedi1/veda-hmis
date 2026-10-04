@@ -39,7 +39,7 @@ export default function RecentInvoicesTable({ invoices }) {
                 <td><span className={`badge ${STATUS_BADGE[inv.status] || 'b-gray'}`}>{inv.status}</span></td>
                 <td>
                   <div style={{ display: 'flex', gap: 4 }}>
-                    <Link href={`/billing/details?q=${inv.patients?.uhid || ''}`} className="btn btn-sm" style={{ textDecoration: 'none' }} title="View">
+                    <Link prefetch={false} href={`/billing/details?q=${inv.patients?.uhid || ''}`} className="btn btn-sm" style={{ textDecoration: 'none' }} title="View">
                       <i className="ti ti-eye"></i>
                     </Link>
                     <button onClick={() => openPrintPopup(`/invoice-print/${inv.id}`)} className="btn btn-sm" title="Print">

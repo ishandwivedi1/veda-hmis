@@ -10,6 +10,7 @@ import { getFollowupReviewContext } from '@/lib/rpc-reads/ot-postop__actions'; /
 import { getDrugs, getDosageOptions } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import { PatientSnapshotBar } from './follow-up-panel';
+import { getPostopReviewMastersBundle } from '@/lib/rpc-reads/master-data__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 function todayIst() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -112,7 +113,7 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
 
   useEffect(() => {
     (async () => {
-      const [dr, dg] = await Promise.all([getDrugs(), getDosageOptions()]);
+      const [dr, dg] = await getPostopReviewMastersBundle(); // ONE request (was 2)
       setDrugOptions(dr.filter((d) => d.status === 'Active'));
       setDosageOptions(dg);
     })();

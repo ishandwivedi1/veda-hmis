@@ -298,7 +298,7 @@ export default function WhatsAppInbox() {
                 {thread?.patients?.length > 0 && (
                   <div className="wa-patients">
                     {thread.patients.map((p) => (
-                      <Link key={p.id} href={`/patient-timeline?patientId=${p.id}`} className="badge b-blue" title="Open patient timeline">
+                      <Link prefetch={false} key={p.id} href={`/patient-timeline?patientId=${p.id}`} className="badge b-blue" title="Open patient timeline">
                         {formatPatientName(p)} · {p.uhid}{p.age ? ` · ${p.age}${p.gender ? ' ' + p.gender : ''}` : ''}
                       </Link>
                     ))}
