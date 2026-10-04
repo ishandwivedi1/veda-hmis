@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: '/patients', dynamic: true, label: 'Patients', icon: 'ti-users', group: 'Front Office' },
   { href: '/appointments', dynamic: true, label: 'Appointments', icon: 'ti-calendar-event', group: 'Front Office' },
   { href: '/visits', dynamic: true, label: 'Visits', icon: 'ti-door-enter', group: 'Front Office' },
+  { href: '/whatsapp', label: 'WhatsApp Inbox', icon: 'ti-brand-whatsapp', group: 'Front Office' },
 
   // ── OUTREACH ──
   { href: '/camps', label: 'Camps', icon: 'ti-map-pin', group: 'Outreach' },
@@ -72,6 +73,7 @@ const PAGE_TITLES = [
   { match: /^\/visits\/new/, title: 'Create Walk-in Visit' },
   { match: /^\/visits/, title: 'Visits' },
   { match: /^\/camps/, title: 'Camps' },
+  { match: /^\/whatsapp/, title: 'WhatsApp Inbox' },
   { match: /^\/queue/, title: 'Patient Flow' },
   { match: /^\/doctor-dashboard-surgery/, title: 'Surgery Dashboard' },
   { match: /^\/doctor-dashboard/, title: 'Doctor Dashboard' },

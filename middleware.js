@@ -36,6 +36,13 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const IDLE_CHECK_INTERVAL_MS = 2 * 60 * 1000;
 
 export async function middleware(request) {
+  // Meta's WhatsApp webhook (WhatsApp Inbox) calls this one path with no
+  // login and a non-browser user-agent. The route checks Meta's signature
+  // itself, so let it straight through -- nothing else changes.
+  if (request.nextUrl.pathname === '/api/whatsapp/webhook') {
+    return NextResponse.next();
+  }
+
   // Silently drop known bot/scanner traffic before touching Supabase.
   // No prompt, no visible response body -- just a 403.
   if (isBlockedBot(request)) {

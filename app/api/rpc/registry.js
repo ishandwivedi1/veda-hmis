@@ -43,7 +43,8 @@ import * as m38 from '@/app/(main)/users/actions';
 import * as m39 from '@/app/(main)/users/billing-permission-actions';
 import * as m40 from '@/app/(main)/visits/actions';
 import * as m41 from '@/app/(main)/visits/combined-actions';
-import * as m42 from '@/app/(main)/workflow-monitor/actions';
+import * as m42 from '@/app/(main)/whatsapp/actions';
+import * as m43 from '@/app/(main)/workflow-monitor/actions';
 
 export const READS = {
   'appointments.actions.getDoctors': m0.getDoctors,
@@ -255,5 +256,6 @@ export const READS = {
   'visits.actions.getPatientById': m40.getPatientById,
   'visits.actions.getSurgeryTypeOptions': m40.getSurgeryTypeOptions,
   'visits.combined-actions.getBookVisitBootstrap': m41.getBookVisitBootstrap,
-  'workflow-monitor.actions.getWorkflowMonitorData': m42.getWorkflowMonitorData,
+  'whatsapp.actions.getWhatsAppInbox': m42.getWhatsAppInbox,
+  'workflow-monitor.actions.getWorkflowMonitorData': m43.getWorkflowMonitorData,
 };
