@@ -116,8 +116,13 @@ export default async function PatientsPage({ searchParams }) {
                 <td>{info?.hasActive ? <span className="badge b-green">Active</span> : <span className="badge b-gray">None</span>}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 6 }}>
+                    {/* prefetch off: every row's Edit + Create Visit link was
+                        being pre-loaded in the background (2 server requests
+                        per visible row, each with a login check), and the
+                        real click / Save queued behind that flood. */}
                     <Link
                       href={`/patients/${p.id}/edit`}
+                      prefetch={false}
                       className="btn"
                       style={{ textDecoration: 'none', padding: '4px 10px', fontSize: 12 }}
                     >
@@ -125,6 +130,7 @@ export default async function PatientsPage({ searchParams }) {
                     </Link>
                     <Link
                       href={`/visits/new?patientId=${p.id}`}
+                      prefetch={false}
                       className="btn btn-primary"
                       style={{ textDecoration: 'none', padding: '4px 10px', fontSize: 12 }}
                     >
