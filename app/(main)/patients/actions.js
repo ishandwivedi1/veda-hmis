@@ -166,15 +166,39 @@ export async function checkDuplicateMobile(mobile) {
   return data || [];
 }
 
+// Same check as a parallel read (/api/rpc): a server action makes every
+// other click on the page wait until it finishes (Next.js runs a page's
+// server actions one at a time), so typing the mobile and pressing
+// Register straight away used to queue Register behind this check.
+export async function getDuplicatesByMobile(mobile) {
+  return checkDuplicateMobile(mobile);
+}
+
 // Register a patient and immediately open a visit for them in one step --
 // matches M04's "Register & create visit" button.
+// Same default-doctor rule as createWalkInVisit (visits/actions.js).
+async function getDefaultVisitDoctor() {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.from('profiles').select('id, full_name')
+      .eq('designation', 'Doctor').eq('status', 'Active').ilike('full_name', '%nisha bachkheti%')
+      .limit(1).maybeSingle();
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function registerAndCreateVisit(values) {
-  const regResult = await registerPatient(values);
+  // The default doctor (same one createWalkInVisit falls back to) is looked
+  // up WHILE the patient is being registered, and its name is reused for
+  // the popup -- was 2 extra queries one after another.
+  const [regResult, defaultDoctor] = await Promise.all([registerPatient(values), getDefaultVisitDoctor()]);
   if (regResult.error) return regResult;
 
   const visitResult = await createWalkInVisit({
     patientId: regResult.patient.id,
-    doctorId: null,
+    doctorId: defaultDoctor?.id || null,
     visitType: 'New Consultation',
   });
 
@@ -193,9 +217,13 @@ export async function registerAndCreateVisit(values) {
   // discovering it later on a printout.
   let doctorName = null;
   if (visitResult.visit?.doctor_id) {
-    const supabase = await createClient();
-    const { data: doctor } = await supabase.from('profiles').select('full_name').eq('id', visitResult.visit.doctor_id).maybeSingle();
-    doctorName = doctor?.full_name || null;
+    if (defaultDoctor && visitResult.visit.doctor_id === defaultDoctor.id) {
+      doctorName = defaultDoctor.full_name || null;
+    } else {
+      const supabase = await createClient();
+      const { data: doctor } = await supabase.from('profiles').select('full_name').eq('id', visitResult.visit.doctor_id).maybeSingle();
+      doctorName = doctor?.full_name || null;
+    }
   }
 
   return { patient: regResult.patient, visit: { ...visitResult.visit, doctor_name: doctorName } };

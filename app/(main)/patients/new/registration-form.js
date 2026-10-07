@@ -5,7 +5,9 @@ import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 // The *AndOpen* / *AndNext* actions save and send back the next screen in
 // ONE request (see patients/actions.js).
-import { registerAndCreateVisit, checkDuplicateMobile, registerAndOpenDashboard, registerLinkAppointmentAndOpenDashboard, registerInhouseCampAndNext } from '../actions';
+import { registerAndCreateVisit, registerAndOpenDashboard, registerLinkAppointmentAndOpenDashboard, registerInhouseCampAndNext } from '../actions';
+// Duplicate check as a parallel read -- never makes the Register buttons wait.
+import { getDuplicatesByMobile } from '@/lib/rpc-reads/patients__actions'; // parallel reads (tools/parallel-reads)
 import VisitCreatedModal from '@/app/components/VisitCreatedModal';
 
 function calcAge(dob) {
@@ -69,8 +71,9 @@ export default function RegistrationForm() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (values.mobile.length === 10) {
       debounceRef.current = setTimeout(async () => {
-        const results = await checkDuplicateMobile(values.mobile);
-        setDuplicates(results);
+        const mobile = values.mobile;
+        const results = await getDuplicatesByMobile(mobile).catch(() => []);
+        setDuplicates(Array.isArray(results) ? results : []);
       }, 400);
     } else {
       setDuplicates([]);
