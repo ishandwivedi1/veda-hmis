@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { searchPatientsForInvoice, getVisitsForPatient, getInvoicesForVisit, getInvestigationOrdersForBilling, getPrescriptionsForBilling, getBiometryForBilling, getProceduresForBilling, getPackageForBilling } from '@/lib/rpc-reads/billing__actions'; // parallel reads (tools/parallel-reads)
-import { commitNewInvoice } from '../combined-actions';
+import { commitNewInvoiceAndOpen } from '../combined-actions';
 import { getNewInvoiceBootstrap, getVisitBillingContext, getPatientBillingContext, getPickedVisitContext } from '@/lib/rpc-reads/billing__combined-actions'; // parallel reads (tools/parallel-reads)
 
 const DEPARTMENTS = ['Consultation', 'Investigation', 'Biometry', 'OPD Procedure', 'Surgery', 'Pharmacy'];
@@ -24,7 +24,7 @@ function computeLine(svc, qty, discType, discValue) {
   return { gross, disc, gst, net };
 }
 
-export default function NewInvoiceTab() {
+export default function NewInvoiceTab({ initial = null }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
 
@@ -83,7 +83,93 @@ export default function NewInvoiceTab() {
   const procLoadedFor = useRef(null);
   const pkgLoadedFor = useRef(null);
 
+  // The page arrives with everything it needs (page.js ->
+  // getNewInvoicePageData, ONE request): applied here once, and the
+  // fetching effects below then have nothing left to do. (They stay only
+  // as a fallback if this screen is ever rendered without that data.)
   useEffect(() => {
+    if (!initial) return;
+    const b = initial.bootstrap || {};
+    setCatalog(b.catalog || []);
+    setTodaysVisits(b.todaysVisits || []);
+    setSurgeryOptions(b.surgery?.surgeries || []);
+    setSurgeryDoctorOptions(b.surgery?.doctors || []);
+    contextLoadedFor.current = urlVisitId;
+    invOrdersLoadedFor.current = urlInvOrderIds;
+    procLoadedFor.current = urlProcIds;
+    rxLoadedFor.current = urlRxIds;
+    bioLoadedFor.current = urlBioIds;
+    pkgLoadedFor.current = urlPkgCaseId;
+
+    let patientKnown = false;
+    const v = initial.visitCtx;
+    if (v) {
+      if (v.error) setError(v.error);
+      else {
+        setContextPatient(v.visit.patients); setContextVisit(v.visit);
+        setPatientVisits(v.visits); setExistingInvoices(v.invoices);
+        patientKnown = true;
+      }
+    }
+    const pc = initial.pkgContext;
+    if (pc) {
+      if (pc.patient) { setContextPatient(pc.patient); patientKnown = true; }
+      if (pc.visit) setContextVisit(pc.visit);
+      if (pc.invoices) setExistingInvoices(pc.invoices);
+      if (pc.visits) setPatientVisits(pc.visits);
+    }
+
+    const mk = (items, kind) => (items || []).map((i) => {
+      const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, 'none', 0);
+      const base = { tempId: nextTempId.current++, qty: 1, rate: i.rate, gstPct: i.gstPct, discType: 'none', discValue: 0, discReason: '', ...computed };
+      if (kind === 'inv') return { ...base, sourceInvOrderId: i.invOrderId, serviceCode: i.serviceCode, serviceName: `${i.name} (${i.eye})`, dept: 'Investigation' };
+      if (kind === 'proc') return { ...base, sourceProcId: i.procedureId, serviceCode: i.serviceCode, serviceName: `${i.name} (${i.eye})`, dept: 'OPD Procedure' };
+      if (kind === 'rx') return { ...base, sourceRxId: i.rxId, serviceCode: i.serviceCode, serviceName: `${i.name}${i.eye ? ' (' + i.eye + ')' : ''}`, dept: 'Pharmacy' };
+      return { ...base, sourceBioId: i.bioId, serviceCode: i.serviceCode, serviceName: i.name, dept: 'Biometry' };
+    });
+    const lines = [];
+    // Prescribed items need a patient to bill (same rule as before).
+    if (patientKnown) {
+      const take = (res, kind, setUnmatched) => {
+        if (!res) return;
+        if (res.error) { setError(res.error); return; }
+        const items = res.items || [];
+        setUnmatched(items.filter((i) => !i.matched));
+        lines.push(...mk(items.filter((i) => i.matched), kind));
+      };
+      take(initial.prefill?.inv, 'inv', setUnmatchedInvestigations);
+      take(initial.prefill?.proc, 'proc', setUnmatchedProcedures);
+      take(initial.prefill?.rx, 'rx', setUnmatchedPrescriptions);
+      take(initial.prefill?.bio, 'bio', setUnmatchedBiometry);
+    } else {
+      // no patient yet: let the effects below load them once one is picked
+      invOrdersLoadedFor.current = null; procLoadedFor.current = null; rxLoadedFor.current = null; bioLoadedFor.current = null;
+    }
+    const pkg = initial.pkg;
+    if (pkg) {
+      if (pkg.error) setError(pkg.error);
+      else if (pkg.items?.length) {
+        const [primary] = pkg.items;
+        setPackageBreakup(primary.breakup && primary.breakup.length > 0 ? primary.breakup : null);
+        setSurgeryName(primary.surgeryName || '');
+        setSurgeryEyeField(primary.surgeryEye || '');
+        setSurgeryDoctorId(primary.surgeonId || '');
+        pkg.items.forEach((i) => {
+          const discType = i.discount > 0 ? 'fixed' : 'none';
+          const computed = computeLine({ rate: i.rate, gst_pct: i.gstPct }, 1, discType, i.discount || 0);
+          lines.push({
+            tempId: nextTempId.current++, sourcePkgCaseId: i.caseId, serviceCode: i.serviceCode, serviceName: i.name, dept: 'Surgery',
+            qty: 1, rate: i.rate, gstPct: i.gstPct, discType, discValue: i.discount || 0,
+            discReason: i.discount > 0 ? 'Package discount recorded at Package Selection' : '', ...computed,
+          });
+        });
+      }
+    }
+    if (lines.length) setDraftLines((prev) => [...prev, ...lines]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (initial) return;
     // One round trip for all three lists (see combined-actions.js).
     getNewInvoiceBootstrap().then(({ catalog: c, todaysVisits: tv, surgery }) => {
       setCatalog(c);
@@ -433,10 +519,11 @@ export default function NewInvoiceTab() {
 
   // The one moment anything gets written -- creates the invoice, then
   // every draft line item on it, in order.
-  async function commitInvoice() {
+  async function commitInvoice(then = 'finalize') {
     setError('');
     if (draftLines.length === 0) { setError('Add at least one line item before saving.'); return null; }
     setSubmitting(true);
+    let keepBusy = false;
     // try/catch/finally -- this had none at all. An unhandled throw
     // anywhere in the sequence below (a network blip mid-way through
     // adding line items, for instance) used to skip setSubmitting(false)
@@ -470,7 +557,7 @@ export default function NewInvoiceTab() {
       // strictly in order, mark sources billed, save surgery details,
       // return the fresh invoice -- the same steps as before, run on the
       // server instead of one browser round trip each.
-      const result = await commitNewInvoice({
+      const result = await commitNewInvoiceAndOpen({
         patientId: contextPatient.id,
         visitId: contextVisit?.id || null,
         purpose,
@@ -486,38 +573,29 @@ export default function NewInvoiceTab() {
           pkgCaseIds: [...new Set(draftLines.map((l) => l.sourcePkgCaseId).filter(Boolean))],
         },
         surgery: hasSurgeryLine && surgeryName ? { name: surgeryName, eye: surgeryEyeField, doctorId: surgeryDoctorId } : null,
-      });
-      if (result.error) {
+      }, { then, patientId: contextPatient.id, uhid: contextPatient.uhid });
+      if (result?.error) {
         if (result.stage === 'line') setError(`Invoice created, but failed adding ${result.serviceName}: ${result.error}. Finish it from Invoice Details.`);
         else setError(result.error);
         return null;
       }
-      return result.invoice;
+      keepBusy = true; // the next screen is opening
+      return null;
     } catch (e) {
+      if (String(e?.digest || e?.message || '').includes('NEXT_REDIRECT')) { keepBusy = true; throw e; }
       setError('Something went wrong saving the invoice -- check your connection and try again. If line items were already added, check Invoice Details before retrying.');
       return null;
     } finally {
-      setSubmitting(false);
+      if (!keepBusy) setSubmitting(false);
     }
   }
 
-  async function handleFinalize() {
-    const inv = await commitInvoice();
-    if (!inv) return;
-    if (Number(inv.net) <= 0) {
-      // Nothing to collect (e.g. fully discounted) -- the invoice is
-      // already Paid, so there's no payment to send anyone to.
-      router.push(`/billing/details?q=${contextPatient.uhid}`);
-      return;
-    }
-    router.push(`/payments/collect?patientId=${contextPatient.id}&invoiceId=${inv.id}`);
-  }
-
-  async function handleSaveDraft() {
-    const inv = await commitInvoice();
-    if (!inv) return;
-    router.push('/billing/details');
-  }
+  // ONE request each: save, then the server opens the next screen in the
+  // same response -- Collect Payment for this invoice (or the invoice list
+  // when nothing is due, e.g. fully discounted), or Invoice Details for a
+  // draft. The button stays disabled until that screen opens.
+  async function handleFinalize() { await commitInvoice('finalize'); }
+  async function handleSaveDraft() { await commitInvoice('draft'); }
 
   function startOver() {
     setContextPatient(null);

@@ -1,6 +1,9 @@
 import { Suspense } from 'react';
 import BillingTabs from '../billing-tabs';
 import NewInvoiceTab from './new-invoice-tab';
+import { getNewInvoicePageData } from '../combined-actions';
+
+export const dynamic = 'force-dynamic';
 
 export default async function NewInvoicePage({ searchParams }) {
   const params = await searchParams;
@@ -14,11 +17,16 @@ export default async function NewInvoicePage({ searchParams }) {
   // silently carry over into what looks like an independent invoice.
   const remountKey = `${params?.visitId || 'none'}-${params?.invOrderIds || 'none'}-${params?.rxIds || 'none'}-${params?.bioIds || 'none'}-${params?.procIds || 'none'}-${Date.now()}`;
 
+  // Everything the screen needs (catalog, today's visits, the visit and
+  // prescribed items from the URL, the package, the day-open bar) in ONE
+  // request, gathered in parallel while the page renders.
+  const initial = await getNewInvoicePageData(params || {});
+
   return (
     <div>
-      <BillingTabs />
+      <BillingTabs day={initial.day} />
       <Suspense fallback={<div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>}>
-        <NewInvoiceTab key={remountKey} />
+        <NewInvoiceTab key={remountKey} initial={initial} />
       </Suspense>
     </div>
   );

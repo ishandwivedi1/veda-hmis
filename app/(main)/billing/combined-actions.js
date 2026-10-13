@@ -24,7 +24,14 @@ import {
   markBiometryBilled,
   markPackageBilled,
   setManualSurgeryDetails,
+  getInvestigationOrdersForBilling,
+  getProceduresForBilling,
+  getPrescriptionsForBilling,
+  getBiometryForBilling,
+  getPackageForBilling,
 } from './actions';
+import { redirect } from 'next/navigation';
+import { isTodayOpen, getSuggestedOpeningBalance } from '@/app/(main)/cash-management/actions';
 
 // Everything New Invoice needs before anyone picks a patient.
 export async function getNewInvoiceBootstrap() {
@@ -98,4 +105,65 @@ export async function commitNewInvoice({ patientId, visitId, purpose, lines, mar
   const details = await getInvoiceById(invoiceId);
   if (details.error) return { error: details.error, stage: 'reload', invoiceId };
   return { invoice: details.invoice };
+}
+
+
+// ── New Invoice in ONE request (Oct 2026) ──────────────────────────────
+// Everything the New Invoice page shows when it opens -- catalog, today's
+// visits, surgery options, the day-open bar, and (from the URL) the visit,
+// prescribed investigations / procedures / medicines / biometry and the
+// surgery package -- gathered in parallel on the server while the page
+// renders. Before, the page opened and then the browser fetched these in
+// up to 8 separate requests, some waiting on others.
+export async function getNewInvoicePageData(p = {}) {
+  const ids = (v) => (v ? String(v).split(',').filter(Boolean) : []);
+  const inv = ids(p.invOrderIds); const proc = ids(p.procIds); const rx = ids(p.rxIds); const bio = ids(p.bioIds);
+  const [bootstrap, visitCtx, invRes, procRes, rxRes, bioRes, pkg, dayOpen] = await Promise.all([
+    getNewInvoiceBootstrap(),
+    p.visitId ? getVisitBillingContext(p.visitId) : null,
+    inv.length ? getInvestigationOrdersForBilling(inv) : null,
+    proc.length ? getProceduresForBilling(proc) : null,
+    rx.length ? getPrescriptionsForBilling(rx) : null,
+    bio.length ? getBiometryForBilling(bio) : null,
+    p.pkgCaseId ? getPackageForBilling(p.pkgCaseId) : null,
+    isTodayOpen().catch(() => true),
+  ]);
+
+  // Surgery billing link (pkgCaseId, no visitId): the patient/visit come
+  // from the package's own case -- same rules as the screen used before.
+  let pkgContext = null;
+  const primary = pkg?.items?.[0];
+  const visitOk = visitCtx && !visitCtx.error;
+  if (primary?.patient && !visitOk) {
+    if (primary.visitId) {
+      const c = await getVisitBillingContext(primary.visitId);
+      if (!c.error) {
+        const same = c.visit.patients?.id === primary.patient.id;
+        pkgContext = { patient: c.visit.patients, visit: c.visit, invoices: c.invoices, visits: same ? c.visits : await getVisitsForPatient(primary.patient.id) };
+      } else {
+        pkgContext = { patient: null, visit: null, invoices: null, visits: await getVisitsForPatient(primary.patient.id) };
+      }
+    } else {
+      pkgContext = { patient: primary.patient, visit: null, invoices: null, visits: await getVisitsForPatient(primary.patient.id) };
+    }
+  }
+
+  const suggestedOpening = dayOpen ? null : await getSuggestedOpeningBalance().catch(() => null);
+  return {
+    bootstrap, visitCtx, prefill: { inv: invRes, proc: procRes, rx: rxRes, bio: bioRes }, pkg, pkgContext,
+    day: { open: !!dayOpen, suggested: suggestedOpening },
+  };
+}
+
+// Finalize / Save Draft and open the next screen in the SAME response:
+// Finalize -> Collect Payment for this invoice (or the invoice list when
+// nothing is due); Save Draft -> Invoice Details. Was the save, then a
+// second request to open the next page.
+export async function commitNewInvoiceAndOpen(args, { then = 'finalize', patientId, uhid } = {}) {
+  const result = await commitNewInvoice(args);
+  if (result.error) return result;
+  const inv = result.invoice;
+  if (then === 'draft') redirect('/billing/details');
+  if (Number(inv.net) <= 0) redirect(`/billing/details?q=${encodeURIComponent(uhid || '')}`);
+  redirect(`/payments/collect?patientId=${patientId}&invoiceId=${inv.id}`);
 }

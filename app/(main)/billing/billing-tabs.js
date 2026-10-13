@@ -17,21 +17,24 @@ const TITLES = {
   '/billing/reports': 'Billing Reports',
 };
 
-export default function BillingTabs() {
+// `day` (optional): the day-open status, when the page already loaded it
+// in its own request -- then this bar makes no request of its own.
+export default function BillingTabs({ day = null }) {
   const pathname = usePathname();
-  const [dayOpen, setDayOpen] = useState(true); // assume open until checked, to avoid a flash on every load
+  const [dayOpen, setDayOpen] = useState(day ? !!day.open : true); // assume open until checked, to avoid a flash on every load
   const [isPopup, setIsPopup] = useState(false);
-  const [opening, setOpening] = useState('');
-  const [suggestedFrom, setSuggestedFrom] = useState(null);
+  const [opening, setOpening] = useState(day?.suggested ? String(day.suggested.amount) : '');
+  const [suggestedFrom, setSuggestedFrom] = useState(day?.suggested?.date || null);
   const [busy, setBusy] = useState(false);
   const [openErr, setOpenErr] = useState('');
 
   useEffect(() => {
+    setIsPopup(new URLSearchParams(window.location.search).get('popup') === '1');
+    if (day) return;
     isTodayOpen().then((open) => {
       setDayOpen(open);
       if (!open) getSuggestedOpeningBalance().then((s) => { if (s) { setOpening(String(s.amount)); setSuggestedFrom(s.date); } }).catch(() => {});
     }).catch(() => {});
-    setIsPopup(new URLSearchParams(window.location.search).get('popup') === '1');
   }, []);
 
   async function handleOpenDay() {

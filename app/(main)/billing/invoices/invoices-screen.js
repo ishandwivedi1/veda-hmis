@@ -616,7 +616,7 @@ export default function InvoicesScreen() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display-stack)' }}>Invoices</div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <Link href="/billing/new" className="btn btn-primary" style={{ textDecoration: 'none' }}><i className="ti ti-plus"></i> New Invoice</Link>
+          <Link prefetch={false} href="/billing/new" className="btn btn-primary" style={{ textDecoration: 'none' }}><i className="ti ti-plus"></i> New Invoice</Link>
           <Menu label="" icon="ti-dots" items={[
             { href: '/payments', icon: 'ti-receipt-2', label: 'Payments Received' },
             { href: '/payments/reports', icon: 'ti-file-report', label: 'Payment Reports' },
