@@ -8,6 +8,7 @@
 // (embedded). The preview here is only a preview -- edit_invoice() in
 // Postgres recalculates everything and is the only thing that saves.
 
+import ServicePicker from '@/app/components/ServicePicker';
 import { useState, useEffect, useCallback } from 'react';
 import { saveInvoiceEdit, saveInvoiceVoid } from './invoice-edit-actions';
 // One-request saves (change + refreshed screen in the same response) -- used
@@ -323,10 +324,16 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
           <option value="">-- Dept --</option>
           {depts.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-        <select className="fi fi-sm" style={{ flex: 1, minWidth: 180 }} value={newCode} disabled={!newDept} onChange={(e) => setNewCode(e.target.value)}>
-          <option value="">-- Add an item --</option>
-          {ctx.services.filter((s) => s.dept === newDept).map((s) => <option key={s.code} value={s.code}>{s.name} -- Rs.{s.rate}</option>)}
-        </select>
+        <ServicePicker
+          small
+          style={{ flex: 1, minWidth: 220 }}
+          services={newDept ? ctx.services.filter((s) => s.dept === newDept) : ctx.services}
+          value={newCode}
+          showDept={!newDept}
+          showRate
+          placeholder="Type to search an item, or pick from the list..."
+          onPick={(svc) => { if (svc && !newDept) setNewDept(svc.dept); setNewCode(svc ? svc.code : ''); }}
+        />
         <button className="btn btn-sm" disabled={!newCode} onClick={() => {
           const svc = ctx.services.find((s) => s.code === newCode);
           setAdded((as) => [...as, { code: newCode, name: svc?.name || '', rate: Number(svc?.rate) || 0, qty: 1, discType: 'none', discValue: 0 }]);

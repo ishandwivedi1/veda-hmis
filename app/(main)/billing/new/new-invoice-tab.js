@@ -1,5 +1,6 @@
 'use client';
 
+import ServicePicker from '@/app/components/ServicePicker';
 import { useState, useEffect, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -390,6 +391,15 @@ export default function NewInvoiceTab() {
     setGstPct(svc ? svc.gst_pct : '');
   }
 
+  // From the type-to-search picker (gets the whole item, or null when the
+  // typed text no longer matches the chosen item).
+  function handleServicePick(svc) {
+    if (svc && !dept) setDept(svc.dept);
+    setSelectedServiceCode(svc ? svc.code : '');
+    setRate(svc ? svc.rate : '');
+    setGstPct(svc ? svc.gst_pct : '');
+  }
+
   function handleAddLine() {
     setError('');
     if (!selectedServiceCode) { setError('Select department and service.'); return; }
@@ -629,10 +639,17 @@ export default function NewInvoiceTab() {
               </div>
               <div>
                 <label className="flbl">Service *</label>
-                <select className="fi" value={selectedServiceCode} onChange={handleServiceChange} disabled={!dept}>
-                  <option value="">{dept ? '-- Select --' : '-- Select dept first --'}</option>
-                  {servicesForDept.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
-                </select>
+                {/* Type to search (any part of the name) or open the full list.
+                    With no department picked it searches all departments and
+                    fills the department in from the item chosen. */}
+                <ServicePicker
+                  services={dept ? servicesForDept : catalog}
+                  value={selectedServiceCode}
+                  showDept={!dept}
+                  showRate
+                  placeholder={dept ? `Type to search ${dept}, or pick from the list...` : 'Type a service / medicine name, or pick from the list...'}
+                  onPick={handleServicePick}
+                />
               </div>
             </div>
 
