@@ -452,110 +452,17 @@ export async function deleteExpense(id, expenseDate) {
 //     entry at all; invoice_id there is null for an advance refund
 //     (refund_advance), in which case it nets against Advance rather
 //     than a department.
-export async function getRevenueByDepartmentToday() {
-  const supabase = await createClient();
-  const { startUTC, endUTC } = istDayBoundsUTC();
-
-  const [{ data: payments }, { data: opticalPayments }] = await Promise.all([
-    supabase
-      .from('payments')
-      .select('id, payment_type, total_amount')
-      .gte('collected_at', startUTC)
-      .lte('collected_at', endUTC)
-      .in('payment_type', ['invoice_payment', 'advance', 'refund']),
-    // Optical sales/advances are real cash collected today too, via a
-    // separate table (see app/(main)/optical) since walk-in customers
-    // often have no patient record. advance_adjustment is excluded --
-    // that's an existing balance being applied, not new cash arriving
-    // today. Refunds subtract from the same Optical bucket, same as
-    // how a hospital refund subtracts from its own department.
-    supabase
-      .from('optical_payments')
-      .select('id, total_amount, payment_type')
-      .gte('collected_at', startUTC)
-      .lte('collected_at', endUTC)
-      .in('payment_type', ['sale_payment', 'advance', 'refund']),
-  ]);
-
-  const invoicePaymentIds = (payments || []).filter((p) => p.payment_type === 'invoice_payment').map((p) => p.id);
-  const refundIds = (payments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
-  const opticalRefundIds = (opticalPayments || []).filter((p) => p.payment_type === 'refund').map((p) => p.id);
-
-  const [{ data: allocations }, { data: refunds }, { data: cancelledHospitalRefunds }, { data: cancelledOpticalRefunds }] = await Promise.all([
-    invoicePaymentIds.length > 0
-      ? supabase.from('payment_allocations').select('payment_id, amount, invoices(purpose)').in('payment_id', invoicePaymentIds)
-      : Promise.resolve({ data: [] }),
-    refundIds.length > 0
-      ? supabase.from('payment_refunds').select('refund_payment_id, invoices(purpose)').in('refund_payment_id', refundIds)
-      : Promise.resolve({ data: [] }),
-    // Cancelled refunds excluded from the subtraction below -- same
-    // reasoning as getTodayCollectionSummary: their effect was already
-    // reversed at the source, so subtracting them here too double-counts
-    // a refund that no longer applies.
-    refundIds.length > 0
-      ? supabase.from('payment_refunds').select('refund_payment_id').in('refund_payment_id', refundIds).not('cancelled_at', 'is', null)
-      : Promise.resolve({ data: [] }),
-    opticalRefundIds.length > 0
-      ? supabase.from('optical_payment_refunds').select('refund_payment_id').in('refund_payment_id', opticalRefundIds).not('cancelled_at', 'is', null)
-      : Promise.resolve({ data: [] }),
-  ]);
-  const cancelledHospitalRefundIds = new Set((cancelledHospitalRefunds || []).map((r) => r.refund_payment_id));
-  const cancelledOpticalRefundIds = new Set((cancelledOpticalRefunds || []).map((r) => r.refund_payment_id));
-
-  let allocationsByPayment = {};
-  (allocations || []).forEach((a) => {
-    if (!allocationsByPayment[a.payment_id]) allocationsByPayment[a.payment_id] = [];
-    allocationsByPayment[a.payment_id].push(a);
-  });
-
-  let refundInfoByPayment = {};
-  (refunds || []).forEach((r) => { refundInfoByPayment[r.refund_payment_id] = r; });
-
-  const byDept = {};
-  (payments || []).forEach((p) => {
-    if (p.payment_type === 'advance') {
-      byDept.Advance = (byDept.Advance || 0) + Number(p.total_amount);
-      return;
-    }
-    if (p.payment_type === 'invoice_payment') {
-      const allocs = allocationsByPayment[p.id];
-      if (allocs && allocs.length > 0) {
-        allocs.forEach((a) => {
-          const dept = a.invoices?.purpose || 'Other';
-          byDept[dept] = (byDept[dept] || 0) + Number(a.amount);
-        });
-      } else {
-        // Shouldn't happen for a genuine invoice_payment, but the
-        // money still collected today either way -- never drop it
-        // silently just because it has no allocation on record.
-        byDept.Other = (byDept.Other || 0) + Number(p.total_amount);
-      }
-      return;
-    }
-    // refund
-    if (cancelledHospitalRefundIds.has(p.id)) return;
-    const dept = refundInfoByPayment[p.id]?.invoices?.purpose || 'Advance';
-    byDept[dept] = (byDept[dept] || 0) - Number(p.total_amount);
-  });
-
-  (opticalPayments || []).forEach((p) => {
-    if (p.payment_type === 'refund' && cancelledOpticalRefundIds.has(p.id)) return;
-    byDept.Optical = (byDept.Optical || 0) + (p.payment_type === 'refund' ? -Number(p.total_amount) : Number(p.total_amount));
-  });
-
-  return byDept;
-}
-
-export async function getTodayCollectionSummary(date) {
-  const supabase = await createClient();
+// Today's payments + optical payments, with everything both the collection
+// summary and the revenue split need embedded (modes, payer, refund record
+// incl. its cancellation and invoice purpose, invoice allocations) -- ONE
+// round trip of 2 parallel queries instead of 2 + 6 across two functions
+// (Oct 2026 speed pass).
+async function fetchDayCollections(supabase, date) {
   const { startUTC, endUTC } = istDayBoundsUTC(date);
-
   const [{ data: payments }, { data: opticalPayments }] = await Promise.all([
     supabase
       .from('payments')
-      // refund_rows (23 Oct 2026): a refund's own refund record, embedded so
-      // its cancellation comes back in this query (was a second query).
-      .select('*, payment_modes(mode, amount), patients(first_name, salutation, last_name), refund_rows:payment_refunds!payment_refunds_refund_payment_id_fkey(cancelled_at)')
+      .select('*, payment_modes(mode, amount), patients(first_name, salutation, last_name), refund_rows:payment_refunds!payment_refunds_refund_payment_id_fkey(cancelled_at, invoices(purpose)), allocs:payment_allocations(amount, invoices(purpose))')
       .gte('collected_at', startUTC)
       .lte('collected_at', endUTC)
       .order('collected_at', { ascending: false }),
@@ -574,10 +481,77 @@ export async function getTodayCollectionSummary(date) {
       .lte('collected_at', endUTC)
       .order('collected_at', { ascending: false }),
   ]);
+  return { payments: payments || [], opticalPayments: opticalPayments || [] };
+}
 
+// Revenue by department (rules explained above), from fetchDayCollections rows.
+function buildRevenueByDept({ payments: allPayments, opticalPayments: allOptical }) {
+  const payments = allPayments.filter((p) => ['invoice_payment', 'advance', 'refund'].includes(p.payment_type));
+  const opticalPayments = allOptical.filter((p) => ['sale_payment', 'advance', 'refund'].includes(p.payment_type));
+
+  // Cancelled refunds excluded from the subtraction below -- same
+  // reasoning as getTodayCollectionSummary: their effect was already
+  // reversed at the source, so subtracting them here too double-counts
+  // a refund that no longer applies.
+  const isCancelledRefund = (p) => p.payment_type === 'refund' && (p.refund_rows || []).some((r) => r.cancelled_at);
+
+  const byDept = {};
+  payments.forEach((p) => {
+    if (p.payment_type === 'advance') {
+      byDept.Advance = (byDept.Advance || 0) + Number(p.total_amount);
+      return;
+    }
+    if (p.payment_type === 'invoice_payment') {
+      const allocs = p.allocs;
+      if (allocs && allocs.length > 0) {
+        allocs.forEach((a) => {
+          const dept = a.invoices?.purpose || 'Other';
+          byDept[dept] = (byDept[dept] || 0) + Number(a.amount);
+        });
+      } else {
+        // Shouldn't happen for a genuine invoice_payment, but the
+        // money still collected today either way -- never drop it
+        // silently just because it has no allocation on record.
+        byDept.Other = (byDept.Other || 0) + Number(p.total_amount);
+      }
+      return;
+    }
+    // refund
+    if (isCancelledRefund(p)) return;
+    const rows = p.refund_rows || [];
+    const dept = rows[rows.length - 1]?.invoices?.purpose || 'Advance';
+    byDept[dept] = (byDept[dept] || 0) - Number(p.total_amount);
+  });
+
+  opticalPayments.forEach((p) => {
+    if (isCancelledRefund(p)) return;
+    byDept.Optical = (byDept.Optical || 0) + (p.payment_type === 'refund' ? -Number(p.total_amount) : Number(p.total_amount));
+  });
+
+  return byDept;
+}
+
+export async function getRevenueByDepartmentToday() {
+  const supabase = await createClient();
+  return buildRevenueByDept(await fetchDayCollections(supabase));
+}
+
+// Collection summary + revenue split from ONE fetch (Payments + Cash screens).
+export async function getCollectionsWithRevenueToday() {
+  const supabase = await createClient();
+  const rows = await fetchDayCollections(supabase);
+  return { summary: buildCollectionSummary(rows), revenueByDept: buildRevenueByDept(rows) };
+}
+
+export async function getTodayCollectionSummary(date) {
+  const supabase = await createClient();
+  return buildCollectionSummary(await fetchDayCollections(supabase, date));
+}
+
+function buildCollectionSummary({ payments, opticalPayments }) {
   // Refunds whose refund record was later cancelled (from the embedded rows).
   const cancelledIds = new Set();
-  const hospitalRows = (payments || []).map(({ refund_rows: refundRows, ...p }) => {
+  const hospitalRows = (payments || []).map(({ refund_rows: refundRows, allocs: _allocs, ...p }) => {
     if (p.payment_type === 'refund' && (refundRows || []).some((r) => r.cancelled_at)) cancelledIds.add(p.id);
     return p;
   });
@@ -648,6 +622,10 @@ export async function getReconciliationData(date, precomputedSummary) {
     getPettyCashTotal(targetDate),
   ]);
   const { data: saved } = await supabase.from('day_reconciliation').select('*').eq('closing_date', targetDate);
+  return buildReconciliation(summary, pettyCashTotal, saved);
+}
+
+function buildReconciliation(summary, pettyCashTotal, saved) {
   const savedByMode = {};
   (saved || []).forEach((r) => { savedByMode[r.mode] = r; });
 
@@ -728,17 +706,15 @@ export async function getUnclosedPastDays() {
   const supabase = await createClient();
   const today = todayIST();
 
-  const { data: openings } = await supabase
-    .from('day_openings')
-    .select('opening_date')
-    .lt('opening_date', today)
-    .order('opening_date', { ascending: true });
-  if (!openings || openings.length === 0) return [];
+  const [{ data: openings }, { data: closings }] = await Promise.all([
+    supabase.from('day_openings').select('opening_date').lt('opening_date', today).order('opening_date', { ascending: true }),
+    supabase.from('day_closings').select('closing_date').lt('closing_date', today),
+  ]);
+  return unclosedFrom(openings, closings);
+}
 
-  const { data: closings } = await supabase
-    .from('day_closings')
-    .select('closing_date')
-    .lt('closing_date', today);
+function unclosedFrom(openings, closings) {
+  if (!openings || openings.length === 0) return [];
   const closedSet = new Set((closings || []).map((c) => c.closing_date));
 
   return openings.map((o) => o.opening_date).filter((d) => !closedSet.has(d));
@@ -756,6 +732,10 @@ export async function getDayClosingHistory() {
 
 export async function getDailyReport(date) {
   const supabase = await createClient();
+  // Billed-income section depends on nothing below -- started now so it
+  // runs alongside the collections chain instead of after it (Oct 2026).
+  const billedIncomePromise = getBilledIncomeByCategory(supabase, date);
+  billedIncomePromise.catch(() => {}); // awaited below; avoid an unhandled rejection meanwhile
   const [{ data: closing }, { data: reconciliation }, expenses, collectionSummary, cashCounter] = await Promise.all([
     supabase.from('day_closings').select('*, profiles(full_name)').eq('closing_date', date).maybeSingle(),
     supabase.from('day_reconciliation').select('*, profiles(full_name)').eq('closing_date', date),
@@ -940,7 +920,7 @@ export async function getDailyReport(date) {
   // full invoiced/sale value for today, by category, plus a full
   // breakdown of how it's been settled (or not) -- this is deliberately
   // NOT payment-mode-based (Table 1 already covers cash by mode).
-  const { categories: billedCategories, unclassifiedDepts } = await getBilledIncomeByCategory(supabase, date);
+  const { categories: billedCategories, unclassifiedDepts } = await billedIncomePromise;
   const emptyRow = () => ({ billed: 0, netCash: 0, netUPI: 0, advanceSettled: 0, creditNoteSettled: 0, outstanding: 0 });
   const catRow = (name) => billedCategories[name] || emptyRow();
   const { previousDay: previousAdvanceAdjustedTotal, sameDay: sameDayAdvanceAdjustedTotal } = splitByAgeAgainstTodaysDeposit(advanceTx, adjustmentTx);
@@ -1112,6 +1092,10 @@ export async function getReconciliationLockStatus(date) {
   const supabase = await createClient();
   const targetDate = date || todayIST();
   const { data } = await supabase.from('reconciliation_locks').select('*, profiles(full_name)').eq('lock_date', targetDate).maybeSingle();
+  return lockFromRow(data);
+}
+
+function lockFromRow(data) {
   return data ? { locked: true, lockedBy: data.profiles?.full_name || null, lockedAt: data.locked_at } : { locked: false, lockedBy: null, lockedAt: null };
 }
 
@@ -1130,17 +1114,17 @@ export async function lockReconciliation(date) {
   const supabase = await createClient();
   // Same generalized check recordClosingCash/confirmCashCounter use
   // instead of requireDayOpen() (which only ever asks about today).
-  const { data: openingRow } = await supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle();
-  if (!openingRow) return { error: `${targetDate} hasn't been opened -- can't lock its reconciliation.` };
-
+  // (All checks read in parallel -- one round, same order of messages.)
   // Every mode with that day's collection activity must already be
   // reconciled (saved) before Step 1 can be marked complete -- same
   // completeness idea close_day itself enforces for the whole day.
-  const [summary, pettyCashTotal, { data: saved }] = await Promise.all([
+  const [{ data: openingRow }, summary, pettyCashTotal, { data: saved }] = await Promise.all([
+    supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle(),
     getTodayCollectionSummary(targetDate),
     getPettyCashTotal(targetDate),
     supabase.from('day_reconciliation').select('mode').eq('closing_date', targetDate),
   ]);
+  if (!openingRow) return { error: `${targetDate} hasn't been opened -- can't lock its reconciliation.` };
   const modes = new Set(Object.keys(summary.byMode));
   if (pettyCashTotal > 0) modes.add('Cash');
   const savedModes = new Set((saved || []).map((r) => r.mode));
@@ -1185,6 +1169,10 @@ export async function getCashCounterForDate(date) {
     getReconciliationLockStatus(targetDate),
     supabase.from('day_reconciliation').select('actual').eq('closing_date', targetDate).eq('mode', 'Cash').maybeSingle(),
   ]);
+  return buildCashCounter(targetDate, opening, counter, lockStatus, cashRecon);
+}
+
+function buildCashCounter(targetDate, opening, counter, lockStatus, cashRecon) {
   const openingCash = opening?.opening_cash_balance != null ? Number(opening.opening_cash_balance) : 0;
   // Step 1's saved Cash-mode "actual" is already net of today's Cash
   // Expenses -- getReconciliationData computes that mode's `expected`
@@ -1219,9 +1207,11 @@ export async function recordClosingCash(amount, date) {
   // definition already has a day_openings row (that's what makes it
   // eligible for the Close a Past Day flow), so this is really just a
   // safety check, not a real-world blocker for that path.
-  const { data: openingRow } = await supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle();
+  const [{ data: openingRow }, lockStatus] = await Promise.all([
+    supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle(),
+    getReconciliationLockStatus(targetDate),
+  ]);
   if (!openingRow) return { error: `${targetDate} hasn't been opened -- can't record its Cash Counter.` };
-  const lockStatus = await getReconciliationLockStatus(targetDate);
   if (!lockStatus.locked) return { error: 'Complete and close Reconciliation (Step 1) first.' };
   const amt = Number(amount);
   if (isNaN(amt) || amt < 0) return { error: 'Enter a valid amount.' };
@@ -1239,16 +1229,16 @@ export async function recordClosingCash(amount, date) {
 export async function confirmCashCounter(date) {
   const targetDate = date || todayIST();
   const supabase = await createClient();
-  const { data: openingRow } = await supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle();
-  if (!openingRow) return { error: `${targetDate} hasn't been opened -- can't confirm its Cash Counter.` };
-
-  const lockStatus = await getReconciliationLockStatus(targetDate);
-  if (!lockStatus.locked) return { error: 'Complete and close Reconciliation (Step 1) first.' };
-
-  const [{ data: existing }, counterState] = await Promise.all([
+  // All checks read in parallel (one round); same checks, same order.
+  const [{ data: openingRow }, lockStatus, { data: existing }, counterState] = await Promise.all([
+    supabase.from('day_openings').select('id').eq('opening_date', targetDate).maybeSingle(),
+    getReconciliationLockStatus(targetDate),
     supabase.from('cash_counter').select('closing_cash').eq('counter_date', targetDate).maybeSingle(),
     getCashCounterForDate(targetDate),
   ]);
+  if (!openingRow) return { error: `${targetDate} hasn't been opened -- can't confirm its Cash Counter.` };
+  if (!lockStatus.locked) return { error: 'Complete and close Reconciliation (Step 1) first.' };
+
   if (!existing || existing.closing_cash === null) {
     return { error: 'Record the closing cash count first.' };
   }
@@ -1274,10 +1264,16 @@ export async function unlockCashCounter(date) {
 // looked up directly via getCashCounterForDate(date).
 export async function getCashCounterHistory(limit = 2) {
   const supabase = await createClient();
-  const { data: openings } = await supabase.from('day_openings').select('opening_date, opening_cash_balance').order('opening_date', { ascending: false }).limit(limit);
-  const { data: counters } = await supabase.from('cash_counter')
-    .select('*, handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
-    .order('counter_date', { ascending: false }).limit(limit);
+  const [{ data: openings }, { data: counters }] = await Promise.all([
+    supabase.from('day_openings').select('opening_date, opening_cash_balance').order('opening_date', { ascending: false }).limit(limit),
+    supabase.from('cash_counter')
+      .select('*, handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
+      .order('counter_date', { ascending: false }).limit(limit),
+  ]);
+  return buildCounterHistory(openings, counters);
+}
+
+function buildCounterHistory(openings, counters) {
   const counterByDate = {};
   (counters || []).forEach((c) => { counterByDate[c.counter_date] = c; });
 
@@ -1291,4 +1287,109 @@ export async function getCashCounterHistory(limit = 2) {
       handedOverBy: c?.handedOverByProfile?.full_name || null,
     };
   });
+}
+
+// ── Whole Cash Management screen in ONE round of parallel queries ────────
+// (Oct 2026 speed pass). Was ~31 queries, 3 rounds deep, with the same rows
+// fetched by several readers (today's payments twice, petty cash twice, day
+// opening / lock / reconciliation / closing twice each). Now each table is
+// read once and every panel is built from those rows by the SAME builders
+// the individual readers above use -- identical figures and rules.
+export async function getCashScreenData() {
+  const supabase = await createClient();
+  const today = todayIST();
+  const [
+    collections, { data: history }, { data: opening }, { data: openQueueEntries },
+    { data: pastOpenings }, { data: pastClosings }, { data: suggested }, { data: approvers },
+    { data: lockRow }, { data: counter }, { data: histOpenings }, { data: histCounters },
+    { data: closingRow }, { data: expenseCategories }, { data: todayExpenses }, { data: savedRecon },
+  ] = await Promise.all([
+    fetchDayCollections(supabase, today),
+    supabase.from('day_closings').select('*, profiles(full_name)').order('closing_date', { ascending: false }).limit(30),
+    supabase.from('day_openings').select('*, profiles(full_name)').eq('opening_date', today).maybeSingle(),
+    supabase.from('queue_entries')
+      .select('id, department, token, status, issued_at, visits(patients(first_name, salutation, last_name, uhid))')
+      .not('status', 'in', '(Done,Cancelled,Incomplete)')
+      .gte('issued_at', istDayBoundsUTC(today).startUTC)
+      .lte('issued_at', istDayBoundsUTC(today).endUTC)
+      .order('issued_at', { ascending: true }),
+    supabase.from('day_openings').select('opening_date').lt('opening_date', today).order('opening_date', { ascending: true }),
+    supabase.from('day_closings').select('closing_date').lt('closing_date', today),
+    supabase.from('cash_counter').select('counter_date, closing_cash')
+      .not('closing_cash', 'is', null).lt('counter_date', today)
+      .order('counter_date', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('profiles').select('id, full_name, designation').eq('status', 'Active').order('full_name'),
+    supabase.from('reconciliation_locks').select('*, profiles(full_name)').eq('lock_date', today).maybeSingle(),
+    supabase.from('cash_counter').select('*, closer:profiles!cash_counter_closing_recorded_by_fkey(full_name), handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
+      .eq('counter_date', today).maybeSingle(),
+    supabase.from('day_openings').select('opening_date, opening_cash_balance').order('opening_date', { ascending: false }).limit(2),
+    supabase.from('cash_counter')
+      .select('*, handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
+      .order('counter_date', { ascending: false }).limit(2),
+    supabase.from('day_closings').select('id, closed_at').eq('closing_date', today).maybeSingle(),
+    supabase.from('master_expense_categories').select('*').eq('status', 'Active').order('name'),
+    supabase.from('petty_cash_expenses')
+      .select('*, master_expense_categories(name), profiles(full_name)')
+      .eq('expense_date', today)
+      .order('created_at', { ascending: false }),
+    supabase.from('day_reconciliation').select('*').eq('closing_date', today),
+  ]);
+
+  const summary = buildCollectionSummary(collections);
+  const expenses = todayExpenses || [];
+  const pettyCashTotal = expenses.reduce((sum, r) => sum + Number(r.amount), 0);
+  const lockStatus = lockFromRow(lockRow);
+  const reconciliation = buildReconciliation(summary, pettyCashTotal, savedRecon);
+  const cashRecon = (savedRecon || []).find((r) => r.mode === 'Cash') || null;
+  const cashCounter = buildCashCounter(today, opening, counter, lockStatus, cashRecon);
+  const alreadyClosed = !!closingRow;
+  const readiness = { reconciliationComplete: reconciliation.every((r) => r.saved), alreadyClosed, reconciliation };
+
+  return {
+    summary,
+    revenueByDept: buildRevenueByDept(collections),
+    history: history || [],
+    opening,
+    openQueueEntries: openQueueEntries || [],
+    unclosedPastDays: unclosedFrom(pastOpenings, pastClosings),
+    suggestedOpening: suggested ? { date: suggested.counter_date, amount: Number(suggested.closing_cash) } : null,
+    approvers: approvers || [],
+    readiness,
+    reconRows: reconciliation,
+    closedToday: alreadyClosed,
+    reconLock: lockStatus,
+    counter: cashCounter,
+    counterHistory: buildCounterHistory(histOpenings, histCounters),
+    cashCounterConfirmed: cashCounter?.amountHandedOver != null,
+    todayClosingInfo: alreadyClosed ? { closing: closingRow ? { closed_at: closingRow.closed_at } : null } : null,
+    expenseCategories: expenseCategories || [],
+    todayExpenses: expenses,
+    pettyCashTotal,
+  };
+}
+
+// Close a Past Day panel -- one round (was summary -> petty cash -> saved
+// reconciliation, 3 rounds deep). Same builders as the individual readers.
+export async function getPastDayClosingData(date) {
+  const supabase = await createClient();
+  const [collections, { data: petty }, { data: savedRecon }, { data: opening }, { data: counter }, { data: lockRow }] = await Promise.all([
+    fetchDayCollections(supabase, date),
+    supabase.from('petty_cash_expenses').select('amount').eq('expense_date', date),
+    supabase.from('day_reconciliation').select('*').eq('closing_date', date),
+    supabase.from('day_openings').select('opening_cash_balance, opened_at, profiles(full_name)').eq('opening_date', date).maybeSingle(),
+    supabase.from('cash_counter').select('*, closer:profiles!cash_counter_closing_recorded_by_fkey(full_name), handedOverByProfile:profiles!cash_counter_handed_over_by_fkey(full_name)')
+      .eq('counter_date', date).maybeSingle(),
+    supabase.from('reconciliation_locks').select('*, profiles(full_name)').eq('lock_date', date).maybeSingle(),
+  ]);
+  const summary = buildCollectionSummary(collections);
+  const pettyCashTotal = (petty || []).reduce((sum, r) => sum + Number(r.amount), 0);
+  const lock = lockFromRow(lockRow);
+  const cashRecon = (savedRecon || []).find((r) => r.mode === 'Cash') || null;
+  return {
+    date,
+    summary,
+    reconRows: buildReconciliation(summary, pettyCashTotal, savedRecon),
+    counter: buildCashCounter(date, opening, counter, lock, cashRecon),
+    lock,
+  };
 }

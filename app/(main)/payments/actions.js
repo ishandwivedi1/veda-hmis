@@ -3,7 +3,7 @@
 import { after } from 'next/server';
 import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
-import { requireDayOpen, getTodayCollectionSummary, getRevenueByDepartmentToday, getDayOpening, isTodayOpen } from '@/app/(main)/cash-management/actions';
+import { requireDayOpen, getCollectionsWithRevenueToday, getDayOpening, isTodayOpen } from '@/app/(main)/cash-management/actions';
 import { sendInvoiceBill } from '@/app/(main)/billing/actions';
 import { sendAdvanceReceiptWhatsApp, sendPaymentReceiptWhatsApp, formatDateOnlyIST, logWhatsAppFailure } from '@/lib/whatsapp';
 import { generateReceiptPdfBuffer } from '@/lib/pdf-generator';
@@ -17,11 +17,10 @@ import { getUserFast } from '@/lib/authUser'; // local token check, no Auth roun
 // to the dashboard.
 export async function getPaymentsDashboardData() {
   const [
-    summary, revenueByDept, unpaidInvoices, advanceBalances,
+    { summary, revenueByDept }, unpaidInvoices, advanceBalances,
     recentReceipts, dayOpening, dayOpen,
   ] = await Promise.all([
-    getTodayCollectionSummary(),
-    getRevenueByDepartmentToday(),
+    getCollectionsWithRevenueToday(), // summary + revenue split from one fetch
     getAllUnpaidInvoices(),
     getCurrentBalancesByPatient(),
     searchReceipts(),

@@ -14,52 +14,20 @@
 // existing ones in ./actions -- unchanged rules, unchanged DB functions.
 
 import {
-  getTodayCollectionSummary, getRevenueByDepartmentToday, getDayClosingHistory, getDayOpening,
-  getUnclosedPastDays, getSuggestedOpeningBalance, getCloseDayReadiness, getReconciliationLockStatus,
-  getCashCounterForDate, getCashCounterHistory, getDayClosedAt, getExpenseCategoriesActive,
-  getExpensesForDate, getPettyCashTotal, getReconciliationData, getDailyReport,
+  getCashScreenData, getPastDayClosingData, getDailyReport,
   openDay, updateOpeningBalance, saveReconciliation, lockReconciliation, unlockReconciliation,
   recordClosingCash, confirmCashCounter, unlockCashCounter, closeDay, reopenDay, addExpense, deleteExpense,
 } from './actions';
-import { getApprovers } from '@/app/(main)/payments/actions';
-import { getOpenQueueEntriesToday, bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
+import { bulkForceCloseQueueEntries } from '@/app/(main)/queue/actions';
 import { addExpenseCategory } from '@/app/(main)/master-data/actions';
 import { uploadAttachment } from '@/lib/attachments';
 
 const todayIST = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-// Everything the Cash Management page shows, gathered in parallel on the
-// server (only the reconciliation rows wait for the day's collections).
+// Everything the Cash Management page shows -- one round of parallel
+// queries, each table read once (see getCashScreenData in ./actions).
 export async function getCashScreen() {
-  const today = todayIST();
-  const [
-    summary, revenueByDept, history, opening, openQueueEntries, unclosedPastDays, suggestedOpening,
-    approvers, reconLock, counter, counterHistory, closedAt, expenseCategories, todayExpenses, pettyCashTotal,
-  ] = await Promise.all([
-    getTodayCollectionSummary(),
-    getRevenueByDepartmentToday(),
-    getDayClosingHistory(),
-    getDayOpening(),
-    getOpenQueueEntriesToday(),
-    getUnclosedPastDays(),
-    getSuggestedOpeningBalance(),
-    getApprovers(),
-    getReconciliationLockStatus(),
-    getCashCounterForDate(),
-    getCashCounterHistory(2),
-    getDayClosedAt(today).catch(() => null),
-    getExpenseCategoriesActive(),
-    getExpensesForDate(today),
-    getPettyCashTotal(today),
-  ]);
-  const readiness = await getCloseDayReadiness(undefined, summary);
-  return {
-    summary, revenueByDept, history, opening, openQueueEntries, unclosedPastDays, suggestedOpening, approvers,
-    readiness, reconRows: readiness.reconciliation, closedToday: readiness.alreadyClosed, reconLock,
-    counter, counterHistory, cashCounterConfirmed: counter?.amountHandedOver != null,
-    todayClosingInfo: readiness.alreadyClosed ? { closing: closedAt } : null,
-    expenseCategories, todayExpenses, pettyCashTotal,
-  };
+  return getCashScreenData();
 }
 
 async function withScreen(resultPromise) {
@@ -115,13 +83,7 @@ export async function addExpenseAndRefresh(formData) {
 
 // ── Close a past day ───────────────────────────────────────────────────
 export async function getPastDayClosing(date) {
-  const summary = await getTodayCollectionSummary(date);
-  const [reconRows, counter, lock] = await Promise.all([
-    getReconciliationData(date, summary),
-    getCashCounterForDate(date),
-    getReconciliationLockStatus(date),
-  ]);
-  return { date, summary, reconRows, counter, lock };
+  return getPastDayClosingData(date);
 }
 
 async function withPast(date, resultPromise) {
