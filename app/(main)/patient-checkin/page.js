@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getOTCaseList, getCheckinHistory, getSurgeryLandingForPatient } from '@/lib/rpc-reads/ot-intraop__actions'; // parallel reads (tools/parallel-reads)
+import { getCheckinPageBundle } from '@/lib/rpc-reads/patient-checkin__bundle-actions'; // parallel reads (tools/parallel-reads)
 import { getPatientById } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
 import { DashboardTab, TabButton } from '../ot-intraop/page';
 import Workspace from '../ot-intraop/workspace';
@@ -138,8 +139,14 @@ function PatientCheckinInner() {
 
   const refreshCases = useCallback(async () => { setCases(await getOTCaseList()); setLoadingCases(false); }, []);
   const refreshHistory = useCallback(async () => { setHistory(await getCheckinHistory()); setLoadingHistory(false); }, []);
+  // ONE request for all lists (was 2) -- on open and after every action.
+  const refreshAll = useCallback(async () => {
+    const r = await getCheckinPageBundle();
+    setCases(r[0]); setLoadingCases(false);
+    setHistory(r[1]); setLoadingHistory(false);
+  }, []);
 
-  useEffect(() => { refreshCases(); refreshHistory(); }, [refreshCases, refreshHistory]);
+  useEffect(() => { refreshAll(); }, [refreshAll]);
 
   useEffect(() => {
     if (!landingPatientId || deepLinkId) return;
@@ -169,7 +176,7 @@ function PatientCheckinInner() {
   }
 
   function handleBack() {
-    refreshCases(); refreshHistory();
+    refreshAll();
     setSelectedId(null);
     setLanding(null);
     setActiveTab('dashboard');

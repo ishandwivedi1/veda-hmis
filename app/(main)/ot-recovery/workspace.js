@@ -5,6 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { saveRecoveryFields, addRecoveryMedication, addTaperedRecoveryMedication, removeRecoveryMedication, removeRecoveryTaperGroup, confirmDischarge } from './actions';
 import { getRecoveryEpisodeDetail, getDrugOptions, getMedDosageOptions } from '@/lib/rpc-reads/ot-recovery__actions'; // parallel reads (tools/parallel-reads)
 import { DISCHARGE_ITEMS } from './constants';
+import { getRecoveryWorkspaceBundle } from '@/lib/rpc-reads/ot-recovery__bundle-actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import ConfirmActionModal from '@/app/components/ConfirmActionModal';
 
@@ -91,8 +92,9 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   const [dischargeNotes, setDischargeNotes] = useState('');
   const [followupPlan, setFollowupPlan] = useState([]);
 
-  const refresh = useCallback(async () => {
-    const result = await getRecoveryEpisodeDetail(episodeId);
+  // Applies a loaded episode to the screen -- used by refresh() and by the
+  // one-request bundle when the workspace opens.
+  const applyDetail = useCallback((result) => {
     if (result.error) { setLoadError(result.error); return; }
     setData(result);
     const e = result.episode;
@@ -122,9 +124,21 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     if (!e.discharge_date) {
       setFollowupPlan((prev) => (prev.length > 0 ? prev : defaultFollowupPlan(e.discharge_date || todayIst())));
     }
-  }, [episodeId]);
+  }, []);
 
-  useEffect(() => { refresh(); getDrugOptions().then(setDrugOptions); getMedDosageOptions().then(setDosageOptions); }, [episodeId, refresh]);
+  const refresh = useCallback(async () => {
+    applyDetail(await getRecoveryEpisodeDetail(episodeId));
+  }, [episodeId, applyDetail]);
+
+  // Opening the workspace: ONE request (was 3) -- episode + drug list +
+  // dosage options together (see bundle-actions).
+  useEffect(() => {
+    getRecoveryWorkspaceBundle(episodeId).then(([detail, drugs, dosages]) => {
+      applyDetail(detail);
+      setDrugOptions(drugs);
+      setDosageOptions(dosages);
+    });
+  }, [episodeId, applyDetail]);
 
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;

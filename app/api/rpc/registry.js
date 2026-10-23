@@ -33,29 +33,32 @@ import * as m28 from '@/app/(main)/optical/screens-actions';
 import * as m29 from '@/app/(main)/optometry-dashboard/actions';
 import * as m30 from '@/app/(main)/optometry-history/actions';
 import * as m31 from '@/app/(main)/ot-intraop/actions';
-import * as m32 from '@/app/(main)/ot-postop/actions';
-import * as m33 from '@/app/(main)/ot-recovery/actions';
-import * as m34 from '@/app/(main)/ot-schedule/actions';
-import * as m35 from '@/app/(main)/ot-schedule/bundle-actions';
-import * as m36 from '@/app/(main)/patient-checkin/bundle-actions';
-import * as m37 from '@/app/(main)/patient-timeline/actions';
-import * as m38 from '@/app/(main)/patients/actions';
-import * as m39 from '@/app/(main)/payments/actions';
-import * as m40 from '@/app/(main)/payments/combined-actions';
-import * as m41 from '@/app/(main)/payments/payment-edit-actions';
-import * as m42 from '@/app/(main)/payments/received-actions';
-import * as m43 from '@/app/(main)/pharmacy/actions';
-import * as m44 from '@/app/print-templates/actions';
-import * as m45 from '@/app/(main)/queue/actions';
-import * as m46 from '@/app/(main)/queue/combined-actions';
-import * as m47 from '@/app/(main)/surgical-journey/actions';
-import * as m48 from '@/app/(main)/surgical-journey/bundle-actions';
-import * as m49 from '@/app/(main)/users/actions';
-import * as m50 from '@/app/(main)/users/billing-permission-actions';
-import * as m51 from '@/app/(main)/visits/actions';
-import * as m52 from '@/app/(main)/visits/combined-actions';
-import * as m53 from '@/app/(main)/whatsapp/actions';
-import * as m54 from '@/app/(main)/workflow-monitor/actions';
+import * as m32 from '@/app/(main)/ot-intraop/bundle-actions';
+import * as m33 from '@/app/(main)/ot-postop/actions';
+import * as m34 from '@/app/(main)/ot-postop/bundle-actions';
+import * as m35 from '@/app/(main)/ot-recovery/actions';
+import * as m36 from '@/app/(main)/ot-recovery/bundle-actions';
+import * as m37 from '@/app/(main)/ot-schedule/actions';
+import * as m38 from '@/app/(main)/ot-schedule/bundle-actions';
+import * as m39 from '@/app/(main)/patient-checkin/bundle-actions';
+import * as m40 from '@/app/(main)/patient-timeline/actions';
+import * as m41 from '@/app/(main)/patients/actions';
+import * as m42 from '@/app/(main)/payments/actions';
+import * as m43 from '@/app/(main)/payments/combined-actions';
+import * as m44 from '@/app/(main)/payments/payment-edit-actions';
+import * as m45 from '@/app/(main)/payments/received-actions';
+import * as m46 from '@/app/(main)/pharmacy/actions';
+import * as m47 from '@/app/print-templates/actions';
+import * as m48 from '@/app/(main)/queue/actions';
+import * as m49 from '@/app/(main)/queue/combined-actions';
+import * as m50 from '@/app/(main)/surgical-journey/actions';
+import * as m51 from '@/app/(main)/surgical-journey/bundle-actions';
+import * as m52 from '@/app/(main)/users/actions';
+import * as m53 from '@/app/(main)/users/billing-permission-actions';
+import * as m54 from '@/app/(main)/visits/actions';
+import * as m55 from '@/app/(main)/visits/combined-actions';
+import * as m56 from '@/app/(main)/whatsapp/actions';
+import * as m57 from '@/app/(main)/workflow-monitor/actions';
 
 export const READS = {
   'appointments.actions.getDoctors': m0.getDoctors,
@@ -208,80 +211,88 @@ export const READS = {
   'ot-intraop.actions.getOTCaseList': m31.getOTCaseList,
   'ot-intraop.actions.getOTIntraopHistory': m31.getOTIntraopHistory,
   'ot-intraop.actions.getSurgeryLandingForPatient': m31.getSurgeryLandingForPatient,
-  'ot-postop.actions.getFollowupReviewContext': m32.getFollowupReviewContext,
-  'ot-postop.actions.getOpenPostOpEpisodeForPatient': m32.getOpenPostOpEpisodeForPatient,
-  'ot-postop.actions.getPostOpCaseList': m32.getPostOpCaseList,
-  'ot-postop.actions.getPostOpEpisodeDetail': m32.getPostOpEpisodeDetail,
-  'ot-postop.actions.getPostOpHistory': m32.getPostOpHistory,
-  'ot-postop.actions.getPostOpTurnedUpToday': m32.getPostOpTurnedUpToday,
-  'ot-recovery.actions.getDrugOptions': m33.getDrugOptions,
-  'ot-recovery.actions.getMedDosageOptions': m33.getMedDosageOptions,
-  'ot-recovery.actions.getRecoveryCaseList': m33.getRecoveryCaseList,
-  'ot-recovery.actions.getRecoveryEpisodeDetail': m33.getRecoveryEpisodeDetail,
-  'ot-recovery.actions.getRecoveryHistory': m33.getRecoveryHistory,
-  'ot-schedule.actions.getOTAvailability': m34.getOTAvailability,
-  'ot-schedule.actions.getOTHistory': m34.getOTHistory,
-  'ot-schedule.actions.getOTMonthSummary': m34.getOTMonthSummary,
-  'ot-schedule.actions.getOTUpcomingWeek': m34.getOTUpcomingWeek,
-  'ot-schedule.actions.getPackagesForDirectSurgery': m34.getPackagesForDirectSurgery,
-  'ot-schedule.actions.getScheduledOT': m34.getScheduledOT,
-  'ot-schedule.actions.getSurgeonsForDirectSurgery': m34.getSurgeonsForDirectSurgery,
-  'ot-schedule.actions.searchPatientsForDirectSurgery': m34.searchPatientsForDirectSurgery,
-  'ot-schedule.bundle-actions.getOTListBundle': m35.getOTListBundle,
-  'patient-checkin.bundle-actions.getCheckinLandingBundle': m36.getCheckinLandingBundle,
-  'patient-timeline.actions.getPatientTimeline': m37.getPatientTimeline,
-  'patient-timeline.actions.searchPatients': m37.searchPatients,
-  'patients.actions.getDuplicatesByMobile': m38.getDuplicatesByMobile,
-  'payments.actions.getAdvanceBalance': m39.getAdvanceBalance,
-  'payments.actions.getApprovers': m39.getApprovers,
-  'payments.actions.getCreditNoteRegister': m39.getCreditNoteRegister,
-  'payments.actions.getCurrentBalancesByPatient': m39.getCurrentBalancesByPatient,
-  'payments.actions.getInvoicesForCreditNote': m39.getInvoicesForCreditNote,
-  'payments.actions.getLedgerHistory': m39.getLedgerHistory,
-  'payments.actions.getOutstandingInvoices': m39.getOutstandingInvoices,
-  'payments.actions.getPatientById': m39.getPatientById,
-  'payments.actions.getPatientLedgerAudit': m39.getPatientLedgerAudit,
-  'payments.actions.getPatientPayments': m39.getPatientPayments,
-  'payments.actions.getPatientUnifiedLedger': m39.getPatientUnifiedLedger,
-  'payments.actions.getPaymentReport': m39.getPaymentReport,
-  'payments.actions.getRefundRegister': m39.getRefundRegister,
-  'payments.actions.getTodaysVisits': m39.getTodaysVisits,
-  'payments.actions.searchPatientsForPayment': m39.searchPatientsForPayment,
-  'payments.actions.searchReceipts': m39.searchReceipts,
-  'payments.combined-actions.getCollectPaymentBootstrap': m40.getCollectPaymentBootstrap,
-  'payments.combined-actions.getPatientPaymentContext': m40.getPatientPaymentContext,
-  'payments.payment-edit-actions.getDeletedPayments': m41.getDeletedPayments,
-  'payments.payment-edit-actions.getPaymentEditContext': m41.getPaymentEditContext,
-  'payments.payment-edit-actions.getPaymentHistory': m41.getPaymentHistory,
-  'payments.received-actions.getPaymentsScreenData': m42.getPaymentsScreenData,
-  'payments.received-actions.getReceivedPaymentDetail': m42.getReceivedPaymentDetail,
-  'pharmacy.actions.getPendingPrescriptionsForFrontOffice': m43.getPendingPrescriptionsForFrontOffice,
-  'pharmacy.actions.getPharmacyDashboard': m43.getPharmacyDashboard,
-  'pharmacy.actions.getPharmacyHistory': m43.getPharmacyHistory,
-  'pharmacy.actions.getPharmacyWorkspace': m43.getPharmacyWorkspace,
-  'print-templates.actions.getHospitalSettings': m44.getHospitalSettings,
-  'print-templates.actions.getPrintTemplate': m44.getPrintTemplate,
-  'print-templates.actions.listPrintTemplates': m44.listPrintTemplates,
-  'queue.actions.getPatientFlow': m45.getPatientFlow,
-  'queue.actions.getPatientTimeline': m45.getPatientTimeline,
-  'queue.actions.getQueues': m45.getQueues,
-  'queue.combined-actions.getPatientFlowBundle': m46.getPatientFlowBundle,
-  'surgical-journey.actions.getCompletedSurgicalCases': m47.getCompletedSurgicalCases,
-  'surgical-journey.actions.getDischargedTodaySurgicalCases': m47.getDischargedTodaySurgicalCases,
-  'surgical-journey.actions.getInvestigationOptionsForCase': m47.getInvestigationOptionsForCase,
-  'surgical-journey.actions.getSurgicalCaseDetail': m47.getSurgicalCaseDetail,
-  'surgical-journey.actions.getSurgicalCaseLists': m47.getSurgicalCaseLists,
-  'surgical-journey.actions.getSurgicalEvaluationArrivalsToday': m47.getSurgicalEvaluationArrivalsToday,
-  'surgical-journey.actions.getSurgicalTrackArrivalsToday': m47.getSurgicalTrackArrivalsToday,
-  'surgical-journey.bundle-actions.getSurgicalCasesBundle': m48.getSurgicalCasesBundle,
-  'users.actions.getLoginHistory': m49.getLoginHistory,
-  'users.actions.getMyDesignation': m49.getMyDesignation,
-  'users.actions.getUsers': m49.getUsers,
-  'users.billing-permission-actions.getBillingPermissionMatrix': m50.getBillingPermissionMatrix,
-  'visits.actions.getLastVisitInfo': m51.getLastVisitInfo,
-  'visits.actions.getPatientById': m51.getPatientById,
-  'visits.actions.getSurgeryTypeOptions': m51.getSurgeryTypeOptions,
-  'visits.combined-actions.getBookVisitBootstrap': m52.getBookVisitBootstrap,
-  'whatsapp.actions.getWhatsAppInbox': m53.getWhatsAppInbox,
-  'workflow-monitor.actions.getWorkflowMonitorData': m54.getWorkflowMonitorData,
+  'ot-intraop.bundle-actions.getIntraopPageBundle': m32.getIntraopPageBundle,
+  'ot-intraop.bundle-actions.getIntraopWorkspaceBundle': m32.getIntraopWorkspaceBundle,
+  'ot-postop.actions.getFollowupReviewContext': m33.getFollowupReviewContext,
+  'ot-postop.actions.getOpenPostOpEpisodeForPatient': m33.getOpenPostOpEpisodeForPatient,
+  'ot-postop.actions.getPostOpCaseList': m33.getPostOpCaseList,
+  'ot-postop.actions.getPostOpEpisodeDetail': m33.getPostOpEpisodeDetail,
+  'ot-postop.actions.getPostOpHistory': m33.getPostOpHistory,
+  'ot-postop.actions.getPostOpTurnedUpToday': m33.getPostOpTurnedUpToday,
+  'ot-postop.bundle-actions.getPostOpPageBundle': m34.getPostOpPageBundle,
+  'ot-recovery.actions.getDrugOptions': m35.getDrugOptions,
+  'ot-recovery.actions.getMedDosageOptions': m35.getMedDosageOptions,
+  'ot-recovery.actions.getRecoveryCaseList': m35.getRecoveryCaseList,
+  'ot-recovery.actions.getRecoveryEpisodeDetail': m35.getRecoveryEpisodeDetail,
+  'ot-recovery.actions.getRecoveryHistory': m35.getRecoveryHistory,
+  'ot-recovery.bundle-actions.getRecoveryPageBundle': m36.getRecoveryPageBundle,
+  'ot-recovery.bundle-actions.getRecoveryWorkspaceBundle': m36.getRecoveryWorkspaceBundle,
+  'ot-schedule.actions.getOTAvailability': m37.getOTAvailability,
+  'ot-schedule.actions.getOTHistory': m37.getOTHistory,
+  'ot-schedule.actions.getOTMonthSummary': m37.getOTMonthSummary,
+  'ot-schedule.actions.getOTUpcomingWeek': m37.getOTUpcomingWeek,
+  'ot-schedule.actions.getPackagesForDirectSurgery': m37.getPackagesForDirectSurgery,
+  'ot-schedule.actions.getScheduledOT': m37.getScheduledOT,
+  'ot-schedule.actions.getSurgeonsForDirectSurgery': m37.getSurgeonsForDirectSurgery,
+  'ot-schedule.actions.searchPatientsForDirectSurgery': m37.searchPatientsForDirectSurgery,
+  'ot-schedule.bundle-actions.getDirectSurgeryFormBundle': m38.getDirectSurgeryFormBundle,
+  'ot-schedule.bundle-actions.getOTListBundle': m38.getOTListBundle,
+  'patient-checkin.bundle-actions.getCheckinLandingBundle': m39.getCheckinLandingBundle,
+  'patient-checkin.bundle-actions.getCheckinPageBundle': m39.getCheckinPageBundle,
+  'patient-timeline.actions.getPatientTimeline': m40.getPatientTimeline,
+  'patient-timeline.actions.searchPatients': m40.searchPatients,
+  'patients.actions.getDuplicatesByMobile': m41.getDuplicatesByMobile,
+  'payments.actions.getAdvanceBalance': m42.getAdvanceBalance,
+  'payments.actions.getApprovers': m42.getApprovers,
+  'payments.actions.getCreditNoteRegister': m42.getCreditNoteRegister,
+  'payments.actions.getCurrentBalancesByPatient': m42.getCurrentBalancesByPatient,
+  'payments.actions.getInvoicesForCreditNote': m42.getInvoicesForCreditNote,
+  'payments.actions.getLedgerHistory': m42.getLedgerHistory,
+  'payments.actions.getOutstandingInvoices': m42.getOutstandingInvoices,
+  'payments.actions.getPatientById': m42.getPatientById,
+  'payments.actions.getPatientLedgerAudit': m42.getPatientLedgerAudit,
+  'payments.actions.getPatientPayments': m42.getPatientPayments,
+  'payments.actions.getPatientUnifiedLedger': m42.getPatientUnifiedLedger,
+  'payments.actions.getPaymentReport': m42.getPaymentReport,
+  'payments.actions.getRefundRegister': m42.getRefundRegister,
+  'payments.actions.getTodaysVisits': m42.getTodaysVisits,
+  'payments.actions.searchPatientsForPayment': m42.searchPatientsForPayment,
+  'payments.actions.searchReceipts': m42.searchReceipts,
+  'payments.combined-actions.getCollectPaymentBootstrap': m43.getCollectPaymentBootstrap,
+  'payments.combined-actions.getPatientPaymentContext': m43.getPatientPaymentContext,
+  'payments.payment-edit-actions.getDeletedPayments': m44.getDeletedPayments,
+  'payments.payment-edit-actions.getPaymentEditContext': m44.getPaymentEditContext,
+  'payments.payment-edit-actions.getPaymentHistory': m44.getPaymentHistory,
+  'payments.received-actions.getPaymentsScreenData': m45.getPaymentsScreenData,
+  'payments.received-actions.getReceivedPaymentDetail': m45.getReceivedPaymentDetail,
+  'pharmacy.actions.getPendingPrescriptionsForFrontOffice': m46.getPendingPrescriptionsForFrontOffice,
+  'pharmacy.actions.getPharmacyDashboard': m46.getPharmacyDashboard,
+  'pharmacy.actions.getPharmacyHistory': m46.getPharmacyHistory,
+  'pharmacy.actions.getPharmacyWorkspace': m46.getPharmacyWorkspace,
+  'print-templates.actions.getHospitalSettings': m47.getHospitalSettings,
+  'print-templates.actions.getPrintTemplate': m47.getPrintTemplate,
+  'print-templates.actions.listPrintTemplates': m47.listPrintTemplates,
+  'queue.actions.getPatientFlow': m48.getPatientFlow,
+  'queue.actions.getPatientTimeline': m48.getPatientTimeline,
+  'queue.actions.getQueues': m48.getQueues,
+  'queue.combined-actions.getPatientFlowBundle': m49.getPatientFlowBundle,
+  'surgical-journey.actions.getCompletedSurgicalCases': m50.getCompletedSurgicalCases,
+  'surgical-journey.actions.getDischargedTodaySurgicalCases': m50.getDischargedTodaySurgicalCases,
+  'surgical-journey.actions.getInvestigationOptionsForCase': m50.getInvestigationOptionsForCase,
+  'surgical-journey.actions.getSurgicalCaseDetail': m50.getSurgicalCaseDetail,
+  'surgical-journey.actions.getSurgicalCaseLists': m50.getSurgicalCaseLists,
+  'surgical-journey.actions.getSurgicalEvaluationArrivalsToday': m50.getSurgicalEvaluationArrivalsToday,
+  'surgical-journey.actions.getSurgicalTrackArrivalsToday': m50.getSurgicalTrackArrivalsToday,
+  'surgical-journey.bundle-actions.getSurgicalCasesBundle': m51.getSurgicalCasesBundle,
+  'surgical-journey.bundle-actions.getSurgicalJourneyPageBundle': m51.getSurgicalJourneyPageBundle,
+  'users.actions.getLoginHistory': m52.getLoginHistory,
+  'users.actions.getMyDesignation': m52.getMyDesignation,
+  'users.actions.getUsers': m52.getUsers,
+  'users.billing-permission-actions.getBillingPermissionMatrix': m53.getBillingPermissionMatrix,
+  'visits.actions.getLastVisitInfo': m54.getLastVisitInfo,
+  'visits.actions.getPatientById': m54.getPatientById,
+  'visits.actions.getSurgeryTypeOptions': m54.getSurgeryTypeOptions,
+  'visits.combined-actions.getBookVisitBootstrap': m55.getBookVisitBootstrap,
+  'whatsapp.actions.getWhatsAppInbox': m56.getWhatsAppInbox,
+  'workflow-monitor.actions.getWorkflowMonitorData': m57.getWorkflowMonitorData,
 };

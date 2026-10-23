@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { markPatientReported, unmarkPatientReported } from './actions';
 import { getOTCaseList, getOTIntraopHistory } from '@/lib/rpc-reads/ot-intraop__actions'; // parallel reads (tools/parallel-reads)
+import { getIntraopPageBundle } from '@/lib/rpc-reads/ot-intraop__bundle-actions'; // parallel reads (tools/parallel-reads)
 import Workspace from './workspace';
 
 const STATUS_BADGE = { Scheduled: 'b-amber', 'In Progress': 'b-blue' };
@@ -245,8 +246,14 @@ function OTIntraopInner() {
 
   const refreshCases = useCallback(async () => { setCases(await getOTCaseList()); setLoadingCases(false); }, []);
   const refreshHistory = useCallback(async () => { setHistory(await getOTIntraopHistory()); setLoadingHistory(false); }, []);
+  // ONE request for all lists (was 2) -- on open and after every action.
+  const refreshAll = useCallback(async () => {
+    const r = await getIntraopPageBundle();
+    setCases(r[0]); setLoadingCases(false);
+    setHistory(r[1]); setLoadingHistory(false);
+  }, []);
 
-  useEffect(() => { refreshCases(); refreshHistory(); }, [refreshCases, refreshHistory]);
+  useEffect(() => { refreshAll(); }, [refreshAll]);
 
   function openCase(id) {
     setSelectedId(id);
@@ -254,7 +261,7 @@ function OTIntraopInner() {
   }
 
   function handleBack() {
-    refreshCases(); refreshHistory();
+    refreshAll();
     setSelectedId(null);
     setActiveTab('dashboard');
   }

@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { getRecoveryCaseList, getRecoveryHistory } from '@/lib/rpc-reads/ot-recovery__actions'; // parallel reads (tools/parallel-reads)
+import { getRecoveryPageBundle } from '@/lib/rpc-reads/ot-recovery__bundle-actions'; // parallel reads (tools/parallel-reads)
 import Workspace from './workspace';
 
 function TabButton({ active, onClick, icon, label, disabled }) {
@@ -152,8 +153,14 @@ function RecoveryInner() {
 
   const refreshCases = useCallback(async () => { setCases(await getRecoveryCaseList()); setLoadingCases(false); }, []);
   const refreshHistory = useCallback(async () => { setHistory(await getRecoveryHistory()); setLoadingHistory(false); }, []);
+  // ONE request for all lists (was 2) -- on open and after every action.
+  const refreshAll = useCallback(async () => {
+    const r = await getRecoveryPageBundle();
+    setCases(r[0]); setLoadingCases(false);
+    setHistory(r[1]); setLoadingHistory(false);
+  }, []);
 
-  useEffect(() => { refreshCases(); refreshHistory(); }, [refreshCases, refreshHistory]);
+  useEffect(() => { refreshAll(); }, [refreshAll]);
 
   function openCase(id) {
     setSelectedId(id);
@@ -161,11 +168,11 @@ function RecoveryInner() {
   }
 
   function handleUpdate() {
-    refreshCases(); refreshHistory();
+    refreshAll();
   }
 
   function handleBack() {
-    refreshCases(); refreshHistory();
+    refreshAll();
     setSelectedId(null);
     setActiveTab('dashboard');
   }

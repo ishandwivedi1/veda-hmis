@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { getPostOpCaseList, getPostOpTurnedUpToday, getPostOpHistory } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
+import { getPostOpPageBundle } from '@/lib/rpc-reads/ot-postop__bundle-actions'; // parallel reads (tools/parallel-reads)
 import Workspace from './workspace';
 
 function TabButton({ active, onClick, icon, label, disabled }) {
@@ -169,8 +170,15 @@ function PostOpPageInner() {
   const refreshCases = useCallback(async () => { setCases(await getPostOpCaseList()); setLoadingCases(false); }, []);
   const refreshTurnedUp = useCallback(async () => { setTurnedUpToday(await getPostOpTurnedUpToday()); setLoadingTurnedUp(false); }, []);
   const refreshHistory = useCallback(async () => { setHistory(await getPostOpHistory()); setLoadingHistory(false); }, []);
+  // ONE request for all lists (was 3) -- on open and after every action.
+  const refreshAll = useCallback(async () => {
+    const r = await getPostOpPageBundle();
+    setCases(r[0]); setLoadingCases(false);
+    setTurnedUpToday(r[1]); setLoadingTurnedUp(false);
+    setHistory(r[2]); setLoadingHistory(false);
+  }, []);
 
-  useEffect(() => { refreshCases(); refreshTurnedUp(); refreshHistory(); }, [refreshCases, refreshTurnedUp, refreshHistory]);
+  useEffect(() => { refreshAll(); }, [refreshAll]);
 
   function openCase(id, readOnly) {
     setSelectedId(id);
@@ -179,11 +187,11 @@ function PostOpPageInner() {
   }
 
   function handleUpdate() {
-    refreshCases(); refreshTurnedUp(); refreshHistory();
+    refreshAll();
   }
 
   function handleBack() {
-    refreshCases(); refreshTurnedUp(); refreshHistory();
+    refreshAll();
     setSelectedId(null);
     setActiveTab('dashboard');
   }

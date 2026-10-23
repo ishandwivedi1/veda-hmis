@@ -7,6 +7,7 @@ import { getOTCaseDetail, getConsumableOptions } from '@/lib/rpc-reads/ot-intrao
 import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { uploadAttachment, deleteAttachment } from '@/lib/attachments';
 import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
+import { getIntraopWorkspaceBundle } from '@/lib/rpc-reads/ot-intraop__bundle-actions'; // parallel reads (tools/parallel-reads)
 import ConfirmActionModal from '@/app/components/ConfirmActionModal';
 
 const STEPS = ['Check-In', 'Anaesthesia', 'Surgery', 'Implant', 'Recovery'];
@@ -113,9 +114,9 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   // waits for that save first -- otherwise it could fetch the old value.
   const pendingCheckinSave = useRef(null);
 
-  const refresh = useCallback(async () => {
-    if (pendingCheckinSave.current) await pendingCheckinSave.current.catch(() => {});
-    const result = await getOTCaseDetail(otScheduleId);
+  // Applies a loaded case to the screen -- used by refresh() and by the
+  // one-request bundle when the workspace opens.
+  const applyDetail = useCallback((result) => {
     if (result.error) { setLoadError(result.error); return; }
     setData(result);
     if (!initializedTabRef.current) {
@@ -183,12 +184,21 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
       setCvCategory(result.biometryPlans[0]?.master_iol_catalog?.category || '');
       setCvEye(result.booking.surgical_cases.eye || 'OD');
     }
-  }, [otScheduleId]);
+  }, [restrictTab]);
+
+  const refresh = useCallback(async () => {
+    if (pendingCheckinSave.current) await pendingCheckinSave.current.catch(() => {});
+    applyDetail(await getOTCaseDetail(otScheduleId));
+  }, [otScheduleId, applyDetail]);
 
   useEffect(() => {
-    refresh();
-    getConsumableOptions().then(setConsumableOptions);
-    getActiveIolCatalog().then(setIolCatalog);
+    // Opening the workspace: ONE request (was 3) -- case + consumables +
+    // IOL catalog together (see bundle-actions).
+    getIntraopWorkspaceBundle(otScheduleId).then(([detail, consumables, iols]) => {
+      applyDetail(detail);
+      setConsumableOptions(consumables);
+      setIolCatalog(iols);
+    });
     initializedTabRef.current = false;
     setSubTab('checkin');
     setSeconds(0);
@@ -196,7 +206,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(timerRef.current);
-  }, [otScheduleId, refresh]);
+  }, [otScheduleId, applyDetail]);
 
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;

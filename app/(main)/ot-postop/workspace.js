@@ -5,6 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { rescheduleFollowup, saveFollowupNotes, markFollowupStatus, addRecoveryComplication, closeEpisode, openFollowupReview, addFollowup, removeFollowup } from './actions';
 import { getPostOpEpisodeDetail } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
 import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
+import { getPostOpWorkspaceBundle } from './bundle-actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
 const MILESTONES_START = [
@@ -47,13 +48,12 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
   const [addingFollowup, setAddingFollowup] = useState(false);
   const [removingFollowupId, setRemovingFollowupId] = useState(null);
 
+  // ONE request: episode + all follow-ups' attachments (was 1 + one queued
+  // request per follow-up) -- see bundle-actions.
   const refresh = useCallback(async () => {
-    const result = await getPostOpEpisodeDetail(episodeId);
-    setData(result);
-    if (!result.error && result.followups?.length > 0) {
-      const entries = await Promise.all(result.followups.map(async (f) => [f.id, await getAttachments('postop_followup', f.id)]));
-      setAttachmentsByFollowup(Object.fromEntries(entries));
-    }
+    const { detail, attachmentsByFollowup } = await getPostOpWorkspaceBundle(episodeId);
+    setData(detail);
+    if (attachmentsByFollowup) setAttachmentsByFollowup(attachmentsByFollowup);
   }, [episodeId]);
 
   useEffect(() => { refresh(); }, [episodeId, refresh]);

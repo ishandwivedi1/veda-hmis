@@ -6,7 +6,8 @@ import { rescheduleOTSlot, completeOT, undoCompleteOT, registerSurgeryDirect } f
 import { getScheduledOT, getOTHistory, getOTAvailability, searchPatientsForDirectSurgery, getPackagesForDirectSurgery, getSurgeonsForDirectSurgery } from '@/lib/rpc-reads/ot-schedule__actions'; // parallel reads (tools/parallel-reads)
 import { getSurgeries } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import OTCalendar from './ot-calendar';
-import { getOTListBundle } from '@/lib/rpc-reads/ot-schedule__bundle-actions'; // parallel reads (tools/parallel-reads)
+import { getOTListBundle } from '@/lib/rpc-reads/ot-schedule__bundle-actions';
+import { getDirectSurgeryFormBundle } from '@/lib/rpc-reads/ot-schedule__bundle-actions'; // parallel reads (tools/parallel-reads) // parallel reads (tools/parallel-reads)
 
 const STATUS_BADGE = { Scheduled: 'b-blue', 'In Progress': 'b-amber', Completed: 'b-green', Cancelled: 'b-red' };
 
@@ -342,10 +343,13 @@ function RegisterSurgeryDirectForm({ onDone }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // ONE request for the form's lists (was 3) -- see bundle-actions.
   useEffect(() => {
-    getSurgeries().then(setSurgeries);
-    getSurgeonsForDirectSurgery().then(setSurgeons);
-    getPackagesForDirectSurgery().then(setPackages);
+    getDirectSurgeryFormBundle().then(([surgeryList, surgeonList, packageList]) => {
+      setSurgeries(surgeryList);
+      setSurgeons(surgeonList);
+      setPackages(packageList);
+    });
   }, []);
 
   useEffect(() => {

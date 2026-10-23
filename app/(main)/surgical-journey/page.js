@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { recordManualReminder } from './actions';
 import { getSurgicalCaseLists, getDischargedTodaySurgicalCases, getCompletedSurgicalCases, getSurgicalTrackArrivalsToday } from '@/lib/rpc-reads/surgical-journey__actions'; // parallel reads (tools/parallel-reads)
 import { getScheduledOT, getOTHistory } from '@/lib/rpc-reads/ot-schedule__actions'; // parallel reads (tools/parallel-reads)
-import { getSurgicalCasesBundle } from '@/lib/rpc-reads/surgical-journey__bundle-actions'; // parallel reads (tools/parallel-reads)
+import { getSurgicalCasesBundle } from '@/lib/rpc-reads/surgical-journey__bundle-actions';
+import { getSurgicalJourneyPageBundle } from '@/lib/rpc-reads/surgical-journey__bundle-actions'; // parallel reads (tools/parallel-reads) // parallel reads (tools/parallel-reads)
 import { getOTListBundle } from '@/lib/rpc-reads/ot-schedule__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 const STAGE_LABEL = {
@@ -134,24 +135,22 @@ export default function SurgicalJourneyPage() {
   const [reminderFor, setReminderFor] = useState(null);
   const router = useRouter();
 
-  const refresh = useCallback(async () => {
-    const [{ active: activeCases, awaitingConfirmation: awaitingCases }, arrivals] = await getSurgicalCasesBundle(); // ONE request (was 2)
+  const applyCases = useCallback(([{ active: activeCases, awaitingConfirmation: awaitingCases }, arrivals]) => {
     setCases(activeCases);
     setAwaiting(awaitingCases);
     setArrivedToday(new Set(arrivals));
     setLoading(false);
   }, []);
-  const refreshDischargedToday = useCallback(async () => {
-    setDischargedToday(await getDischargedTodaySurgicalCases());
+  const applyDischargedToday = useCallback((rows) => {
+    setDischargedToday(rows);
     setLoadingDischargedToday(false);
   }, []);
-  const refreshHistory = useCallback(async () => {
-    setHistory(await getCompletedSurgicalCases());
+  const applyHistory = useCallback((rows) => {
+    setHistory(rows);
     setLoadingHistory(false);
   }, []);
-  const refreshSurgeriesToday = useCallback(async () => {
+  const applySurgeriesToday = useCallback(([scheduled, otHistory]) => {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    const [scheduled, otHistory] = await getOTListBundle(); // ONE request (was 2)
     // Same merge as OT Schedule's own "Today's OT List": getScheduledOT
     // only returns status='Scheduled', so a case already in surgery
     // (In Progress) has to be pulled in from OT History separately or
@@ -164,7 +163,17 @@ export default function SurgicalJourneyPage() {
     setLoadingSurgeriesToday(false);
   }, []);
 
-  useEffect(() => { refresh(); refreshDischargedToday(); refreshHistory(); refreshSurgeriesToday(); }, [refresh, refreshDischargedToday, refreshHistory, refreshSurgeriesToday]);
+  const refresh = useCallback(async () => { applyCases(await getSurgicalCasesBundle()); }, [applyCases]);
+
+  // Opening the screen: ONE request (was 4) -- see bundle-actions.
+  useEffect(() => {
+    let alive = true;
+    getSurgicalJourneyPageBundle().then(([cases, discharged, history, otList]) => {
+      if (!alive) return;
+      applyCases(cases); applyDischargedToday(discharged); applyHistory(history); applySurgeriesToday(otList);
+    });
+    return () => { alive = false; };
+  }, [applyCases, applyDischargedToday, applyHistory, applySurgeriesToday]);
 
   // Whoever's physically here right now goes first -- that's who the
   // surgeon actually needs to see, not just the longest-overdue call.
