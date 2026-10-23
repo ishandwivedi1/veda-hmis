@@ -13,59 +13,85 @@ async function addAudit(supabase, encounterId, message, userId) {
 export async function getConsultationData(queueEntryId) {
   const supabase = await createClient();
 
-  const { data: entry, error: entryError } = await supabase
-    .from('queue_entries')
-    .select('*, visits(id, doctor_id, visit_type, patients(id, first_name, salutation, last_name, uhid, age, gender))')
-    .eq('id', queueEntryId)
-    .single();
+  // SPEED (23 Oct 2026): this used to make ~7 database trips one after
+  // another. Lookups that don't depend on each other now run together:
+  //   trip 1: queue entry (+ local token check)
+  //   trip 2: everything keyed by visit/patient/user (findings + IOP,
+  //           encounter, designation, workflow, history, surgery, biometry)
+  //   trip 3: everything keyed by the encounter (+ examination)
+  // Same queries, same rules, same returned shape -- only the order changed.
+  const [{ data: entry, error: entryError }, { data: userData }] = await Promise.all([
+    supabase
+      .from('queue_entries')
+      .select('*, visits(id, doctor_id, visit_type, patients(id, first_name, salutation, last_name, uhid, age, gender))')
+      .eq('id', queueEntryId)
+      .single(),
+    getUserFast(supabase),
+  ]);
 
   if (entryError) return { error: entryError.message };
 
   const visitId = entry.visits.id;
+  const patientId = entry.visits.patients.id;
+  const userId = userData?.user?.id;
 
-  const { data: findings } = await supabase
-    .from('optometry_assessments')
-    .select('*')
-    .eq('visit_id', visitId)
-    .eq('status', 'Completed')
-    .maybeSingle();
+  // Done: most recent encounter for this visit, any status (array + length
+  // check rather than .limit()+.maybeSingle(), as elsewhere). Otherwise the
+  // active one.
+  const encounterQuery = entry.status === 'Done'
+    ? supabase.from('encounters').select('*').eq('visit_id', visitId).order('started_at', { ascending: false }).limit(1)
+    : supabase.from('encounters').select('*').eq('visit_id', visitId).eq('status', 'In Consultation').maybeSingle();
 
+  const [
+    { data: findingsRaw }, encounterRes, { data: me },
+    { data: workflowRequests }, { data: diagnosisHistoryRaw }, { data: surgicalCases }, { data: biometryRecords },
+  ] = await Promise.all([
+    // IOP readings embedded via optometry_iop_readings.assessment_id FK
+    // instead of a second, dependent query.
+    supabase
+      .from('optometry_assessments')
+      .select('*, optometry_iop_readings(*)')
+      .eq('visit_id', visitId)
+      .eq('status', 'Completed')
+      .maybeSingle(),
+    encounterQuery,
+    // Audit Log is Administrator-only (UX convenience -- RLS on
+    // encounter_audit_log is the real boundary).
+    userId
+      ? supabase.from('profiles').select('designation').eq('id', userId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase.from('workflow_requests').select('*').eq('visit_id', visitId).order('requested_at', { ascending: false }),
+    // Longitudinal (cross-visit) diagnosis history: every diagnosis this
+    // patient has, across all their encounters, via visits -> encounters.
+    supabase
+      .from('visits')
+      .select('id, encounters(id, started_at, status, diagnoses(id, name, category, eye, status, created_at))')
+      .eq('patient_id', patientId),
+    // "Mark for IPD Procedure" shows what's already been marked. Scoped by
+    // visit (a visit can span more than one encounter); additional
+    // procedures in the same surgery are embedded.
+    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority, biometry_required, fitness_required, indicative_investigations, notes, decision, decision_locked, surgical_case_procedures(id, procedure_name, eye, notes)').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
+    // Biometry is patient-level, not encounter-scoped (see ensureBiometryRecord).
+    supabase.from('biometry_records').select('id, status, verify_remarks, verified_at').eq('patient_id', patientId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
+  ]);
+
+  let findings = findingsRaw || null;
   let iopReadings = [];
   if (findings) {
-    const { data: readings } = await supabase
-      .from('optometry_iop_readings')
-      .select('*')
-      .eq('assessment_id', findings.id)
-      .order('recorded_at', { ascending: true });
-    iopReadings = readings || [];
+    const { optometry_iop_readings: readings, ...rest } = findings;
+    // Oldest first, as before (sorted here rather than in the query).
+    iopReadings = (readings || []).slice().sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+    findings = rest;
   }
 
   let encounter;
   if (entry.status === 'Done') {
-    // Most recent encounter for this visit, any status -- not combining
-    // .limit() with .maybeSingle() here, since that pairing isn't used
-    // anywhere else in this codebase (getOrCreateBiometryRecord uses the
-    // same array + length check instead for exactly this kind of lookup).
-    const { data: encounters, error: encListError } = await supabase
-      .from('encounters')
-      .select('*')
-      .eq('visit_id', visitId)
-      .order('started_at', { ascending: false })
-      .limit(1);
-    if (encListError) return { error: encListError.message };
-    encounter = encounters && encounters.length > 0 ? encounters[0] : null;
+    if (encounterRes.error) return { error: encounterRes.error.message };
+    encounter = encounterRes.data && encounterRes.data.length > 0 ? encounterRes.data[0] : null;
   } else {
-    const { data: activeEncounter, error: encActiveError } = await supabase
-      .from('encounters')
-      .select('*')
-      .eq('visit_id', visitId)
-      .eq('status', 'In Consultation')
-      .maybeSingle();
-    if (encActiveError) return { error: encActiveError.message };
-    encounter = activeEncounter;
+    if (encounterRes.error) return { error: encounterRes.error.message };
+    encounter = encounterRes.data;
   }
-
-  const { data: userData } = await getUserFast(supabase);
 
   if (!encounter) {
     // For a completed (Done) queue entry there's nothing to auto-create --
@@ -81,17 +107,28 @@ export async function getConsultationData(queueEntryId) {
       .single();
     if (encError) return { error: encError.message };
     encounter = newEncounter;
-    await addAudit(supabase, encounter.id, 'Encounter started', userData?.user?.id);
+    await addAudit(supabase, encounter.id, 'Encounter started', userId);
   }
 
-  // Section 12: exam is 1:1 with the encounter, auto-created on first
-  // open -- same pattern as the encounter itself and the optometry
-  // assessment.
-  let { data: examination } = await supabase
-    .from('clinical_examinations')
-    .select('*')
-    .eq('encounter_id', encounter.id)
-    .maybeSingle();
+  const isAdmin = me?.designation === 'Administrator';
+
+  // Section 12: exam is 1:1 with the encounter, auto-created on first open.
+  let [
+    { data: examination },
+    { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: auditLog },
+    { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
+  ] = await Promise.all([
+    supabase.from('clinical_examinations').select('*').eq('encounter_id', encounter.id).maybeSingle(),
+    supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('investigation_orders').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('encounter_audit_log').select('*').eq('encounter_id', encounter.id).order('created_at', { ascending: false }),
+    supabase.from('plan_optical_advice').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_procedures').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_referrals').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_counselling_items').select('*').eq('encounter_id', encounter.id).order('created_at'),
+    supabase.from('plan_followups').select('*').eq('encounter_id', encounter.id).maybeSingle(),
+  ]);
 
   if (!examination) {
     const { data: newExam, error: examError } = await supabase
@@ -102,60 +139,6 @@ export async function getConsultationData(queueEntryId) {
     if (examError) return { error: examError.message };
     examination = newExam;
   }
-
-  const patientId = entry.visits.patients.id;
-
-  // Audit Log is Administrator-only (app-layer check here is a UX
-  // convenience -- the real boundary is the RLS policy on
-  // encounter_audit_log itself, which already blocks SELECT for
-  // non-admins at the database level).
-  // Same answer as isCurrentUserAdmin(), using the user id already
-  // verified above instead of another round trip to Supabase Auth.
-  const { data: me } = userData?.user?.id
-    ? await supabase.from('profiles').select('designation').eq('id', userData.user.id).maybeSingle()
-    : { data: null };
-  const isAdmin = me?.designation === 'Administrator';
-
-  const [
-    { data: diagnoses }, { data: prescriptions }, { data: investigations }, { data: workflowRequests }, { data: auditLog },
-    { data: opticalAdvice }, { data: procedures }, { data: referrals }, { data: counsellingItems }, { data: followup },
-    { data: diagnosisHistoryRaw }, { data: surgicalCases }, { data: biometryRecords },
-  ] = await Promise.all([
-    supabase.from('diagnoses').select('*').eq('encounter_id', encounter.id).order('created_at'),
-    supabase.from('prescriptions').select('*').eq('encounter_id', encounter.id).order('created_at'),
-    supabase.from('investigation_orders').select('*').eq('encounter_id', encounter.id).order('created_at'),
-    supabase.from('workflow_requests').select('*').eq('visit_id', visitId).order('requested_at', { ascending: false }),
-    supabase.from('encounter_audit_log').select('*').eq('encounter_id', encounter.id).order('created_at', { ascending: false }),
-    supabase.from('plan_optical_advice').select('*').eq('encounter_id', encounter.id).order('created_at'),
-    supabase.from('plan_procedures').select('*').eq('encounter_id', encounter.id).order('created_at'),
-    supabase.from('plan_referrals').select('*').eq('encounter_id', encounter.id).order('created_at'),
-    supabase.from('plan_counselling_items').select('*').eq('encounter_id', encounter.id).order('created_at'),
-    supabase.from('plan_followups').select('*').eq('encounter_id', encounter.id).maybeSingle(),
-    // Longitudinal (cross-visit) diagnosis history: every diagnosis this
-    // patient has, across all their encounters, via visits -> encounters.
-    supabase
-      .from('visits')
-      .select('id, encounters(id, started_at, status, diagnoses(id, name, category, eye, status, created_at))')
-      .eq('patient_id', patientId),
-    // So "Mark for IPD Procedure" can show what's already been marked
-    // instead of silently reverting to a blank button after saving.
-    // Scoped by visit_id (one visit, one surgical case), not just this
-    // encounter, since a visit can span more than one encounter.
-    // Additional procedures within the same surgery (e.g. this case is
-    // Cataract, with an Anti-VEGF Injection added alongside it) are
-    // embedded directly here rather than fetched as a separate
-    // follow-up query -- avoids an extra round-trip since it depends
-    // on this query's own result anyway (surgicalCases[0].id).
-    supabase.from('surgical_cases').select('id, procedure_name, eye, status, priority, biometry_required, fitness_required, indicative_investigations, notes, decision, decision_locked, surgical_case_procedures(id, procedure_name, eye, notes)').eq('visit_id', visitId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
-    // Biometry is patient-level, not encounter-scoped (see
-    // ensureBiometryRecord) -- whatever's on file for this patient,
-    // same lookup Surgical Journey's own case page already uses, so
-    // the "Open Biometry" link below can point straight at the actual
-    // record instead of just the module's generic landing page. That
-    // way choosing "keep existing" in the re-order confirmation still
-    // shows up here exactly like a freshly-ordered one would.
-    supabase.from('biometry_records').select('id, status, verify_remarks, verified_at').eq('patient_id', patientId).neq('status', 'Cancelled').order('created_at', { ascending: false }),
-  ]);
 
   const diagnosisHistory = (diagnosisHistoryRaw || [])
     .flatMap((v) => v.encounters || [])

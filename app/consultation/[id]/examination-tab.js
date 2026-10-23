@@ -372,7 +372,13 @@ export default function ExaminationTab({ examination, encounterId, onSaved }) {
     setApplanationLe(examination.applanation_le || '');
     setRemarksRe(examination.remarks_re || '');
     setRemarksLe(examination.remarks_le || '');
-  }, [examination]);
+    // Re-load fields only when a DIFFERENT examination opens (23 Oct 2026).
+    // The parent redraws after every other save on the screen; re-loading
+    // on each of those reset these fields to the last saved copy and could
+    // wipe out whatever the doctor typed while that request was in flight.
+    // Autosave no longer triggers a parent reload at all (one request each).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examination?.id]);
 
   function markDirty(region) {
     setStatus((prev) => (prev[region] === 'Not started' ? { ...prev, [region]: 'In progress' } : prev));

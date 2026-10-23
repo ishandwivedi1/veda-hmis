@@ -5,6 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
 import { getConsultationData, addDiagnosis, removeDiagnosis, updateDiagnosisNotes, addPrescription, removePrescription, addTaperedPrescription, removeTaperGroup, addInvestigation, removeInvestigation, completeConsultation, sendForDilationFromConsultation, sendForInvestigationFromConsultation, completeWorkflowRequest, addOpticalAdvice, removeOpticalAdvice, addProcedure, removeProcedure, sendForProcedureFromConsultation, addReferral, removeReferral, completePlanItem, saveFollowup, savePatientInstructions, saveDraft, saveVisitOutcome, carryForwardDiagnosis } from '@/app/(main)/consultation/actions';
+import { consultationSave, markForSurgeryAndReload } from '@/app/(main)/consultation/combined-actions';
 import { getFollowUpContext } from '@/lib/rpc-reads/consultation__actions'; // parallel reads (tools/parallel-reads)
 import { openPopup } from '@/lib/popup';
 import { markForSurgery, markSameDaySurgicalEval, updateSurgicalCase, setDecision, addCaseProcedure, removeCaseProcedure } from '@/app/(main)/counselling/actions';
@@ -268,6 +269,22 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     refresh();
   }, [refresh]);
 
+  // ONE request per click: every save goes through consultationSave,
+  // which runs the save and hands back the redrawn consultation in the
+  // same response (no separate reload). Failed saves and saves needing
+  // confirmation come back without `data`, exactly as before.
+  const applyReloaded = useCallback((result) => {
+    const next = result?.data;
+    if (!next) return;
+    if (next.error) setLoadError(next.error);
+    else setData(next);
+  }, []);
+  const save = useCallback(async (name, ...args) => {
+    const result = await consultationSave(name, args, queueEntryId);
+    applyReloaded(result);
+    return result || {};
+  }, [queueEntryId, applyReloaded]);
+
   useEffect(() => {
     if (!data) return;
     setPatientInstructions(data.encounter.patient_instructions || '');
@@ -291,18 +308,16 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
 
   async function handleCarryForward(priorDiagnosis) {
     setError('');
-    const result = await carryForwardDiagnosis(data.encounter.id, priorDiagnosis);
+    const result = await save('carryForwardDiagnosis', data.encounter.id, priorDiagnosis);
     if (result.error) { setError(result.error); return; }
-    refresh();
   }
 
   async function handleAddDiagnosis() {
     setError('');
     if (!dxName.trim()) { setError('Diagnosis name is required.'); return; }
-    const result = await addDiagnosis(data.encounter.id, { name: dxName, eye: dxEye });
+    const result = await save('addDiagnosis', data.encounter.id, { name: dxName, eye: dxEye });
     if (result.error) { setError(result.error); return; }
     setDxName('');
-    refresh();
   }
 
   // Type-ahead for the Prescription drug field -- matches on brand or
@@ -347,10 +362,9 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     // required on its own (a doctor may fill dosage only in the steps).
     const steps = taperSteps.map((s) => ({ ...s, dosage: s.dosage || rxDosage }));
     if (steps.some((s) => !s.dosage.trim())) { setError('Select a dosage for every step of the tapering schedule.'); return; }
-    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, eye: rxIsOcular ? rxEye : 'Oral', steps });
+    const result = await save('addTaperedPrescription', data.encounter.id, { drugName: rxDrug, eye: rxIsOcular ? rxEye : 'Oral', steps });
     if (result.error) { setError(result.error); return; }
     setRxDrug(''); setRxDosage(''); setRxDrugTypeId(null); setRxIsOcular(true); setShowTaperBuilder(false);
-    refresh();
   }
 
   async function handleAddPrescription() {
@@ -360,26 +374,24 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     // doctor typed lives in rxCustomDuration.
     const effectiveDuration = rxDuration === 'Custom' ? rxCustomDuration.trim() : rxDuration;
     if (rxDuration === 'Custom' && !effectiveDuration) { setError('Enter the custom duration.'); return; }
-    const result = await addPrescription(data.encounter.id, {
+    const result = await save('addPrescription', data.encounter.id, {
       drugName: rxDrug, dosage: rxDosage, frequency: rxFrequency, duration: effectiveDuration, eye: rxIsOcular ? rxEye : 'Oral',
     });
     if (result.error) { setError(result.error); return; }
     setRxDrug('');
-    refresh();
   }
 
   async function handleAddInvestigation() {
     setError('');
     if (!invName.trim()) { setError('Investigation name is required.'); return; }
     const values = { name: invName, eye: invEye, priority: invPriority };
-    const result = await addInvestigation(data.encounter.id, values);
+    const result = await save('addInvestigation', data.encounter.id, values);
     if (result.needsConfirmation === 'biometry') {
       setBiometryReorderPrompt({ values, existingDate: result.existingBiometryDate });
       return;
     }
     if (result.error) { setError(result.error); return; }
     setInvName('');
-    refresh();
   }
 
   // Resolves the biometry re-order confirmation -- both choices create
@@ -392,32 +404,29 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     if (!biometryReorderPrompt) return;
     setError('');
     setBiometryReorderLoading(true);
-    const result = await addInvestigation(data.encounter.id, { ...biometryReorderPrompt.values, biometryChoice: choice });
+    const result = await save('addInvestigation', data.encounter.id, { ...biometryReorderPrompt.values, biometryChoice: choice });
     setBiometryReorderLoading(false);
     setBiometryReorderPrompt(null);
     if (result.error) { setError(result.error); return; }
     setInvName('');
-    refresh();
   }
 
   async function handleAddOptical() {
     setError('');
     if (!optText.trim()) { setError('Optical advice text is required.'); return; }
-    const result = await addOpticalAdvice(data.encounter.id, optText);
+    const result = await save('addOpticalAdvice', data.encounter.id, optText);
     if (result.error) { setError(result.error); return; }
     setOptText('');
-    refresh();
   }
 
   async function handleAddProcedure() {
     setError('');
     if (!procName) { setError('Select a procedure.'); return; }
-    const result = await addProcedure(data.encounter.id, procName, procEye, procNotes, procDate);
+    const result = await save('addProcedure', data.encounter.id, procName, procEye, procNotes, procDate);
     if (result.error) { setError(result.error); return; }
     setProcName('');
     setProcNotes('');
     setProcDate(todayIst());
-    refresh();
   }
 
   function handleSendForProcedure() {
@@ -436,19 +445,17 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleAddReferral() {
     setError('');
     if (!refDest) { setError('Referral destination is required.'); return; }
-    const result = await addReferral(data.encounter.id, refDest, refReason);
+    const result = await save('addReferral', data.encounter.id, refDest, refReason);
     if (result.error) { setError(result.error); return; }
     setRefDest('');
     setRefReason('');
-    refresh();
   }
 
   async function handleSaveFollowup() {
     setError('');
-    const result = await saveFollowup(data.encounter.id, { after: fuAfter, type: fuType, clinic: fuClinic, instructions: fuInstructions });
+    const result = await save('saveFollowup', data.encounter.id, { after: fuAfter, type: fuType, clinic: fuClinic, instructions: fuInstructions });
     if (result.error) { setError(result.error); return; }
     setFuSaved(true);
-    refresh();
   }
 
   async function handleSaveInstructions() {
@@ -460,8 +467,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   async function handleCompletePlanItem(table, id) {
-    await completePlanItem(table, id, data.encounter.id);
-    refresh();
+    await save('completePlanItem', table, id, data.encounter.id);
   }
 
   // This page is meant to be opened in its own window (see doctor-dashboard's
@@ -540,22 +546,22 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     // before the decision is ever touched -- the decision buttons stay
     // right there in the same expanded view for whenever it's ready.
     setSurgeryLoading(true);
-    const result = await markForSurgery(data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision || null);
+    // One request: marks the case, attaches any additional procedures
+    // staged before Save (one by one, in order, server-side -- a failure
+    // partway through still leaves a predictable, reportable set), and
+    // returns the redrawn consultation.
+    const result = await markForSurgeryAndReload(
+      queueEntryId,
+      [data.entry.visits.patients.id, data.encounter.id, surgeryProcedure, surgeryEye, surgeryInvestigations, surgeryNotes, surgeryDecision || null],
+      pendingCaseProcedures.map((p) => ({ name: p.name, eye: p.eye, notes: p.notes })),
+    );
     if (result.error) {
       setSurgeryLoading(false);
       setError(result.error);
       return;
     }
-    // Attach whatever additional procedures were staged before Save --
-    // sequential, not Promise.all, so a failure partway through leaves
-    // a predictable, reportable set of what did/didn't make it rather
-    // than a race between rows that all reference the same brand-new
-    // caseId.
-    const failedProcedures = [];
-    for (const p of pendingCaseProcedures) {
-      const addResult = await addCaseProcedure(result.caseId, p.name, p.eye, p.notes);
-      if (addResult.error) failedProcedures.push(`${p.name} (${addResult.error})`);
-    }
+    applyReloaded(result);
+    const failedProcedures = result.failedProcedures || [];
     setSurgeryLoading(false);
     if (failedProcedures.length > 0) {
       // The primary case saved fine either way -- this only reports the
@@ -573,28 +579,25 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setShowPendingProc(false);
     setPendingProcName('');
     setPendingProcNotes('');
-    refresh();
   }
 
   async function handleAddCaseProcedure(caseId) {
     setError('');
     if (!addProcName) { setError('Select a procedure.'); return; }
     setAddProcLoading(true);
-    const result = await addCaseProcedure(caseId, addProcName, addProcEye, addProcNotes);
+    const result = await save('addCaseProcedure', caseId, addProcName, addProcEye, addProcNotes);
     setAddProcLoading(false);
     if (result.error) { setError(result.error); return; }
     setShowAddProcedure(false);
     setAddProcName('');
     setAddProcNotes('');
-    refresh();
   }
 
   async function handleRemoveCaseProcedure(procedureId) {
     setError('');
     if (!window.confirm('Remove this procedure from the surgery?')) return;
-    const result = await removeCaseProcedure(procedureId);
+    const result = await save('removeCaseProcedure', procedureId);
     if (result.error) { setError(result.error); return; }
-    refresh();
   }
 
   // Purely local -- nothing hits the database until handleMarkForSurgery
@@ -627,11 +630,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     setError('');
     if (!editSurgeryProcedure) { setError('Select a surgery.'); return; }
     setSurgeryLoading(true);
-    const result = await updateSurgicalCase(editingSurgicalCaseId, editSurgeryProcedure, editSurgeryEye, editSurgeryInvestigations, editSurgeryNotes);
+    const result = await save('updateSurgicalCase', editingSurgicalCaseId, editSurgeryProcedure, editSurgeryEye, editSurgeryInvestigations, editSurgeryNotes);
     setSurgeryLoading(false);
     if (result.error) { setError(result.error); return; }
     setEditingSurgicalCaseId(null);
-    refresh();
   }
 
   function handleSendOut(kind) {
@@ -659,8 +661,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   async function handleCompleteWorkflow(id) {
-    await completeWorkflowRequest(id, data.encounter.id);
-    refresh();
+    await save('completeWorkflowRequest', id, data.encounter.id);
   }
 
   if (loadError) {
@@ -812,7 +813,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
           )}
 
           {activeTab === 'exam' && (
-            <ExaminationTab examination={data.examination} encounterId={data.encounter.id} onSaved={refresh} />
+            <ExaminationTab examination={data.examination} encounterId={data.encounter.id} />
           )}
 
           {activeTab === 'plan' && (
@@ -860,7 +861,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                             </button>
                           )}
                           {!isBiometry && i.status === 'Ordered' && (
-                            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInvestigation(i.id, data.encounter.id); refresh(); }}>Remove</button>
+                            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeInvestigation', i.id, data.encounter.id); }}>Remove</button>
                           )}
                         </div>
                       </div>
@@ -914,7 +915,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   />
                 )}
                 {data.diagnoses.map((d, idx) => (
-                  <DiagnosisRow key={d.id} d={d} index={idx} encounterId={data.encounter.id} onRemove={async () => { await removeDiagnosis(d.id, data.encounter.id); refresh(); }} />
+                  <DiagnosisRow key={d.id} d={d} index={idx} encounterId={data.encounter.id} onRemove={async () => { await save('removeDiagnosis', d.id, data.encounter.id); }} />
                 ))}
                 {data.diagnoses.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No diagnosis added yet.</div>}
                 <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setDxName(e.target.value); }}>
@@ -947,8 +948,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                             key={m.id}
                             className="btn btn-sm"
                             onClick={async () => {
-                              await addPrescription(data.encounter.id, { drugName: m.drug_name, dosage: m.dosage, frequency: m.frequency, duration: m.duration, eye: m.eye });
-                              refresh();
+                              await save('addPrescription', data.encounter.id, { drugName: m.drug_name, dosage: m.dosage, frequency: m.frequency, duration: m.duration, eye: m.eye });
                             }}
                           >
                             <i className="ti ti-plus"></i> {m.drug_name} ({m.eye || 'Oral'})
@@ -980,7 +980,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <span>
                         <strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye || 'Oral'}
                       </span>
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(item.row.id, data.encounter.id); refresh(); }}>Remove</button>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removePrescription', item.row.id, data.encounter.id); }}>Remove</button>
                     </div>
                   ) : (
                     <div key={item.key} style={{ padding: '8px 10px', margin: '6px 0', background: 'var(--purple-lt)', borderRadius: 8, borderBottom: '1px solid var(--g100)' }}>
@@ -989,7 +989,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                           <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye || 'Oral'}
                           <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering Schedule</span>
                         </span>
-                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeTaperGroup(item.key, data.encounter.id); refresh(); }}>Remove Schedule</button>
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeTaperGroup', item.key, data.encounter.id); }}>Remove Schedule</button>
                       </div>
                       <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--g700)' }}>
                         {item.steps.map((s, i) => (
@@ -1139,7 +1139,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   {data.opticalAdvice.map((o) => (
                     <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                       <span>{o.advice}</span>
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeOpticalAdvice(o.id, data.encounter.id); refresh(); }}>Remove</button>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeOpticalAdvice', o.id, data.encounter.id); }}>Remove</button>
                     </div>
                   ))}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '8px 0' }}>
@@ -1166,7 +1166,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                             </span>
                           )}
                         </span>
-                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeProcedure(p.id, data.encounter.id); refresh(); }}>Remove</button>
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeProcedure', p.id, data.encounter.id); }}>Remove</button>
                       </div>
                       {p.notes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{p.notes}</div>}
                     </div>
@@ -1278,9 +1278,8 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                                     onClick={async () => {
                                       const reason = sc.decision_locked && sc.decision !== d.v ? window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it:`) : null;
                                       if (sc.decision_locked && sc.decision !== d.v && !reason) return;
-                                      const result = await setDecision(sc.id, d.v, reason);
+                                      const result = await save('setDecision', sc.id, d.v, reason);
                                       if (result.error) { setError(result.error); return; }
-                                      refresh();
                                     }}
                                   >
                                     {d.label}
@@ -1490,7 +1489,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   {data.referrals.map((r) => (
                     <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                       <span>{r.destination}{r.reason ? ` -- ${r.reason}` : ''}</span>
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeReferral(r.id, data.encounter.id); refresh(); }}>Remove</button>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeReferral', r.id, data.encounter.id); }}>Remove</button>
                     </div>
                   ))}
                   <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
 import { getConsultationData, addPrescription, removePrescription, addTaperedPrescription, removeTaperGroup, saveExamination, completeConsultation } from '@/app/(main)/consultation/actions';
+import { consultationSave, finishPostopReview } from '@/app/(main)/consultation/combined-actions';
 import { getFollowUpContext } from '@/lib/rpc-reads/consultation__actions'; // parallel reads (tools/parallel-reads)
 import { markFollowupStatus, addFollowup, closeEpisode, addRecoveryComplication } from '@/app/(main)/ot-postop/actions';
 import { getFollowupReviewContext } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
@@ -103,6 +104,16 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // ONE request per click: save + redrawn consultation in the same response.
+  const save = useCallback(async (name, ...args) => {
+    const result = (await consultationSave(name, args, queueEntryId)) || {};
+    if (result.data) {
+      if (result.data.error) setLoadError(result.data.error);
+      else setData(result.data);
+    }
+    return result;
+  }, [queueEntryId]);
+
   useEffect(() => {
     if (!followupId) { setLoadError('No follow-up reference was passed to this review -- open it from the Post-op dashboard\'s "Start Review" / "Open Review" button instead of this link directly.'); return; }
     getFollowupReviewContext(followupId).then((r) => {
@@ -157,12 +168,11 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
     if (!rxDrug.trim()) { setError('Drug name is required.'); return; }
     const effectiveDuration = rxDuration === 'Custom' ? rxCustomDuration.trim() : rxDuration;
     if (rxDuration === 'Custom' && !effectiveDuration) { setError('Enter the custom duration.'); return; }
-    const result = await addPrescription(data.encounter.id, {
+    const result = await save('addPrescription', data.encounter.id, {
       drugName: rxDrug, dosage: rxDosage, frequency: rxFrequency, duration: effectiveDuration, eye: rxIsOcular ? rxEye : 'Oral',
     });
     if (result.error) { setError(result.error); return; }
     setRxDrug('');
-    refresh();
   }
 
   async function handleAddTaperSchedule() {
@@ -170,10 +180,9 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
     if (!rxDrug.trim()) { setError('Enter a drug name for the tapering schedule.'); return; }
     const steps = taperSteps.map((s) => ({ ...s, dosage: s.dosage || rxDosage }));
     if (steps.some((s) => !s.dosage.trim())) { setError('Select a dosage for every step of the tapering schedule.'); return; }
-    const result = await addTaperedPrescription(data.encounter.id, { drugName: rxDrug, eye: rxIsOcular ? rxEye : 'Oral', steps });
+    const result = await save('addTaperedPrescription', data.encounter.id, { drugName: rxDrug, eye: rxIsOcular ? rxEye : 'Oral', steps });
     if (result.error) { setError(result.error); return; }
     setRxDrug(''); setRxDosage(''); setRxDrugTypeId(null); setRxIsOcular(true); setShowTaperBuilder(false);
-    refresh();
   }
 
   async function handleSaveNote() {
@@ -183,11 +192,10 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
     const fields = {};
     if (eye !== 'OS') fields.remarks_re = noteRe;
     if (eye !== 'OD') fields.remarks_le = noteLe;
-    const result = await saveExamination(data.examination.id, data.encounter.id, fields);
+    const result = await save('saveExamination', data.examination.id, data.encounter.id, fields);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setNoteSaved(true);
-    refresh();
   }
 
   async function handleAddComplication() {
@@ -212,9 +220,11 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
     if (!fuLabel.trim()) { setError('A label for the next review is required.'); return; }
     if (!fuDate) { setError('Pick a date for the next review.'); return; }
     setSaving(true);
-    let result = await markFollowupStatus(reviewCtx.followup.id, 'Completed');
-    if (!result.error) result = await addFollowup(reviewCtx.episode.id, fuLabel, fuDate);
-    if (!result.error) result = await completeConsultation(data.encounter.id, queueEntryId);
+    // ONE request (was 3 in a row) -- same steps, same order, stops at first error.
+    const result = await finishPostopReview('schedule', {
+      followupId: reviewCtx.followup.id, episodeId: reviewCtx.episode.id,
+      encounterId: data.encounter.id, queueEntryId, nextLabel: fuLabel, nextDate: fuDate,
+    });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     finishAndClose();
@@ -224,9 +234,12 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
     setError('');
     if (!closureOutcome) { setError('Overall clinical outcome is required to close the episode.'); return; }
     setSaving(true);
-    let result = await markFollowupStatus(reviewCtx.followup.id, 'Completed');
-    if (!result.error) result = await closeEpisode(reviewCtx.episode.id, { status: closureStatus, outcome: closureOutcome, remarks: closureRemarks });
-    if (!result.error) result = await completeConsultation(data.encounter.id, queueEntryId);
+    // ONE request (was 3 in a row) -- same steps, same order, stops at first error.
+    const result = await finishPostopReview('close', {
+      followupId: reviewCtx.followup.id, episodeId: reviewCtx.episode.id,
+      encounterId: data.encounter.id, queueEntryId,
+      closure: { status: closureStatus, outcome: closureOutcome, remarks: closureRemarks },
+    });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     finishAndClose();
@@ -339,8 +352,7 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
                     key={m.id}
                     className="btn btn-sm"
                     onClick={async () => {
-                      await addPrescription(data.encounter.id, { drugName: m.drug_name, dosage: m.dosage, frequency: m.frequency, duration: m.duration, eye: m.eye });
-                      refresh();
+                      await save('addPrescription', data.encounter.id, { drugName: m.drug_name, dosage: m.dosage, frequency: m.frequency, duration: m.duration, eye: m.eye });
                     }}
                   >
                     <i className="ti ti-plus"></i> {m.drug_name} ({m.eye || 'Oral'})
@@ -366,7 +378,7 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
           return items.map((item) => item.type === 'single' ? (
             <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
               <span><strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye || 'Oral'}</span>
-              {!isLocked && <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removePrescription(item.row.id, data.encounter.id); refresh(); }}>Remove</button>}
+              {!isLocked && <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removePrescription', item.row.id, data.encounter.id); }}>Remove</button>}
             </div>
           ) : (
             <div key={item.key} style={{ padding: '8px 10px', margin: '6px 0', background: 'var(--purple-lt)', borderRadius: 8, borderBottom: '1px solid var(--g100)' }}>
@@ -375,7 +387,7 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
                   <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye || 'Oral'}
                   <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering</span>
                 </span>
-                {!isLocked && <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeTaperGroup(item.key, data.encounter.id); refresh(); }}>Remove Schedule</button>}
+                {!isLocked && <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeTaperGroup', item.key, data.encounter.id); }}>Remove Schedule</button>}
               </div>
               <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--g700)' }}>
                 {item.steps.map((s, i) => (
