@@ -765,6 +765,17 @@ export async function getOpticalPaymentDetail(paymentId) {
 // separate from Book Spectacles (which is customer-centric): this is
 // "how is the whole shop doing", not "what does this one customer need".
 
+// One row per customer identity with its summed advance balance (same
+// columns as the raw ledger rows the dashboard reads). Uses the database
+// function from migration 055 instead of downloading every ledger row ever
+// written; falls back to the raw rows until 055 is applied. Totals are
+// identical either way.
+async function loadAdvanceBalances(supabase) {
+  const grouped = await supabase.rpc('ui_optical_advance_balances');
+  if (!grouped.error) return grouped;
+  return supabase.from('optical_customer_ledger').select('patient_id, optical_customer_id, amount');
+}
+
 export async function getOpticalDashboardSummary() {
   const supabase = await createClient();
   const today = todayIST();
@@ -784,7 +795,7 @@ export async function getOpticalDashboardSummary() {
     // patient_id/optical_customer_id kept alongside amount (not just for the
     // shop-wide advanceHeld total below) so each booking's own advance-on-file
     // can be looked up from the same rows -- see advanceByIdentity below.
-    supabase.from('optical_customer_ledger').select('patient_id, optical_customer_id, amount'),
+    loadAdvanceBalances(supabase),
     // 'refund' is included and netted below (not skipped) -- refund_optical_payment
     // and refund_optical_advance both insert their own optical_payments row with
     // payment_type='refund' and a positive total_amount, mirroring a sale_payment/

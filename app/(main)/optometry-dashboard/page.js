@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
-import { Suspense, useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useVisibleInterval } from '@/lib/useVisibleInterval';
 import { useSearchParams } from 'next/navigation';
 import { getOptometryDashboardData } from '@/lib/rpc-reads/optometry-dashboard__actions'; // parallel reads (tools/parallel-reads)
@@ -177,22 +177,47 @@ function DashboardTab({ active, completed, onOpen, refresh, onDashboard }) {
 }
 
 // ── HISTORY ───────────────────────────────────────────────────────
+// Shows the newest 50; searching runs on the server across ALL records
+// (name, UHID, visit number), and "Load older" fetches the next 50 --
+// instead of downloading every assessment ever recorded on every open.
 function HistoryTab({ onOpen }) {
   const [rows, setRows] = useState([]);
   const [filter, setFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const requestSeq = useRef(0);
 
-  const refresh = useCallback(async (status) => {
+  // First page for the current filter + search. Typing is debounced, and a
+  // slower earlier response can never overwrite a newer one.
+  useEffect(() => {
+    const seq = ++requestSeq.current;
     setLoading(true);
-    const result = await getOptometryHistory(status || undefined);
-    setLoading(false);
-    if (result.error) { setError(result.error); return; }
-    setError('');
-    setRows(result.rows);
-  }, []);
+    const t = setTimeout(async () => {
+      const result = await getOptometryHistory(filter || undefined, { search: search.trim() });
+      if (seq !== requestSeq.current) return;
+      setLoading(false);
+      if (result.error) { setError(result.error); return; }
+      setError('');
+      setRows(result.rows);
+      setHasMore(!!result.hasMore);
+    }, search ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [filter, search]);
 
-  useEffect(() => { refresh(filter); }, [filter, refresh]);
+  async function loadOlder() {
+    if (!rows.length) return;
+    const seq = requestSeq.current;
+    setLoadingMore(true);
+    const result = await getOptometryHistory(filter || undefined, { search: search.trim(), before: rows[rows.length - 1].created_at });
+    setLoadingMore(false);
+    if (seq !== requestSeq.current) return;
+    if (result.error) { setError(result.error); return; }
+    setRows((prev) => [...prev, ...result.rows]);
+    setHasMore(!!result.hasMore);
+  }
 
   return (
     <div>
@@ -206,6 +231,7 @@ function HistoryTab({ onOpen }) {
             <option value="Completed">Completed</option>
             <option value="Draft">Draft</option>
           </select>
+          <input className="fi" style={{ flex: '1 1 220px' }} placeholder="Search all records -- name, UHID or visit no." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
       </div>
 
@@ -248,11 +274,21 @@ function HistoryTab({ onOpen }) {
                 </tr>
               );
             })}
+            {loading && rows.length === 0 && (
+              <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>Loading...</td></tr>
+            )}
             {!loading && rows.length === 0 && (
               <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: 'var(--g400)' }}>No assessments found.</td></tr>
             )}
           </tbody>
         </table>
+        {hasMore && (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <button type="button" className="btn btn-sm" disabled={loadingMore} onClick={loadOlder}>
+              {loadingMore ? 'Loading...' : 'Load older'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

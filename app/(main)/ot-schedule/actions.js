@@ -23,6 +23,22 @@ export async function getScheduledOT() {
 
 // ── OT HISTORY -- everything no longer sitting in the active schedule:
 // In Progress (currently in surgery), Completed, and Cancelled. ──
+// Cases in surgery RIGHT NOW (status 'In Progress') scheduled for today
+// (IST). Today's OT list needs only these -- it used to download the whole
+// OT history (every completed/cancelled case ever) just to pick them out.
+export async function getOTInProgressToday() {
+  const supabase = await createClient();
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const { data, error } = await supabase
+    .from('ot_schedule')
+    .select(OT_SELECT)
+    .eq('status', 'In Progress')
+    .eq('scheduled_date', today)
+    .order('scheduled_date', { ascending: false });
+  if (error) return [];
+  return data || [];
+}
+
 export async function getOTHistory() {
   const supabase = await createClient();
   const { data, error } = await supabase

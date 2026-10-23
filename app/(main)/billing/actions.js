@@ -880,7 +880,14 @@ export async function searchInvoices(query, deptFilter, dateFrom, dateTo) {
     const { data: matches } = await supabase
       .from('patients')
       .select('id')
-      .or(`uhid.ilike.%${query}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
+      .or(`uhid.ilike.%${query}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
+      // Capped (23 Oct 2026): the matching patient ids go into the next query's
+      // URL, so a short search like "ra" across thousands of patients could
+      // make that request too long to send. 100 most recent matches (~4 KB
+      // of ids) is far
+      // more than any search needs; narrow the text to find others.
+      .order('created_at', { ascending: false })
+      .limit(100);
     const ids = (matches || []).map((p) => p.id);
     if (ids.length === 0) return [];
     q = q.in('patient_id', ids);

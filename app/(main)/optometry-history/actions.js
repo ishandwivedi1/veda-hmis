@@ -10,11 +10,39 @@ import { isCurrentUserAdmin } from '@/lib/authz';
 // entry workspace (optometry-workspace.js) instead of a separate
 // read-only viewer (see assessment-viewer.js's own comment on why that
 // was retired). Before: 4 database steps one after another, every column.
-export async function getOptometryHistory(filterStatus) {
+//
+// PAGED (23 Oct 2026, migration 055): newest `limit` rows (default 50);
+// `before` = created_at of the last row already shown, for "Load older";
+// `search` is matched on the server across ALL records (name, UHID, visit
+// number). Until 055 is applied the old all-rows function is used and the
+// same paging/search is applied here, so the screen works either way.
+export async function getOptometryHistory(filterStatus, { search = '', before = null, limit = 50 } = {}) {
   const supabase = await createClient();
+  const size = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const paged = await supabase.rpc('ui_optometry_history_page', {
+    p_status: filterStatus || null,
+    p_search: search || null,
+    p_limit: size,
+    p_before: before || null,
+  });
+  if (!paged.error) {
+    const rows = paged.data || [];
+    return { rows, hasMore: rows.length === size };
+  }
+  // 055 not applied yet -> previous behaviour, paged here.
   const { data, error } = await supabase.rpc('ui_optometry_history', { p_status: filterStatus || null });
   if (error) return { error: error.message };
-  return { rows: data || [] };
+  const q = (search || '').trim().toLowerCase();
+  let rows = data || [];
+  if (before) rows = rows.filter((r) => r.created_at < before);
+  if (q) {
+    rows = rows.filter((r) => {
+      const p = r.visits?.patients || {};
+      return [p.uhid, p.first_name, p.last_name, `${p.first_name || ''} ${p.last_name || ''}`, r.visits?.visit_number]
+        .some((v) => (v || '').toLowerCase().includes(q));
+    });
+  }
+  return { rows: rows.slice(0, size), hasMore: rows.length > size };
 }
 
 // Full assessment detail for the read-only "open full sheet" viewer --
