@@ -72,6 +72,8 @@ export async function getBillingScreenData({ query = '', dept = '', dateFrom = '
     ? getInvoicesForVisit(visitId).then((r) => r?.invoices || [])
     : searchInvoices(query, dept, dateFrom, dateTo);
   if (!full) return { invoices: await listPromise };
+  // IST midnight, as a UTC instant (same convention as the rest of billing).
+  const todayStart = new Date(`${new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })}T00:00:00+05:30`).toISOString();
 
   const [invoices, day, summary, todays, surgeryDue, inv, proc, rx, bio] = await Promise.all([
     listPromise,
@@ -79,10 +81,15 @@ export async function getBillingScreenData({ query = '', dept = '', dateFrom = '
     getInvoicesSummary(),
     getTodaysVisitsWithBillingStatus(),
     getPendingPackageBilling(),
-    getPendingInvestigationBilling({ includeBilled: true }),
-    getPendingProcedureBilling({ includeBilled: true }),
-    getPendingPrescriptionsForFrontOffice({ includeBilled: true }),
-    getPendingBiometryBilling({ includeBilled: true }),
+    // Today's items only (23 Oct 2026): the To Bill chips and the default
+    // "Today" view use nothing else. This used to send every prescription /
+    // order / procedure / biometry record ever created (~360 KB and growing
+    // ~700 prescriptions a month) on every open and after every save.
+    // "All dates" fetches the full lists on demand (pending-billing-widget).
+    getPendingInvestigationBilling({ includeBilled: true, since: todayStart }),
+    getPendingProcedureBilling({ includeBilled: true, since: todayStart }),
+    getPendingPrescriptionsForFrontOffice({ includeBilled: true, since: todayStart }),
+    getPendingBiometryBilling({ includeBilled: true, since: todayStart }),
   ]);
   return {
     invoices,
@@ -91,6 +98,6 @@ export async function getBillingScreenData({ query = '', dept = '', dateFrom = '
     todaysVisits: todays?.visits || [],
     billingByVisit: todays?.billingByVisit || {},
     fullyPaidUnbilled: surgeryDue || [],
-    pending: { inv, proc, rx, bio },
+    pending: { inv, proc, rx, bio, scope: 'today' },
   };
 }

@@ -7,6 +7,7 @@ import { collectAdvance } from '../actions';
 import { searchPatientsForPayment, getAdvanceBalance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits, getPatientById } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
 import { getAdvanceSidebarBundle, getAdvanceTabBundle } from '@/lib/rpc-reads/payments__combined-actions'; // parallel reads (tools/parallel-reads)
+import { collectAdvanceAndReload } from '../combined-actions';
 import BackdateControl from '@/app/components/BackdateControl';
 
 const ADVANCE_TYPES = ['Surgery Advance', 'General Advance', 'Package Advance', 'Other'];
@@ -144,14 +145,15 @@ export default function AdvanceTab() {
     setLoading(true);
     try {
       const modesPayload = modeRows.filter((m) => parseFloat(m.amount) > 0).map((m) => ({ mode: m.mode, amount: parseFloat(m.amount) }));
-      const result = await collectAdvance(
+      // ONE request (was 2): the collection plus the refreshed sidebar.
+      const result = await collectAdvanceAndReload(
         selectedPatient.id, advanceType, amt, modesPayload, reference, remarks,
         backdate.backdateTo || null, backdate.backdateReason,
       );
       if (result.error) { setError(result.error); return; }
       setSuccess(result.payment);
       setBackdate({ backdateTo: '', backdateReason: '' });
-      refreshSidebar();
+      if (result.sidebar) { const [balances, ledger] = result.sidebar; setBalances(balances); setHistory(ledger); } else refreshSidebar();
     } catch (e) {
       setError('Something went wrong recording the advance -- check your connection and try again.');
     } finally {

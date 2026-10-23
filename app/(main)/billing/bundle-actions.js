@@ -23,3 +23,12 @@ import { getTodaysInvoicesForModification, getSurgeryBillingOptions } from './ac
 export async function getInvoiceModificationBundle() {
   return Promise.all([getTodaysInvoicesForModification(), getSurgeryBillingOptions()]);
 }
+
+// Invoice Modification -> Save surgery billing details: the save plus the
+// refreshed invoice in ONE request (was save, then a separate reload).
+import { setManualSurgeryDetails, getInvoiceById } from './actions';
+export async function saveSurgeryDetailsAndReloadInvoice(invoiceId, surgeryName, surgeryEye, surgeonId) {
+  const result = (await setManualSurgeryDetails(invoiceId, surgeryName, surgeryEye, surgeonId)) || {};
+  if (result.error) return result;
+  return { ...result, details: await getInvoiceById(invoiceId) };
+}

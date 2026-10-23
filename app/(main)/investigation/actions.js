@@ -327,7 +327,10 @@ export async function markUnableToPerform(id, reason) {
 // exclusion the same biometry order would show up twice on the Billing
 // Dashboard -- once from each table -- and could genuinely be billed
 // twice, since both rows carry their own independent billing_status.
-export async function getPendingInvestigationBilling({ includeBilled = false } = {}) {
+// `since` (ISO time, optional): only rows created from then on -- the
+// Invoices screen asks for today's only (all its default view and counts
+// use); "All dates" still loads everything on demand. (23 Oct 2026)
+export async function getPendingInvestigationBilling({ includeBilled = false, since = null } = {}) {
   const supabase = await createClient();
   let query = supabase
     .from('investigation_orders')
@@ -335,6 +338,7 @@ export async function getPendingInvestigationBilling({ includeBilled = false } =
     .neq('status', 'Cancelled')
     .not('name', 'ilike', 'biometry')
     .order('created_at', { ascending: true });
+  if (since) query = query.gte('created_at', since);
   if (!includeBilled) query = query.in('billing_status', ['Pending', 'Deferred']);
   const { data, error } = await query;
 

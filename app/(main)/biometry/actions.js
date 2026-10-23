@@ -287,12 +287,16 @@ export async function getBiometryHistory(patientFilter) {
 // than one biometry_records row (ordered again on a later visit), and
 // without grouping each row rendered as its own separate patient row,
 // so the same patient could appear to show up twice.
-export async function getPendingBiometryBilling({ includeBilled = false } = {}) {
+// `since` (ISO time, optional): only rows created from then on -- the
+// Invoices screen asks for today's only (all its default view and counts
+// use); "All dates" still loads everything on demand. (23 Oct 2026)
+export async function getPendingBiometryBilling({ includeBilled = false, since = null } = {}) {
   const supabase = await createClient();
   let query = supabase
     .from('biometry_records')
     .select('*, patients(id, first_name, salutation, last_name, uhid)')
     .order('created_at', { ascending: true });
+  if (since) query = query.gte('created_at', since);
   if (!includeBilled) query = query.in('billing_status', ['Pending', 'Deferred']);
   const { data, error } = await query;
 

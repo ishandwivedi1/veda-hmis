@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { setManualSurgeryDetails } from '../actions';
 import { searchInvoices, getInvoiceById, getTodaysInvoicesForModification, getInvoicesForVisit, getSurgeryBillingOptions } from '@/lib/rpc-reads/billing__actions'; // parallel reads (tools/parallel-reads)
 import { getInvoiceModificationBundle } from '@/lib/rpc-reads/billing__bundle-actions'; // parallel reads (tools/parallel-reads)
+import { saveSurgeryDetailsAndReloadInvoice } from '../bundle-actions';
 import { openPrintPopup } from '@/lib/printPopup';
 import InvoiceEditPanel from '../invoice-edit-panel';
 import InvoiceHistory from '../invoice-history';
@@ -121,10 +122,10 @@ export default function InvoiceModificationTab() {
     setError(''); setInfo('');
     setSavingSurgery(true);
     try {
-      const result = await setManualSurgeryDetails(selected.id, surgeryName, surgeryEyeField, surgeryDoctorId);
+      const result = await saveSurgeryDetailsAndReloadInvoice(selected.id, surgeryName, surgeryEyeField, surgeryDoctorId); // ONE request (was 2)
       if (result.error) { setError(result.error); return; }
       setInfo('Surgery billing details saved.');
-      refresh();
+      if (result.details?.invoice) { setSelected(result.details.invoice); setLineItems(result.details.lineItems); } else refresh();
     } catch (e) {
       setError('Something went wrong saving surgery details -- check your connection and try again.');
     } finally {

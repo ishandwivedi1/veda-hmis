@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { markInvestigationDenied, markInvestigationDeferred, resetInvestigationBilling } from '@/app/(main)/investigation/actions';
@@ -142,6 +142,11 @@ function unbilledCount(groups) {
   return groups.filter((g) => g.items.some((i) => i.billing_status !== 'Billed' && i.billing_status !== 'Denied')).length;
 }
 
+// IST midnight today, as a UTC ISO instant.
+function istTodayStartIso() {
+  return new Date(`${new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })}T00:00:00+05:30`).toISOString();
+}
+
 export default function PendingBillingWidget({ onCounts, bare = false, todayOnly = false, visibleCategories = ['Investigation', 'Biometry', 'Procedure', 'Pharmacy'], initialData = undefined }) {
   const [investigations, setInvestigations] = useState([]);
   const [procedures, setProcedures] = useState([]);
@@ -159,13 +164,23 @@ export default function PendingBillingWidget({ onCounts, bare = false, todayOnly
   // active, so the KPI cards for all three billing tabs stay live even
   // while only one tab's table is actually visible (see
   // visibleCategories below).
-  const load = useCallback(async () => {
+  //
+  // Scope (23 Oct 2026): the Invoices screen now hands over TODAY's items
+  // only (all its default view and chip counts use). `loadedScope` records
+  // what is currently held -- 'today' or 'all' -- so switching to "All dates"
+  // fetches the full lists once, and a later refresh of today's items can
+  // never replace a full list that is on screen.
+  const loadedScope = useRef('all');
+  const todayOnlyRef = useRef(todayOnly);
+  const load = useCallback(async (which = 'all') => {
     try {
-      const [inv, proc, rx, bio] = await getPendingBillingBundle({ includeBilled: true }); // ONE request (was 4)
+      const opts = which === 'today' ? { includeBilled: true, since: istTodayStartIso() } : { includeBilled: true };
+      const [inv, proc, rx, bio] = await getPendingBillingBundle(opts); // ONE request (was 4)
       setInvestigations(inv);
       setProcedures(proc);
       setPharmacy(rx);
       setBiometry(bio);
+      loadedScope.current = which;
     } catch (e) {
       // Leave whatever was already loaded showing rather than blank it.
     } finally {
@@ -180,18 +195,28 @@ export default function PendingBillingWidget({ onCounts, bare = false, todayOnly
   useEffect(() => {
     if (initialData === undefined) { load(); return; }
     if (!initialData) return;
+    const scope = initialData.scope || 'all';
+    // Showing "All dates" but handed today's items only -> fetch the full lists.
+    if (scope === 'today' && !todayOnlyRef.current) { load('all'); return; }
     setInvestigations(initialData.inv || []);
     setProcedures(initialData.proc || []);
     setPharmacy(initialData.rx || []);
     setBiometry(initialData.bio || []);
+    loadedScope.current = scope;
     setLoading(false);
   }, [initialData, load]);
+
+  // Switching to "All dates" while holding today's items: fetch everything once.
+  useEffect(() => {
+    todayOnlyRef.current = todayOnly;
+    if (!todayOnly && loadedScope.current === 'today') { setLoading(true); load('all'); }
+  }, [todayOnly, load]);
 
   async function withBusy(id, fn) {
     setBusyId(id);
     try {
       await fn(id);
-      await load();
+      await load(loadedScope.current === 'today' && todayOnlyRef.current ? 'today' : 'all');
     } finally {
       setBusyId(null);
     }

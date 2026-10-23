@@ -19,18 +19,20 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { getInvoicePanel, getBillingScreenData } from './invoices-screen-actions';
-import { getInvoiceHistory } from './invoice-edit-actions';
+import { getInvoiceHistory, getInvoiceEditContext } from './invoice-edit-actions';
 import { setManualSurgeryDetails } from './actions';
 import { applyAdjustment } from '@/app/(main)/payments/actions';
 import { applyCreditNote } from '@/app/(main)/credit-notes/actions';
 
 async function refreshFor(invoiceId, refresh) {
-  const [panel, screen, history] = await Promise.all([
+  const [panel, screen, history, editContext] = await Promise.all([
     getInvoicePanel(invoiceId),
     refresh?.list ? getBillingScreenData({ ...refresh.list, full: true }) : Promise.resolve(null),
     refresh?.history ? getInvoiceHistory(invoiceId) : Promise.resolve(null),
+    // The embedded edit form's own data, so it redraws without a 2nd request.
+    refresh?.editContext ? getInvoiceEditContext(invoiceId) : Promise.resolve(null),
   ]);
-  return { panel, screen, history };
+  return { panel, screen, history, editContext };
 }
 
 // Edit -> Save (edit_invoice checks everything again in Postgres).

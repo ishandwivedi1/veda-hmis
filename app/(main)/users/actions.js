@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 import { headers } from 'next/headers';
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
@@ -61,9 +62,14 @@ export async function getUsers() {
 
 // Lets the page show/hide admin-only controls without trusting the
 // client -- the actions themselves re-check this independently.
+// Fast local login check (23 Oct 2026): this only decides which buttons a
+// screen shows -- every privileged action is still enforced on the server
+// and by the database. Was ~270 ms per call (a round trip to Supabase Auth)
+// on many billing tabs. The User Management actions below keep the strict
+// network check.
 export async function getMyDesignation() {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   if (!userData?.user) return null;
   const { data: me } = await supabase.from('profiles').select('designation').eq('id', userData.user.id).maybeSingle();
   return me?.designation || null;

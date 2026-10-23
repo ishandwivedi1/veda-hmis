@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { openPrintPopup } from '@/lib/printPopup';
 import { searchCreditNotes, getCreditNote } from '@/lib/rpc-reads/credit-notes__actions'; // parallel reads (tools/parallel-reads)
-import { applyCreditNote, voidCreditNote } from './actions';
+import { applyCreditNoteRowsAndReload, voidCreditNoteAndReload } from './combined-actions';
 
 const STATUS_BADGE = { Open: 'b-blue', Closed: 'b-gray', Void: 'b-red' };
 const STATUS_LABEL = { Open: 'OPEN', Closed: 'CLOSED', Void: 'VOID' };
@@ -19,7 +19,7 @@ const money = (n) => `₹${r2(n).toLocaleString('en-IN', { minimumFractionDigits
 const dateIST = (d) => new Date(d).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' });
 
 // ─────────────────────────────────────────────────────────────────────
-function ApplyToInvoices({ data, onDone, onCancel }) {
+function ApplyToInvoices({ data, onDone, onCancel, search }) {
   const cn = data.creditNote;
   const [amounts, setAmounts] = useState({});
   const [saving, setSaving] = useState(false);
@@ -45,12 +45,12 @@ function ApplyToInvoices({ data, onDone, onCancel }) {
     const over = rows.find((x) => x.amt > x.inv.due);
     if (over) { setError(`${over.inv.invoice_number} only has ${money(over.inv.due)} due.`); return; }
     setSaving(true);
-    for (const x of rows) {
-      const res = await applyCreditNote(cn.id, x.inv.id, x.amt);
-      if (res?.error) { setSaving(false); setError(`${x.inv.invoice_number}: ${res.error}`); onDone(null); return; }
-    }
+    // ONE request: every invoice applied in order on the server, then the
+    // refreshed note + list come back together (was N + 2 requests).
+    const res = await applyCreditNoteRowsAndReload(cn.id, rows.map((x) => ({ invoiceId: x.inv.id, invoiceNumber: x.inv.invoice_number, amount: x.amt })), search);
     setSaving(false);
-    onDone(`${money(total)} applied to ${rows.map((x) => x.inv.invoice_number).join(', ')}.`);
+    if (res?.error) { setError(res.error); onDone(null, res.reloaded); return; }
+    onDone(`${money(total)} applied to ${rows.map((x) => x.inv.invoice_number).join(', ')}.`, res.reloaded);
   }
 
   if (data.openInvoices.length === 0) {
@@ -97,7 +97,7 @@ function ApplyToInvoices({ data, onDone, onCancel }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-function CreditNoteDetail({ id, onChanged, onClose }) {
+function CreditNoteDetail({ id, onChanged, onClose, search, onList }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [mode, setMode] = useState('view'); // view | apply | void
@@ -113,14 +113,21 @@ function CreditNoteDetail({ id, onChanged, onClose }) {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
+  // Note + list returned by the same request as the action; falls back to
+  // separate reloads only if they didn't come back.
+  function applyReloaded(reloaded) {
+    if (reloaded?.detail && !reloaded.detail.error) setData(reloaded.detail); else load();
+    if (reloaded?.list && onList) onList(reloaded.list); else onChanged();
+  }
+
   async function doVoid() {
     if (busy) return;
     if (!voidReason.trim()) { setError('Enter a reason to void.'); return; }
     setBusy(true); setError('');
-    const res = await voidCreditNote(id, voidReason);
+    const res = await voidCreditNoteAndReload(id, voidReason, search); // ONE request (was 3)
     setBusy(false);
     if (res?.error) { setError(res.error); return; }
-    setMode('view'); setFlash('Credit note voided.'); load(); onChanged();
+    setMode('view'); setFlash('Credit note voided.'); applyReloaded(res.reloaded);
   }
 
   if (!data) return <div className="card" style={{ padding: 24, color: error ? 'var(--red)' : 'var(--g400)' }}>{error || 'Loading...'}</div>;
@@ -148,7 +155,8 @@ function CreditNoteDetail({ id, onChanged, onClose }) {
       <div style={{ padding: 16 }}>
         {mode === 'apply' && (
           <ApplyToInvoices data={data} onCancel={() => setMode('view')}
-            onDone={(msg) => { if (msg) { setMode('view'); setFlash(msg); } load(); onChanged(); }} />
+            search={search}
+            onDone={(msg, reloaded) => { if (msg) { setMode('view'); setFlash(msg); } applyReloaded(reloaded); }} />
         )}
 
         {mode === 'void' && (
@@ -324,7 +332,8 @@ export default function CreditNotesScreen() {
 
         {split && (
           <div style={{ position: 'sticky', top: 12 }}>
-            <CreditNoteDetail key={selectedId} id={selectedId} onClose={() => setSelectedId(null)} onChanged={runSearch} />
+            <CreditNoteDetail key={selectedId} id={selectedId} onClose={() => setSelectedId(null)} onChanged={runSearch}
+              search={{ query, status, dateFrom, dateTo }} onList={(list) => { reqId.current += 1; setRows(list || []); setLoading(false); }} />
           </div>
         )}
       </div>

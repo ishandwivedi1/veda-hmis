@@ -158,17 +158,19 @@ export async function getTodaysVisitsWithBillingStatus() {
   const supabase = await createClient();
   const { startUTC, endUTC } = istDayBoundsUTC();
 
-  const { data: visits } = await supabase
+  // ONE query (23 Oct 2026): each visit's invoices come embedded (single
+  // invoices.visit_id link) instead of a second query after the visits.
+  const { data: visitsRaw } = await supabase
     .from('visits')
-    .select('*, patients(id, first_name, salutation, last_name, uhid), profiles!doctor_id(full_name)')
+    .select('*, patients(id, first_name, salutation, last_name, uhid), profiles!doctor_id(full_name), invoices(visit_id, net, paid, status)')
     .gte('created_at', startUTC)
     .lte('created_at', endUTC)
     .order('created_at', { ascending: false });
 
-  const visitIds = (visits || []).map((v) => v.id);
+  const invoices = [];
+  const visits = (visitsRaw || []).map(({ invoices: invs, ...v }) => { (invs || []).forEach((i) => invoices.push(i)); return v; });
   const billingByVisit = {};
-  if (visitIds.length > 0) {
-    const { data: invoices } = await supabase.from('invoices').select('visit_id, net, paid, status').in('visit_id', visitIds);
+  if (visits.length > 0) {
     const grouped = {};
     (invoices || []).forEach((inv) => {
       if (!grouped[inv.visit_id]) grouped[inv.visit_id] = [];
@@ -408,12 +410,16 @@ export async function markInvestigationOrdersBilled(ids, invoiceId) {
 //    getPendingInvestigationBilling() in the investigation module. ──
 // includeBilled=true returns every procedure regardless of
 // billing_status (used by the Billing Dashboard's OPD Procedures tab).
-export async function getPendingProcedureBilling({ includeBilled = false } = {}) {
+// `since` (ISO time, optional): only rows created from then on -- the
+// Invoices screen asks for today's only (all its default view and counts
+// use); "All dates" still loads everything on demand. (23 Oct 2026)
+export async function getPendingProcedureBilling({ includeBilled = false, since = null } = {}) {
   const supabase = await createClient();
   let query = supabase
     .from('plan_procedures')
     .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
     .order('created_at', { ascending: true });
+  if (since) query = query.gte('created_at', since);
   if (!includeBilled) query = query.eq('billing_status', 'Pending');
   const { data, error } = await query;
 
@@ -597,24 +603,32 @@ export async function getPendingPackageBilling() {
   const supabase = await createClient();
   const { data: cases, error } = await supabase
     .from('surgical_cases')
-    .select('id, patient_id, procedure_name, eye, package_discount, patients:patient_id(first_name, salutation, last_name, uhid), master_packages:package_id(id, code, name, price)')
+    // ONE query (23 Oct 2026): the case's extra procedures and the patient's
+    // ledger rows come embedded instead of two more queries after it.
+    .select('id, patient_id, procedure_name, eye, package_discount, patients:patient_id(first_name, salutation, last_name, uhid, patient_ledger(amount)), master_packages:package_id(id, code, name, price), surgical_case_procedures(surgical_case_id, procedure_name, eye, package_discount, package_locked, package_billed, package_id, master_packages:package_id(name, price))')
     .eq('package_locked', true)
     .eq('package_billed', false)
     .not('package_id', 'is', null);
   if (error) return [];
-  const eligibleCases = (cases || []).filter((sc) => sc.master_packages);
+  // Unpack the embedded rows back into the same shapes as before.
+  const procsByCase = {};
+  const balanceByPatient = {};
+  const eligibleCases = (cases || []).filter((sc) => sc.master_packages).map(({ surgical_case_procedures: procs, ...sc }) => {
+    procsByCase[sc.id] = procs || [];
+    if (sc.patients) {
+      const { patient_ledger: ledger, ...patient } = sc.patients;
+      if (sc.patient_id && !(sc.patient_id in balanceByPatient)) {
+        balanceByPatient[sc.patient_id] = (ledger || []).reduce((sum, r) => sum + Number(r.amount), 0);
+      }
+      return { ...sc, patients: patient };
+    }
+    return sc;
+  });
   if (eligibleCases.length === 0) return [];
 
   // Every procedure in the surgery must ALSO have a locked, unbilled
   // package before the case is even a billing candidate -- matches how
   // billing actually happens (every procedure together, one invoice).
-  const { data: procs } = await supabase
-    .from('surgical_case_procedures')
-    .select('surgical_case_id, procedure_name, eye, package_discount, package_locked, package_billed, package_id, master_packages:package_id(name, price)')
-    .in('surgical_case_id', eligibleCases.map((c) => c.id));
-
-  const procsByCase = {};
-  (procs || []).forEach((p) => { (procsByCase[p.surgical_case_id] ||= []).push(p); });
 
   const readyCases = eligibleCases.filter((sc) => {
     const caseProcs = procsByCase[sc.id] || [];
@@ -622,18 +636,6 @@ export async function getPendingPackageBilling() {
   });
   if (readyCases.length === 0) return [];
 
-  const patientIds = [...new Set(readyCases.map((sc) => sc.patient_id).filter(Boolean))];
-  // Batched -- one query for every patient here at once, not one
-  // get_advance_balance RPC call per patient (same N+1 fix as
-  // getOpenSurgicalCasesWithBalances in surgical-journey/actions.js
-  // and getOTCaseList in ot-intraop/actions.js).
-  const balanceByPatient = {};
-  if (patientIds.length > 0) {
-    const { data: ledgerRows } = await supabase.from('patient_ledger').select('patient_id, amount').in('patient_id', patientIds);
-    (ledgerRows || []).forEach((r) => {
-      balanceByPatient[r.patient_id] = (balanceByPatient[r.patient_id] || 0) + Number(r.amount);
-    });
-  }
 
   return readyCases
     .map((sc) => {

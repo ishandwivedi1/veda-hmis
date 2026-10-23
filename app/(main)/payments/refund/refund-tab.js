@@ -7,6 +7,7 @@ import { refundPayment, refundAdvance, cancelPaymentRefund } from '../actions';
 import { getPatientById, searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, getRefundRegister, getTodaysVisits } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
 import { getRefundTabBundle } from '@/lib/rpc-reads/payments__combined-actions'; // parallel reads (tools/parallel-reads)
+import { cancelRefundAndReload } from '../combined-actions';
 import { getMyDesignation } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
 
 const REASONS = ['Excess payment', 'Cancelled service', 'Duplicate payment', 'Service not rendered', 'Patient request -- approved', 'Other approved reason'];
@@ -79,11 +80,11 @@ export default function RefundTab() {
     setCancelError('');
     setCancelSaving(true);
     try {
-      const result = await cancelPaymentRefund({ refundId: r.id, reason: cancelReason });
+      const result = await cancelRefundAndReload({ refundId: r.id, reason: cancelReason }); // ONE request (was 2)
       if (result.error) { setCancelError(result.error); return; }
       setCancelingId(null);
       setCancelReason('');
-      refreshRegister();
+      if (result.register) setRegister(result.register); else refreshRegister();
     } catch (e) {
       setCancelError('Something went wrong cancelling this refund -- check your connection and try again.');
     } finally {

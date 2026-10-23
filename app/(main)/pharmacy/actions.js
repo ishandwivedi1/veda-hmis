@@ -420,12 +420,16 @@ export async function dispenseAllForVisit(prescriptionIds) {
 // Every prescription lands here the moment it's written in
 // Consultation, regardless of dispensing status -- Front Office can
 // bill it at the counter before the patient even reaches Pharmacy.
-export async function getPendingPrescriptionsForFrontOffice({ includeBilled = false } = {}) {
+// `since` (ISO time, optional): only rows created from then on -- the
+// Invoices screen asks for today's only (all its default view and counts
+// use); "All dates" still loads everything on demand. (23 Oct 2026)
+export async function getPendingPrescriptionsForFrontOffice({ includeBilled = false, since = null } = {}) {
   const supabase = await createClient();
   let query = supabase
     .from('prescriptions')
     .select('*, encounters(id, visit_id, visits(id, visit_number, patients(id, first_name, salutation, last_name, uhid, mobile)))')
     .order('created_at', { ascending: true });
+  if (since) query = query.gte('created_at', since);
   if (!includeBilled) query = query.in('billing_status', ['Pending', 'Deferred']);
   const { data, error } = await query;
 

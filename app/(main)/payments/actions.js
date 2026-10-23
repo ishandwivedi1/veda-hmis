@@ -485,7 +485,10 @@ export async function searchReceipts(query, modeFilter, dateFrom, dateTo) {
 
   let q = supabase
     .from('payments')
-    .select('*, patients(id, first_name, salutation, last_name, uhid, mobile), payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number))')
+    // refund_rows: a refund's own payment_refunds row (via refund_payment_id),
+    // embedded so its cancellation status comes back in this same query
+    // (was a second query after this one -- 23 Oct 2026).
+    .select('*, patients(id, first_name, salutation, last_name, uhid, mobile), payment_modes(mode, amount), payment_allocations(invoice_id, invoices(invoice_number)), refund_rows:payment_refunds!payment_refunds_refund_payment_id_fkey(cancelled_at, cancellation_reason)')
     .order('collected_at', { ascending: false });
 
   // Same bug and same fix as billing's searchInvoices: without a date
@@ -515,23 +518,13 @@ export async function searchReceipts(query, modeFilter, dateFrom, dateTo) {
   const { data: receipts } = await q;
   if (!receipts) return [];
 
-  // Same lookup as the optical side -- a refund's cancellation status
-  // lives on payment_refunds (keyed by refund_payment_id), not on this
-  // row, so without this a cancelled refund looked completely
-  // unchanged in this register even though its effect on the
-  // invoice's paid/outstanding had already been reversed.
-  const refundPaymentIds = receipts.filter((p) => p.payment_type === 'refund').map((p) => p.id);
-  let cancelledByRefundPaymentId = {};
-  if (refundPaymentIds.length > 0) {
-    const { data: refundRows } = await supabase
-      .from('payment_refunds')
-      .select('refund_payment_id, cancelled_at, cancellation_reason')
-      .in('refund_payment_id', refundPaymentIds);
-    (refundRows || []).forEach((r) => {
-      if (r.cancelled_at) cancelledByRefundPaymentId[r.refund_payment_id] = r.cancellation_reason;
-    });
-  }
-  const withCancellation = receipts.map((r) => ({ ...r, cancelledRefundReason: cancelledByRefundPaymentId[r.id] }));
+  // A refund's cancellation status lives on payment_refunds (keyed by
+  // refund_payment_id), not on this row -- without it a cancelled refund
+  // looked unchanged here even though its effect had been reversed.
+  const withCancellation = receipts.map(({ refund_rows: refundRows, ...r }) => {
+    const cancelled = r.payment_type === 'refund' ? (refundRows || []).find((x) => x.cancelled_at) : null;
+    return { ...r, cancelledRefundReason: cancelled ? cancelled.cancellation_reason : undefined };
+  });
 
   if (!modeFilter) return withCancellation;
   return withCancellation.filter((r) => (r.payment_modes || []).some((m) => m.mode === modeFilter));

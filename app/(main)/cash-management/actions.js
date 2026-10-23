@@ -553,7 +553,9 @@ export async function getTodayCollectionSummary(date) {
   const [{ data: payments }, { data: opticalPayments }] = await Promise.all([
     supabase
       .from('payments')
-      .select('*, payment_modes(mode, amount), patients(first_name, salutation, last_name)')
+      // refund_rows (23 Oct 2026): a refund's own refund record, embedded so
+      // its cancellation comes back in this query (was a second query).
+      .select('*, payment_modes(mode, amount), patients(first_name, salutation, last_name), refund_rows:payment_refunds!payment_refunds_refund_payment_id_fkey(cancelled_at)')
       .gte('collected_at', startUTC)
       .lte('collected_at', endUTC)
       .order('collected_at', { ascending: false }),
@@ -567,11 +569,21 @@ export async function getTodayCollectionSummary(date) {
     // cash while "expected" silently didn't.
     supabase
       .from('optical_payments')
-      .select('id, receipt_number, payment_type, total_amount, collected_at, patient_id, optical_customer_id, optical_payment_modes(mode, amount), patients(first_name, salutation, last_name), optical_customers(name)')
+      .select('id, receipt_number, payment_type, total_amount, collected_at, patient_id, optical_customer_id, optical_payment_modes(mode, amount), patients(first_name, salutation, last_name), optical_customers(name), refund_rows:optical_payment_refunds!optical_payment_refunds_refund_payment_id_fkey(cancelled_at)')
       .gte('collected_at', startUTC)
       .lte('collected_at', endUTC)
       .order('collected_at', { ascending: false }),
   ]);
+
+  // Refunds whose refund record was later cancelled (from the embedded rows).
+  const cancelledIds = new Set();
+  const hospitalRows = (payments || []).map(({ refund_rows: refundRows, ...p }) => {
+    if (p.payment_type === 'refund' && (refundRows || []).some((r) => r.cancelled_at)) cancelledIds.add(p.id);
+    return p;
+  });
+  (opticalPayments || []).forEach((p) => {
+    if (p.payment_type === 'refund' && (p.refund_rows || []).some((r) => r.cancelled_at)) cancelledIds.add(`optical-${p.id}`);
+  });
 
   const opticalRows = (opticalPayments || []).map((p) => ({
     id: `optical-${p.id}`,
@@ -587,7 +599,7 @@ export async function getTodayCollectionSummary(date) {
     opticalCustomerName: p.optical_customers?.name,
   }));
 
-  let rows = [...(payments || []), ...opticalRows].sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
+  let rows = [...hospitalRows, ...opticalRows].sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
 
   // A cancelled refund (see cancelOpticalRefund/cancelPaymentRefund)
   // had its financial effect fully reversed at the source
@@ -600,21 +612,6 @@ export async function getTodayCollectionSummary(date) {
   // cancelled refund is exactly as if it never happened -- the
   // permanent record of it having existed and been reversed lives on
   // the bill print and payment registers instead, not here.
-  const refundIds = rows.filter((p) => p.payment_type === 'refund').map((p) => p.id);
-  const hospitalRefundIds = refundIds.filter((id) => !String(id).startsWith('optical-'));
-  const opticalRefundIds = refundIds.filter((id) => String(id).startsWith('optical-')).map((id) => id.replace('optical-', ''));
-  const [{ data: cancelledHospital }, { data: cancelledOptical }] = await Promise.all([
-    hospitalRefundIds.length > 0
-      ? supabase.from('payment_refunds').select('refund_payment_id').in('refund_payment_id', hospitalRefundIds).not('cancelled_at', 'is', null)
-      : Promise.resolve({ data: [] }),
-    opticalRefundIds.length > 0
-      ? supabase.from('optical_payment_refunds').select('refund_payment_id').in('refund_payment_id', opticalRefundIds).not('cancelled_at', 'is', null)
-      : Promise.resolve({ data: [] }),
-  ]);
-  const cancelledIds = new Set([
-    ...(cancelledHospital || []).map((r) => r.refund_payment_id),
-    ...(cancelledOptical || []).map((r) => `optical-${r.refund_payment_id}`),
-  ]);
   rows = rows.filter((p) => !cancelledIds.has(p.id));
 
   const isRefund = (p) => p.payment_type === 'refund';

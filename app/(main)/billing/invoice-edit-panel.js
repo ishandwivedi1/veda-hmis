@@ -98,20 +98,20 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
   const [askReason, setAskReason] = useState(false);
   const [reasonError, setReasonError] = useState('');
 
-  const load = useCallback(() => {
-    getInvoiceEditContext(invoiceId).then((c) => {
-      if (c.error) { setError(c.error); return; }
-      setCtx(c);
-      onContext?.(c);
-      setRows(c.lines.map((l) => ({
-        line: l, name: l.service_name, rate: Number(l.rate), qty: l.qty,
-        discType: 'fixed', discValue: Number(l.disc) || 0, removed: false,
-      })));
-      setAdded([]);
-      setNewDate(c.invoiceDate);
-      setError('');
-    });
-  }, [invoiceId]);
+  const applyCtx = useCallback((c) => {
+    if (c.error) { setError(c.error); return; }
+    setCtx(c);
+    onContext?.(c);
+    setRows(c.lines.map((l) => ({
+      line: l, name: l.service_name, rate: Number(l.rate), qty: l.qty,
+      discType: 'fixed', discValue: Number(l.disc) || 0, removed: false,
+    })));
+    setAdded([]);
+    setNewDate(c.invoiceDate);
+    setError('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const load = useCallback(() => { getInvoiceEditContext(invoiceId).then(applyCtx); }, [invoiceId, applyCtx]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -203,12 +203,14 @@ export default function InvoiceEditPanel({ invoiceId, onSaved, onClose, onVoided
 
     setSaving(true);
     try {
-      const res = refresh
-        ? await saveInvoiceEditAndRefresh(invoiceId, changes, reason, Number(inv.net), refresh)
+      // ONE request (23 Oct 2026): when embedded, the reloaded edit form
+      // comes back with the save instead of a second request afterwards.
+      const res = (refresh || embedded)
+        ? await saveInvoiceEditAndRefresh(invoiceId, changes, reason, Number(inv.net), { ...(refresh || {}), editContext: embedded })
         : await saveInvoiceEdit(invoiceId, changes, reason, Number(inv.net));
       if (res.error) { setReasonError(res.error); return; }
       setAskReason(false);
-      if (embedded) load();
+      if (embedded) { if (res.refresh?.editContext) applyCtx(res.refresh.editContext); else load(); }
       onSaved?.(res.invoice, 0, res.refresh);
     } catch (e) {
       setReasonError('Something went wrong saving this edit -- check your connection and try again. Nothing was saved.');

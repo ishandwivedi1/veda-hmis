@@ -50,3 +50,21 @@ export async function getAdvanceSidebarBundle() {
 export async function getAdvanceTabBundle() {
   return Promise.all([getAdvanceSidebarBundle(), getTodaysVisits()]);
 }
+
+// ── One request per click (speed-up, 23 Oct 2026) ──
+import { cancelPaymentRefund, collectAdvance } from './actions';
+
+// Refund tab -> Cancel refund: the cancel plus the refreshed register.
+export async function cancelRefundAndReload(args) {
+  const result = (await cancelPaymentRefund(args)) || {};
+  if (result.error) return result;
+  return { ...result, register: await getRefundRegister() };
+}
+
+// Advance tab -> Collect: the collection plus the refreshed sidebar
+// (balances + ledger history) -- was collect, then a separate reload.
+export async function collectAdvanceAndReload(...args) {
+  const result = (await collectAdvance(...args)) || {};
+  if (result.error) return result;
+  return { ...result, sidebar: await getAdvanceSidebarBundle() };
+}
