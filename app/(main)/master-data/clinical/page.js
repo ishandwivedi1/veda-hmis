@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { toggleStatus, addDiagnosisMaster, updateDiagnosisMaster, deleteDiagnosisMaster, getDoctorsMaster, addSurgery, updateSurgery, deleteSurgery, addIopMethod, updateIopMethod, deleteIopMethod, addClinicalObservation, updateClinicalObservation, deleteClinicalObservation, addPatientInstructionTemplate, updatePatientInstructionTemplate, deletePatientInstructionTemplate, addHistoryOption, updateHistoryOption, deleteHistoryOption, addIolCatalogItem, updateIolCatalogItem, deleteIolCatalogItem, addSurgicalConsumable, updateSurgicalConsumable, deleteSurgicalConsumable } from '../actions';
 import { getDiagnosesMaster, getSurgeries, getIopMethods, getClinicalObservations, getPatientInstructionTemplates, getHistoryOptions, getIolCatalog, getSurgicalConsumablesMaster } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import ExamOptionsTab from './exam-options-tab';
+import DischargeTemplatesTab from './discharge-templates-tab';
 
 const TABS = [
   { key: 'doctors', label: 'Doctor' },
@@ -12,6 +13,7 @@ const TABS = [
   { key: 'iopMethods', label: 'IOP Methods' },
   { key: 'observations', label: 'Clinical Observations' },
   { key: 'patientInstructions', label: 'Patient Instructions' },
+  { key: 'dischargeTemplates', label: 'Discharge Templates' },
   { key: 'historyOptions', label: 'Patient History' },
   { key: 'examOptions', label: 'Examination Options' },
   { key: 'iolCatalog', label: 'IOL Catalog' },
@@ -365,6 +367,8 @@ export default function ClinicalMastersPage() {
         )}
 
         {activeTab === 'examOptions' && <ExamOptionsTab />}
+
+        {activeTab === 'dischargeTemplates' && <DischargeTemplatesTab />}
 
         {activeTab === 'historyOptions' && (
           <>

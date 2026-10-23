@@ -93,7 +93,7 @@ export async function getRecoveryEpisodeDetail(episodeId) {
 
   const sc = episode.surgical_cases;
 
-  const [{ data: intraop }, { data: approval }, { data: meds }, { data: followups }, { data: complications }, caseProcedures] = await Promise.all([
+  const [{ data: intraop }, { data: approval }, { data: meds }, { data: followups }, { data: complications }, caseProcedures, { data: dischargeTemplates }] = await Promise.all([
     supabase.from('ot_intraop_records').select('implant_power, implant_manufacturer, implant_model, surgical_outcome, outcome_remarks').eq('ot_schedule_id', episode.ot_schedule_id).maybeSingle(),
     // Planned IOL comes from the surgeon's IOL Approval now, matched by
     // surgical_case_id (a real FK, always available) -- not biometry,
@@ -108,12 +108,16 @@ export async function getRecoveryEpisodeDetail(episodeId) {
     // primary procedure everywhere Recovery displays it, including the
     // Discharge Summary printout.
     getCaseProcedures(sc.id),
+    // Discharge Instruction quick-picks, managed in Clinical Masters >
+    // Discharge Templates. Fetched inside this same load (in parallel on
+    // the server) so the workspace still opens in ONE request.
+    supabase.from('master_discharge_templates').select('id, label, body').eq('status', 'Active').order('sort_order').order('code'),
   ]);
 
   return {
     episode, sc, intraop: intraop || null, biometryPlans: approval ? [approval] : [],
     meds: meds || [], followups: followups || [], complications: complications || [],
-    caseProcedures,
+    caseProcedures, dischargeTemplates: dischargeTemplates || [],
   };
 }
 

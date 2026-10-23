@@ -342,6 +342,25 @@ export async function deletePatientInstructionTemplate(id, code) {
   return deleteMasterRecord(supabase, 'master_patient_instructions', id, code);
 }
 
+// ── DISCHARGE INSTRUCTION TEMPLATES (quick-picks in Recovery & Discharge) ──
+// Opening the tab: ONE request. Every click (add / edit / toggle / up /
+// down / delete) is ONE request and ONE database call -- the
+// discharge_template_save function (migration 054) applies the change,
+// writes master_data_audit_log, and returns the refreshed list, so the
+// screen never has to reload separately.
+export async function getDischargeTemplates() {
+  const supabase = await createClient();
+  const { data } = await supabase.from('master_discharge_templates').select('*').order('sort_order').order('code');
+  return data || [];
+}
+export async function saveDischargeTemplate(action, id = null, label = null, body = null) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('discharge_template_save', { p_action: action, p_id: id, p_label: label, p_body: body });
+  if (error) return { error: error.message };
+  if (data?.error) return { error: data.error };
+  return { rows: data?.rows || [] };
+}
+
 // ── HISTORY OPTIONS (Clinical Master -- chip options in the doctor's
 // Consultation History tab: Chief Complaint, Ocular/Medical/Family
 // History). Four categories in one table; code is unique per category

@@ -148,6 +148,7 @@ export const READS = {
   'master-data.actions.getActivePatientInstructionTemplates': m21.getActivePatientInstructionTemplates,
   'master-data.actions.getClinicalObservations': m21.getClinicalObservations,
   'master-data.actions.getDiagnosesMaster': m21.getDiagnosesMaster,
+  'master-data.actions.getDischargeTemplates': m21.getDischargeTemplates,
   'master-data.actions.getDosageOptions': m21.getDosageOptions,
   'master-data.actions.getDrugTypes': m21.getDrugTypes,
   'master-data.actions.getDrugs': m21.getDrugs,

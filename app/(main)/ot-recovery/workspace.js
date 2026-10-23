@@ -16,11 +16,6 @@ function todayIst() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
-const TEMPLATES = {
-  cataract: 'Eye drops as prescribed -- Moxifloxacin QID x1wk, Prednisolone QID tapering over 4wks.\nUse eye shield while sleeping for 1 week.\nAvoid bending, lifting heavy objects, and swimming for 2 weeks.\nWarning signs: sudden pain, redness, decreased vision -- contact immediately.\nFollow-up: Day 1, Week 1, Month 1, Final refraction at 4-6 weeks.',
-  glaucoma: 'Eye drops as prescribed. Avoid rubbing operated eye.\nAvoid straining, heavy lifting for 4 weeks.\nWarning signs: severe pain, sudden vision loss, excessive redness -- contact immediately.\nFollow-up as scheduled by surgeon.',
-};
-
 // Suggested starting point -- Day 1 / Week 1 / Month 1 / Final Refraction
 // relative to the chosen discharge date. Purely a default: the doctor
 // can rename, redate, remove, or add to this list before confirming
@@ -134,7 +129,7 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!data) return <div style={{ textAlign: 'center', marginTop: 40, color: 'var(--g500)' }}>Loading...</div>;
 
-  const { episode, sc, intraop, biometryPlans, meds, followups, caseProcedures } = data;
+  const { episode, sc, intraop, biometryPlans, meds, followups, caseProcedures, dischargeTemplates } = data;
   const patient = sc.patients;
   const isDischarged = !!episode.discharge_date;
   const isClosed = !!episode.closure_status;
@@ -583,9 +578,17 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
           {/* Discharge instructions */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 8 }}><i className="ti ti-file-text" style={{ color: 'var(--teal)' }}></i> Discharge Instructions</div>
+            {/* Quick-picks come from Clinical Masters > Discharge Templates
+                (loaded with the episode -- no extra request). Clicking one
+                only fills the textbox locally; nothing is sent until Save
+                or Confirm Discharge. */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-              <span className="badge b-teal" style={{ cursor: 'pointer' }} onClick={() => !fieldsDisabled && setInstructions(TEMPLATES.cataract)}>Standard cataract template</span>
-              <span className="badge b-gray" style={{ cursor: 'pointer' }} onClick={() => !fieldsDisabled && setInstructions(TEMPLATES.glaucoma)}>Glaucoma surgery template</span>
+              {(dischargeTemplates || []).map((t, i) => (
+                <span key={t.id} className={`badge ${i === 0 ? 'b-teal' : 'b-gray'}`} style={{ cursor: fieldsDisabled ? 'default' : 'pointer' }} onClick={() => !fieldsDisabled && setInstructions(t.body)}>{t.label}</span>
+              ))}
+              {(dischargeTemplates || []).length === 0 && (
+                <span style={{ fontSize: 11, color: 'var(--g400)' }}>No templates -- add them in Clinical Masters &gt; Discharge Templates.</span>
+              )}
             </div>
             <textarea className="fi fi-sm" rows={4} value={instructions} onChange={(e) => setInstructions(e.target.value)} disabled={fieldsDisabled} placeholder="Eye drop schedule, eye shield usage, activity restrictions, warning symptoms..." />
           </div>
