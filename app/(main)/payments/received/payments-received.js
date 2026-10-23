@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { openPrintPopup } from '@/lib/printPopup';
 import { resendPaymentReceiptWhatsApp } from '../actions';
+import { trackWhatsAppSend } from '@/lib/whatsappTracking';
 import { getReceivedPaymentDetail } from '@/lib/rpc-reads/payments__received-actions'; // parallel reads (tools/parallel-reads)
 import { getPaymentsScreenData } from '@/lib/rpc-reads/payments__received-actions'; // parallel reads (tools/parallel-reads)
 import DayOpenBar from '@/app/components/DayOpenBar';
@@ -179,7 +180,7 @@ function PaymentDetail({ paymentId, onChanged, onClose, listArgs, onScreen }) {
   async function sendWhatsApp() {
     if (wa.status === 'sending') return;
     setWa({ status: 'sending', msg: '' });
-    const res = await resendPaymentReceiptWhatsApp(paymentId);
+    const res = await trackWhatsAppSend(await resendPaymentReceiptWhatsApp(paymentId)); // instant reply; outcome followed in the background
     if (res.error) setWa({ status: 'error', msg: res.error });
     else if (res.warning) setWa({ status: 'warning', msg: res.warning });
     else setWa({ status: 'sent', msg: 'Sent on WhatsApp.' });

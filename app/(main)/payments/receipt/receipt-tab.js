@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { resendPaymentReceiptWhatsApp } from '../actions';
+import { trackWhatsAppSend } from '@/lib/whatsappTracking';
 import { searchReceipts } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import PaymentEditPanel from '../payment-edit-panel';
@@ -56,7 +57,7 @@ export default function ReceiptTab() {
   async function handleSendWhatsApp(receiptId) {
     setWaStatus((s) => ({ ...s, [receiptId]: 'sending' }));
     setWaMsg((s) => ({ ...s, [receiptId]: '' }));
-    const result = await resendPaymentReceiptWhatsApp(receiptId);
+    const result = await trackWhatsAppSend(await resendPaymentReceiptWhatsApp(receiptId)); // instant reply; outcome followed in the background
     if (result.error) {
       setWaStatus((s) => ({ ...s, [receiptId]: 'error' }));
       setWaMsg((s) => ({ ...s, [receiptId]: result.error }));

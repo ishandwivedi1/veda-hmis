@@ -317,5 +317,6 @@ export const READS = {
   'visits.actions.getSurgeryTypeOptions': m61.getSurgeryTypeOptions,
   'visits.combined-actions.getBookVisitBootstrap': m62.getBookVisitBootstrap,
   'whatsapp.actions.getWhatsAppInbox': m63.getWhatsAppInbox,
+  'whatsapp.actions.getWhatsAppSendStatus': m63.getWhatsAppSendStatus,
   'workflow-monitor.actions.getWorkflowMonitorData': m64.getWorkflowMonitorData,
 };

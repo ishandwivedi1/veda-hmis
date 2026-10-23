@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { formatPatientName } from '@/lib/patientName';
 import { openPrintPopup } from '@/lib/printPopup';
 import { resendInvoiceBillWhatsApp } from '../actions';
+import { trackWhatsAppSend } from '@/lib/whatsappTracking';
 // Saves that send back the refreshed invoice / list / history in the same
 // response -- one request per click, no reloads afterwards.
 import { applyCreditsAndRefresh, saveSurgeryDetailsAndRefresh } from '../invoice-change-actions';
@@ -289,7 +290,7 @@ function InvoiceDetail({ invoiceId, onChanged, onClose, listArgs, onScreen }) {
     if (wa.status === 'sending') return;
     setWa({ status: 'sending', msg: '' });
     try {
-      const res = await resendInvoiceBillWhatsApp(invoiceId);
+      const res = await trackWhatsAppSend(await resendInvoiceBillWhatsApp(invoiceId)); // instant reply; outcome followed in the background
       if (res?.error) setWa({ status: 'error', msg: res.error });
       else if (res?.warning) setWa({ status: 'warning', msg: res.warning });
       else setWa({ status: 'sent', msg: 'Bill sent on WhatsApp.' });

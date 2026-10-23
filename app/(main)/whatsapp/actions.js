@@ -79,3 +79,27 @@ export async function sendWhatsAppReply({ mobile, text, replyToWaId = null }) {
   if (saveError) return { warning: `Sent, but could not be saved in the inbox: ${saveError.message}`, thread };
   return { ok: true, thread };
 }
+
+// Outcome of a background WhatsApp send (speed-up, 23 Oct 2026). The send
+// buttons reply immediately and do the PDF + WhatsApp work in the
+// background; screens poll this (read-only, parallel route) with the
+// `track` ticket they were given to show Sent / Failed. Matches the newest
+// whatsapp_logs row for that patient + template since the send started.
+export async function getWhatsAppSendStatus(track) {
+  if (!track?.patientId || !track?.since || !Array.isArray(track?.templates) || track.templates.length === 0) {
+    return { status: 'unknown' };
+  }
+  const supabase = await createClient();
+  let q = supabase
+    .from('whatsapp_logs')
+    .select('success, error_message, sent_at')
+    .eq('patient_id', track.patientId)
+    .in('template_name', track.templates)
+    .gte('sent_at', track.since)
+    .order('sent_at', { ascending: false })
+    .limit(1);
+  if (track.invoiceId) q = q.eq('invoice_id', track.invoiceId);
+  const { data, error } = await q;
+  if (error || !data || data.length === 0) return { status: 'pending' };
+  return data[0].success ? { status: 'sent' } : { status: 'failed', error: data[0].error_message || 'WhatsApp send failed.' };
+}

@@ -5,7 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { createClient } from '@/lib/supabase-server';
 import { requireDayOpen, getTodayCollectionSummary, getRevenueByDepartmentToday, getDayOpening, isTodayOpen } from '@/app/(main)/cash-management/actions';
 import { sendInvoiceBill } from '@/app/(main)/billing/actions';
-import { sendAdvanceReceiptWhatsApp, sendPaymentReceiptWhatsApp, formatDateOnlyIST } from '@/lib/whatsapp';
+import { sendAdvanceReceiptWhatsApp, sendPaymentReceiptWhatsApp, formatDateOnlyIST, logWhatsAppFailure } from '@/lib/whatsapp';
 import { generateReceiptPdfBuffer } from '@/lib/pdf-generator';
 import { logJourneyEvent } from '@/lib/journey-events';
 import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
@@ -572,51 +572,73 @@ export async function resendPaymentReceiptWhatsApp(paymentId) {
   if (error || !payment) return { error: error?.message || 'Receipt not found.' };
   if (!payment.patients?.mobile) return { error: 'Patient has no mobile number on file.' };
 
-  const pdfResult = await generateReceiptPdfBuffer(paymentId);
-  if (pdfResult.error) return { error: pdfResult.error };
+  // Speed-up (23 Oct 2026): everything above is checked instantly; the PDF
+  // and the WhatsApp send run in the background so the screen is free at
+  // once. The outcome lands in whatsapp_logs (PDF failures included) and
+  // the screen follows it via getWhatsAppSendStatus.
+  const templateName = payment.payment_type === 'advance' ? 'advance_receipt' : 'payment_receipt';
+  const since = new Date().toISOString();
+  after(async () => {
+    try {
+      const pdfResult = await generateReceiptPdfBuffer(paymentId);
+      if (pdfResult.error) {
+        const { data: { user } } = await getUserFast(supabase);
+        await logWhatsAppFailure({
+          mobile: payment.patients.mobile, templateName,
+          meta: { module: payment.payment_type === 'advance' ? 'advance_payment' : 'payment_receipt', triggeredBy: user?.id || null, patientId: payment.patient_id },
+          error: pdfResult.error,
+        });
+        return;
+      }
 
-  const { data: { user } } = await getUserFast(supabase);
-  const name = `${formatPatientName(payment.patients)}`.trim();
-  const filename = `${payment.receipt_number || 'Receipt'}.pdf`;
-  const meta = { module: payment.payment_type === 'advance' ? 'advance_payment' : 'payment_receipt', triggeredBy: user?.id || null };
+      const { data: { user } } = await getUserFast(supabase);
+      const name = `${formatPatientName(payment.patients)}`.trim();
+      const filename = `${payment.receipt_number || 'Receipt'}.pdf`;
+      const meta = { module: payment.payment_type === 'advance' ? 'advance_payment' : 'payment_receipt', triggeredBy: user?.id || null };
 
-  let whatsapp;
-  if (payment.payment_type === 'advance') {
-    whatsapp = await sendAdvanceReceiptWhatsApp({
-      name,
-      amount: payment.total_amount,
-      receiptNumber: payment.receipt_number,
-      date: formatDateOnlyIST(payment.collected_at),
-      mobile: payment.patients.mobile,
-      pdfBuffer: pdfResult.buffer,
-      filename,
-      patientDbId: payment.patient_id,
-      meta,
-    });
-  } else {
-    const { data: allocations } = await supabase
-      .from('payment_allocations')
-      .select('invoices(invoice_number)')
-      .eq('payment_id', paymentId);
-    const invoiceNumber = (allocations || []).map((a) => a.invoices?.invoice_number).filter(Boolean).join(', ') || '--';
+      let whatsapp;
+      if (payment.payment_type === 'advance') {
+        whatsapp = await sendAdvanceReceiptWhatsApp({
+          name,
+          amount: payment.total_amount,
+          receiptNumber: payment.receipt_number,
+          date: formatDateOnlyIST(payment.collected_at),
+          mobile: payment.patients.mobile,
+          pdfBuffer: pdfResult.buffer,
+          filename,
+          patientDbId: payment.patient_id,
+          meta,
+        });
+      } else {
+        const { data: allocations } = await supabase
+          .from('payment_allocations')
+          .select('invoices(invoice_number)')
+          .eq('payment_id', paymentId);
+        const invoiceNumber = (allocations || []).map((a) => a.invoices?.invoice_number).filter(Boolean).join(', ') || '--';
 
-    whatsapp = await sendPaymentReceiptWhatsApp({
-      name,
-      amount: payment.total_amount,
-      invoiceNumber,
-      receiptNumber: payment.receipt_number,
-      date: formatDateOnlyIST(payment.collected_at),
-      mobile: payment.patients.mobile,
-      pdfBuffer: pdfResult.buffer,
-      filename,
-      patientDbId: payment.patient_id,
-      meta,
-    });
-  }
+        whatsapp = await sendPaymentReceiptWhatsApp({
+          name,
+          amount: payment.total_amount,
+          invoiceNumber,
+          receiptNumber: payment.receipt_number,
+          date: formatDateOnlyIST(payment.collected_at),
+          mobile: payment.patients.mobile,
+          pdfBuffer: pdfResult.buffer,
+          filename,
+          patientDbId: payment.patient_id,
+          meta,
+        });
+      }
 
-  if (!whatsapp.success) return { error: whatsapp.error || 'Failed to send WhatsApp message.' };
-  if (whatsapp.logError) return { success: true, warning: `Message sent, but audit logging failed: ${whatsapp.logError}` };
-  return { success: true };
+    } catch (e) {
+      await logWhatsAppFailure({
+        mobile: payment.patients.mobile, templateName,
+        meta: { module: payment.payment_type === 'advance' ? 'advance_payment' : 'payment_receipt', patientId: payment.patient_id },
+        error: e?.message || 'Unexpected error while sending.',
+      });
+    }
+  });
+  return { queued: true, track: { since, patientId: payment.patient_id, invoiceId: null, templates: [templateName] } };
 }
 
 // ── REFUND / MODIFICATION ──

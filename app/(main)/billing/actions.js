@@ -4,7 +4,8 @@ import { createClient } from '@/lib/supabase-server';
 import { formatPatientName } from '@/lib/patientName';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { generateInvoicePdfBuffer } from '@/lib/pdf-generator';
-import { sendInvoiceBillWhatsApp } from '@/lib/whatsapp';
+import { sendInvoiceBillWhatsApp, logWhatsAppFailure } from '@/lib/whatsapp';
+import { after } from 'next/server'; // background WhatsApp sends
 import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // Shared by the auto-send-on-full-payment trigger (collectPayment, in
@@ -35,7 +36,15 @@ export async function sendInvoiceBill(invoiceId, { force = false, triggeredBy = 
   if (!invoice.patients?.mobile) return { error: 'Patient has no mobile number on file.' };
 
   const pdfResult = await generateInvoicePdfBuffer(invoiceId);
-  if (pdfResult.error) return { success: false, error: pdfResult.error };
+  if (pdfResult.error) {
+    // Logged so it shows up like any other failed send (was invisible).
+    await logWhatsAppFailure({
+      mobile: invoice.patients.mobile, templateName: 'bill_template_with_pdf',
+      meta: { module: 'invoice_bill', triggeredBy, patientId: invoice.patient_id, invoiceId: invoice.id },
+      error: pdfResult.error,
+    });
+    return { success: false, error: pdfResult.error };
+  }
 
   return sendInvoiceBillWhatsApp({
     name: `${formatPatientName(invoice.patients)}`.trim(),
@@ -52,15 +61,36 @@ export async function sendInvoiceBill(invoiceId, { force = false, triggeredBy = 
 
 // Manual resend, exposed to the "Resend WhatsApp Bill" button -- always
 // sends regardless of whether it was sent automatically before.
+// Manual "Send on WhatsApp" (speed-up, 23 Oct 2026): checks what can be
+// checked instantly (invoice exists, patient has a mobile), then replies
+// straight away and builds the PDF + sends in the background. The screen
+// follows the outcome through whatsapp_logs (getWhatsAppSendStatus), so a
+// failure is still reported -- staff just aren't frozen for 5-6 seconds
+// while it happens (server actions on a page run one at a time).
 export async function resendInvoiceBillWhatsApp(invoiceId) {
   if (!invoiceId) return { error: 'Missing invoice id.' };
   const supabase = await createClient();
-  const { data: { user } } = await getUserFast(supabase);
+  const [{ data: { user } }, { data: invoice, error }] = await Promise.all([
+    getUserFast(supabase),
+    supabase.from('invoices').select('id, patient_id, patients(mobile)').eq('id', invoiceId).single(),
+  ]);
+  if (error || !invoice) return { error: error?.message || 'Invoice not found.' };
+  if (!invoice.patients?.mobile) return { error: 'Patient has no mobile number on file.' };
 
-  const result = await sendInvoiceBill(invoiceId, { force: true, triggeredBy: user?.id || null });
-  if (!result.success) return { error: result.error || 'Failed to send WhatsApp bill.' };
-  if (result.logError) return { success: true, warning: `Message sent, but audit logging failed: ${result.logError}` };
-  return { success: true };
+  const since = new Date().toISOString();
+  const triggeredBy = user?.id || null;
+  after(async () => {
+    try {
+      await sendInvoiceBill(invoiceId, { force: true, triggeredBy });
+    } catch (e) {
+      await logWhatsAppFailure({
+        mobile: invoice.patients.mobile, templateName: 'bill_template_with_pdf',
+        meta: { module: 'invoice_bill', triggeredBy, patientId: invoice.patient_id, invoiceId },
+        error: e?.message || 'Unexpected error while sending.',
+      });
+    }
+  });
+  return { queued: true, track: { since, patientId: invoice.patient_id, invoiceId, templates: ['bill_template_with_pdf'] } };
 }
 
 // Same IST-boundary approach as Cash Management -- a plain date string

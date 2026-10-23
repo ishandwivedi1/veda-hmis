@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { resendInvoiceBillWhatsApp } from '../actions';
+import { trackWhatsAppSend } from '@/lib/whatsappTracking';
 import { searchInvoices, getInvoiceById } from '@/lib/rpc-reads/billing__actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import InvoiceEditPanel from '../invoice-edit-panel';
@@ -52,7 +53,7 @@ export default function InvoiceDetailsTab() {
     setWaStatus('sending');
     setWaMsg('');
     try {
-      const result = await resendInvoiceBillWhatsApp(selected.id);
+      const result = await trackWhatsAppSend(await resendInvoiceBillWhatsApp(selected.id)); // instant reply; outcome followed in the background
       if (result.error) { setWaStatus('error'); setWaMsg(result.error); return; }
       if (result.warning) { setWaStatus('warning'); setWaMsg(result.warning); return; }
       setWaStatus('sent');
