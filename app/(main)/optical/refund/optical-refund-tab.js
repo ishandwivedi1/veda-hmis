@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { getApprovers, refundOpticalAdvance, refundOpticalPayment, cancelOpticalRefund } from '../actions';
 import { searchOpticalCustomers, getOpticalAdvanceBalance, getOpticalPaymentsForCustomer, getOpticalRefundRegister } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
 import { getMyDesignation } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
+import { getOpticalRefundTabBundle } from '@/lib/rpc-reads/optical__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Card', 'Cheque', 'Bank Transfer'];
 
@@ -37,10 +38,13 @@ export default function OpticalRefundTab() {
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
+  // ONE request on open (was 3).
   useEffect(() => {
-    getApprovers().then(setApprovers);
-    refreshRegister();
-    getMyDesignation().then((d) => setIsAdmin(d === 'Administrator'));
+    getOpticalRefundTabBundle().then(([approvers, register, designation]) => {
+      setApprovers(approvers);
+      setRegister(register);
+      setIsAdmin(designation === 'Administrator');
+    }).catch(() => {});
   }, []);
 
   async function refreshRegister() {

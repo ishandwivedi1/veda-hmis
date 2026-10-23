@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { collectAdvance } from '../actions';
 import { searchPatientsForPayment, getAdvanceBalance, getCurrentBalancesByPatient, getLedgerHistory, getTodaysVisits, getPatientById } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
+import { getAdvanceSidebarBundle, getAdvanceTabBundle } from '@/lib/rpc-reads/payments__combined-actions'; // parallel reads (tools/parallel-reads)
 import BackdateControl from '@/app/components/BackdateControl';
 
 const ADVANCE_TYPES = ['Surgery Advance', 'General Advance', 'Package Advance', 'Other'];
@@ -48,13 +49,21 @@ export default function AdvanceTab() {
   const [history, setHistory] = useState([]);
   const [todaysVisits, setTodaysVisits] = useState([]);
 
+  // ONE request (was 2, one after another).
   const refreshSidebar = useCallback(async () => {
-    setBalances(await getCurrentBalancesByPatient());
-    setHistory(await getLedgerHistory());
+    const [balances, ledger] = await getAdvanceSidebarBundle();
+    setBalances(balances);
+    setHistory(ledger);
   }, []);
 
-  useEffect(() => { refreshSidebar(); }, [refreshSidebar]);
-  useEffect(() => { getTodaysVisits().then(setTodaysVisits); }, []);
+  // ONE request on open (was 3): sidebar + today's visits.
+  useEffect(() => {
+    getAdvanceTabBundle().then(([[balances, ledger], visits]) => {
+      setBalances(balances);
+      setHistory(ledger);
+      setTodaysVisits(visits);
+    });
+  }, []);
 
   // Arrived from OT Dashboard's "Collect Advance" button -- patient and
   // suggested amount (package price minus whatever advance already

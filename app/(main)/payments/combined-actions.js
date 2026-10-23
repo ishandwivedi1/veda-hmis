@@ -26,3 +26,27 @@ export async function getCollectPaymentBootstrap(patientId) {
   ]);
   return { unpaid, patientResult, ctx };
 }
+
+// ── Tab openers (speed-up, 23 Oct 2026): each tab opens in ONE request ──
+import { getApprovers, getRefundRegister, getTodaysVisits, getCreditNoteRegister, getCurrentBalancesByPatient, getLedgerHistory } from './actions';
+import { getMyDesignation } from '../users/actions';
+
+// Refund tab: approvers, refund register, today's visits, my designation (was 4).
+export async function getRefundTabBundle() {
+  return Promise.all([getApprovers(), getRefundRegister(), getTodaysVisits(), getMyDesignation()]);
+}
+
+// Credit Note tab: approvers, credit note register, today's visits (was 3).
+export async function getCreditNoteTabBundle() {
+  return Promise.all([getApprovers(), getCreditNoteRegister(), getTodaysVisits()]);
+}
+
+// Advance tab sidebar: balances + ledger history (was 2, one after another).
+export async function getAdvanceSidebarBundle() {
+  return Promise.all([getCurrentBalancesByPatient(), getLedgerHistory()]);
+}
+
+// Advance tab on open: sidebar + today's visits (was 3).
+export async function getAdvanceTabBundle() {
+  return Promise.all([getAdvanceSidebarBundle(), getTodaysVisits()]);
+}

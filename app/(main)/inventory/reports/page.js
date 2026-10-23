@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import InventoryTabs from '../inventory-tabs';
 import { getStockValuationReport, getExpiryReport, getConsumptionReport, getVendorPurchaseSummary } from '@/lib/rpc-reads/inventory__actions'; // parallel reads (tools/parallel-reads)
+import { getInventoryReportsBundle } from '@/lib/rpc-reads/inventory__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 function daysAgo(n) {
   const d = new Date();
@@ -37,14 +38,21 @@ export default function InventoryReportsPage() {
   const loadConsumption = useCallback(async () => setConsumption(await getConsumptionReport(consumptionStart, consumptionEnd)), [consumptionStart, consumptionEnd]);
   const loadVendorSummary = useCallback(async () => setVendorSummary(await getVendorPurchaseSummary(vendorStart, vendorEnd)), [vendorStart, vendorEnd]);
 
+  // Opening the page: ONE request for all four reports (was 7 -- the four,
+  // then three of them again from the filter watchers below on first render).
   useEffect(() => {
-    Promise.all([loadValuation(), loadExpiry(), loadConsumption(), loadVendorSummary()]).then(() => setLoading(false));
+    getInventoryReportsBundle(expiryDays, consumptionStart, consumptionEnd, vendorStart, vendorEnd)
+      .then(([val, exp, cons, vend]) => { setValuation(val); setExpiry(exp); setConsumption(cons); setVendorSummary(vend); })
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { loadExpiry(); }, [loadExpiry]);
-  useEffect(() => { loadConsumption(); }, [loadConsumption]);
-  useEffect(() => { loadVendorSummary(); }, [loadVendorSummary]);
+  // Each report reloads on its own only when its filters CHANGE (skipping
+  // the first render, already covered by the bundle above).
+  const filtersReady = useRef({ expiry: false, consumption: false, vendor: false });
+  useEffect(() => { if (filtersReady.current.expiry) loadExpiry(); else filtersReady.current.expiry = true; }, [loadExpiry]);
+  useEffect(() => { if (filtersReady.current.consumption) loadConsumption(); else filtersReady.current.consumption = true; }, [loadConsumption]);
+  useEffect(() => { if (filtersReady.current.vendor) loadVendorSummary(); else filtersReady.current.vendor = true; }, [loadVendorSummary]);
 
   return (
     <div>

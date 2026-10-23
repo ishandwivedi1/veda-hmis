@@ -16,3 +16,10 @@ export async function getPendingBillingBundle(opts) {
     getPendingBiometryBilling(opts),
   ]);
 }
+
+// Invoice Modification tab on open: today's invoices + surgery billing
+// options in ONE request (was 2).
+import { getTodaysInvoicesForModification, getSurgeryBillingOptions } from './actions';
+export async function getInvoiceModificationBundle() {
+  return Promise.all([getTodaysInvoicesForModification(), getSurgeryBillingOptions()]);
+}

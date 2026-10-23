@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getApprovers, createOpticalCreditNote } from '../actions';
+import { getOpticalCreditNoteTabBundle } from '@/lib/rpc-reads/optical__bundle-actions'; // parallel reads (tools/parallel-reads)
 import { findOpticalSaleByNumber, searchOpticalCustomers, getOpticalSalesForCustomer, getOpticalSaleDetail, getOpticalCreditNoteRegister } from '@/lib/rpc-reads/optical__actions'; // parallel reads (tools/parallel-reads)
 
 function fmt(n) {
@@ -34,9 +35,12 @@ export default function OpticalCreditNoteTab() {
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
+  // ONE request on open for approvers + register (was 2).
   useEffect(() => {
-    getApprovers().then(setApprovers);
-    refreshRegister();
+    getOpticalCreditNoteTabBundle().then(([approvers, register]) => {
+      setApprovers(approvers);
+      setRegister(register);
+    }).catch(() => {});
     if (initialSaleId) loadSale(initialSaleId);
   }, [initialSaleId]);
 

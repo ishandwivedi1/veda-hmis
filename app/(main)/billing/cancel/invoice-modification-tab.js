@@ -5,6 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { setManualSurgeryDetails } from '../actions';
 import { searchInvoices, getInvoiceById, getTodaysInvoicesForModification, getInvoicesForVisit, getSurgeryBillingOptions } from '@/lib/rpc-reads/billing__actions'; // parallel reads (tools/parallel-reads)
+import { getInvoiceModificationBundle } from '@/lib/rpc-reads/billing__bundle-actions'; // parallel reads (tools/parallel-reads)
 import { openPrintPopup } from '@/lib/printPopup';
 import InvoiceEditPanel from '../invoice-edit-panel';
 import InvoiceHistory from '../invoice-history';
@@ -50,10 +51,14 @@ export default function InvoiceModificationTab() {
     setTodaysInvoices(await getTodaysInvoicesForModification());
   }, []);
 
+  // ONE request on open (was 2).
   useEffect(() => {
-    loadToday();
-    getSurgeryBillingOptions().then(({ surgeries, doctors }) => { setSurgeryOptions(surgeries); setSurgeryDoctorOptions(doctors); });
-  }, [loadToday]);
+    getInvoiceModificationBundle().then(([todays, { surgeries, doctors }]) => {
+      setTodaysInvoices(todays);
+      setSurgeryOptions(surgeries);
+      setSurgeryDoctorOptions(doctors);
+    });
+  }, []);
 
   // Arrived via "Modify" from Front Office Dashboard or New Invoice --
   // jump straight to this visit's invoice(s) instead of a generic

@@ -6,6 +6,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { refundPayment, refundAdvance, cancelPaymentRefund } from '../actions';
 import { getPatientById, searchPatientsForPayment, getPatientPayments, getAdvanceBalance, getApprovers, getRefundRegister, getTodaysVisits } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
+import { getRefundTabBundle } from '@/lib/rpc-reads/payments__combined-actions'; // parallel reads (tools/parallel-reads)
 import { getMyDesignation } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
 
 const REASONS = ['Excess payment', 'Cancelled service', 'Duplicate payment', 'Service not rendered', 'Patient request -- approved', 'Other approved reason'];
@@ -60,11 +61,14 @@ export default function RefundTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlPatientId, urlPaymentId]);
 
+  // ONE request on open (was 4).
   useEffect(() => {
-    getApprovers().then(setApprovers);
-    refreshRegister();
-    getTodaysVisits().then(setTodaysVisits);
-    getMyDesignation().then((d) => setIsAdmin(d === 'Administrator'));
+    getRefundTabBundle().then(([approvers, register, visits, designation]) => {
+      setApprovers(approvers);
+      setRegister(register);
+      setTodaysVisits(visits);
+      setIsAdmin(designation === 'Administrator');
+    });
   }, []);
 
   async function refreshRegister() {

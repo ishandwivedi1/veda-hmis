@@ -6,6 +6,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { createCreditNote } from '../actions';
 import { getPatientById, searchPatientsForPayment, getInvoicesForCreditNote, getApprovers, getCreditNoteRegister, getTodaysVisits } from '@/lib/rpc-reads/payments__actions'; // parallel reads (tools/parallel-reads)
 import TodaysVisitsWidget from '../todays-visits-widget';
+import { getCreditNoteTabBundle } from '@/lib/rpc-reads/payments__combined-actions'; // parallel reads (tools/parallel-reads)
 
 const REASONS = ['Billing correction', 'Service cancellation', 'Approved financial adjustment', 'Goodwill gesture', 'Insurance adjustment', 'Other'];
 
@@ -46,10 +47,13 @@ export default function CreditNoteTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlPatientId, urlInvoiceId]);
 
+  // ONE request on open (was 3).
   useEffect(() => {
-    getApprovers().then(setApprovers);
-    refreshRegister();
-    getTodaysVisits().then(setTodaysVisits);
+    getCreditNoteTabBundle().then(([approvers, register, visits]) => {
+      setApprovers(approvers);
+      setRegister(register);
+      setTodaysVisits(visits);
+    });
   }, []);
 
   async function refreshRegister() {

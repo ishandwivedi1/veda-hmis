@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createUser, toggleUserStatus, resetUserPassword, updateUserProfile, updateStaffIdentity } from './actions';
 import { getUsers, getMyDesignation, getLoginHistory } from '@/lib/rpc-reads/users__actions'; // parallel reads (tools/parallel-reads)
+import { getUsersPageBundle } from '@/lib/rpc-reads/users__bundle-actions'; // parallel reads (tools/parallel-reads)
 import BillingPermissionsTab from './billing-permissions-tab';
 
 const DESIGNATIONS = ['Doctor', 'Optometrist', 'Front Executive', 'Administrator', 'Nurse / OT Staff', 'Counsellor'];
@@ -192,12 +193,13 @@ export default function UsersPage() {
     setUsers(await getUsers());
   }, []);
 
+  // ONE request on open (was 2, one after another).
   useEffect(() => {
-    getMyDesignation().then((d) => {
-      setMyDesignation(d);
-      if (d === 'Administrator') refresh();
+    getUsersPageBundle().then(({ designation, users }) => {
+      setMyDesignation(designation);
+      if (designation === 'Administrator' && users) setUsers(users);
     });
-  }, [refresh]);
+  }, []);
 
   // Server actions (getUsers, createUser, etc.) already enforce this
   // independently -- this is just so a non-admin sees a clean message
