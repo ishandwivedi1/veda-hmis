@@ -186,6 +186,18 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     setChecklist((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
+  // Check all / Uncheck all -- local state only, NO server or DB call.
+  // Persisted later in one request by Save or Confirm Discharge, same as single toggles.
+  const allChecked = DISCHARGE_ITEMS.every((i) => checklist[i.key]);
+  function setAllChecklist(value) {
+    if (fieldsDisabled) return;
+    setChecklist((prev) => {
+      const next = { ...prev };
+      DISCHARGE_ITEMS.forEach((i) => { next[i.key] = value; });
+      return next;
+    });
+  }
+
   const mandatoryDone = DISCHARGE_ITEMS.filter((i) => i.mandatory).every((i) => checklist[i.key]);
   const mandatoryTotal = DISCHARGE_ITEMS.filter((i) => i.mandatory).length;
   const mandatoryChecked = DISCHARGE_ITEMS.filter((i) => i.mandatory && checklist[i.key]).length;
@@ -384,7 +396,14 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-head">
               <div className="card-title"><i className="ti ti-clipboard-check" style={{ color: 'var(--green)' }}></i> Discharge Readiness Checklist</div>
-              <span className={`badge ${mandatoryDone ? 'b-green' : 'b-gray'}`}>{Math.round((mandatoryChecked / mandatoryTotal) * 100)}%</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {!fieldsDisabled && (
+                  <button type="button" className="btn btn-sm" onClick={() => setAllChecklist(!allChecked)}>
+                    <i className={`ti ${allChecked ? 'ti-square' : 'ti-checks'}`}></i> {allChecked ? 'Uncheck all' : 'Check all'}
+                  </button>
+                )}
+                <span className={`badge ${mandatoryDone ? 'b-green' : 'b-gray'}`}>{Math.round((mandatoryChecked / mandatoryTotal) * 100)}%</span>
+              </div>
             </div>
             {DISCHARGE_ITEMS.map((item) => (
               <div key={item.key} onClick={() => toggleChecklistItem(item.key)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 8, marginBottom: 5, fontSize: 12, border: '1px solid var(--g200)', cursor: fieldsDisabled ? 'default' : 'pointer', background: checklist[item.key] ? 'var(--green-lt)' : '#fff', opacity: item.mandatory ? 1 : 0.85 }}>
