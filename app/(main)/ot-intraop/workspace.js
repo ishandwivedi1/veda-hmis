@@ -8,6 +8,7 @@ import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { uploadAttachment, deleteAttachment } from '@/lib/attachments';
 import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import { getIntraopWorkspaceBundle } from '@/lib/rpc-reads/ot-intraop__bundle-actions'; // parallel reads (tools/parallel-reads)
+import { intraopSaveAndReload } from './bundle-actions';
 import ConfirmActionModal from '@/app/components/ConfirmActionModal';
 
 const STEPS = ['Check-In', 'Anaesthesia', 'Surgery', 'Implant', 'Recovery'];
@@ -191,6 +192,17 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     applyDetail(await getOTCaseDetail(otScheduleId));
   }, [otScheduleId, applyDetail]);
 
+  // ONE request per click: the save plus the refreshed case together.
+  // Waits for any in-flight check-in tick first, exactly as refresh() does,
+  // so the reload can never miss it.
+  const saveMaybeReload = useCallback(async (reload, name, ...args) => {
+    if (pendingCheckinSave.current) await pendingCheckinSave.current.catch(() => {});
+    const result = (await intraopSaveAndReload(name, args, otScheduleId, reload)) || {};
+    if (result.data) applyDetail(result.data);
+    return result;
+  }, [otScheduleId, applyDetail]);
+  const save = useCallback((name, ...args) => saveMaybeReload(true, name, ...args), [saveMaybeReload]);
+
   useEffect(() => {
     // Opening the workspace: ONE request (was 3) -- case + consumables +
     // IOL catalog together (see bundle-actions).
@@ -280,11 +292,10 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
 
   async function handleToggleReported() {
     setError('');
-    if (booking.patient_reported_at) { await unmarkPatientReported(otScheduleId); refresh(); return; }
-    const result = await markPatientReported(otScheduleId);
+    if (booking.patient_reported_at) { await save('unmarkPatientReported', otScheduleId); return; }
+    const result = await save('markPatientReported', otScheduleId);
     if (result.error) { setError(result.error); return; }
     addLog('Patient marked as reported to OT');
-    refresh();
   }
 
   function handleCompleteCheckin() {
@@ -300,7 +311,9 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     }
     setError('');
     setConfirming(true);
-    const result = await completeCheckin(otScheduleId, sc.id, checkinOverrideReason);
+    // Skip the reload when this tab is about to close (opened from Surgical Journey).
+    const closesAfterCheckin = restrictTab === 'checkin' && typeof window !== 'undefined' && !!window.opener;
+    const result = await saveMaybeReload(!closesAfterCheckin, 'completeCheckin', otScheduleId, sc.id, checkinOverrideReason);
     setConfirming(false);
     if (result.needsOverrideReason) {
       // Don't close the modal -- just switch it into "reason required"
@@ -314,7 +327,6 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     setConfirmAction(null);
     addLog(needsCheckinReason ? `OT Check-In completed late -- reason: ${checkinOverrideReason.trim()}` : 'OT Check-In completed');
     setOk('Check-in complete -- patient confirmed in OT.');
-    await refresh();
     // Opened as a deep link from Surgical Journey (a real opener window
     // exists) -- signal completion back and close this tab instead of
     // sending staff to the Dashboard in what would otherwise become an
@@ -334,10 +346,9 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
 
   async function handleRecordAnaesthesia() {
     setError('');
-    const result = await recordAnaesthesia(otScheduleId, sc.id, { type: anaesType, doctor: anaesDoctor, start: anaesStart, end: anaesEnd, remarks: anaesRemarks });
+    const result = await save('recordAnaesthesia', otScheduleId, sc.id, { type: anaesType, doctor: anaesDoctor, start: anaesStart, end: anaesEnd, remarks: anaesRemarks });
     if (result.error) { setError(result.error); return; }
     addLog(`Anaesthesia recorded: ${anaesType}`);
-    refresh();
   }
 
   // Check-In's own save -- confirms the physical IOL on hand matches
@@ -347,7 +358,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   async function handleSaveVerification() {
     setError(''); setOk('');
     setSavingVerification(true);
-    const result = await saveCheckinIolVerification(otScheduleId, sc.id, {
+    const result = await save('saveCheckinIolVerification', otScheduleId, sc.id, {
       manufacturer: cvMfr, model: cvModel, catalogId: cvCatalogId, power: cvPower,
       category: cvCategory, serial: cvSerial, expiry: cvExpiry, eye: cvEye,
     });
@@ -355,40 +366,36 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     if (result.error) { setError(result.error); return; }
     addLog('IOL verification recorded (physical check at Check-In)');
     setOk('IOL verification saved.');
-    refresh();
   }
 
   async function handleAddConsumable(name) {
     const value = name || consumableName;
     if (!value.trim()) return;
-    await addConsumable(otScheduleId, value);
+    await save('addConsumable', otScheduleId, value);
     setConsumableName('');
     addLog(`Consumable: ${value}`);
-    refresh();
   }
 
   async function handleAddEvent() {
     if (!eventName.trim()) return;
-    const result = await addIntraopEvent(otScheduleId, { kind: 'Event', name: eventName, severity: eventSeverity });
+    const result = await save('addIntraopEvent', otScheduleId, { kind: 'Event', name: eventName, severity: eventSeverity });
     if (result.error) { setError(result.error); return; }
     setEventName('');
     addLog(`Event: ${eventName} (${eventSeverity})`);
-    refresh();
   }
 
   async function handleAddComplication() {
     setError('');
-    const result = await addIntraopEvent(otScheduleId, { kind: 'Complication', name: complName, severity: complSeverity, management: complManagement, outcome: complOutcome });
+    const result = await save('addIntraopEvent', otScheduleId, { kind: 'Complication', name: complName, severity: complSeverity, management: complManagement, outcome: complOutcome });
     if (result.error) { setError(result.error); return; }
     setComplName(''); setComplManagement(''); setComplOutcome('');
     addLog(`COMPLICATION: ${complName} (${complSeverity})`);
-    refresh();
   }
 
   async function handleSaveDraft() {
     setError(''); setOk('');
     setSaving(true);
-    const result = await saveIntraopDraft(otScheduleId, sc.id, {
+    const result = await save('saveIntraopDraft', otScheduleId, sc.id, {
       implant_manufacturer: imMfr || null, implant_model: imModel || null, implant_catalog_id: imCatalogId || null,
       implant_power: imPower || null, implant_category: imCategory || null, implant_serial: imSerial || null, implant_expiry: imExpiry || null,
       implant_eye: imEye, variance_reason: varianceReason || null, operative_notes: opNotes || null,
@@ -400,7 +407,6 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     if (result.error) { setError(result.error); return; }
     addLog('Draft saved');
     setOk('Draft saved -- documentation preserved.');
-    refresh();
   }
 
   const plannedPlan = biometryPlans[0];
@@ -449,7 +455,9 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
     setError(''); setOk('');
     const wasAlreadyCompleted = isCompleted;
     setConfirming(true);
-    const result = await completeSurgery(otScheduleId, sc.id, {
+    // Skip the reload when this tab is about to close (opened from Surgical Journey).
+    const closesAfterSurgery = typeof window !== 'undefined' && !!window.opener;
+    const result = await saveMaybeReload(!closesAfterSurgery, 'completeSurgery', otScheduleId, sc.id, {
       implantPower: imPower, implantCategory: imCategory, implantSerial: imSerial, implantManufacturer: imMfr, implantModel: imModel, implantCatalogId: imCatalogId, implantExpiry: imExpiry, implantEye: imEye,
       skipImplant: biometryPlans.length === 0,
       recoveryInstructions, recoveryDestination: recoveryDest, recoveryMonitoring: recoveryMonitor, recoveryConcerns,
@@ -477,7 +485,6 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
       addLog('SURGERY COMPLETED -- OT Case marked complete, handed over to Recovery');
       setOk('Surgery completed and handed over to Recovery. Case marked Completed in OT Scheduling.');
     }
-    refresh();
   }
 
   return (
@@ -961,7 +968,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             {consumables.map((c) => (
               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', background: 'var(--g50)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
                 <i className="ti ti-box" style={{ color: 'var(--amber)' }}></i><span style={{ flex: 1 }}>{c.name}</span>
-                {!isReadOnly && <button onClick={() => removeConsumable(c.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => save('removeConsumable', c.id)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>
@@ -982,7 +989,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             {events.map((e) => (
               <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 6, fontSize: 12, border: '1px solid var(--g200)', background: e.severity === 'Severe' ? 'var(--red-lt)' : e.severity === 'Moderate' ? 'var(--amber-lt)' : 'var(--g50)' }}>
                 <div style={{ flex: 1 }}><strong>{e.name}</strong> <span className={`badge ${e.severity === 'Severe' ? 'b-red' : e.severity === 'Moderate' ? 'b-amber' : 'b-gray'}`} style={{ fontSize: 10 }}>{e.severity}</span></div>
-                {!isReadOnly && <button onClick={() => removeIntraopEvent(e.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => save('removeIntraopEvent', e.id)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>
@@ -1013,7 +1020,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
                   <div style={{ fontSize: 11, color: 'var(--g600)', marginTop: 3 }}>Management: {c.management}</div>
                   {c.outcome && <div style={{ fontSize: 11, color: 'var(--g600)' }}>Outcome: {c.outcome}</div>}
                 </div>
-                {!isReadOnly && <button onClick={() => removeIntraopEvent(c.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => save('removeIntraopEvent', c.id)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>

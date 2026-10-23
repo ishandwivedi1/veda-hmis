@@ -8,6 +8,7 @@ import { openTab } from '@/lib/popup';
 import { addPostProcedureMedicine, removePostProcedureMedicine, addPostProcedureTaperedMedicine, removePostProcedureTaperGroup, setOpdProcedureDecision, scheduleOpdProcedure, checkInOpdProcedure, completeOpdProcedure, cancelOpdProcedure, updateCompletedProcedureNotes } from '../actions';
 import { getPatientOpdProcedureJourney, getOpdProcedureMonthSummary, getPostProcedurePrescriptions, getDrugCatalogForOpdProcedures } from '@/lib/rpc-reads/opd-procedures__actions'; // parallel reads (tools/parallel-reads)
 import { getOpdPatientJourneyBundle, getPostProcedureRxBundle } from '@/lib/rpc-reads/opd-procedures__bundle-actions'; // parallel reads (tools/parallel-reads)
+import { opdRxSaveAndReload, opdJourneySaveAndReload } from '../bundle-actions';
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 
@@ -323,12 +324,20 @@ function MedicineSection({ procedureId }) {
   const [showTaperBuilder, setShowTaperBuilder] = useState(false);
   const [taperSteps, setTaperSteps] = useState([{ frequency: 'OD', duration: '1 week', dosage: '' }]);
 
-  const refresh = useCallback(async () => {
-    const [pres, cat] = await getPostProcedureRxBundle(procedureId); // ONE request (was 2)
+  const applyRx = useCallback(([pres, cat]) => {
     setPrescriptions(pres.prescriptions);
     setCatalog(cat);
     setLoading(false);
-  }, [procedureId]);
+  }, []);
+  const refresh = useCallback(async () => {
+    applyRx(await getPostProcedureRxBundle(procedureId)); // ONE request (was 2)
+  }, [procedureId, applyRx]);
+  // ONE request per click: the save plus the refreshed medicine list.
+  const save = useCallback(async (name, ...args) => {
+    const result = (await opdRxSaveAndReload(name, args, procedureId)) || {};
+    if (result.bundle) applyRx(result.bundle);
+    return result;
+  }, [procedureId, applyRx]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -347,11 +356,10 @@ function MedicineSection({ procedureId }) {
     setError('');
     if (!drug.trim()) { setError('Drug name is required.'); return; }
     setAdding(true);
-    const result = await addPostProcedureMedicine(procedureId, { drugName: drug, dosage, frequency, duration, eye: isOcular ? eye : 'Oral' });
+    const result = await save('addPostProcedureMedicine', procedureId, { drugName: drug, dosage, frequency, duration, eye: isOcular ? eye : 'Oral' });
     setAdding(false);
     if (result.error) { setError(result.error); return; }
     setDrug(''); setDosage(''); setDrugTypeId(null); setIsOcular(true);
-    refresh();
   }
 
   function addTaperStep() { setTaperSteps((prev) => [...prev, { frequency: 'OD', duration: '1 week', dosage: dosage || '' }]); }
@@ -364,22 +372,19 @@ function MedicineSection({ procedureId }) {
     const steps = taperSteps.map((s) => ({ ...s, dosage: s.dosage || dosage }));
     if (steps.some((s) => !s.dosage.trim())) { setError('Select a dosage for every step of the tapering schedule.'); return; }
     setAdding(true);
-    const result = await addPostProcedureTaperedMedicine(procedureId, { drugName: drug, eye: isOcular ? eye : 'Oral', steps });
+    const result = await save('addPostProcedureTaperedMedicine', procedureId, { drugName: drug, eye: isOcular ? eye : 'Oral', steps });
     setAdding(false);
     if (result.error) { setError(result.error); return; }
     setDrug(''); setDosage(''); setDrugTypeId(null); setIsOcular(true); setShowTaperBuilder(false);
     setTaperSteps([{ frequency: 'OD', duration: '1 week', dosage: '' }]);
-    refresh();
   }
 
   async function handleRemove(id) {
-    await removePostProcedureMedicine(id);
-    refresh();
+    await save('removePostProcedureMedicine', id);
   }
 
   async function handleRemoveTaperGroup(groupId) {
-    await removePostProcedureTaperGroup(groupId);
-    refresh();
+    await save('removePostProcedureTaperGroup', groupId);
   }
 
   const dosageOptions = drugTypeId ? catalog.dosages.filter((o) => o.drug_type_id === drugTypeId) : [];
@@ -669,12 +674,18 @@ export default function Workspace({ patientId }) {
   const [reschedulingId, setReschedulingId] = useState(null);
   const [editingId, setEditingId] = useState(null);
 
-  const refresh = useCallback(async () => {
-    const [patientData, journeyData] = await getOpdPatientJourneyBundle(patientId); // ONE request (was 2)
+  const applyJourney = useCallback(([patientData, journeyData]) => {
     setPatient(patientData);
     setJourney(journeyData);
     return journeyData;
-  }, [patientId]);
+  }, []);
+  const refresh = useCallback(async () => applyJourney(await getOpdPatientJourneyBundle(patientId)), [patientId, applyJourney]); // ONE request (was 2)
+  // ONE request per click: the action plus the refreshed journey together.
+  const saveJourney = useCallback(async (name, ...args) => {
+    const result = (await opdJourneySaveAndReload(name, args, patientId)) || {};
+    if (result.bundle) applyJourney(result.bundle);
+    return result;
+  }, [patientId, applyJourney]);
 
   useEffect(() => {
     (async () => {
@@ -698,15 +709,14 @@ export default function Workspace({ patientId }) {
     }
     setBusyId(p.id);
     let result;
-    if (type === 'decision') result = await setOpdProcedureDecision(p.id, args[0], args[1]);
-    if (type === 'schedule') { result = await scheduleOpdProcedure(p.id, args[0], args[1]); setReschedulingId(null); }
-    if (type === 'checkin') result = await checkInOpdProcedure(p.id);
-    if (type === 'complete') result = await completeOpdProcedure(p.id, args[0]);
-    if (type === 'editComplete') { result = await updateCompletedProcedureNotes(p.id, args[0]); if (!result?.error) setEditingId(null); }
-    if (type === 'cancel') result = await cancelOpdProcedure(p.id, 'Cancelled from patient journey view');
+    if (type === 'decision') result = await saveJourney('setOpdProcedureDecision', p.id, args[0], args[1]);
+    if (type === 'schedule') { result = await saveJourney('scheduleOpdProcedure', p.id, args[0], args[1]); setReschedulingId(null); }
+    if (type === 'checkin') result = await saveJourney('checkInOpdProcedure', p.id);
+    if (type === 'complete') result = await saveJourney('completeOpdProcedure', p.id, args[0]);
+    if (type === 'editComplete') { result = await saveJourney('updateCompletedProcedureNotes', p.id, args[0]); if (!result?.error) setEditingId(null); }
+    if (type === 'cancel') result = await saveJourney('cancelOpdProcedure', p.id, 'Cancelled from patient journey view');
     setBusyId(null);
     if (result?.error) { setRowError((e) => ({ ...e, [p.id]: result.error })); return; }
-    refresh();
   }
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--g400)' }}>Loading patient journey...</div>;

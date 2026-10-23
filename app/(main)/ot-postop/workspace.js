@@ -5,7 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { rescheduleFollowup, saveFollowupNotes, markFollowupStatus, addRecoveryComplication, closeEpisode, openFollowupReview, addFollowup, removeFollowup } from './actions';
 import { getPostOpEpisodeDetail } from '@/lib/rpc-reads/ot-postop__actions'; // parallel reads (tools/parallel-reads)
 import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/attachments';
-import { getPostOpWorkspaceBundle } from './bundle-actions';
+import { getPostOpWorkspaceBundle, postopSaveAndReload } from './bundle-actions';
 import { openPrintPopup } from '@/lib/printPopup';
 
 const MILESTONES_START = [
@@ -50,11 +50,19 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
 
   // ONE request: episode + all follow-ups' attachments (was 1 + one queued
   // request per follow-up) -- see bundle-actions.
-  const refresh = useCallback(async () => {
-    const { detail, attachmentsByFollowup } = await getPostOpWorkspaceBundle(episodeId);
+  const applyBundle = useCallback(({ detail, attachmentsByFollowup }) => {
     setData(detail);
     if (attachmentsByFollowup) setAttachmentsByFollowup(attachmentsByFollowup);
-  }, [episodeId]);
+  }, []);
+  const refresh = useCallback(async () => {
+    applyBundle(await getPostOpWorkspaceBundle(episodeId));
+  }, [episodeId, applyBundle]);
+  // ONE request per click: the save plus the refreshed episode together.
+  const save = useCallback(async (name, ...args) => {
+    const result = (await postopSaveAndReload(name, args, episodeId)) || {};
+    if (result.bundle) applyBundle(result.bundle);
+    return result;
+  }, [episodeId, applyBundle]);
 
   useEffect(() => { refresh(); }, [episodeId, refresh]);
 
@@ -89,11 +97,10 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
   async function handleSaveNotesOnly(f) {
     setError('');
     setSaving(true);
-    const result = await saveFollowupNotes(f.id, notesDraft);
+    const result = await save('saveFollowupNotes', f.id, notesDraft);
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setNotesEditingId(null);
-    refresh();
   }
 
   async function handleUploadFollowupFile(followupId, file) {
@@ -118,26 +125,23 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
     setError('');
     if (!editDate || editDate === f.scheduled_date) { setEditingFollowupId(null); return; }
     setSaving(true);
-    const result = await rescheduleFollowup(f.id, editDate, f.notes || '');
+    const result = await save('rescheduleFollowup', f.id, editDate, f.notes || '');
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setEditingFollowupId(null);
-    refresh();
   }
 
   async function handleMarkStatus(f, status) {
     setError('');
-    const result = await markFollowupStatus(f.id, status);
+    const result = await save('markFollowupStatus', f.id, status);
     if (result.error) { setError(result.error); return; }
-    refresh();
   }
 
   async function handleAddComplication() {
     setError('');
-    const result = await addRecoveryComplication(episodeId, { name: complName, severity: complSeverity, management: complManagement, outcome: complOutcome });
+    const result = await save('addRecoveryComplication', episodeId, { name: complName, severity: complSeverity, management: complManagement, outcome: complOutcome });
     if (result.error) { setError(result.error); return; }
     setComplName(''); setComplManagement(''); setComplOutcome('');
-    refresh();
   }
 
   async function handleOpenReview(f) {
@@ -168,33 +172,30 @@ export default function Workspace({ episodeId, readOnly, onBack, onUpdate }) {
     if (!newFollowupLabel.trim()) { setError('A label for the review is required.'); return; }
     if (!newFollowupDate) { setError('A date is required.'); return; }
     setAddingFollowup(true);
-    const result = await addFollowup(episodeId, newFollowupLabel, newFollowupDate);
+    const result = await save('addFollowup', episodeId, newFollowupLabel, newFollowupDate);
     setAddingFollowup(false);
     if (result.error) { setError(result.error); return; }
     setNewFollowupLabel(''); setNewFollowupDate(''); setShowAddFollowup(false);
-    refresh();
   }
 
   async function handleRemoveFollowup(followupId) {
     setError('');
     setRemovingFollowupId(followupId);
-    const result = await removeFollowup(followupId);
+    const result = await save('removeFollowup', followupId);
     setRemovingFollowupId(null);
     if (result.error) { setError(result.error); return; }
-    refresh();
   }
 
   async function handleCloseEpisode() {
     setError('');
     if (!closureOutcome) { setError('VAL-POST-005: Overall clinical outcome is required.'); return; }
     setSaving(true);
-    const result = await closeEpisode(episodeId, { status: closureStatus, outcome: closureOutcome, remarks: closureRemarks });
+    const result = await save('closeEpisode', episodeId, { status: closureStatus, outcome: closureOutcome, remarks: closureRemarks });
     setSaving(false);
     if (result.error) { setError(result.error); return; }
     setShowClose(false);
     setOk('Episode closed.');
     onUpdate();
-    refresh();
   }
 
   return (
