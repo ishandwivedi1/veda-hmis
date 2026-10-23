@@ -203,6 +203,20 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
   }, [otScheduleId, applyDetail]);
   const save = useCallback((name, ...args) => saveMaybeReload(true, name, ...args), [saveMaybeReload]);
 
+  // INSTANT removal of a consumable / event / complication: the row goes
+  // immediately; only the LATEST server reply is applied (no flicker on
+  // quick clicks); on failure the error shows and the case is reloaded.
+  const removeSeq = useRef(0);
+  const removeInstant = useCallback(async (key, id, name) => {
+    const seq = ++removeSeq.current;
+    setData((d) => (d ? { ...d, [key]: (d[key] || []).filter((x) => x.id !== id) } : d));
+    if (pendingCheckinSave.current) await pendingCheckinSave.current.catch(() => {});
+    const result = (await intraopSaveAndReload(name, [id], otScheduleId, true)) || {};
+    const latest = seq === removeSeq.current;
+    if (result.error) { setError(result.error); if (latest) refresh(); return; }
+    if (latest && result.data) applyDetail(result.data);
+  }, [otScheduleId, applyDetail, refresh]);
+
   useEffect(() => {
     // Opening the workspace: ONE request (was 3) -- case + consumables +
     // IOL catalog together (see bundle-actions).
@@ -968,7 +982,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             {consumables.map((c) => (
               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', background: 'var(--g50)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
                 <i className="ti ti-box" style={{ color: 'var(--amber)' }}></i><span style={{ flex: 1 }}>{c.name}</span>
-                {!isReadOnly && <button onClick={() => save('removeConsumable', c.id)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => removeInstant('consumables', c.id, 'removeConsumable')} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>
@@ -989,7 +1003,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
             {events.map((e) => (
               <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 6, fontSize: 12, border: '1px solid var(--g200)', background: e.severity === 'Severe' ? 'var(--red-lt)' : e.severity === 'Moderate' ? 'var(--amber-lt)' : 'var(--g50)' }}>
                 <div style={{ flex: 1 }}><strong>{e.name}</strong> <span className={`badge ${e.severity === 'Severe' ? 'b-red' : e.severity === 'Moderate' ? 'b-amber' : 'b-gray'}`} style={{ fontSize: 10 }}>{e.severity}</span></div>
-                {!isReadOnly && <button onClick={() => save('removeIntraopEvent', e.id)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => removeInstant('events', e.id, 'removeIntraopEvent')} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>
@@ -1020,7 +1034,7 @@ export default function Workspace({ otScheduleId, onBack, restrictTab }) {
                   <div style={{ fontSize: 11, color: 'var(--g600)', marginTop: 3 }}>Management: {c.management}</div>
                   {c.outcome && <div style={{ fontSize: 11, color: 'var(--g600)' }}>Outcome: {c.outcome}</div>}
                 </div>
-                {!isReadOnly && <button onClick={() => save('removeIntraopEvent', c.id)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                {!isReadOnly && <button onClick={() => removeInstant('complications', c.id, 'removeIntraopEvent')} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
               </div>
             ))}
           </div>

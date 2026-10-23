@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatPatientName } from '@/lib/patientName';
 import { getConsultationData, addPrescription, removePrescription, addTaperedPrescription, removeTaperGroup, saveExamination, completeConsultation } from '@/app/(main)/consultation/actions';
@@ -113,6 +113,20 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
     }
     return result;
   }, [queueEntryId]);
+
+  // INSTANT removal (same rules as the consultation form): the row goes
+  // immediately, the latest server reply then becomes the screen; on a
+  // failure the error shows and the real data is reloaded.
+  const instantSeq = useRef(0);
+  const removeInstant = useCallback(async (patch, name, ...args) => {
+    const seq = ++instantSeq.current;
+    setData((d) => (d ? patch(d) : d));
+    const result = (await consultationSave(name, args, queueEntryId)) || {};
+    const latest = seq === instantSeq.current;
+    if (result.error) { setError(result.error); if (latest) refresh(); return result; }
+    if (latest && result.data && !result.data.error) setData(result.data);
+    return result;
+  }, [queueEntryId, refresh]);
 
   useEffect(() => {
     if (!followupId) { setLoadError('No follow-up reference was passed to this review -- open it from the Post-op dashboard\'s "Start Review" / "Open Review" button instead of this link directly.'); return; }
@@ -378,7 +392,7 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
           return items.map((item) => item.type === 'single' ? (
             <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--g100)', fontSize: 13 }}>
               <span><strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye || 'Oral'}</span>
-              {!isLocked && <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removePrescription', item.row.id, data.encounter.id); }}>Remove</button>}
+              {!isLocked && <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInstant((dd) => ({ ...dd, prescriptions: (dd.prescriptions || []).filter((x) => x.id !== item.row.id) }), 'removePrescription', item.row.id, data.encounter.id); }}>Remove</button>}
             </div>
           ) : (
             <div key={item.key} style={{ padding: '8px 10px', margin: '6px 0', background: 'var(--purple-lt)', borderRadius: 8, borderBottom: '1px solid var(--g100)' }}>
@@ -387,7 +401,7 @@ export default function PostOpReviewForm({ queueEntryId, followupId }) {
                   <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye || 'Oral'}
                   <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering</span>
                 </span>
-                {!isLocked && <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeTaperGroup', item.key, data.encounter.id); }}>Remove Schedule</button>}
+                {!isLocked && <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await removeInstant((dd) => ({ ...dd, prescriptions: (dd.prescriptions || []).filter((x) => x.taper_group_id !== item.key) }), 'removeTaperGroup', item.key, data.encounter.id); }}>Remove Schedule</button>}
               </div>
               <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--g700)' }}>
                 {item.steps.map((s, i) => (

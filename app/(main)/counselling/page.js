@@ -159,7 +159,16 @@ function EducationPanel({ encounterId }) {
       {items.map((item) => (
         <button
           key={item.id}
-          onClick={async () => { await toggleCounsellingItem(item.id, item.status !== 'Done'); refresh(); }}
+          onClick={async () => {
+            // INSTANT: the tick flips immediately and the save runs in the
+            // background (ONE request; was save + reload). The save only
+            // changes this item's status, so no reload is needed -- unless
+            // it fails, then the real list is reloaded.
+            const done = item.status !== 'Done';
+            setItems((list) => list.map((x) => (x.id === item.id ? { ...x, status: done ? 'Done' : 'Pending' } : x)));
+            const result = await toggleCounsellingItem(item.id, done);
+            if (result?.error) refresh();
+          }}
           style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '6px 4px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5 }}
         >
           <span style={{

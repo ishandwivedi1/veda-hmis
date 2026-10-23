@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getPatientById } from '@/lib/rpc-reads/visits__actions'; // parallel reads (tools/parallel-reads)
@@ -379,12 +379,24 @@ function MedicineSection({ procedureId }) {
     setTaperSteps([{ frequency: 'OD', duration: '1 week', dosage: '' }]);
   }
 
+  // INSTANT removal: the medicine disappears immediately; only the LATEST
+  // server reply is applied; on failure the error shows and the list reloads.
+  const removeSeq = useRef(0);
+  async function removeInstant(keep, name, id) {
+    const seq = ++removeSeq.current;
+    setPrescriptions((list) => (list || []).filter(keep));
+    const result = (await opdRxSaveAndReload(name, [id], procedureId)) || {};
+    const latest = seq === removeSeq.current;
+    if (result.error) { setError(result.error); if (latest) refresh(); return; }
+    if (latest && result.bundle) applyRx(result.bundle);
+  }
+
   async function handleRemove(id) {
-    await save('removePostProcedureMedicine', id);
+    await removeInstant((x) => x.id !== id, 'removePostProcedureMedicine', id);
   }
 
   async function handleRemoveTaperGroup(groupId) {
-    await save('removePostProcedureTaperGroup', groupId);
+    await removeInstant((x) => x.taper_group_id !== groupId, 'removePostProcedureTaperGroup', groupId);
   }
 
   const dosageOptions = drugTypeId ? catalog.dosages.filter((o) => o.drug_type_id === drugTypeId) : [];

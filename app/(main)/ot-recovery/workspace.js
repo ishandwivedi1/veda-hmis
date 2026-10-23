@@ -130,6 +130,16 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
     applyDetail(await getRecoveryEpisodeDetail(episodeId));
   }, [episodeId, applyDetail]);
 
+  // INSTANT medicine removal: the row goes immediately and the delete runs
+  // in the background -- ONE request (was delete + full reload). Removing a
+  // medicine changes nothing else on this screen, so no reload is needed
+  // unless it fails, in which case the error shows and the real data returns.
+  const removeMedInstant = useCallback(async (keep, remove) => {
+    setData((d) => (d ? { ...d, meds: (d.meds || []).filter(keep) } : d));
+    const result = await remove();
+    if (result?.error) { setError(result.error); refresh(); }
+  }, [refresh]);
+
   // Opening the workspace: ONE request (was 3) -- episode + drug list +
   // dosage options together (see bundle-actions).
   useEffect(() => {
@@ -436,14 +446,14 @@ export default function Workspace({ episodeId, onBack, onUpdate }) {
                 <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'var(--g50)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
                   <i className="ti ti-pill" style={{ color: 'var(--purple)' }}></i>
                   <span style={{ flex: 1 }}><strong>{item.row.name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye || 'Oral'}</span>
-                  {!fieldsDisabled && <button onClick={() => removeRecoveryMedication(item.row.id).then(refresh)} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                  {!fieldsDisabled && <button onClick={() => removeMedInstant((m) => m.id !== item.row.id, () => removeRecoveryMedication(item.row.id))} style={{ border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
                 </div>
               ) : (
                 <div key={item.key} style={{ padding: '6px 8px', background: 'var(--purple-lt)', borderRadius: 8, marginBottom: 4, fontSize: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                     <strong>{item.steps[0].name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye || 'Oral'}
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering</span>
-                    {!fieldsDisabled && <button onClick={() => removeRecoveryTaperGroup(item.key).then(refresh)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
+                    {!fieldsDisabled && <button onClick={() => removeMedInstant((m) => m.taper_group_id !== item.key, () => removeRecoveryTaperGroup(item.key))} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--red)', cursor: 'pointer' }}>x</button>}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--g600)' }}>
                     {item.steps.map((s, i) => (

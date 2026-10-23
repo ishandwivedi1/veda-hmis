@@ -42,7 +42,11 @@ export default function DischargeTemplatesTab() {
     setBusy(true); setError('');
     try {
       const result = await saveDischargeTemplate(action, id, label, body);
-      if (result?.error) { setError(result.error); return result; }
+      if (result?.error) {
+        setError(result.error);
+        getDischargeTemplates().then((data) => setRows(data || [])).catch(() => {}); // undo any instant change
+        return result;
+      }
       setRows(result.rows);
       return result;
     } catch (e) {
@@ -124,7 +128,11 @@ export default function DischargeTemplatesTab() {
                 <td style={{ fontWeight: 600 }}>{row.label}</td>
                 <td style={{ fontSize: 12, color: 'var(--g600)', whiteSpace: 'pre-line', maxWidth: 460 }}>{row.body}</td>
                 <td>
-                  <button type="button" className={`badge ${row.status === 'Active' ? 'b-green' : 'b-gray'}`} style={{ border: 'none', cursor: 'pointer' }} disabled={busy} onClick={() => run('toggle', row.id)}>
+                  <button type="button" className={`badge ${row.status === 'Active' ? 'b-green' : 'b-gray'}`} style={{ border: 'none', cursor: 'pointer' }} disabled={busy} onClick={() => {
+                    // INSTANT: flip now; the list returned by the same request takes over.
+                    setRows((list) => list.map((x) => (x.id === row.id ? { ...x, status: x.status === 'Active' ? 'Inactive' : 'Active' } : x)));
+                    run('toggle', row.id);
+                  }}>
                     {row.status}
                   </button>
                 </td>

@@ -33,21 +33,27 @@ const HISTORY_CATEGORY_LABELS = {
   allergy: 'Allergy',
 };
 
+// INSTANT: the badge flips the moment it's clicked; the refreshed list from
+// the same request then takes over (or puts it back if the save failed).
 function StatusToggle({ record, table, onToggle, codeField = 'code' }) {
   const [loading, setLoading] = useState(false);
+  const [shown, setShown] = useState(null);
   async function handleToggle() {
     setLoading(true);
+    setShown(record.status === 'Active' ? 'Inactive' : 'Active');
     await onToggle('toggleStatus', table, record.id, record.status, record[codeField]);
+    setShown(null);
     setLoading(false);
   }
+  const status = shown || record.status; // what the badge shows
   return (
     <button
-      className={`badge ${record.status === 'Active' ? 'b-green' : 'b-gray'}`}
+      className={`badge ${status === 'Active' ? 'b-green' : 'b-gray'}`}
       style={{ border: 'none', cursor: 'pointer' }}
       onClick={handleToggle}
       disabled={loading}
     >
-      {record.status}
+      {status}
     </button>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { forceCloseQueueEntry } from '@/app/(main)/queue/actions';
@@ -285,6 +285,29 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
     return result || {};
   }, [queueEntryId, applyReloaded]);
 
+  // INSTANT updates (23 Oct 2026) -- only for low-risk actions (removing an
+  // item, marking a plan item done, a surgery decision). The screen changes
+  // immediately via `patch`; the server's reply then replaces it with the
+  // real saved state. Only the LATEST reply is applied, so two quick clicks
+  // can't flicker an item back. If a save fails, the error is shown and the
+  // real data is reloaded, so the screen never stays wrong.
+  const instantSeq = useRef(0);
+  const saveInstant = useCallback(async (patch, name, ...args) => {
+    const seq = ++instantSeq.current;
+    setData((d) => (d ? patch(d) : d));
+    const result = (await consultationSave(name, args, queueEntryId)) || {};
+    const latest = seq === instantSeq.current;
+    if (result.error) {
+      setError(result.error);
+      if (latest) refresh();
+      return result;
+    }
+    if (latest) applyReloaded(result);
+    return result;
+  }, [queueEntryId, applyReloaded, refresh]);
+  const without = (key, id) => (d) => ({ ...d, [key]: (d[key] || []).filter((x) => x.id !== id) });
+  const PLAN_KEYS = { plan_optical_advice: 'opticalAdvice', plan_procedures: 'procedures', plan_referrals: 'referrals', plan_counselling_items: 'counsellingItems' };
+
   useEffect(() => {
     if (!data) return;
     setPatientInstructions(data.encounter.patient_instructions || '');
@@ -467,7 +490,11 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   async function handleCompletePlanItem(table, id) {
-    await save('completePlanItem', table, id, data.encounter.id);
+    const key = PLAN_KEYS[table];
+    await saveInstant(
+      (d) => (key ? { ...d, [key]: (d[key] || []).map((x) => (x.id === id ? { ...x, status: 'Done' } : x)) } : d),
+      'completePlanItem', table, id, data.encounter.id,
+    );
   }
 
   // This page is meant to be opened in its own window (see doctor-dashboard's
@@ -596,7 +623,14 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   async function handleRemoveCaseProcedure(procedureId) {
     setError('');
     if (!window.confirm('Remove this procedure from the surgery?')) return;
-    const result = await save('removeCaseProcedure', procedureId);
+    const result = await saveInstant(
+      (d) => ({
+        ...d,
+        caseProcedures: (d.caseProcedures || []).filter((x) => x.id !== procedureId),
+        surgicalCases: (d.surgicalCases || []).map((c) => ({ ...c, surgical_case_procedures: (c.surgical_case_procedures || []).filter((x) => x.id !== procedureId) })),
+      }),
+      'removeCaseProcedure', procedureId,
+    );
     if (result.error) { setError(result.error); return; }
   }
 
@@ -661,7 +695,10 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
   }
 
   async function handleCompleteWorkflow(id) {
-    await save('completeWorkflowRequest', id, data.encounter.id);
+    await saveInstant(
+      (d) => ({ ...d, workflowRequests: (d.workflowRequests || []).map((w) => (w.id === id ? { ...w, status: 'Completed', resolved_at: new Date().toISOString() } : w)) }),
+      'completeWorkflowRequest', id, data.encounter.id,
+    );
   }
 
   if (loadError) {
@@ -861,7 +898,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                             </button>
                           )}
                           {!isBiometry && i.status === 'Ordered' && (
-                            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeInvestigation', i.id, data.encounter.id); }}>Remove</button>
+                            <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await saveInstant(without('investigations', i.id), 'removeInvestigation', i.id, data.encounter.id); }}>Remove</button>
                           )}
                         </div>
                       </div>
@@ -915,7 +952,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   />
                 )}
                 {data.diagnoses.map((d, idx) => (
-                  <DiagnosisRow key={d.id} d={d} index={idx} encounterId={data.encounter.id} onRemove={async () => { await save('removeDiagnosis', d.id, data.encounter.id); }} />
+                  <DiagnosisRow key={d.id} d={d} index={idx} encounterId={data.encounter.id} onRemove={async () => { await saveInstant(without('diagnoses', d.id), 'removeDiagnosis', d.id, data.encounter.id); }} />
                 ))}
                 {data.diagnoses.length === 0 && <div style={{ fontSize: 12, color: 'var(--g400)', padding: '6px 0' }}>No diagnosis added yet.</div>}
                 <select className="fi" style={{ marginTop: 10 }} value="" onChange={(e) => { if (e.target.value) setDxName(e.target.value); }}>
@@ -980,7 +1017,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                       <span>
                         <strong>{item.row.drug_name}</strong> -- {item.row.dosage} {item.row.frequency} x {item.row.duration} -- {item.row.eye || 'Oral'}
                       </span>
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removePrescription', item.row.id, data.encounter.id); }}>Remove</button>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await saveInstant(without('prescriptions', item.row.id), 'removePrescription', item.row.id, data.encounter.id); }}>Remove</button>
                     </div>
                   ) : (
                     <div key={item.key} style={{ padding: '8px 10px', margin: '6px 0', background: 'var(--purple-lt)', borderRadius: 8, borderBottom: '1px solid var(--g100)' }}>
@@ -989,7 +1026,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                           <strong>{item.steps[0].drug_name}</strong> -- {item.steps[0].dosage} -- {item.steps[0].eye || 'Oral'}
                           <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--purple)', textTransform: 'uppercase' }}><i className="ti ti-chart-line"></i> Tapering Schedule</span>
                         </span>
-                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeTaperGroup', item.key, data.encounter.id); }}>Remove Schedule</button>
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await saveInstant((dd) => ({ ...dd, prescriptions: (dd.prescriptions || []).filter((x) => x.taper_group_id !== item.key) }), 'removeTaperGroup', item.key, data.encounter.id); }}>Remove Schedule</button>
                       </div>
                       <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--g700)' }}>
                         {item.steps.map((s, i) => (
@@ -1139,7 +1176,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   {data.opticalAdvice.map((o) => (
                     <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                       <span>{o.advice}</span>
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeOpticalAdvice', o.id, data.encounter.id); }}>Remove</button>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await saveInstant(without('opticalAdvice', o.id), 'removeOpticalAdvice', o.id, data.encounter.id); }}>Remove</button>
                     </div>
                   ))}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '8px 0' }}>
@@ -1166,7 +1203,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                             </span>
                           )}
                         </span>
-                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeProcedure', p.id, data.encounter.id); }}>Remove</button>
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await saveInstant(without('procedures', p.id), 'removeProcedure', p.id, data.encounter.id); }}>Remove</button>
                       </div>
                       {p.notes && <div style={{ fontSize: 11, color: 'var(--g500)', marginTop: 2 }}>{p.notes}</div>}
                     </div>
@@ -1278,7 +1315,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                                     onClick={async () => {
                                       const reason = sc.decision_locked && sc.decision !== d.v ? window.prompt(`Decision is locked (currently "${sc.decision}"). Enter a reason to change it:`) : null;
                                       if (sc.decision_locked && sc.decision !== d.v && !reason) return;
-                                      const result = await save('setDecision', sc.id, d.v, reason);
+                                      const result = await saveInstant((dd) => ({ ...dd, surgicalCases: (dd.surgicalCases || []).map((c) => (c.id === sc.id ? { ...c, decision: d.v, decision_locked: d.v === 'Accepted' } : c)) }), 'setDecision', sc.id, d.v, reason);
                                       if (result.error) { setError(result.error); return; }
                                     }}
                                   >
@@ -1489,7 +1526,7 @@ export default function ConsultationForm({ queueEntryId, hideHistoryTracker = fa
                   {data.referrals.map((r) => (
                     <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--g100)', fontSize: 12 }}>
                       <span>{r.destination}{r.reason ? ` -- ${r.reason}` : ''}</span>
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await save('removeReferral', r.id, data.encounter.id); }}>Remove</button>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={async () => { await saveInstant(without('referrals', r.id), 'removeReferral', r.id, data.encounter.id); }}>Remove</button>
                     </div>
                   ))}
                   <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
