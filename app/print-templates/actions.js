@@ -6,6 +6,7 @@ import { matchInvestigationType, getFullFieldValues } from '@/app/(main)/investi
 import { plainFrequency, groupPrescriptionsForPrint } from '@/lib/prescriptionFormatting';
 import { formatPatientName } from '@/lib/patientName';
 import { getFollowupReviewContext } from '@/app/(main)/ot-postop/actions';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // ── Editable print templates ──────────────────────────────────────────
 // Each template's HTML lives here as a code-level DEFAULT (versioned,
@@ -691,7 +692,7 @@ export async function getHospitalSettings() {
 
 export async function saveHospitalSettings(fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('hospital_settings').update({
     ...fields, updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
   }).eq('id', true);
@@ -740,7 +741,7 @@ export async function getPrintTemplate(key) {
 export async function savePrintTemplate(key, html) {
   const supabase = await createClient();
   const catalog = PRINT_TEMPLATE_CATALOG.find((t) => t.key === key);
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('print_templates').upsert({
     template_key: key, name: catalog?.name || key, html,
     updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,

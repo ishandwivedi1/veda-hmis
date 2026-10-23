@@ -5,6 +5,7 @@ import { CONSENT_FORM_TYPES, CHECKIN_ITEMS } from './constants';
 import { ensureRecoveryEpisode } from '../ot-recovery/actions';
 import { getSurgicalConsumablesMaster } from '../master-data/actions';
 import { getCaseProcedures } from '@/app/(main)/counselling/actions';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // Same Surgical Consumables Clinical Master used to seed both the
 // Patient Check-In dropdown and the Intraoperative Management
@@ -332,7 +333,7 @@ export async function markPatientReported(otScheduleId) {
   if (lock) return lock;
   const { error } = await supabase.from('ot_schedule').update({ patient_reported_at: new Date().toISOString() }).eq('id', otScheduleId);
   if (error) return { error: error.message };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await supabase.from('ot_schedule_audit_log').insert({ ot_schedule_id: otScheduleId, action: 'Patient Reported', detail: 'Patient marked as reported to OT', changed_by: userData?.user?.id || null });
   return { success: true };
 }
@@ -492,7 +493,7 @@ export async function completeCheckin(otScheduleId, surgicalCaseId, overrideReas
     return { error: `Approved IOL for ${approval.eye} is missing its ${missing} -- fix this in IOL Approval before check-in can be completed.` };
   }
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await supabase.from('ot_intraop_records').update({ checkin_completed_at: new Date().toISOString() }).eq('id', recordId);
   await supabase.from('ot_schedule').update({ status: 'In Progress' }).eq('id', otScheduleId);
   const auditDetail = isOverdue
@@ -566,7 +567,7 @@ export async function saveIntraopDraft(otScheduleId, surgicalCaseId, values) {
 export async function addConsumable(otScheduleId, name) {
   const supabase = await createClient();
   if (!name?.trim()) return { error: 'Consumable name is required.' };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('ot_intraop_consumables').insert({ ot_schedule_id: otScheduleId, name: name.trim(), added_by: userData?.user?.id || null });
   if (error) return { error: error.message };
   return { success: true };
@@ -586,7 +587,7 @@ export async function addIntraopEvent(otScheduleId, values) {
   if (values.kind === 'Complication' && !values.management?.trim()) {
     return { error: 'VAL-OT-004: Management is mandatory when recording a complication.' };
   }
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('ot_intraop_events').insert({
     ot_schedule_id: otScheduleId, kind: values.kind, name: values.name.trim(), severity: values.severity,
     management: values.management?.trim() || null, outcome: values.outcome?.trim() || null,
@@ -634,7 +635,7 @@ export async function completeSurgery(otScheduleId, surgicalCaseId, values) {
   const { data: before } = await supabase.from('ot_intraop_records').select('completed_at').eq('id', recordId).maybeSingle();
   const isCorrection = !!before?.completed_at;
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error: recError } = await supabase.from('ot_intraop_records').update({
     implant_manufacturer: values.implantManufacturer || null, implant_model: values.implantModel || null, implant_catalog_id: values.implantCatalogId || null,
@@ -694,7 +695,7 @@ export async function transferToRecovery(otScheduleId, surgicalCaseId, values) {
   const { data: sc } = await supabase.from('surgical_cases').select('visit_id').eq('id', surgicalCaseId).single();
   if (booking && sc) await ensureRecoveryEpisode(otScheduleId, surgicalCaseId, sc.visit_id, booking.scheduled_date);
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await supabase.from('ot_schedule_audit_log').insert({
     ot_schedule_id: otScheduleId, action: 'Transferred to Recovery',
     detail: `Destination: ${values.recoveryDestination || '--'}`,

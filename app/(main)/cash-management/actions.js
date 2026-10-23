@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -369,7 +370,7 @@ export async function addExpense(categoryId, amount, paidTo, note, backdateTo, b
   }
 
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const amt = Number(amount);
   if (!categoryId) return { error: 'Select a category.' };
   if (!amt || amt <= 0) return { error: 'Enter a valid amount.' };
@@ -1151,7 +1152,7 @@ export async function lockReconciliation(date) {
     return { error: `Save reconciliation for ${missing.join(', ')} first.` };
   }
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('reconciliation_locks').upsert(
     { lock_date: targetDate, locked_by: userData?.user?.id || null }, { onConflict: 'lock_date' }
   );
@@ -1228,7 +1229,7 @@ export async function recordClosingCash(amount, date) {
   const amt = Number(amount);
   if (isNaN(amt) || amt < 0) return { error: 'Enter a valid amount.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('cash_counter').upsert({
     counter_date: targetDate, closing_cash: amt, closing_recorded_by: userData?.user?.id || null, closing_recorded_at: new Date().toISOString(),
   }, { onConflict: 'counter_date' });
@@ -1256,7 +1257,7 @@ export async function confirmCashCounter(date) {
   }
   const computedHandover = counterState.computedHandover;
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('cash_counter').update({
     amount_handed_over: computedHandover, handed_over_by: userData?.user?.id || null, handed_over_at: new Date().toISOString(),
   }).eq('counter_date', targetDate);

@@ -6,6 +6,7 @@ import { markForSurgery, setDecision, getCaseProcedures } from '@/app/(main)/cou
 import { getAdvanceBalance } from '@/app/(main)/payments/actions';
 import { addInvestigationToSurgicalCase } from '@/lib/surgicalCaseInvestigations';
 import { SURGICAL_TRACK_VISIT_TYPES } from '@/lib/visit-types';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // This module deliberately does NOT reimplement package selection,
 // biometry skip/unskip, decision recording, ready-for-scheduling, or OT
@@ -40,7 +41,7 @@ export async function editSurgicalCaseDetails(caseId, procedureName, eye, reason
   if (error) return { error: error.message };
 
   if (progressed) {
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData } = await getUserFast(supabase);
     await supabase.from('surgical_case_notes').insert({
       surgical_case_id: caseId,
       note: `Procedure/eye corrected -- was "${sc.procedure_name}" (${sc.eye}), now "${procedureName}" (${eye}). Reason: ${reason.trim()}`,
@@ -67,7 +68,7 @@ export async function getInvestigationOptionsForCase() {
 
 export async function addInHouseInvestigationForCase(caseId, name, eye, biometryChoice) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: sc } = await supabase.from('surgical_cases').select('encounter_id, patient_id, visit_id').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
@@ -122,7 +123,7 @@ export async function getExternalTestsForCase(caseId) {
 
 export async function addExternalTest(caseId, name) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   if (!name || !name.trim()) return { error: 'Enter a test name.' };
   const { error } = await supabase.from('external_investigations').insert({
     surgical_case_id: caseId, test_name: name.trim(), created_by: userData?.user?.id || null,
@@ -547,7 +548,7 @@ export async function setIolOrderNotes(caseId, notes) {
 // else on the case. ──
 export async function recordManualReminder(caseId, note) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: sc } = await supabase.from('surgical_cases').select('reminder_count').eq('id', caseId).single();
   const { error } = await supabase.from('surgical_cases').update({
@@ -585,7 +586,7 @@ export async function declineSurgicalCase(caseId, reason) {
   const { error } = await supabase.from('surgical_cases').update({ status: 'Cancelled' }).eq('id', caseId);
   if (error) return { error: error.message };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await supabase.from('surgical_case_notes').insert({
     surgical_case_id: caseId,
     note: `Marked Not Willing -- case closed. Reason: ${reason.trim()}`,

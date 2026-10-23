@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // ── DASHBOARD: every referral (all statuses), so the dashboard can show
 // stats across Pending/Cleared/Not Fit -- filtering to a specific stage
@@ -173,7 +174,7 @@ export async function orderFitnessInvestigation(referralId, encounterId, values)
   if (!values.name?.trim()) return { error: 'Select or enter an investigation.' };
   if (!encounterId) return { error: 'This referral has no linked clinical encounter to attach the investigation to.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   // Claim the referral for whichever doctor is the first to open and
   // act on it, without overwriting if someone already has.
   await supabase.from('medical_fitness_referrals').update({ reviewing_doctor_id: userData?.user?.id || null }).eq('id', referralId).is('reviewing_doctor_id', null);
@@ -194,7 +195,7 @@ export async function removeFitnessInvestigation(id) {
 
 export async function clearFitness(referralId, notes) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: referral } = await supabase.from('medical_fitness_referrals').select('surgical_case_id').eq('id', referralId).single();
   if (!referral) return { error: 'Referral not found.' };
@@ -215,7 +216,7 @@ export async function clearFitness(referralId, notes) {
 export async function markNotFit(referralId, notes) {
   const supabase = await createClient();
   if (!notes || !notes.trim()) return { error: 'Notes are required when marking a patient not fit -- Counselling needs to know why.' };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase.from('medical_fitness_referrals').update({
     status: 'Not Fit', fitness_notes: notes.trim(),
@@ -246,7 +247,7 @@ export async function submitFitnessForm(referralId, formData, decision, notes) {
   if (!['Cleared', 'Not Fit'].includes(decision)) return { error: 'Invalid decision.' };
   if (decision === 'Not Fit' && !notes?.trim()) return { error: 'Notes are required when marking not fit.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { data: referral } = await supabase.from('medical_fitness_referrals').select('surgical_case_id').eq('id', referralId).single();
   if (!referral) return { error: 'Referral not found.' };
 
@@ -267,7 +268,7 @@ export async function submitFitnessForm(referralId, formData, decision, notes) {
 // in -- doctor still confirms/edits before printing.
 export async function getCurrentDoctorProfile() {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   if (!userData?.user) return null;
   const { data } = await supabase.from('profiles').select('full_name, registration_no').eq('id', userData.user.id).maybeSingle();
   return data || null;

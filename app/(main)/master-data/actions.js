@@ -2,9 +2,10 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { isCurrentUserAdmin } from '@/lib/authz';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 async function logMasterAudit(supabase, masterTable, recordCode, action, detail) {
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await supabase.from('master_data_audit_log').insert({
     master_table: masterTable, record_code: recordCode, action, detail, changed_by: userData?.user?.id || null,
   });

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase-server';
 import { logJourneyEvent } from '@/lib/journey-events';
 import { plainFrequency } from '@/lib/prescriptionFormatting';
 import { computeDispenseQty } from '@/lib/pharmacyQuantity';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 function todayIST() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -212,7 +213,7 @@ export async function billPharmacyItems(visitId, items) {
   const { data: visit } = await supabase.from('visits').select('patient_id').eq('id', visitId).single();
   if (!visit) return { error: 'Visit not found.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: invoice, error: invError } = await supabase.rpc('create_invoice_for_visit', {
     p_patient_id: visit.patient_id,
@@ -428,7 +429,7 @@ export async function getPendingPrescriptionsForFrontOffice({ includeBilled = fa
 // not a row in `prescriptions`.
 async function setPrescriptionBillingStatus(idOrIds, billingStatus, note) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
   const { error } = await supabase
     .from('prescriptions')

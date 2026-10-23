@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { formatPatientName } from '@/lib/patientName';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // The surgeon's sign-off on the specific IOL brand/model/power to
 // actually use for a surgical case -- separate from Biometry (which
@@ -150,7 +151,7 @@ export async function getIolApprovalDetail(caseId) {
 // ── APPROVE ─────────────────────────────────────────────────────────
 export async function approveIol(caseId, biometryRecordId, iolCatalogId, power, notes) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: approverProfile } = await supabase.from('profiles').select('designation').eq('id', userData?.user?.id).maybeSingle();
   if (approverProfile?.designation !== 'Doctor') return { error: 'Only a doctor can approve an IOL.' };

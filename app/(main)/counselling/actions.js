@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // ============================================================================
 // DO NOT DELETE OR MOVE THIS FILE.
@@ -83,7 +84,7 @@ import { createClient } from '@/lib/supabase-server';
 //    date math here) and flips it straight to the target status.
 async function sendCaseToQueueStatus(caseId, queueStatus, auditMessage) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase.rpc('send_case_to_department_queue', {
     p_case_id: caseId,
@@ -98,7 +99,7 @@ async function sendCaseToQueueStatus(caseId, queueStatus, auditMessage) {
 
 export async function sendForBiometry(caseId) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: sc } = await supabase.from('surgical_cases').select('id, patient_id, encounter_id').eq('id', caseId).single();
   if (!sc) return { error: 'Case not found.' };
@@ -442,7 +443,7 @@ export async function updateProcedurePackageDiscount(procedureId, discount, reas
   const { error } = await supabase.from('surgical_case_procedures').update({ package_discount: disc }).eq('id', procedureId);
   if (error) return { error: error.message };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await supabase.from('surgical_case_notes').insert({
     surgical_case_id: proc.surgical_case_id,
     note: `Package discount for ${proc.procedure_name} changed from Rs.${Number(proc.package_discount || 0).toLocaleString('en-IN')} to Rs.${disc.toLocaleString('en-IN')} (${proc.master_packages?.name || 'package'}) -- Reason: ${reason.trim()}`,
@@ -463,7 +464,7 @@ export async function changeProcedurePackage(procedureId, reason) {
   if (error) return { error: error.message };
 
   if (proc?.package_locked && reason) {
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData } = await getUserFast(supabase);
     await supabase.from('surgical_case_notes').insert({
       surgical_case_id: proc.surgical_case_id,
       note: `Package unlocked and changed for ${proc.procedure_name}${proc.master_packages?.name ? ` (was: ${proc.master_packages.name})` : ''} -- Reason: ${reason.trim()}`,
@@ -634,7 +635,7 @@ export async function updatePackageDiscount(caseId, discount, reason) {
   const { error } = await supabase.from('surgical_cases').update({ package_discount: disc }).eq('id', caseId);
   if (error) return { error: error.message };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   await supabase.from('surgical_case_notes').insert({
     surgical_case_id: caseId,
     note: `Package discount changed from Rs.${Number(sc.package_discount || 0).toLocaleString('en-IN')} to Rs.${disc.toLocaleString('en-IN')} (${sc.master_packages?.name || 'package'}) -- Reason: ${reason.trim()}`,
@@ -657,7 +658,7 @@ export async function changePackage(caseId, reason) {
   if (error) return { error: error.message };
 
   if (sc?.package_locked && reason) {
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData } = await getUserFast(supabase);
     await supabase.from('surgical_case_notes').insert({
       surgical_case_id: caseId,
       note: `Package unlocked and changed${sc.master_packages?.name ? ` (was: ${sc.master_packages.name})` : ''} -- Reason: ${reason.trim()}`,
@@ -680,7 +681,7 @@ export async function setDecision(caseId, decision, reason) {
     if (!reason || !reason.trim()) {
       return { error: 'A reason is required to change a locked decision.' };
     }
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData } = await getUserFast(supabase);
     await supabase.from('surgical_case_notes').insert({
       surgical_case_id: caseId,
       note: `Decision unlocked and changed from "${sc.decision}" to "${decision}" -- Reason: ${reason.trim()}`,
@@ -720,7 +721,7 @@ export async function getCaseNotes(caseId) {
 export async function addCaseNote(caseId, note) {
   if (!note || !note.trim()) return { error: 'Note cannot be empty.' };
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('surgical_case_notes').insert({
     surgical_case_id: caseId,
     note: note.trim(),
@@ -923,7 +924,7 @@ async function ensureFitnessReferral(supabase, caseId) {
 
   if (existing && existing.length > 0 && (existing[0].status === 'Pending Review' || existing[0].status === 'Cleared')) return;
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   if (existing && existing.length > 0 && existing[0].status === 'Not Fit') {
     await supabase.from('medical_fitness_referrals').update({

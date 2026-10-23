@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { revalidatePath } from 'next/cache';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // ── DASHBOARD ──
 // Aggregation (on-hand sum, nearest expiry, expiring-soon flag) now
@@ -162,7 +163,7 @@ export async function getVendors() {
 // inline vendor creation here, to keep vendor master data clean.
 export async function createPurchaseWithLines({ vendorId, billNumber, billDate, notes, billAmount, lines }) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const receivedBy = userData?.user?.id || null;
 
   if (!vendorId) return { error: 'Select a vendor. New vendors are added under Financial Masters > Vendors.' };
@@ -283,7 +284,7 @@ export async function writeOffLot(lotId, movementType, notes) {
   if (!lot) return { error: 'Lot not found.' };
   if (Number(lot.qty_on_hand) <= 0) return { error: 'This lot has no remaining stock to write off.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const qty = Number(lot.qty_on_hand);
 
   const { error: updErr } = await supabase.from('inventory_lots').update({ qty_on_hand: 0, status: 'Written Off' }).eq('id', lotId);

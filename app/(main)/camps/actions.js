@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase-server';
 import { registerPatient } from '@/app/(main)/patients/actions';
 import { sendWhatsAppTemplate } from '@/lib/whatsapp';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // Matches register_patient's initcap(trim(...)) normalization on the
 // real Patients table -- camp registration is rushed by nature (50-60
@@ -57,7 +58,7 @@ export async function createCampEvent(values) {
   if (!values.name?.trim()) return { error: 'Camp name is required.' };
   if (!values.campDate) return { error: 'Camp date is required.' };
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getUserFast(supabase);
   const { data, error } = await supabase
     .from('camp_events')
     .insert({
@@ -116,7 +117,7 @@ export async function registerAttendee(campEventId, values) {
   // up unreachable for the WhatsApp follow-up or a doctor's call.
   if (!/^\d{10}$/.test(values.phone.trim())) return { error: 'Mobile number must be 10 digits.' };
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getUserFast(supabase);
   // register_camp_screening assigns both a unique registration_no
   // (CAMPYY-NNNNN, same gap-safe pattern as patient UHID/surgery code)
   // and a token_no (1, 2, 3... in order of arrival, scoped to this
@@ -155,7 +156,7 @@ export async function updateRegistration(screeningId, values) {
 // ── STAGE 2: EYE CHECKUP (optometrist) ──
 export async function recordEyeCheckup(screeningId, values) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getUserFast(supabase);
   const { error } = await supabase
     .from('camp_screenings')
     .update({
@@ -173,7 +174,7 @@ export async function recordEyeCheckup(screeningId, values) {
 // ── STAGE 3: DOCTOR EXAMINATION ──
 export async function recordDoctorExamination(screeningId, values) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getUserFast(supabase);
   const { error } = await supabase
     .from('camp_screenings')
     .update({

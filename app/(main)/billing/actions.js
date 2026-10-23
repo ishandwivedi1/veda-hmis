@@ -5,6 +5,7 @@ import { formatPatientName } from '@/lib/patientName';
 import { requireDayOpen } from '@/app/(main)/cash-management/actions';
 import { generateInvoicePdfBuffer } from '@/lib/pdf-generator';
 import { sendInvoiceBillWhatsApp } from '@/lib/whatsapp';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // Shared by the auto-send-on-full-payment trigger (collectPayment, in
 // payments/actions.js) and the manual "Resend WhatsApp Bill" button.
@@ -54,7 +55,7 @@ export async function sendInvoiceBill(invoiceId, { force = false, triggeredBy = 
 export async function resendInvoiceBillWhatsApp(invoiceId) {
   if (!invoiceId) return { error: 'Missing invoice id.' };
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getUserFast(supabase);
 
   const result = await sendInvoiceBill(invoiceId, { force: true, triggeredBy: user?.id || null });
   if (!result.success) return { error: result.error || 'Failed to send WhatsApp bill.' };
@@ -358,7 +359,7 @@ export async function getInvestigationOrdersForBilling(ids) {
 export async function markInvestigationOrdersBilled(ids, invoiceId) {
   const supabase = await createClient();
   if (!ids || ids.length === 0) return { success: true };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase
     .from('investigation_orders')
     .update({
@@ -438,7 +439,7 @@ export async function getProceduresForBilling(ids) {
 export async function markProceduresBilled(ids, invoiceId) {
   const supabase = await createClient();
   if (!ids || ids.length === 0) return { success: true };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase
     .from('plan_procedures')
     .update({
@@ -496,7 +497,7 @@ export async function getPrescriptionsForBilling(ids) {
 export async function markPrescriptionsBilled(ids) {
   const supabase = await createClient();
   if (!ids || ids.length === 0) return { success: true };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase
     .from('prescriptions')
     .update({
@@ -734,7 +735,7 @@ export async function getBiometryForBilling(ids) {
 export async function markBiometryBilled(ids, invoiceId) {
   const supabase = await createClient();
   if (!ids || ids.length === 0) return { success: true };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase
     .from('biometry_records')
     .update({

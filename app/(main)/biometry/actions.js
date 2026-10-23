@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase-server';
 import { formatPatientName } from '@/lib/patientName';
 import { logJourneyEvent } from '@/lib/journey-events';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // ── QUEUE ──────────────────────────────────────────────────────────
 // Biometry is patient-level now, not visit/case-level -- a session is
@@ -118,7 +119,7 @@ export async function getBiometryDetail(id) {
   // Surgical Journey) should default to a locked, read-only view --
   // only a Doctor can unlock it to make a correction. Before Measured,
   // the normal technician data-entry flow is unaffected.
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   let isDoctor = false;
   if (userData?.user) {
     const { data: me } = await supabase.from('profiles').select('designation').eq('id', userData.user.id).maybeSingle();
@@ -150,7 +151,7 @@ export async function saveBiometryDraft(id, measurements, notes) {
 // entered (partial readings, single eye only, etc).
 export async function markBiometryMeasured(id, measurements, remarks) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const devicesUsed = [...new Set([...(measurements.re || []), ...(measurements.le || [])].map((s) => s.device).filter(Boolean))];
 
@@ -207,7 +208,7 @@ export async function markBiometryMeasured(id, measurements, remarks) {
 async function assertBiometryEditable(supabase, biometryRecordId) {
   const { data: existing } = await supabase.from('biometry_records').select('status').eq('id', biometryRecordId).maybeSingle();
   if (existing?.status !== 'Measured') return null;
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { data: me } = userData?.user
     ? await supabase.from('profiles').select('designation').eq('id', userData.user.id).maybeSingle()
     : { data: null };
@@ -310,7 +311,7 @@ export async function getPendingBiometryBilling({ includeBilled = false } = {}) 
 
 async function setBiometryBillingStatus(id, billingStatus, note) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase
     .from('biometry_records')
     .update({

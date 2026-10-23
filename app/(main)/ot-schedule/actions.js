@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase-server';
 import { formatPatientName } from '@/lib/patientName';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 const OT_SELECT = '*, surgical_cases(procedure_name, eye, patients(first_name, salutation, last_name, uhid)), profiles!ot_schedule_surgeon_id_fkey(full_name)';
 
@@ -232,7 +233,7 @@ export async function getSurgeonsForDirectSurgery() {
 
 export async function registerSurgeryDirect(input) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { patientId, procedureName, eye, surgeonId, priority, workupNote, packageId, packageDiscount, date, sessionId, notes } = input || {};
 

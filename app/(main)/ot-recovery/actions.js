@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase-server';
 import { DISCHARGE_ITEMS } from './constants';
 import { getDrugs, getDosageOptions } from '../master-data/actions';
 import { getCaseProcedures } from '@/app/(main)/counselling/actions';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // Same Pharmacy drug list + dosage master used in the Doctor
 // (Consultation) module's prescription form -- so post-op medication
@@ -144,7 +145,7 @@ export async function addRecoveryMedication(episodeId, values, reason) {
   if (!values.name?.trim()) return { error: 'Medicine name is required.' };
   if (!values.dosage?.trim()) return { error: 'Dosage is required.' };
   if (!values.frequency?.trim() || !values.duration?.trim()) return { error: 'Frequency and duration are required.' };
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase.from('recovery_medications').insert({
     recovery_episode_id: episodeId,
     name: values.name.trim(),
@@ -167,7 +168,7 @@ export async function addTaperedRecoveryMedication(episodeId, values, reason) {
   const steps = (values.steps || []).filter((s) => s.frequency && s.duration && s.dosage);
   if (steps.length < 2) return { error: 'A tapering schedule needs at least 2 steps.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const taperGroupId = crypto.randomUUID();
   const rows = steps.map((s, i) => ({
     recovery_episode_id: episodeId,
@@ -211,7 +212,7 @@ export async function confirmDischarge(episodeId, checklist, dischargeNotes, dis
   if (!mandatoryDone) return { error: 'VAL-POST-002: All mandatory discharge items must be checked.' };
   if (!dischargeDate) return { error: 'Discharge date is required.' };
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { error } = await supabase.from('recovery_episodes').update({
     discharge_date: dischargeDate, discharge_checklist: checklist,

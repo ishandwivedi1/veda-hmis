@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase-server';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 const DECISIONS = ['Accepted', 'Wants Time to Decide', 'Discuss with Family', 'Financial Constraint', 'Declined', 'Second Opinion', 'Other'];
 
@@ -135,7 +136,7 @@ export async function getTodayOpdProcedurePatients() {
 export async function setOpdProcedureDecision(id, decision, reason) {
   if (!DECISIONS.includes(decision)) return { error: 'Invalid decision value.' };
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: row } = await supabase.from('plan_procedures').select('decision, decision_locked, encounter_id, name').eq('id', id).single();
   if (!row) return { error: 'Procedure not found.' };
@@ -189,7 +190,7 @@ export async function getOpdProcedureMonthSummary(year, month) {
 export async function scheduleOpdProcedure(id, date, time) {
   if (!date) return { error: 'A date is required.' };
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: row } = await supabase.from('plan_procedures').select('status, decision, encounter_id, name').eq('id', id).single();
   if (!row) return { error: 'Procedure not found.' };
@@ -206,7 +207,7 @@ export async function scheduleOpdProcedure(id, date, time) {
 // advance balance actually paid (patient_ledger), not a static flag.
 export async function checkInOpdProcedure(id) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: row } = await supabase
     .from('plan_procedures')
@@ -252,7 +253,7 @@ export async function checkInOpdProcedure(id) {
 // ── COMPLETION ──
 export async function completeOpdProcedure(id, fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: row } = await supabase.from('plan_procedures').select('status, encounter_id, name').eq('id', id).single();
   if (!row) return { error: 'Procedure not found.' };
@@ -273,7 +274,7 @@ export async function completeOpdProcedure(id, fields) {
 // ── CANCEL ──
 export async function cancelOpdProcedure(id, reason) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const { data: row } = await supabase.from('plan_procedures').select('encounter_id, name').eq('id', id).single();
   if (!row) return { error: 'Procedure not found.' };
@@ -420,7 +421,7 @@ export async function getDrugCatalogForOpdProcedures() {
 
 export async function addPostProcedureMedicine(procedureId, values) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const encounterId = await ensurePostProcedureEncounter(supabase, procedureId);
   if (!encounterId) return { error: 'Could not find an active visit to attach this prescription to.' };
@@ -454,7 +455,7 @@ export async function removePostProcedureMedicine(id) {
 // post-procedure encounter instead of the consultation encounter.
 export async function addPostProcedureTaperedMedicine(procedureId, values) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const steps = (values.steps || []).filter((s) => s.frequency && s.duration && s.dosage);
   if (steps.length < 2) return { error: 'A tapering schedule needs at least 2 steps.' };
 
@@ -498,7 +499,7 @@ export async function removePostProcedureTaperGroup(taperGroupId) {
 // editing settled records (e.g. payments' same-day edit window).
 export async function updateCompletedProcedureNotes(id, fields) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const today = todayIst();
 
   const { data: row } = await supabase.from('plan_procedures').select('status, completed_at, encounter_id, name').eq('id', id).single();

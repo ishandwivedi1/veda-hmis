@@ -10,6 +10,7 @@ import { generateReceiptPdfBuffer } from '@/lib/pdf-generator';
 import { logJourneyEvent } from '@/lib/journey-events';
 import { resolveBackdatedCollection, logBackdatedEntry } from '@/lib/backdating';
 import { requireAdministrator } from '@/lib/adminGuard';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // Everything the Payments Dashboard needs, fetched in parallel -- one
 // round trip per query, not sequential, since this loads on every visit
@@ -391,7 +392,7 @@ export async function collectAdvance(patientId, advanceType, amount, modes, refe
   // button). Deferred with after() so this never adds latency to the
   // collection response, same fix as applied to collectPayment.
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await getUserFast(supabase);
     const { data: patient } = await supabase
       .from('patients')
       .select('id, first_name, salutation, last_name, mobile')
@@ -567,7 +568,7 @@ export async function resendPaymentReceiptWhatsApp(paymentId) {
   const pdfResult = await generateReceiptPdfBuffer(paymentId);
   if (pdfResult.error) return { error: pdfResult.error };
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getUserFast(supabase);
   const name = `${formatPatientName(payment.patients)}`.trim();
   const filename = `${payment.receipt_number || 'Receipt'}.pdf`;
   const meta = { module: payment.payment_type === 'advance' ? 'advance_payment' : 'payment_receipt', triggeredBy: user?.id || null };
@@ -842,7 +843,7 @@ export async function collectPayment(patientId, invoiceIds, amount, modes, refer
   // returns the response to the front desk immediately, then keeps this
   // function alive just long enough to finish the send in the background.
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await getUserFast(supabase);
     const { data: affectedInvoices } = await supabase
       .from('invoices')
       .select('id, status')

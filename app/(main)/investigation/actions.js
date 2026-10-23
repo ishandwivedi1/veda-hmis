@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase-server';
 import { formatPatientName } from '@/lib/patientName';
 import { logJourneyEvent } from '@/lib/journey-events';
+import { getUserFast } from '@/lib/authUser'; // local token check, no Auth round trip
 
 // ── QUEUE (Ordered + In Progress, grouped by visit) plus today's KPI
 // stats for the Queue screen's summary cards. ──
@@ -175,7 +176,7 @@ export async function getInvestigationDetail(id, viewOnly) {
   // Opening the order to work on it (not just viewing) is the "start" --
   // no separate button needed. Timestamped with whoever opened it.
   if (!viewOnly && data.status === 'Ordered') {
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData } = await getUserFast(supabase);
     const startedAt = new Date().toISOString();
     await supabase.from('investigation_orders').update({
       status: 'In Progress', started_at: startedAt, started_by: userData?.user?.id || null,
@@ -227,7 +228,7 @@ export async function saveInvestigationDraft(id, resultData, remarks) {
 
 export async function completeInvestigation(id, resultData, remarks) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { data: order, error } = await supabase
     .from('investigation_orders')
     .update({
@@ -273,7 +274,7 @@ async function resolveAwaitingPart(supabase, visitId, part) {
 
 export async function verifyInvestigation(id, checklist) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
 
   const allChecked = Object.values(checklist).every(Boolean) && Object.keys(checklist).length > 0;
   if (!allChecked) return { error: 'All verification items must be checked before verifying.' };
@@ -355,7 +356,7 @@ export async function getPendingInvestigationBilling({ includeBilled = false } =
 
 async function setInvestigationBillingStatus(id, billingStatus, note) {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getUserFast(supabase);
   const { error } = await supabase
     .from('investigation_orders')
     .update({
