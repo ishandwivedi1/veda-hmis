@@ -165,6 +165,7 @@ export const READS = {
   'master-data.actions.getSurgicalConsumablesMaster': m21.getSurgicalConsumablesMaster,
   'master-data.actions.getVendorsMaster': m21.getVendorsMaster,
   'master-data.bundle-actions.getConsultationMastersBundle': m22.getConsultationMastersBundle,
+  'master-data.bundle-actions.getFinancialMastersBundle': m22.getFinancialMastersBundle,
   'master-data.bundle-actions.getPostopReviewMastersBundle': m22.getPostopReviewMastersBundle,
   'medical-fitness.actions.getCurrentDoctorProfile': m23.getCurrentDoctorProfile,
   'medical-fitness.actions.getInvestigationMasterOptions': m23.getInvestigationMasterOptions,

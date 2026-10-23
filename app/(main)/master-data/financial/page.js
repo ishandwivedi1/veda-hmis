@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { toggleStatus, addService, updateService, deleteService, addPackage, updatePackage, deletePackage, addPackageLineItem, updatePackageLineItem, removePackageLineItem, addDrug, updateDrug, deleteDrug, addDrugType, updateDrugType, updateDrugTypeOcular, updateDrugTypeCountable, deleteDrugType, addDosageOption, removeDosageOption, addVendorMaster, updateVendorMaster, deleteVendorMaster, amIAdmin } from '../actions';
+import { financialMastersSave } from '../bundle-actions';
+import { getFinancialMastersBundle } from '@/lib/rpc-reads/master-data__bundle-actions'; // parallel reads (tools/parallel-reads)
 import { getServices, getPackages, getPackageLineItems, getDrugs, getDrugTypes, getDosageOptions, getVendorsMaster, getSurgeries, getMasterAuditLog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 
 const SERVICE_DEPTS = ['Consultation', 'Investigation', 'OPD Procedure'];
@@ -9,13 +11,12 @@ const TABS = [...SERVICE_DEPTS.map((d) => ({ key: d, type: 'service' })), { key:
 const IOL_CATEGORIES = ['Monofocal', 'Monofocal Toric', 'Multifocal', 'EDOF'];
 const ORIGINS = ['Indian', 'Imported'];
 
-function StatusToggle({ record, table, onUpdate }) {
+function StatusToggle({ record, table, onToggle }) {
   const [loading, setLoading] = useState(false);
   async function handleToggle() {
     setLoading(true);
-    await toggleStatus(table, record.id, record.status, record.code);
+    await onToggle('toggleStatus', table, record.id, record.status, record.code);
     setLoading(false);
-    onUpdate();
   }
   return (
     <button className={`badge ${record.status === 'Active' ? 'b-green' : 'b-gray'}`} style={{ border: 'none', cursor: 'pointer' }} onClick={handleToggle} disabled={loading}>
@@ -57,18 +58,28 @@ export default function FinancialMastersPage() {
   const tabDef = TABS.find((t) => t.key === activeTab);
   const auditTable = tabDef.type === 'package' ? 'master_packages' : tabDef.type === 'drug' ? 'master_drugs' : tabDef.type === 'vendor' ? 'inventory_vendors' : 'master_services';
 
+  // ONE request to open (was up to 9, one after another) -- see bundle-actions.
+  const applyBundle = useCallback((b) => {
+    if (!b) return;
+    setServices(b.services || []);
+    setPackages(b.packages || []);
+    setDrugs(b.drugs || []);
+    setDrugTypes(b.drugTypes || []);
+    setDosageOptions(b.dosageOptions || []);
+    setSurgeries(b.surgeries || []);
+    setVendors(b.vendors || []);
+    setIsAdmin(!!b.isAdmin);
+    if (b.isAdmin) setAuditLog(b.auditLog || []);
+  }, []);
   const refresh = useCallback(async () => {
-    setServices(await getServices());
-    setPackages(await getPackages());
-    setDrugs(await getDrugs());
-    setDrugTypes(await getDrugTypes());
-    setDosageOptions(await getDosageOptions());
-    setSurgeries(await getSurgeries());
-    setVendors(await getVendorsMaster());
-    const admin = await amIAdmin();
-    setIsAdmin(admin);
-    if (admin) setAuditLog(await getMasterAuditLog(auditTable));
-  }, [auditTable]);
+    applyBundle(await getFinancialMastersBundle(auditTable));
+  }, [auditTable, applyBundle]);
+  // ONE request per click: the save plus the refreshed lists together.
+  const save = useCallback(async (name, ...args) => {
+    const result = (await financialMastersSave(name, args, auditTable)) || {};
+    if (result.bundle) applyBundle(result.bundle);
+    return result;
+  }, [auditTable, applyBundle]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -96,17 +107,16 @@ export default function FinancialMastersPage() {
     let result;
     if (tabDef.type === 'package') {
       const isCataract = surgeries.find((s) => s.id === form.surgeryId)?.category === 'Cataract';
-      result = await addPackage(isCataract ? form : { ...form, iolCategory: '', origin: '' });
+      result = await save('addPackage', isCataract ? form : { ...form, iolCategory: '', origin: '' });
     }
-    else if (tabDef.type === 'drug') result = await addDrug(form);
-    else if (tabDef.type === 'vendor') result = await addVendorMaster(form);
-    else result = await addService({ ...form, dept: activeTab });
+    else if (tabDef.type === 'drug') result = await save('addDrug', form);
+    else if (tabDef.type === 'vendor') result = await save('addVendorMaster', form);
+    else result = await save('addService', { ...form, dept: activeTab });
 
     if (result?.error) { setError(result.error); return; }
     setSuccess(`${form.name || form.generic} added${tabDef.type === 'package' ? ' -- add its constituents to set the price' : ''}.`);
     setForm({});
     setShowAdd(false);
-    refresh();
     if (tabDef.type === 'package' && result.package) openConstituents(result.package);
   }
 
@@ -127,30 +137,26 @@ export default function FinancialMastersPage() {
   async function handleAddType() {
     setError(''); setSuccess('');
     if (!newTypeName.trim()) return;
-    const result = await addDrugType({ name: newTypeName });
+    const result = await save('addDrugType', { name: newTypeName });
     if (result?.error) { setError(result.error); return; }
     setNewTypeName('');
-    refresh();
   }
 
   async function handleRenameType(t, name) {
     if (!name.trim() || name === t.name) return;
-    await updateDrugType(t.id, t, { name });
-    refresh();
+    await save('updateDrugType', t.id, t, { name });
   }
 
   async function handleAddDosage(typeId) {
     setError(''); setSuccess('');
     if (!newDosageText.trim()) return;
-    const result = await addDosageOption(typeId, newDosageText);
+    const result = await save('addDosageOption', typeId, newDosageText);
     if (result?.error) { setError(result.error); return; }
     setNewDosageText('');
-    refresh();
   }
 
   async function handleRemoveDosage(id) {
-    await removeDosageOption(id);
-    refresh();
+    await save('removeDosageOption', id);
   }
 
   async function saveEdit(record) {
@@ -158,28 +164,26 @@ export default function FinancialMastersPage() {
     let result;
     if (tabDef.type === 'package') {
       const isCataract = surgeries.find((s) => s.id === editForm.surgeryId)?.category === 'Cataract';
-      result = await updatePackage(record.id, record, isCataract ? editForm : { ...editForm, iolCategory: '', origin: '' });
+      result = await save('updatePackage', record.id, record, isCataract ? editForm : { ...editForm, iolCategory: '', origin: '' });
     }
-    else if (tabDef.type === 'drug') result = await updateDrug(record.id, record, editForm);
-    else if (tabDef.type === 'vendor') result = await updateVendorMaster(record.id, record, editForm);
-    else result = await updateService(record.id, record, { ...editForm, dept: record.dept });
+    else if (tabDef.type === 'drug') result = await save('updateDrug', record.id, record, editForm);
+    else if (tabDef.type === 'vendor') result = await save('updateVendorMaster', record.id, record, editForm);
+    else result = await save('updateService', record.id, record, { ...editForm, dept: record.dept });
     if (result?.error) { setError(result.error); return; }
     setSuccess('Updated.');
     setEditingId(null);
-    refresh();
   }
 
   async function handleDelete(record) {
     if (!window.confirm(`Delete "${record.name || record.generic}"? This cannot be undone. If it's in use elsewhere, deletion will be blocked and you should mark it Inactive instead.`)) return;
     setError(''); setSuccess('');
     let result;
-    if (tabDef.type === 'package') result = await deletePackage(record.id, record.code);
-    else if (tabDef.type === 'drug') result = await deleteDrug(record.id, record.code);
-    else if (tabDef.type === 'vendor') result = await deleteVendorMaster(record.id, record.code);
-    else result = await deleteService(record.id, record.code);
+    if (tabDef.type === 'package') result = await save('deletePackage', record.id, record.code);
+    else if (tabDef.type === 'drug') result = await save('deleteDrug', record.id, record.code);
+    else if (tabDef.type === 'vendor') result = await save('deleteVendorMaster', record.id, record.code);
+    else result = await save('deleteService', record.id, record.code);
     if (result?.error) { setError(result.error); return; }
     setSuccess('Deleted.');
-    refresh();
   }
 
   async function openConstituents(pkg) {
@@ -198,11 +202,10 @@ export default function FinancialMastersPage() {
   async function handleAddLine() {
     if (!newLineDesc.trim() || !newLineAmount) { setError('Description and amount are required.'); return; }
     setError('');
-    const result = await addPackageLineItem(constituentsFor.id, newLineDesc, newLineAmount);
+    const result = await save('addPackageLineItem', constituentsFor.id, newLineDesc, newLineAmount);
     if (result?.error) { setError(result.error); return; }
     setNewLineDesc(''); setNewLineAmount('');
     setConstituents(await getPackageLineItems(constituentsFor.id));
-    refresh();
   }
 
   function startEditLine(c) {
@@ -220,17 +223,15 @@ export default function FinancialMastersPage() {
   async function saveEditLine(id) {
     if (!editLineDesc.trim() || !editLineAmount) { setError('Description and amount are required.'); return; }
     setError('');
-    const result = await updatePackageLineItem(id, constituentsFor.id, editLineDesc, editLineAmount);
+    const result = await save('updatePackageLineItem', id, constituentsFor.id, editLineDesc, editLineAmount);
     if (result?.error) { setError(result.error); return; }
     cancelEditLine();
     setConstituents(await getPackageLineItems(constituentsFor.id));
-    refresh();
   }
 
   async function handleRemoveLine(id) {
-    await removePackageLineItem(id, constituentsFor.id);
+    await save('removePackageLineItem', id, constituentsFor.id);
     setConstituents(await getPackageLineItems(constituentsFor.id));
-    refresh();
   }
 
   const constituentsTotal = constituents.reduce((s, c) => s + Number(c.amount), 0);
@@ -359,7 +360,7 @@ export default function FinancialMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{s.code}</td><td>{s.name}</td>
                       <td>Rs.{s.rate}</td><td>{s.gst_pct}%</td>
                       {activeTab === 'Investigation' && <td>{s.investigation_package ? <span className="badge b-purple" style={{ fontSize: 10 }}>{s.investigation_package}</span> : <span style={{ color: 'var(--g400)' }}>--</span>}</td>}
-                      <td><StatusToggle record={s} table="master_services" onUpdate={refresh} /></td>
+                      <td><StatusToggle record={s} table="master_services" onToggle={save} /></td>
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => startEdit(s)}><i className="ti ti-edit"></i></button>
                         <button className="btn btn-sm" onClick={() => handleDelete(s)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
@@ -404,7 +405,7 @@ export default function FinancialMastersPage() {
                       <td style={{ fontFamily: 'monospace' }}>{d.code}</td><td>{d.brand}</td><td>{d.generic}</td><td>{d.strength}</td>
                       <td>{d.master_drug_types?.name || <span style={{ color: 'var(--g400)' }}>-- unset --</span>}</td>
                       <td>Rs.{d.rate}</td><td>{d.gst_pct}%</td>
-                      <td><StatusToggle record={d} table="master_drugs" onUpdate={refresh} /></td>
+                      <td><StatusToggle record={d} table="master_drugs" onToggle={save} /></td>
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => startEdit(d)}><i className="ti ti-edit"></i></button>
                         <button className="btn btn-sm" onClick={() => handleDelete(d)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
@@ -438,7 +439,7 @@ export default function FinancialMastersPage() {
                     <tr key={v.id}>
                       <td style={{ fontFamily: 'monospace' }}>{v.code}</td><td style={{ fontWeight: 600 }}>{v.name}</td>
                       <td>{v.contact_person || '--'}</td><td>{v.phone || '--'}</td><td>{v.gst_number || '--'}</td>
-                      <td><StatusToggle record={v} table="inventory_vendors" onUpdate={refresh} /></td>
+                      <td><StatusToggle record={v} table="inventory_vendors" onToggle={save} /></td>
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => startEdit(v)}><i className="ti ti-edit"></i></button>
                         <button className="btn btn-sm" onClick={() => handleDelete(v)}><i className="ti ti-trash" style={{ color: 'var(--red)' }}></i></button>
@@ -481,14 +482,14 @@ export default function FinancialMastersPage() {
                         />
                         <span style={{ fontSize: 11, color: 'var(--g400)', fontFamily: 'monospace' }}>{t.code}</span>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--g600)', cursor: 'pointer' }} title="Whether this type is applied to the eye (drops, ointments) -- controls whether Prescription/Discharge medication forms ask for Eye">
-                          <input type="checkbox" checked={!!t.is_ocular} onChange={(e) => updateDrugTypeOcular(t.id, e.target.checked).then(refresh)} />
+                          <input type="checkbox" checked={!!t.is_ocular} onChange={(e) => save('updateDrugTypeOcular', t.id, e.target.checked)} />
                           Eye medication
                         </label>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--g600)', cursor: 'pointer' }} title="Whether Pharmacy computes a total quantity from dosage x frequency x duration (Tablet, Capsule) vs always dispensing a single bottle/tube/vial regardless of dose (drops, ointment, gel, syrup, injection)">
-                          <input type="checkbox" checked={!!t.is_countable} onChange={(e) => updateDrugTypeCountable(t.id, e.target.checked).then(refresh)} />
+                          <input type="checkbox" checked={!!t.is_countable} onChange={(e) => save('updateDrugTypeCountable', t.id, e.target.checked)} />
                           Countable
                         </label>
-                        <span style={{ marginLeft: 'auto' }}><StatusToggle record={t} table="master_drug_types" onUpdate={refresh} /></span>
+                        <span style={{ marginLeft: 'auto' }}><StatusToggle record={t} table="master_drug_types" onToggle={save} /></span>
                       </div>
                       {expandedTypeId === t.id && (
                         <div style={{ padding: 12 }}>
@@ -566,7 +567,7 @@ export default function FinancialMastersPage() {
                         ) : <span style={{ fontSize: 11, color: 'var(--g400)' }}>--</span>}
                       </td>
                       <td style={{ fontWeight: 600 }}>Rs.{p.price}</td>
-                      <td><StatusToggle record={p} table="master_packages" onUpdate={refresh} /></td>
+                      <td><StatusToggle record={p} table="master_packages" onToggle={save} /></td>
                       <td style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => openConstituents(p)}><i className="ti ti-list-details"></i> Breakup</button>
                         <button className="btn btn-sm" onClick={() => startEdit(p)}><i className="ti ti-edit"></i></button>

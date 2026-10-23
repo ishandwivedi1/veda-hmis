@@ -86,6 +86,10 @@ function fnVerdict(file, name, stack = []) {
   const key = file + '#' + name;
   if (key in memo) return memo[key];
   if (stack.includes(key)) return { ok: true };
+  // lib/authUser.js only verifies the session token locally; its one
+  // fetch() is a GET of Supabase Auth's public signing keys (JWKS) --
+  // read-only, so it must not turn every caller into a "write".
+  if (file === path.join(ROOT, 'lib/authUser.js')) return (memo[key] = { ok: true });
   const m = mods[file];
   if (!m || !m.fns[name]) return (memo[key] = { ok: false, why: `unknown ${path.relative(ROOT, file || '?')}#${name}` });
   const fn = m.fns[name];
