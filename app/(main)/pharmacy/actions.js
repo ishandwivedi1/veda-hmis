@@ -1,5 +1,6 @@
 'use server';
 
+import { after } from 'next/server'; // journey event written after the reply
 import { createClient } from '@/lib/supabase-server';
 import { logJourneyEvent } from '@/lib/journey-events';
 import { plainFrequency } from '@/lib/prescriptionFormatting';
@@ -210,33 +211,60 @@ export async function billPharmacyItems(visitId, items) {
   const supabase = await createClient();
   if (!items || items.length === 0) return { error: 'No items to bill.' };
 
-  const { data: visit } = await supabase.from('visits').select('patient_id').eq('id', visitId).single();
-  if (!visit) return { error: 'Visit not found.' };
+  // SPEED (23 Oct 2026): this used to run up to 6 database trips per
+  // medicine, one after another. Same steps, same rules, now in phases:
+  //   1. shared lookups once, together (visit, stock location, drug and
+  //      inventory matches for every item)
+  //   2. each item's line + prescription update together (separate rows)
+  //   3. stock deductions ONE AT A TIME, in item order (FEFO lots must
+  //      never be deducted concurrently)
+  //   4. invoice totals recomputed; journey event logged after the reply
 
-  const { data: userData } = await getUserFast(supabase);
-
-  const { data: invoice, error: invError } = await supabase.rpc('create_invoice_for_visit', {
-    p_patient_id: visit.patient_id,
-    p_visit_id: visitId,
-    p_purpose: 'Pharmacy',
-  });
-  if (invError) return { error: invError.message };
-
-  for (const item of items) {
+  // Same math as billing/new/new-invoice-tab.js's computeLine(): GST is on
+  // the post-discount (taxable) amount; fixed-Rs discount capped at gross.
+  const lines = items.map((item) => {
     const gross = item.rate * item.qty;
-    // Same math as billing/new/new-invoice-tab.js's computeLine(): GST
-    // is computed on the post-discount (taxable) amount, not the raw
-    // gross -- keeping this identical to the rest of the app so a
-    // pharmacy-billed line behaves exactly like one entered from the
-    // main Billing screen. Fixed-Rs discount is capped at the line's
-    // gross so it can never make a line negative.
     let disc = 0;
     if (item.discType === 'pct') disc = Math.round((gross * Math.min(100, Math.max(0, item.discValue || 0)) / 100) * 100) / 100;
     else if (item.discType === 'fixed') disc = Math.min(Math.max(0, item.discValue || 0), gross);
     const taxable = gross - disc;
     const gstAmount = Math.round((taxable * item.gstPct / 100) * 100) / 100;
     const net = Math.round((taxable + gstAmount) * 100) / 100;
+    return { item, gross, disc, gstAmount, net };
+  });
 
+  const codes = [...new Set(items.map((i) => i.serviceCode).filter(Boolean))];
+  const [{ data: visit }, { data: userData }, { data: location }, { data: drugs }] = await Promise.all([
+    supabase.from('visits').select('patient_id').eq('id', visitId).single(),
+    getUserFast(supabase),
+    supabase.from('inventory_locations').select('id').eq('status', 'Active').order('created_at', { ascending: true }).limit(1).maybeSingle(),
+    codes.length
+      ? supabase.from('master_drugs').select('id, code').in('code', codes).eq('status', 'Active')
+      : Promise.resolve({ data: [] }),
+  ]);
+  if (!visit) return { error: 'Visit not found.' };
+
+  const drugIdByCode = new Map((drugs || []).map((d) => [d.code, d.id]));
+  const drugIds = [...new Set(drugIdByCode.values())];
+
+  const [{ data: invoice, error: invError }, { data: invItems }] = await Promise.all([
+    supabase.rpc('create_invoice_for_visit', {
+      p_patient_id: visit.patient_id,
+      p_visit_id: visitId,
+      p_purpose: 'Pharmacy',
+    }),
+    drugIds.length
+      ? supabase.from('inventory_items').select('id, drug_id, created_at').in('drug_id', drugIds).eq('status', 'Active')
+      : Promise.resolve({ data: [] }),
+  ]);
+  if (invError) return { error: invError.message };
+
+  // One inventory item per drug (first match, as the old .limit(1) did).
+  const invItemByDrug = new Map();
+  for (const it of invItems || []) if (!invItemByDrug.has(it.drug_id)) invItemByDrug.set(it.drug_id, it.id);
+
+  const now = new Date().toISOString();
+  const written = await Promise.all(lines.map(async ({ item, gross, disc, gstAmount, net }) => {
     const { data: line, error: lineError } = await supabase
       .from('invoice_line_items')
       .insert({
@@ -257,57 +285,51 @@ export async function billPharmacyItems(visitId, items) {
     if (lineError) return { error: lineError.message };
 
     // A tapering schedule bills as ONE line item covering every step --
-    // every underlying prescriptions row (one per step) is updated to
-    // point at that same line item and quantity, not just the first.
-    // Non-taper items just have a single id here.
+    // every underlying prescriptions row is pointed at that same line.
+    // Billing also dispenses in the same step (no separate Dispense trip).
     const ids = item.prescriptionIds && item.prescriptionIds.length > 0 ? item.prescriptionIds : [item.prescriptionId];
-
-    // Billing now dispenses in the same step -- pharmacists no longer
-    // need a separate trip back to click Dispense after billing. Same
-    // intent as the older single-item dispense_prescription_and_bill
-    // RPC, just folded into this bulk/discount-aware path and covering
-    // the actual billed quantity rather than a hardcoded 1.
     const { error: updError } = await supabase
       .from('prescriptions')
       .update({
         billing_status: 'Billed',
         status: 'Dispensed',
-        dispensed_at: new Date().toISOString(),
+        dispensed_at: now,
         qty: item.qty,
         invoice_id: invoice.id,
         invoice_line_item_id: line.id,
-        billing_updated_at: new Date().toISOString(),
+        billing_updated_at: now,
       })
       .in('id', ids);
     if (updError) return { error: updError.message };
+    return { item, line };
+  }));
+  const failed = written.find((w) => w.error);
+  if (failed) {
+    // Keep the invoice consistent with whatever lines did get written.
+    await supabase.rpc('recompute_invoice_totals', { p_invoice_id: invoice.id });
+    return { error: failed.error };
+  }
 
-    // Stock deduction, best-effort -- if the drug isn't in the
-    // inventory catalog yet or no location is set up, billing still
-    // succeeds (matches the older RPC's soft-fail behaviour); this
-    // just won't move a stock ledger that doesn't exist yet.
-    if (item.serviceCode) {
-      const { data: matchedDrug } = await supabase.from('master_drugs').select('id').eq('code', item.serviceCode).eq('status', 'Active').maybeSingle();
-      if (matchedDrug) {
-        const { data: invItem } = await supabase.from('inventory_items').select('id').eq('drug_id', matchedDrug.id).eq('status', 'Active').limit(1).maybeSingle();
-        if (invItem) {
-          const { data: location } = await supabase.from('inventory_locations').select('id').eq('status', 'Active').order('created_at', { ascending: true }).limit(1).maybeSingle();
-          if (location) {
-            await supabase.rpc('deduct_stock_fefo', {
-              p_item_id: invItem.id,
-              p_location_id: location.id,
-              p_qty: item.qty,
-              p_reference_type: 'prescription',
-              p_reference_id: line.id,
-              p_created_by: userData?.user?.id || null,
-            });
-          }
-        }
-      }
+  // Stock deduction, best-effort (drug not in inventory catalog / no
+  // location set up -> billing still succeeds, as before). Sequential.
+  if (location) {
+    for (const { item, line } of written) {
+      const drugId = item.serviceCode ? drugIdByCode.get(item.serviceCode) : null;
+      const invItemId = drugId ? invItemByDrug.get(drugId) : null;
+      if (!invItemId) continue;
+      await supabase.rpc('deduct_stock_fefo', {
+        p_item_id: invItemId,
+        p_location_id: location.id,
+        p_qty: item.qty,
+        p_reference_type: 'prescription',
+        p_reference_id: line.id,
+        p_created_by: userData?.user?.id || null,
+      });
     }
   }
 
   await supabase.rpc('recompute_invoice_totals', { p_invoice_id: invoice.id });
-  await logJourneyEvent(supabase, visitId, 'pharmacy_dispensed', { count: items.length });
+  after(() => logJourneyEvent(supabase, visitId, 'pharmacy_dispensed', { count: items.length }));
 
   return { success: true, invoiceId: invoice.id };
 }

@@ -1491,55 +1491,62 @@ export async function renderExternalInvestigationReferralHtml(caseId) {
 export async function renderOpdCaseSheetHtml(encounterId) {
   const supabase = await createClient();
 
-  const { data: encounter, error } = await supabase
-    .from('encounters')
-    .select('*, visits(id, created_at, visit_type, doctor_id, patients(uhid, first_name, salutation, last_name, mobile, age, gender), profiles:doctor_id(full_name, registration_no))')
-    .eq('id', encounterId)
-    .single();
+  // SPEED (23 Oct 2026): was 13 database trips one after another. Now 2:
+  // everything keyed by the encounter (plus settings and the template)
+  // together, then the optometry assessment with its IOP readings embedded.
+  const [
+    { data: encounter, error },
+    { data: examination }, { data: diagnoses }, { data: prescriptions }, { data: investigations },
+    { data: procedures }, { data: referrals }, { data: followup }, { data: surgicalCase },
+    settings, template,
+  ] = await Promise.all([
+    supabase
+      .from('encounters')
+      .select('*, visits(id, created_at, visit_type, doctor_id, patients(uhid, first_name, salutation, last_name, mobile, age, gender), profiles:doctor_id(full_name, registration_no))')
+      .eq('id', encounterId)
+      .single(),
+    supabase.from('clinical_examinations').select('*').eq('encounter_id', encounterId).maybeSingle(),
+    supabase.from('diagnoses').select('*').eq('encounter_id', encounterId).order('created_at'),
+    supabase.from('prescriptions').select('*').eq('encounter_id', encounterId).order('created_at'),
+    supabase.from('investigation_orders').select('*').eq('encounter_id', encounterId).order('created_at'),
+    supabase.from('plan_procedures').select('*').eq('encounter_id', encounterId).order('created_at'),
+    supabase.from('plan_referrals').select('*').eq('encounter_id', encounterId).order('created_at'),
+    supabase.from('plan_followups').select('*').eq('encounter_id', encounterId).maybeSingle(),
+    // Surgery advice -- if this encounter marked the patient for surgery,
+    // it shows on the case sheet (all procedures print together).
+    supabase
+      .from('surgical_cases')
+      .select('id, procedure_name, eye, decision, surgical_case_procedures(procedure_name, eye)')
+      .eq('encounter_id', encounterId)
+      .neq('status', 'Cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    getHospitalSettings(),
+    getPrintTemplate('opd_case_sheet'),
+  ]);
   if (error || !encounter) return { error: 'Consultation not found.' };
 
   const visit = encounter.visits;
 
-  const { data: assessment } = await supabase
+  const { data: assessmentRaw } = await supabase
     .from('optometry_assessments')
-    .select('*')
+    .select('*, optometry_iop_readings(eye, value)')
     .eq('visit_id', visit?.id)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
+  let assessment = null;
   let iopReadings = [];
-  if (assessment) {
-    const { data: readings } = await supabase.from('optometry_iop_readings').select('eye, value').eq('assessment_id', assessment.id);
+  if (assessmentRaw) {
+    const { optometry_iop_readings: readings, ...rest } = assessmentRaw;
+    assessment = rest;
     iopReadings = readings || [];
   }
 
-  const { data: examination } = await supabase.from('clinical_examinations').select('*').eq('encounter_id', encounterId).maybeSingle();
-
-  const { data: diagnoses } = await supabase.from('diagnoses').select('*').eq('encounter_id', encounterId).order('created_at');
-  const { data: prescriptions } = await supabase.from('prescriptions').select('*').eq('encounter_id', encounterId).order('created_at');
-  const { data: investigations } = await supabase.from('investigation_orders').select('*').eq('encounter_id', encounterId).order('created_at');
-  const { data: procedures } = await supabase.from('plan_procedures').select('*').eq('encounter_id', encounterId).order('created_at');
-  const { data: referrals } = await supabase.from('plan_referrals').select('*').eq('encounter_id', encounterId).order('created_at');
-  const { data: followup } = await supabase.from('plan_followups').select('*').eq('encounter_id', encounterId).maybeSingle();
-
-  // Surgery advice -- if this encounter marked the patient for surgery,
-  // it should show on the case sheet: what was advised, which eye, and
-  // the patient's decision at the time. A surgery may include more than
-  // one procedure (see surgical_case_procedures) -- all print together
-  // as one Surgery Advised entry.
-  const { data: surgicalCase } = await supabase
-    .from('surgical_cases')
-    .select('id, procedure_name, eye, decision, surgical_case_procedures(procedure_name, eye)')
-    .eq('encounter_id', encounterId)
-    .neq('status', 'Cancelled')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
   const caseProcedures = surgicalCase?.surgical_case_procedures || [];
 
-  const settings = await getHospitalSettings();
   const context = buildOpdCaseSheetContext(settings, {
     patient: {
       patient_code: visit?.patients?.uhid, first_name: visit?.patients?.first_name, salutation: visit?.patients?.salutation, last_name: visit?.patients?.last_name,
@@ -1561,7 +1568,6 @@ export async function renderOpdCaseSheetHtml(encounterId) {
     caseProcedures,
   });
 
-  const template = await getPrintTemplate('opd_case_sheet');
   const compiled = Handlebars.compile(template.html);
   return { html: compiled(context) };
 }
