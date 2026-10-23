@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getBiometryQueue, getBiometryCompletedToday } from '@/lib/rpc-reads/biometry__actions'; // parallel reads (tools/parallel-reads)
+import { getBiometryQueueBundle } from '@/lib/rpc-reads/biometry__bundle-actions'; // parallel reads (tools/parallel-reads)
 
 function KpiCard({ label, value, sub, color }) {
   return (
@@ -22,11 +23,12 @@ export default function BiometryQueuePage() {
   const [error, setError] = useState('');
   const router = useRouter();
 
+  // ONE request (was 2, one after another).
   const refresh = useCallback(async () => {
-    const result = await getBiometryQueue();
+    const [result, completed] = await getBiometryQueueBundle();
     setRows(result.rows);
     setStats(result.stats);
-    setCompletedToday(await getBiometryCompletedToday());
+    setCompletedToday(completed);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);

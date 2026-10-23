@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { saveBiometryDraft, markBiometryMeasured, addIolRecommendation, removeIolRecommendation } from '../actions';
 import { getBiometryDetail } from '@/lib/rpc-reads/biometry__actions'; // parallel reads (tools/parallel-reads)
 import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
+import { getBiometryWorkspaceBundle } from '@/lib/rpc-reads/biometry__bundle-actions'; // parallel reads (tools/parallel-reads)
 import AttachmentUploader from '@/app/components/AttachmentUploader';
 import { openPrintPopup } from '@/lib/printPopup';
 
@@ -144,8 +145,8 @@ export default function BiometryWorkspace({ recordId }) {
   const [unlocked, setUnlocked] = useState(false);
   const router = useRouter();
 
-  async function refresh() {
-    const result = await getBiometryDetail(recordId);
+  // Applies a loaded record (used by refresh and the one-request open).
+  function applyDetail(result) {
     if (result.error) { setLoadError(result.error); return; }
     setRecord(result.record);
     setRecommendations(result.recommendations);
@@ -158,7 +159,15 @@ export default function BiometryWorkspace({ recordId }) {
     setRemarks(result.record.verify_remarks || '');
   }
 
-  useEffect(() => { refresh(); getActiveIolCatalog().then(setCatalog); }, [recordId]);
+  async function refresh() {
+    applyDetail(await getBiometryDetail(recordId));
+  }
+
+  // Opening the record: ONE request (was 2) -- record + IOL catalog.
+  useEffect(() => {
+    getBiometryWorkspaceBundle(recordId).then(([detail, catalog]) => { applyDetail(detail); setCatalog(catalog); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordId]);
 
   if (loadError) return <div className="msg-err">{loadError}</div>;
   if (!record) return <div style={{ textAlign: 'center', marginTop: 60, color: 'var(--g500)' }}>Loading...</div>;

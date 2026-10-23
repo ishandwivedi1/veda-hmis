@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
+import { getMedicalFitnessListsBundle, getMedicalFitnessWorkspaceBundle } from '@/lib/rpc-reads/medical-fitness__bundle-actions'; // parallel reads (tools/parallel-reads)
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useSearchParams } from 'next/navigation';
 import { orderFitnessInvestigation, removeFitnessInvestigation, clearFitness, markNotFit, saveFitnessFormDraft, submitFitnessForm } from './actions';
@@ -241,25 +242,35 @@ export function WorkspaceTab({ referralId, onDone }) {
   const [okMsg, setOkMsg] = useState('');
   const [unlocked, setUnlocked] = useState(false);
 
-  const refresh = useCallback(async () => {
-    const result = await getMedicalFitnessDetail(referralId);
-    if (result.error) { setLoadError(result.error); return; }
+  const applyDetail = useCallback((result) => {
+    if (result.error) { setLoadError(result.error); return false; }
     setData(result);
     setForm(mergeFitnessForm(result.referral.form_data));
-  }, [referralId]);
+    return true;
+  }, []);
 
+  const refresh = useCallback(async () => {
+    applyDetail(await getMedicalFitnessDetail(referralId));
+  }, [referralId, applyDetail]);
+
+  // Opening a referral: ONE request (was 3) -- detail + investigation
+  // options + doctor profile. The detail is applied first, so the doctor's
+  // name/registration (filled only when blank) is never overwritten by it.
   useEffect(() => {
     setData(null); setLoadError(''); setSubTab('summary'); setUnlocked(false);
-    refresh();
-    getInvestigationMasterOptions().then(setInvOptions);
-    getCurrentDoctorProfile().then((profile) => {
+    let alive = true;
+    getMedicalFitnessWorkspaceBundle(referralId).then(([detail, invOptions, profile]) => {
+      if (!alive) return;
+      applyDetail(detail);
+      setInvOptions(invOptions);
       if (profile) {
         setForm((f) => (f.certification.doctorName ? f : {
           ...f, certification: { ...f.certification, doctorName: profile.full_name || '', registrationNo: profile.registration_no || '' },
         }));
       }
     });
-  }, [referralId, refresh]);
+    return () => { alive = false; };
+  }, [referralId, applyDetail]);
 
   async function handleOrderInvestigation() {
     setError('');
@@ -705,7 +716,15 @@ function MedicalFitnessInner() {
     setLoadingHistory(false);
   }, []);
 
-  useEffect(() => { refreshQueue(); refreshClearedToday(); refreshHistory(); }, [refreshQueue, refreshClearedToday, refreshHistory]);
+  // All three lists in ONE request (was 3) -- on open and after a decision.
+  const refreshAllLists = useCallback(async () => {
+    const [queue, cleared, history] = await getMedicalFitnessListsBundle();
+    setQueueRows(queue); setLoadingQueue(false);
+    setClearedTodayRows(cleared); setLoadingClearedToday(false);
+    setHistoryRows(history); setLoadingHistory(false);
+  }, []);
+
+  useEffect(() => { refreshAllLists(); }, [refreshAllLists]);
 
   function openReferral(id) {
     setSelectedReferralId(id);
@@ -715,9 +734,7 @@ function MedicalFitnessInner() {
   function handleWorkspaceDone() {
     // A decision was just made -- refresh all three lists (patient
     // moves out of Queue and into Cleared Today) and go back to the Queue.
-    refreshQueue();
-    refreshClearedToday();
-    refreshHistory();
+    refreshAllLists();
     setSelectedReferralId(null);
     setActiveTab('queue');
   }

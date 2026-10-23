@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName, formatPatientAge } from '@/lib/patientName';
 import { useRouter } from 'next/navigation';
 import { getInvestigationQueue, getTodaysInvestigations } from '@/lib/rpc-reads/investigation__actions'; // parallel reads (tools/parallel-reads)
+import { getInvestigationQueueBundle } from '@/lib/rpc-reads/investigation__bundle-actions'; // parallel reads (tools/parallel-reads)
 import InvestigationTabs from './investigation-tabs';
 import { openPrintPopup } from '@/lib/printPopup';
 
@@ -62,11 +63,12 @@ export default function InvestigationPage() {
   const [todaysInvestigations, setTodaysInvestigations] = useState([]);
   const router = useRouter();
 
+  // ONE request (was 2, one after another).
   const refresh = useCallback(async () => {
-    const result = await getInvestigationQueue();
+    const [result, todays] = await getInvestigationQueueBundle();
     setGroups(result.groups);
     setStats(result.stats);
-    setTodaysInvestigations(await getTodaysInvestigations());
+    setTodaysInvestigations(todays);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);

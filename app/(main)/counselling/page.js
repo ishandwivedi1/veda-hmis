@@ -1,5 +1,6 @@
 'use client';
 
+import { getCounsellingListsBundle } from '@/lib/rpc-reads/counselling__bundle-actions'; // parallel reads (tools/parallel-reads)
 import { useState, useEffect, useCallback } from 'react';
 import { formatPatientName } from '@/lib/patientName';
 import { selectPackage, changePackage, setDecision, addCaseNote, toggleCounsellingItem, markReadyForScheduling, referBackToDoctor, sendForBiometry, skipBiometry, unskipBiometry, bookOTSlot } from './actions';
@@ -873,7 +874,14 @@ export default function CounsellingPage() {
     setLoadingHistory(false);
   }, []);
 
-  useEffect(() => { refresh(); refreshHistory(); }, [refresh, refreshHistory]);
+  // Active cases + history in ONE request (was 2) -- on open and after updates.
+  const refreshBoth = useCallback(async () => {
+    const [active, history] = await getCounsellingListsBundle();
+    setCases(active); setLoading(false);
+    setHistoryCases(history); setLoadingHistory(false);
+  }, []);
+
+  useEffect(() => { refreshBoth(); }, [refreshBoth]);
 
   function openCase(id) {
     setSelectedCaseId(id);
@@ -881,7 +889,7 @@ export default function CounsellingPage() {
   }
 
   function handleUpdate() {
-    refresh(); refreshHistory();
+    refreshBoth();
   }
 
   const selectedCase = cases.find((sc) => sc.id === selectedCaseId) || historyCases.find((sc) => sc.id === selectedCaseId) || null;

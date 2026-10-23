@@ -8,6 +8,7 @@ import { approveIol } from './actions';
 import { getPendingIolApprovals, getApprovedToday, getIolApprovalHistory, getIolApprovalDetail } from '@/lib/rpc-reads/iol-approval__actions'; // parallel reads (tools/parallel-reads)
 import { getActiveIolCatalog } from '@/lib/rpc-reads/master-data__actions'; // parallel reads (tools/parallel-reads)
 import { getIolApprovalQueueBundle } from '@/lib/rpc-reads/iol-approval__combined-actions'; // parallel reads (tools/parallel-reads)
+import { getIolApprovalDetailBundle } from '@/lib/rpc-reads/iol-approval__combined-actions'; // parallel reads (tools/parallel-reads)
 
 const EYE_LABEL = { OD: 'Right (OD)', OS: 'Left (OS)', OU: 'Both (OU)' };
 
@@ -159,13 +160,18 @@ function WorkspaceView({ caseId, onBack, onDone, initialLocked }) {
   const [saving, setSaving] = useState(false);
   const [locked, setLocked] = useState(!!initialLocked);
 
-  const refresh = useCallback(async () => {
-    const result = await getIolApprovalDetail(caseId);
+  const applyDetail = useCallback((result) => {
     if (result.error) { setLoadError(result.error); return; }
     setDetail(result);
-  }, [caseId]);
+  }, []);
+  const refresh = useCallback(async () => {
+    applyDetail(await getIolApprovalDetail(caseId));
+  }, [caseId, applyDetail]);
 
-  useEffect(() => { refresh(); getActiveIolCatalog().then(setCatalog); }, [refresh]);
+  // Opening a case: ONE request (was 2) -- detail + IOL catalog.
+  useEffect(() => {
+    getIolApprovalDetailBundle(caseId).then(([detail, catalog]) => { applyDetail(detail); setCatalog(catalog); });
+  }, [caseId, applyDetail]);
 
   // Pre-fill from the existing approval when re-opening to revise it --
   // otherwise Edit silently opened a blank form and looked like nothing
